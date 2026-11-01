@@ -24,6 +24,7 @@
 
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace ImmersX;
 #include <immersx/io/utils.h>
@@ -241,12 +242,13 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_DisplacementYScaled)
 }
 
 
-TEST(ElasticityValidation, DISABLED_CheckInclusionMatrix)
+TEST_P(Elasticity01TriangulationTypeTest, BOTH_CheckInclusionMatrix)
 {
   ParameterAcceptor::clear();
   static constexpr int             dim = 2;
   ElasticityProblemParameters<dim> par;
   get_default_test_parameters(par);
+  par.triangulation_type = current_triangulation_type(*this);
   ElasticityProblem<dim> problem(par);
   initialize_parameters();
 
@@ -254,7 +256,7 @@ TEST(ElasticityValidation, DISABLED_CheckInclusionMatrix)
     R"(
     subsection Immersed Problem
       set Output name                           = displacement_enflate
-      set Initial refinement                    = 5
+      set Initial refinement                    = 3
       subsection Grid generation
         set Domain type              = generate
         set Grid generator           = hyper_cube
@@ -271,26 +273,36 @@ TEST(ElasticityValidation, DISABLED_CheckInclusionMatrix)
 
   ParameterAcceptor::parse_all_parameters();
   problem.run();
-  // ASSERT_NEAR(problem.solution.block(0).linfty_norm(), 1.0, 6e-2);
-  problem.inclusion_matrix.print(std::cout);
-  // problem.coupling_matrix.print(std::cout);
+  constexpr double          radius        = 0.5;
+  const double              circumference = 2.0 * numbers::PI * radius;
+  const std::vector<double> expected_data = {0, 0, 0.1, 0, 0, 0.1};
+  ASSERT_EQ(problem.inclusion_matrix.m(), expected_data.size());
+  ASSERT_EQ(problem.inclusion_matrix.n(), expected_data.size());
 
-  auto inclusions   = problem.solution.block(1);
-  auto displacement = problem.solution.block(0);
-  // problem.solution.block(0) = 1.0;
-  const auto Bt = linear_operator<LA::MPI::Vector>(problem.coupling_matrix);
-  const auto B  = transpose_operator(Bt);
-  const auto M  = linear_operator<LA::MPI::Vector>(problem.inclusion_matrix);
+  // The constant modes integrate to the circumference; cos/sin squared
+  // integrate to half of it. Point coupling stores only the diagonal.
+  for (const auto row : problem.solution.block(1).locally_owned_elements())
+    for (unsigned int column = 0; column < expected_data.size(); ++column)
+      {
+        const double expected =
+          row == column ? circumference * (row < dim ? 1.0 : 0.5) : 0.0;
+        EXPECT_NEAR(problem.inclusion_matrix.el(row, column), expected, 1e-12)
+          << "row " << row << ", column " << column;
+      }
 
+  auto          coefficients = problem.solution.block(1);
+  const auto    Bt = linear_operator<LA::MPI::Vector>(problem.coupling_matrix);
+  const auto    B  = transpose_operator(Bt);
+  const auto    M  = linear_operator<LA::MPI::Vector>(problem.inclusion_matrix);
+  SolverControl mass_control(100, 1e-14);
+  SolverCG<LA::MPI::Vector> cg_M(mass_control);
+  const auto                invM = inverse_operator(M, cg_M);
 
-  // for small radius you might need SolverFGMRES<LA::MPI::Vector>
-  SolverCG<LA::MPI::Vector> cg_M(problem.par.displacement_solver_control);
-  auto                      invM = inverse_operator(M, cg_M);
-
-
-  inclusions = invM * B * displacement;
-
-  inclusions.print(std::cout);
+  // B includes division by the section measure, while M does not.
+  coefficients = invM * B * problem.solution.block(0);
+  coefficients *= circumference;
+  for (const auto row : coefficients.locally_owned_elements())
+    EXPECT_NEAR(coefficients[row], expected_data[row], 1e-8) << "mode " << row;
 }
 
 TEST_P(Elasticity01TriangulationTypeTest, MPI_Rotation3D)
@@ -435,7 +447,7 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D)
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 93.997480822339128, tol);
 }
 
-TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D_wSegments)
+TEST_P(Elasticity01TriangulationTypeTest, BOTH_Displacement3D_wSegments)
 {
   ParameterAcceptor::clear();
   static constexpr int             dim = 3;
@@ -508,81 +520,6 @@ TEST_P(Elasticity01TriangulationTypeTest, MPI_Displacement3D_wSegments)
   const double tol = 1e-4;
   ASSERT_NEAR(problem.solution.block(0).l2_norm(), 1.5590870045296064, tol);
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 48.097630240962374, tol);
-}
-
-TEST(ElasticityValidation, DISABLED_Displacement3D_wSegments)
-{
-  ParameterAcceptor::clear();
-  static constexpr int             dim = 3;
-  ElasticityProblemParameters<dim> par;
-  get_default_test_parameters(par);
-  par.triangulation_type = "distributed";
-  ElasticityProblem<dim> problem(par);
-
-
-  initialize_parameters();
-  ParameterAcceptor::prm.parse_input_from_string(
-    ImmersX::TestPaths::expand_configured_paths(R"(
-    subsection Immersed Problem
-      set Dirichlet boundary ids             = 0
-      set Initial refinement                 = 2
-      set Normal flux boundary ids           = 1,2
-      set Output name                        = Displacement3D
-      subsection Grid generation
-        set Domain type              = generate
-        set Grid generator           = subdivided_cylinder
-        set Grid generator arguments = 2:2:2
-      end
-      subsection Immersed inclusions
-        set Inclusions file                     = @TEST_DATA_DIR@/tests/cylinder_x.txt
-        set Reference inclusion data            = 0,0,0,0.1,0,0,0,0.1,0
-        set Inclusions refinement               = 16
-        set Number of fourier coefficients      = 2
-        set Selection of Fourier coefficients   = 3,7
-        set Cluster inclusions with segments    = true
-      end
-      subsection Material properties
-        set Material tags by material id =
-        subsection default
-          set Lame lambda     = 50.0
-          set Lame mu         = 2.0
-        end
-      end
-    end
-    subsection Solvers
-      subsection Augmented Lagrange
-        set Log frequency = 1
-        set Log history   = false
-        set Log result    = true
-        set Max steps     = 1000
-        set Reduction     = 1.e-10
-        set Tolerance     = 1.e-10
-      end
-      subsection Displacement
-        set Log frequency = 1
-        set Log history   = false
-        set Log result    = true
-        set Max steps     = 1000
-        set Reduction     = 1.e-8
-        set Tolerance     = 1.e-10
-      end
-      subsection Reduced mass
-        set Log frequency = 1
-        set Log history   = false
-        set Log result    = true
-        set Max steps     = 100
-        set Reduction     = 1.e-10
-        set Tolerance     = 1.e-12
-      end
-    end
-    )"));
-
-  ParameterAcceptor::parse_all_parameters();
-  problem.run();
-
-  const double tol = 1e-4;
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 3.6725816506288398, tol);
-  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 88.883923832715752, tol);
 }
 
 TEST(ElasticityValidation, ExactLambda)

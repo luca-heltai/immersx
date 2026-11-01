@@ -342,6 +342,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #318](https://github.com/luca-heltai/immersx/pull/318) Restore serial and MPI coverage for segment-clustered point and tensor-product elasticity coupling. Check the inclusion mass matrix and recovery of nonzero imposed Fourier data instead of printing debug output.
+
 - [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include the new explicit elasticity, Laplacian, and reduced Poisson correctness suites in CTest validation runs and keep compiled test-category coverage complete.
