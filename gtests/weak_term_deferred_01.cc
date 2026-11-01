@@ -13,6 +13,9 @@
 #include <deal.II/numerics/vector_tools.h>
 
 #include <gtest/gtest.h>
+#include <immersx/core/field_contributor.h>
+#include <immersx/core/known_term.h>
+#include <immersx/core/linear_adapter.h>
 #include <immersx/core/weak_term.h>
 
 using namespace dealii;
@@ -101,7 +104,11 @@ TEST(WeakTerm, BOTH_DeferredBuildAndBoundaryOnlyAffineAssembly)
       actual.reinit(state);
       matrix->vmult(expected, state);
       expected -= *rhs;
+      const auto matrices_before_residual =
+        detail::weak_term_matrix_initializations.load();
       model.evaluate_row(u.id(), context, actual);
+      EXPECT_EQ(detail::weak_term_matrix_initializations.load(),
+                matrices_before_residual);
       actual -= expected;
       EXPECT_LT(actual.l2_norm(), 1.e-12);
       // A fresh build has the same action despite the changed boundary values.
@@ -186,4 +193,32 @@ TEST(WeakTerm, SerialDestinationKeepsCallerOwnedSparsity)
   V action(dofs.n_dofs());
   destination.vmult(action, state);
   EXPECT_NEAR(action.l1_norm(), 3., 1.e-12);
+}
+
+TEST(WeakTerm, BOTH_IterativeAdapterOwnsItsRepeatedMatrixAction)
+{
+  parallel::distributed::Triangulation<2> mesh(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(mesh);
+  mesh.refine_global(1);
+  FiniteElementSpace<2>   space(mesh, std::make_unique<FE_Q<2>>(1));
+  const auto              view = space.view();
+  LinearAdapterParameters parameters("/Deferred mass solver/");
+  parameters.solver         = LinearSolver::iterative;
+  parameters.preconditioner = LinearPreconditioner::none;
+  parameters.tolerance      = 1.e-12;
+  using V                   = ImmersXLA::MPI::Vector;
+  using B                   = ImmersXLA::MPI::BlockVector;
+  LinearAdapter<V, B> adapter(parameters, MPI_COMM_WORLD);
+  const auto u = adapter.add(algebraic_field(view.field("u"))).fields();
+  adapter.add(weak_term(value(u), test(u)));
+  adapter.add(
+    known_term(KnownSource<double, 2>([](const auto &) { return -2.; }),
+               test(u)));
+  auto       state  = adapter.make_state();
+  const auto before = detail::weak_term_matrix_initializations.load();
+  adapter.solve(state);
+  // Assembly is bounded by setup, rather than the number of GMRES products.
+  EXPECT_LE(detail::weak_term_matrix_initializations.load() - before, 3u);
+  for (const auto i : space.locally_owned_dofs())
+    EXPECT_NEAR(adapter.field(state, u)[i], 2., 1.e-10);
 }

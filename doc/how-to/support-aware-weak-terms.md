@@ -13,6 +13,9 @@ will be reused, and keep that matrix in the caller. To assemble only selected
 contributions, register them with a separate builder. For a serial deal.II
 `SparseMatrix`, use the owning result returned by `matrix()`, or provide a
 destination with caller-owned sparsity when using `materialize_into_matrix()`.
+The standard iterative `LinearAdapter` solve materializes a matrix-based system
+once and owns that matrix for the solve. Custom solve callbacks and systems
+without complete matrix provenance keep their operator path.
 
 Changing prescribed Dirichlet values with the same constraint structure does
 not change a linear operator's matrix. Affine residual contributions on matching

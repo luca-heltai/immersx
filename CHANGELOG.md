@@ -127,7 +127,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately, follow the current constraint structure on each build, and materialize sums with one temporary contribution at a time.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately, avoid building matrices for zero-vector actions, follow the current constraint structure on each build, and materialize sums with one temporary contribution at a time. The standard iterative LinearAdapter solve owns and reuses one assembled system matrix.
 
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Interpret the harmonic reinforcement root dimension as the reinforcement mesh dimension and the space dimension as the matrix dimension. Use dimension one for a line reinforcement in 2D or 3D.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Share one frequency list between the harmonic matrix and fiber, and preserve the actual initial refinement when saving and reloading either supported parameter alias.
@@ -352,6 +352,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Split integration GoogleTests into suite groups while checking the complete serial/MPI inventory, retaining shared-output locks, and publishing individual case timings.
 
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Build and test container images on master and release tags, while keeping launcher and fingerprint checks on pull requests. Preserve CTest manifests, timings, and logs as CI artifacts.
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Check deferred vector-constraint and transient fiber assembly, with explicit matrix reuse in the distributed regression tests.
 
 - [PR #318](https://github.com/luca-heltai/immersx/pull/318) Restore serial and MPI coverage for segment-clustered point and tensor-product elasticity coupling. Check the inclusion mass matrix and recovery of nonzero imposed Fourier data instead of printing debug output.
 

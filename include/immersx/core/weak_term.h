@@ -158,6 +158,17 @@ namespace ImmersX
     {};
 
     template <typename VectorType>
+    bool
+    weak_vector_is_zero(const VectorType &vector, const MPI_Comm communicator)
+    {
+      const auto norm = vector.linfty_norm();
+      if constexpr (has_index_set_vector_reinit<VectorType>::value)
+        return norm == 0.;
+      else
+        return dealii::Utilities::MPI::max(norm, communicator) == 0.;
+    }
+
+    template <typename VectorType>
     void
     initialize_weak_vector(VectorType             &vector,
                            const dealii::IndexSet &locally_owned,
@@ -5047,19 +5058,49 @@ namespace ImmersX
                                        row.locally_owned_dofs(),
                                        row.space().mpi_communicator());
       };
-      op.view.vmult = [build](VectorType &dst, const VectorType &src) {
+      op.view.vmult = [build, source, row](VectorType       &dst,
+                                           const VectorType &src) {
+        AssertDimension(src.size(), source.locally_owned_dofs().size());
+        AssertDimension(dst.size(), row.locally_owned_dofs().size());
+        if (detail::weak_vector_is_zero(src, source.space().mpi_communicator()))
+          {
+            dst = 0.;
+            return;
+          }
         const auto pairing = build();
         pairing.operator_with_matrix.view.vmult(dst, src);
       };
-      op.view.vmult_add = [build](VectorType &dst, const VectorType &src) {
+      op.view.vmult_add = [build, source, row](VectorType       &dst,
+                                               const VectorType &src) {
+        AssertDimension(src.size(), source.locally_owned_dofs().size());
+        AssertDimension(dst.size(), row.locally_owned_dofs().size());
+        if (detail::weak_vector_is_zero(src, source.space().mpi_communicator()))
+          {
+            return;
+          }
         const auto pairing = build();
         pairing.operator_with_matrix.view.vmult_add(dst, src);
       };
-      op.view.Tvmult = [build](VectorType &dst, const VectorType &src) {
+      op.view.Tvmult = [build, source, row](VectorType       &dst,
+                                            const VectorType &src) {
+        AssertDimension(src.size(), row.locally_owned_dofs().size());
+        AssertDimension(dst.size(), source.locally_owned_dofs().size());
+        if (detail::weak_vector_is_zero(src, source.space().mpi_communicator()))
+          {
+            dst = 0.;
+            return;
+          }
         const auto pairing = build();
         pairing.operator_with_matrix.view.Tvmult(dst, src);
       };
-      op.view.Tvmult_add = [build](VectorType &dst, const VectorType &src) {
+      op.view.Tvmult_add = [build, source, row](VectorType       &dst,
+                                                const VectorType &src) {
+        AssertDimension(src.size(), row.locally_owned_dofs().size());
+        AssertDimension(dst.size(), source.locally_owned_dofs().size());
+        if (detail::weak_vector_is_zero(src, source.space().mpi_communicator()))
+          {
+            return;
+          }
         const auto pairing = build();
         pairing.operator_with_matrix.view.Tvmult_add(dst, src);
       };

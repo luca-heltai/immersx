@@ -201,8 +201,7 @@ TEST(Constraint, MPI_VectorNonmatchingGeometry)
   const auto fields =
     make_constraint(weak_term(value(source), test(lambda))).add(builder);
 #ifdef IMMERSX_WEAK_TERM_TESTING
-  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
-            preparations + 1);
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(), preparations);
 #endif
 
   VectorType source_state(source_space.locally_owned_dofs, MPI_COMM_WORLD);
@@ -221,8 +220,12 @@ TEST(Constraint, MPI_VectorNonmatchingGeometry)
                                 source.field_id(),
                                 context);
   ASSERT_TRUE(multiplier_block.has_value());
-  EXPECT_EQ(multiplier_block->matrix()->m(),
-            multiplier_space.dof_handler.n_dofs());
-  EXPECT_EQ(multiplier_block->matrix()->n(), source_space.dof_handler.n_dofs());
-  EXPECT_GT(multiplier_block->matrix()->n_nonzero_elements(), 0u);
+  const auto matrix = multiplier_block->matrix();
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
+            preparations + 1);
+#endif
+  EXPECT_EQ(matrix->m(), multiplier_space.dof_handler.n_dofs());
+  EXPECT_EQ(matrix->n(), source_space.dof_handler.n_dofs());
+  EXPECT_GT(matrix->n_nonzero_elements(), 0u);
 }
