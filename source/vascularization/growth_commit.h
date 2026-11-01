@@ -6,8 +6,6 @@
 
 #include <deal.II/grid/tria.h>
 
-#include <immersx/vascularization/growth_work.h>
-
 #include "forest_state.h"
 #include "growth_indices.h"
 namespace ImmersX::Vascularization::internal

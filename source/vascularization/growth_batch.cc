@@ -8,14 +8,11 @@
 
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/map.hpp>
-#include <boost/serialization/utility.hpp>
 #include <boost/serialization/vector.hpp>
 
 #include <immersx/vascularization/generation.h>
 
 #include <tuple>
-
-#include "growth_work.h"
 
 namespace ImmersX::Vascularization::internal
 {
@@ -64,8 +61,7 @@ namespace ImmersX::Vascularization::internal
                       const Parameters                 &parameters,
                       MPI_Comm                          comm,
                       const std::function<double(Id)>  &radius,
-                      bool        check_snapshot_obstacles,
-                      GrowthWork *work)
+                      bool check_snapshot_obstacles)
   {
     auto *work = geometry.counts;
     for (const auto &proposal : submitted)
@@ -124,7 +120,6 @@ namespace ImmersX::Vascularization::internal
     std::set<Id> local_ids;
     for (const auto &p : local)
       {
-        count_work(work, GrowthOperation::certified_vessels, p.changed.size());
         valid = valid && p.id != invalid_id && local_ids.insert(p.id).second &&
                 std::isfinite(p.cost) && p.cost >= 0. && !p.changed.empty() &&
                 p.owners.size() == p.old_nodes.size();
@@ -443,10 +438,6 @@ namespace ImmersX::Vascularization::internal
           for (Id node : edge.nodes)
             node_writers[node].insert(key);
         }
-    count_work(work, GrowthOperation::network_index_builds);
-    count_work(work,
-               GrowthOperation::network_index_insertions,
-               changed_boxes.size());
     const auto changed_tree = pack_rtree(changed_boxes);
     count_work(work, GrowthOperation::network_index_builds);
     count_work(work,

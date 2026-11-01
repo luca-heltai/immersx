@@ -100,7 +100,6 @@ namespace ImmersX::Vascularization::internal
       ExcMessage(
         "Venous startup requires matching outlet controls and input selections."));
     VenousOutlet result;
-    count_copy(shared_geometry ? shared_geometry->counts : nullptr, network);
     result.network = network;
     if (!p.venous.selected_terminals.empty())
       return result;
@@ -590,12 +589,7 @@ namespace ImmersX::Vascularization::internal
             proposals.push_back(std::move(proposal));
           }
         const auto selection = select_growth_batch(
-          geometry,
-          snapshot,
-          proposals,
-          p,
-          comm,
-          [&](Id id) {
+          geometry, snapshot, proposals, p, comm, [&](Id id) {
             const auto &v = snapshot.vessels.at(id);
             return std::max(v.radii[0], v.radii[1]);
           });

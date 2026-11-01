@@ -34,7 +34,6 @@ set(_public_headers
     immersx/vascularization/mesh_scale.h
     immersx/vascularization/metrics.h
     immersx/vascularization/discretization.h
-    immersx/vascularization/growth_work.h
     immersx/vascularization/generation.h
     immersx/vascularization/growth_work.h
     immersx/vascularization/network.h
