@@ -304,6 +304,58 @@ to reproduce them. The executable, library and scripts are hashed; timings
 were collected alongside other validation work on separate worker cores and
 are not isolated performance estimates.
 
+## Integrated-demand cost checks
+
+Two representative native Release runs completed with 1,000 and 10,000
+terminals. Both use seed 23, one MPI rank, a unit cube with 512 background
+cells, a 0.003 m fixed root radius, 0.004 Pa s viscosity, 12000 Pa inlet
+pressure and total flow $2\times10^{-9}\ \mathrm{m^3/s}$. This cost protocol
+uses `Length scale = meter`, absolute terminal counts, density exponent zero,
+seed length 0.15 and minimum vessel length zero. It measures the same integrated
+territory model as ordinary mesh-driven growth; its absolute-count controls
+permit these two requested sizes on the same background.
+
+| Terminals | Tissue quadrature points | Generation [s] | Peak rank RSS [KiB] |
+|---|---|---|---|
+| 1,000 | 262,144 | 42.568 | 411,456 |
+| 10,000 | 2,097,152 | 985.885 | 1,374,120 |
+
+Each run passes the independent tree, demand conservation, Murray radius,
+physical interval, total-flow and pressure-drop checks. Initialization and
+finalization are excluded from the ordinary operation counts below; their time
+is included in the generation totals above.
+
+| Ordinary operation | 1,000 terminals | 10,000 terminals |
+|---|---|---|
+| Background cache constructions | 0 | 0 |
+| Background cell visits | 0 | 0 |
+| Materialized physical vessels | 0 | 0 |
+| Physical vessel copy attempts | 2,997 | 29,997 |
+| Vessel midpoint localizations | 2,997 | 29,997 |
+| Physiology branch visits | 50,116 | 837,906 |
+| Candidate ancestor-path visits | 11,100,511 | 240,200,623 |
+| Tissue influence-query hits | 2,730,667 | 30,822,458 |
+| Reassigned tissue samples | 1,582,623 | 17,474,781 |
+| Exact vessel-pair checks | 946,548 | 10,222,329 |
+
+Ten times as many terminals take about 23.2 times the generation time in these
+runs. The quadrature is eight times larger. Candidate-path visits grow about
+21.6 times; this counter includes ancestor traversals across optimization trials. Copies and midpoint localization
+remain exactly $3(N-1)$; the zero bulk counters exclude repeated full background
+scans or physical-network materialization during insertion. These two sizes do
+not establish asymptotic scaling or a speedup against the historical point-demand
+model, whose physiology and proposal trajectories differ.
+
+The executable, shared library and scripts are pinned in the
+[experiment manifest](../_static/vascular-integrated-cost/manifest.json).
+[Per-size summary](../_static/vascular-integrated-cost/summary.csv),
+[native measurements and phase counters](../_static/vascular-integrated-cost/measurements.json)
+and [worker protocol](../_static/vascular-integrated-cost/protocol-notes.json)
+retain the evidence. No agent C++ compiler ran during these measurements;
+other validation and the independent incremental-growth campaign used separate
+cores. These are observed worker costs, with one seed per size, rather than an
+isolated timing study or an MPI scaling result.
+
 (vascular-measured-mpi-growth)=
 ## Historical MPI growth baseline
 
