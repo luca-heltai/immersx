@@ -1004,6 +1004,14 @@ that samples or produces proposals. Quality figures show observed volume,
 coverage, physical lengths and angles, without fitted physiological acceptance
 thresholds or a claim of statistical equivalence from a small seed sample.
 
+Each `growth-RANK.csv` row contains total operation counts and the corresponding
+`initialization_` and `finalization_` counts. Subtract those two groups from the
+total to obtain ordinary batch work. Initialization builds the accepted state;
+finalization materializes physical radii and native ghosts and runs the
+independent full reconstruction once. `finalization_seconds` is separate from
+the accumulated batch `total_seconds`. Commit subphase times remain included
+in `commit_seconds`.
+
 An instrumented forest-growth loop also records `growth-mpi-RANK.csv` in that
 profiling directory. Each row identifies a local run, system, requested count,
 power-of-two terminal range and `initialization`, `batch` or `finalization`

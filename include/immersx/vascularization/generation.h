@@ -130,14 +130,18 @@ namespace ImmersX::Vascularization
    * proposals and accepted insertions belong to their producers; vessel counts
    * include only owned mutable vessels of the active system, never ghosts.
    * Timings are local wall seconds, including communication waits. Commit
-   * subphases are included in commit_seconds, not added to it.
+   * subphases are included in commit_seconds, not added to it. Initialization
+   * and finalization are outside the accumulated batch total_seconds.
    */
   struct GrowthStatistics
   {
-    GrowthWork    work;
+    GrowthWork    work, initialization_work, finalization_work;
     System        system              = System::arterial;
     unsigned int  requested_terminals = 0;
     std::uint64_t first_terminals = 0, last_terminals = 0;
+    // Global accepted/peak cardinalities: use max, not sum, across ranks.
+    std::uint64_t demand_quadrature_points      = 0,
+                  demand_quadrature_peak_points = 0;
     std::uint64_t batches = 0, sampled_points = 0, proposed_insertions = 0,
                   accepted_insertions = 0, committed_batches = 0,
                   rejected_batches = 0, active_writer_batches = 0;
@@ -147,7 +151,8 @@ namespace ImmersX::Vascularization
            search_seconds = 0., optimization_seconds = 0.,
            selection_seconds = 0., commit_seconds = 0.,
            redistribution_seconds = 0., physiology_seconds = 0.,
-           certification_seconds = 0., total_seconds = 0.;
+           certification_seconds = 0., finalization_seconds = 0.,
+           total_seconds = 0.;
   };
 
   struct GenerationResult
