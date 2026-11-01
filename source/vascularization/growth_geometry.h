@@ -22,6 +22,7 @@
 #include <optional>
 
 #include "background_intersections.h"
+#include "growth_cell_sampling.h"
 #include "growth_geometry_measure.h"
 namespace ImmersX::Vascularization::internal
 {
@@ -486,7 +487,9 @@ namespace ImmersX::Vascularization::internal
     void
     release_profiles(const GrowthGeometrySegments &segments) noexcept;
     void
-                                   retain_profiles(const NetworkData &snapshot);
+    retain_profiles(const NetworkData &snapshot);
+    const BackgroundCellSampler &
+    sample_cells(double density_beta, MPI_Comm communicator);
     std::optional<MeshLengthScale> length_scale;
 
     GridTools::Cache<3>                           cache;
@@ -502,6 +505,7 @@ namespace ImmersX::Vascularization::internal
     profile_key(const Segment<3> &segment);
     std::map<ProfileKey, std::vector<BackgroundInterval>> cached_profiles;
     std::string                                           cached_policy;
+    std::optional<BackgroundCellSampler>                  cached_sampling;
   };
   // Boost's installed segment distance reduces to endpoint projections after
   // an intersection check. Skew 3D segments also need an interior minimum.

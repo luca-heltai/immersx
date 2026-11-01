@@ -403,10 +403,15 @@ namespace ImmersX::Vascularization
     if (background.n_levels() > 0)
       for (const auto &cell : background.active_cell_iterators())
         if (cell->is_locally_owned())
-          valid_mapping = (cell->reference_cell().is_simplex() ||
-                           cell->reference_cell().is_hyper_cube()) &&
-                          mapping.is_compatible_with(cell->reference_cell()) &&
-                          valid_mapping;
+          {
+            count_work(&preparation_work,
+                       GrowthOperation::background_cell_visits);
+            valid_mapping =
+              (cell->reference_cell().is_simplex() ||
+               cell->reference_cell().is_hyper_cube()) &&
+              mapping.is_compatible_with(cell->reference_cell()) &&
+              valid_mapping;
+          }
     AssertThrow(
       Utilities::MPI::min(static_cast<unsigned int>(valid_mapping),
                           communicator) == 1,
