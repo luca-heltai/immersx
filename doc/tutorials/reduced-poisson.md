@@ -19,6 +19,9 @@ The bulk problem lives in 3D, while the representative geometry is a 1D
 centerline. A reference cross section is swept along that centerline to form
 the represented interface. The multiplier is expanded in the selected
 cross-section basis, so `Selected indices = 0` is the smallest useful case.
+The cross-section modes have maximum one, as the Fourier modes of point
+coupling, so each value in `Reduced right hand side` is the amplitude of its
+mode on the interface.
 
 The root entries explicitly select `dimension`, `space dimension`, and
 `reduced dimension`. As with the other applications, the filename has no role

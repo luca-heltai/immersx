@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow the MetricFlowX–elastodynamics application to solve only the solid, only the flow, or both without the vessel-wall interaction, selected by `Problems` in the optional `MetricFlowX run mode` section. The default, `full`, keeps the coupled solve.
+
 - [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Exercise vesselwise displacement and pressure exchange on tetrahedral tissue meshes in pseudocoupling1D, including repeated solves with updated coupling data.
@@ -127,6 +129,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #302](https://github.com/luca-heltai/immersx/pull/302) Scale the tensor-product cross-section modes to maximum one, as the Fourier modes of point coupling, so that a coefficient in `Reduced right hand side` or `Modal data` is the amplitude of its mode in every tensor-product application (reduced and lifted Poisson, elasticity, coupled elasticity, point clouds). The right-hand side and the multiplier mass matrix include the mean square of each mode. Existing inputs with data on non-constant modes now impose 1/√2 times their previous amplitude, and multiplier coefficients of non-constant modes are √2 times larger; the physical traction and the vessel pressure are unchanged. Legacy Fourier coefficients are read without the previous 1/√2 factor.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Interpret the harmonic reinforcement root dimension as the reinforcement mesh dimension and the space dimension as the matrix dimension. Use dimension one for a line reinforcement in 2D or 3D.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Share one frequency list between the harmonic matrix and fiber, and preserve the actual initial refinement when saving and reloading either supported parameter alias.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Support harmonic elasticity on embedded domains with `1 <= dim <= spacedim <= 3` and independent parameter subsections. Grid settings use `Domain`, while existing grid and refinement entries remain accepted.

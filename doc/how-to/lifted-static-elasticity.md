@@ -92,8 +92,15 @@ For selected physical vector mode `phi_k`, the coupling is
 
 ```text
 B_k(u, q_k) = integral_surface u . (q_k phi_k).
-g_k(q_k)    = integral_representative coefficient_k q_k section_measure(radius).
+g_k(q_k)    = integral_surface coefficient_k q_k phi_k . phi_k.
 ```
+
+The cross-section modes have maximum one, as the Fourier modes of point
+coupling (`cos(theta) e_x`, not `sqrt(2) cos(theta) e_x`), so a coefficient is
+the displacement amplitude of its mode: `B u = g` imposes
+`u = coefficient_k phi_k` on the surface. Because the modes are not normalized
+in `L^2`, the multiplier metric `integral_surface (q phi_k) . (q phi_k)` is
+`|D|` times the mean square of the mode, e.g. `|D|/2` for `cos(theta) e_x`.
 
 `lift(value(component), geometry).mode(k)` preserves the selected mode's
 amplitude and frame rotation. The older default lift behavior is unchanged.
