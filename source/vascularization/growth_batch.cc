@@ -76,6 +76,7 @@ namespace ImmersX::Vascularization::internal
     std::set<Id> local_ids;
     for (const auto &p : local)
       {
+        count_work(work, GrowthOperation::certified_vessels, p.changed.size());
         valid = valid && p.id != invalid_id && local_ids.insert(p.id).second &&
                 std::isfinite(p.cost) && p.cost >= 0. && !p.changed.empty() &&
                 p.owners.size() == p.old_nodes.size();

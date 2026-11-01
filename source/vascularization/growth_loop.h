@@ -5,6 +5,7 @@
 #include <immersx/vascularization/generation.h>
 
 #include "growth_commit.h"
+#include "growth_demand_callbacks.h"
 namespace ImmersX::Vascularization::internal
 {
   struct GrowthRun
@@ -24,6 +25,8 @@ namespace ImmersX::Vascularization::internal
   // to owned background cells. Venous proposals belong to owned common tissue
   // territories, with their shared demand. No per-rank roots are added.
   // Counters for points/proposals/accepted insertions are local to producers.
+  // Callers may supply collective demand updates and shared geometry.
+  // Otherwise accepted leaves retain their supplied physical weights.
   GrowthRun
   grow_forest(const dealii::Triangulation<3> &background,
               const dealii::Mapping<3>       &mapping,
@@ -34,6 +37,8 @@ namespace ImmersX::Vascularization::internal
               MPI_Comm                        communicator,
               unsigned int                    terminal_count = 0,
               System                          system         = System::arterial,
-              const std::vector<Territory>   &owned_territories = {});
+              const std::vector<Territory>   &owned_territories = {},
+              GrowthDemandCallbacks           demand_callbacks  = {},
+              BackgroundGeometry             *shared_geometry   = nullptr);
 } // namespace ImmersX::Vascularization::internal
 #endif
