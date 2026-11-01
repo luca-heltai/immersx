@@ -24,7 +24,9 @@
 
 using namespace ImmersX;
 #endif
-#include <immersx/fvm/coupledModel1d.h>
+#ifdef ENABLE_COUPLED_PROBLEMS
+#  include <immersx/fvm/coupledModel1d.h>
+#endif
 #include <immersx/io/utils.h>
 
 int
