@@ -1,0 +1,84 @@
+{
+  "baseline_verified_sha256": "b82589a867955c2236abc1a2218c5291e47d1f1184e0d6b2cffb46e71cfd94a5",
+  "files": {
+    "README.txt": "e32c7d1483f9a0ef79751ae2bdab6115233965f8496e5779f63d2f40ea999512",
+    "av-audit.json": "3e85dcb7916de38454c7786ad87a46be18d4fe2ed3f37d16450ea58bb02e54a2",
+    "background-memory.png": "cc7a81da16064625d6020480840890a0608feb55b5a18ba8462bd3d5038c7b17",
+    "background-memory.svg": "3cac147d52da5b392d2e8f25571a508ce2a2fbae67a3dbe54f63767cddffcd3f",
+    "baseline-verification.json": "b82589a867955c2236abc1a2218c5291e47d1f1184e0d6b2cffb46e71cfd94a5",
+    "measurements.csv": "4c4eeb93b15477bacfc1a5b6ce488187667892abf378fbee8e445ae1155ca951",
+    "render-report.py": "2421f7a551404aa166e9d4859818c2b70a257f1004af9f7e355dda4b8ad165df",
+    "summary.json": "5ef56d39039a27d767f1b0a48c446326f16107867d0940abb7f61bd572026efa",
+    "timing.png": "1c82dab04077de976c1e9ec59b05ae067dea43606d068de2c8d35bd3a487d88f",
+    "timing.svg": "af1415b965050007695e11c52d76ee2962fec2c2d27bb3e5eeb03a9283b498bb",
+    "work.png": "f8e4f062c8c5ff20c5de57e206c39689734763d037917e700ea0a7dc0a6d0c29",
+    "work.svg": "ba690128f4f8a1d0537cd782e7b81ca2efb91f1ff6e5fb1d6588b3133e819cf6"
+  },
+  "matplotlib_version": "3.10.9",
+  "notes": [
+    "Bands span all three seeds; no fit",
+    "Phase curves overlap only as documented; do not add nested commit subphases",
+    "Maximum per-rank peak RSS is not summed node memory",
+    "Historical cases contain only the two recorded terminal counts",
+    "Dataset source is frozen before the later include-only CI compatibility fix"
+  ],
+  "provenance": [
+    {
+      "binary_sha256": {
+        "libvascular_mpi_scope_profile.so": "d6983769171d6259848a95cd8755b672bc0ff022875a02f36bccdc3bf570b2aa",
+        "libvascular_release.so": "f41ec655e9ed9b4a2bc0e0148dd9ba0d7784c780f994e1d018bd6bec94c119d2",
+        "vascular_network_release": "b1a3fc3d326cb6d5d76cf57b3531f3df348057cd5ce41857e9eadd986b365719"
+      },
+      "cases": 9,
+      "directory": "incremental-growth-production-pilot",
+      "manifest_sha256": "44e981be621efdb24eef03726f4016aa9846ccefe2df782569abc4ce58cf5a6a",
+      "source_commit": "5ed0570a1e7667e10803ee4942e783ac37ff1254"
+    },
+    {
+      "binary_sha256": {
+        "libvascular_mpi_scope_profile.so": "d6983769171d6259848a95cd8755b672bc0ff022875a02f36bccdc3bf570b2aa",
+        "libvascular_release.so": "f41ec655e9ed9b4a2bc0e0148dd9ba0d7784c780f994e1d018bd6bec94c119d2",
+        "vascular_network_release": "b1a3fc3d326cb6d5d76cf57b3531f3df348057cd5ce41857e9eadd986b365719"
+      },
+      "cases": 12,
+      "directory": "incremental-growth-production-strong",
+      "manifest_sha256": "66e67d0bdcd04382b8428a06c17410add8f8b6b7a7b8fa3fed5c99c0a8723109",
+      "source_commit": "5ed0570a1e7667e10803ee4942e783ac37ff1254"
+    },
+    {
+      "binary_sha256": {
+        "libvascular_mpi_scope_profile.so": "d6983769171d6259848a95cd8755b672bc0ff022875a02f36bccdc3bf570b2aa",
+        "libvascular_release.so": "f41ec655e9ed9b4a2bc0e0148dd9ba0d7784c780f994e1d018bd6bec94c119d2",
+        "vascular_network_release": "b1a3fc3d326cb6d5d76cf57b3531f3df348057cd5ce41857e9eadd986b365719"
+      },
+      "cases": 12,
+      "directory": "incremental-growth-production-background",
+      "manifest_sha256": "4bd49b1abcb47d8173833cd8f4d6be747752c11b0b5d59ce6c1f947388998d49",
+      "source_commit": "5ed0570a1e7667e10803ee4942e783ac37ff1254"
+    },
+    {
+      "binary_sha256": {
+        "libvascular_mpi_scope_profile.so": "d6983769171d6259848a95cd8755b672bc0ff022875a02f36bccdc3bf570b2aa",
+        "libvascular_release.so": "f41ec655e9ed9b4a2bc0e0148dd9ba0d7784c780f994e1d018bd6bec94c119d2",
+        "vascular_network_release": "b1a3fc3d326cb6d5d76cf57b3531f3df348057cd5ce41857e9eadd986b365719"
+      },
+      "cases": 6,
+      "directory": "incremental-growth-production-mpi",
+      "manifest_sha256": "6353d55c82a9ca3c3b369ff247aa4116ce4fcfc9fdde3d25cc0b7abb83d074a4",
+      "source_commit": "5ed0570a1e7667e10803ee4942e783ac37ff1254"
+    },
+    {
+      "binary_sha256": {
+        "libvascular_mpi_scope_profile.so": "d6983769171d6259848a95cd8755b672bc0ff022875a02f36bccdc3bf570b2aa",
+        "libvascular_release.so": "f41ec655e9ed9b4a2bc0e0148dd9ba0d7784c780f994e1d018bd6bec94c119d2",
+        "vascular_network_release": "b1a3fc3d326cb6d5d76cf57b3531f3df348057cd5ce41857e9eadd986b365719"
+      },
+      "cases": 2,
+      "directory": "incremental-growth-production-mpi-1000",
+      "manifest_sha256": "55dfbef508acc84c8a8de87793cf07330c24e012bf16c00ab6a0db18a6a4cc3e",
+      "source_commit": "5ed0570a1e7667e10803ee4942e783ac37ff1254"
+    }
+  ],
+  "purpose": "Measured native SI point-demand execution; integrated-demand timings are a separate experiment",
+  "report_script_sha256": "2421f7a551404aa166e9d4859818c2b70a257f1004af9f7e355dda4b8ad165df"
+}
