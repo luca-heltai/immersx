@@ -26,8 +26,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <iomanip>
-#include <sstream>
 
 using namespace dealii;
 using namespace ImmersX;
@@ -152,7 +150,7 @@ TEST(WeakTerm, BoundaryMassMatchesMatrixCreator)
       }
 }
 
-TEST(WeakTerm, IndependentSupportConvergesForPiecewiseFETrace)
+TEST(WeakTerm, IndependentSupportMatchesPiecewiseFETrace)
 {
   Triangulation<2> background;
   GridGenerator::hyper_cube(background, -1., 1.);
@@ -216,43 +214,27 @@ TEST(WeakTerm, IndependentSupportConvergesForPiecewiseFETrace)
   reference_mass.vmult(reference_action, reference_coefficients);
   const double reference_energy = reference_coefficients * reference_action;
 
+  // Resolve the three slope jumps explicitly: this is an exact quadrature
+  // regression on four segments, rather than a mesh-convergence study.
+  std::vector<Point<2>> support_vertices;
+  for (const auto &vertex : vertices)
+    support_vertices.emplace_back(vertex[0], 0.17);
   Triangulation<1, 2> support_mesh;
-  CellData<1>         cell;
-  cell.vertices = {{0, 1}};
-  support_mesh.create_triangulation(
-    {Point<2>(-0.83, 0.17), Point<2>(0.79, 0.17)}, {cell}, SubCellData());
+  support_mesh.create_triangulation(support_vertices, cells, SubCellData());
   const IntegrationSupport<1, 2> support(support_mesh);
-  std::vector<double>            errors;
-  for (unsigned int level = 0; level <= 8; ++level)
-    {
-      using Model = SemiDiscreteModel<Vector<double>, SparseMatrix<double>>;
-      Model                                                     model;
-      SemidiscreteBuilder<Vector<double>, SparseMatrix<double>> builder(layout,
-                                                                        model);
-      weak_term(value(u), test(u), support).add(builder);
-      const StateView<Vector<double>>         state(layout, 0.);
-      const EvaluationContext<Vector<double>> context(0., state);
-      const auto                              op =
-        model.state_matrix_operator(u.field_id(), u.field_id(), context);
-      ASSERT_TRUE(op.has_value());
-      Vector<double> action(dh.n_dofs());
-      op->view.vmult(action, coefficients);
-      const double error = std::abs(coefficients * action - reference_energy);
-      errors.push_back(error);
-      std::ostringstream error_text;
-      error_text << std::setprecision(17) << error;
-      RecordProperty("trace_error_level_" + std::to_string(level),
-                     error_text.str());
-      if (level < 8)
-        support_mesh.refine_global(1);
-    }
-  EXPECT_GT(errors.front(), 1.e-3);
-  EXPECT_LT(errors.back(), 1.e-5);
-  EXPECT_LT(errors.back(), errors.front() / 1000.);
-  // Compare error envelopes: coarse quadrature can cancel the contributions
-  // from separate slope jumps, so individual levels need not improve.
-  EXPECT_LT(*std::max_element(errors.begin() + 6, errors.end()),
-            *std::max_element(errors.begin(), errors.begin() + 3) / 100.);
+  using Model = SemiDiscreteModel<Vector<double>, SparseMatrix<double>>;
+  Model                                                     model;
+  SemidiscreteBuilder<Vector<double>, SparseMatrix<double>> builder(layout,
+                                                                    model);
+  weak_term(value(u), test(u), support).add(builder);
+  const StateView<Vector<double>>         state(layout, 0.);
+  const EvaluationContext<Vector<double>> context(0., state);
+  const auto                              op =
+    model.state_matrix_operator(u.field_id(), u.field_id(), context);
+  ASSERT_TRUE(op.has_value());
+  Vector<double> action(dh.n_dofs());
+  op->view.vmult(action, coefficients);
+  EXPECT_NEAR(coefficients * action, reference_energy, 1.e-12);
 }
 
 TEST(WeakTerm, IndependentSupportRejectsDifferentBackgroundsAndMappings)

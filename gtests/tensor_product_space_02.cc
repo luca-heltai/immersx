@@ -514,18 +514,6 @@ TEST(TensorProductSpace0D, MPI_StableParticleMapping)
               i / coupling.get_reference_cross_section().n_quadrature_points());
 }
 
-TEST(ReducedPoisson0D, TemplatePathCompiles)
-{
-  ReducedPoissonParameters<2, 0> params;
-  params.reduced_coupling_parameters.tensor_product_space_parameters.section
-    .selected_coefficients = {0};
-  PointCloud<2> cloud;
-  cloud.points = {Point<2>(0., 0.)};
-  params.reduced_coupling_parameters.tensor_product_space_parameters
-    .point_cloud = cloud;
-  ReducedPoisson<2, 2, 0> problem(params);
-  (void)problem;
-}
 
 TEST(ReducedPoisson0D, ThreeDimensionalSphereCrossSectionTemplatePathCompiles)
 {

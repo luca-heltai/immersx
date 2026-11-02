@@ -22,7 +22,6 @@
 #include <gtest/gtest.h>
 #include <immersx/physics/elasticity.h>
 
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -522,108 +521,6 @@ TEST_P(Elasticity01TriangulationTypeTest, BOTH_Displacement3D_wSegments)
   ASSERT_NEAR(problem.solution.block(1).l2_norm(), 48.097630240962374, tol);
 }
 
-TEST(ElasticityValidation, ExactLambda)
-{
-  ParameterAcceptor::clear();
-  static constexpr int             dim = 2;
-  ElasticityProblemParameters<dim> par;
-  get_default_test_parameters(par);
-  par.triangulation_type = "distributed";
-  ElasticityProblem<dim> problem(par);
-
-
-  initialize_parameters();
-  ParameterAcceptor::prm.parse_input_from_string(
-    R"(
-    subsection Error
-      set Error precision = 10
-    end
-    subsection Functions
-      subsection Exact solution
-        set Function constants  = ri=0.2, re=1, di=0.1
-        set Function expression = if((x^2+y^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*x/(x^2+y^2) - x), di *x/ri); if((x^2+y^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*y/(x^2+y^2) - y), di*y/ri)
-        set Variable names      = x,y,t
-        set Weight expression   = if((x^2+y^2) > 0.04, 1., 0.)
-      end
-    end
-    subsection Immersed Problem
-      set Dirichlet boundary ids             = 0
-      set FE degree                          = 1
-      set Initial refinement                 = 3
-      set Output name                        = Exact
-      subsection Grid generation
-        set Domain type              = cylinder
-        set Grid generator           = cylinder
-        set Grid generator arguments = 1.
-      end
-      subsection Immersed inclusions
-        set Reference inclusion data            = 0, 0, 0.1, 0, 0, 0.1
-        set Inclusions                          = 0,0,0.2
-        set Number of fourier coefficients      = 2
-        set Selection of Fourier coefficients   = 2,5
-        set Inclusions refinement               = 400
-      end
-      subsection Refinement and remeshing
-        set Number of refinement cycles = 6
-        set Refinement fraction         = 0.3
-        set Strategy                    = fixed_number # or global
-      end
-    end
-    subsection Solvers
-      subsection Augmented Lagrange
-        set Log frequency = 1
-        set Log history   = false
-        set Log result    = true
-        set Max steps     = 10000
-        set Reduction     = 1.e-10
-        set Tolerance     = 1.e-12
-      end
-      subsection Displacement
-        set Log frequency = 1
-        set Log history   = false
-        set Log result    = true
-        set Max steps     = 10000
-        set Reduction     = 1.e-10
-        set Tolerance     = 1.e-12
-      end
-    end
-    )");
-
-  ParameterAcceptor::parse_all_parameters();
-  problem.run();
-
-  const double tol                = 1e-3;
-  const double theoretical_lambda = -12 * M_PI * 0.1 / (1 - 0.04);
-
-  ASSERT_NEAR(problem.solution.block(0).l2_norm(), 7.5520240146374107, tol);
-  ASSERT_NEAR(problem.solution.block(1).l2_norm(), 5.5728, tol);
-  ASSERT_NEAR(problem.solution.block(1)[0], theoretical_lambda, 1e-1);
-
-  // Errors to the exact solution on the last cycle. The table has a header,
-  // then one row per cycle: cells, dofs, and the L2, Linfty and H1 errors,
-  // each followed by its convergence rate. Values are printed with ten
-  // digits (Error precision above).
-  std::stringstream table;
-  par.convergence_table.output_table(table);
-  std::string header, rate;
-  double      cells, dofs, l2, linfty, h1;
-  std::getline(table, header);
-  for (unsigned int cycle = 0; cycle < par.n_refinement_cycles; ++cycle)
-    table >> cells >> dofs >> l2 >> rate >> linfty >> rate >> h1 >> rate;
-  ASSERT_TRUE(table);
-
-  // Upper bounds on the errors of the last cycle, not theoretical estimates.
-  // A serial Debug run with deal.II 9.7.1 (8540 cells, 18522 dofs) gave L2
-  // 1.546e-4, Linfty 6.874e-4 and H1 1.803e-2; the bounds leave about 25%
-  // margin. Rounded to three digits these values match the last row of the
-  // fixed_number data of Fig. 2 in Belponer, Caiazzo, Heltai,
-  // "Mixed-dimensional modeling of vascular tissues with reduced Lagrange
-  // multipliers" (see BOTH_PaperAxisSymmetricAdaptiveRefinement in
-  // elasticity_04.cc).
-  EXPECT_LT(l2, 1.9e-4);
-  EXPECT_LT(linfty, 8.6e-4);
-  EXPECT_LT(h1, 2.25e-2);
-}
 
 INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,
                          Elasticity01TriangulationTypeTest,

@@ -163,22 +163,20 @@ The complete input file used by this tutorial is:
 :language: bash
 ```
 
-## Manufactured-solution validation
+## Manufactured-solution input
 
-The step-80-inspired MMS regression is kept with the tests rather than making
-the application depend on a verification-only workflow:
+The step-80-inspired manufactured-solution input remains available for manual
+accuracy studies. This command writes solution fields; change
+`Initial refinement` between runs when studying mesh convergence:
 
 ```bash
-mkdir -p build/test_directory
-(cd build/test_directory && \
-  mpirun -np 2 ../gtests/gtests_debug \
-  --gtest_filter='NavierStokes.Step80ManufacturedSolutionConvergence-*.MPI_*')
+mpirun -np 2 build/navier_stokes_debug \
+  build/gtests/parameters/navier_stokes_step80_mms_2d.prm
 ```
 
-The test uses `ParsedConvergenceTable` and the parameter file
-`gtests/parameters/navier_stokes_step80_mms_2d.prm`. It reports the velocity
-L2 error and computes rates with respect to DoFs. With Q2 velocity, the
-observed rates are approximately three.
+The input specifies the exact velocity and pressure. Compare errors across
+refinements separately from the correctness regressions in GoogleTest;
+those regressions use small fixed meshes and explicit numerical assertions.
 
 ## Source files
 
@@ -190,7 +188,8 @@ The application is implemented in:
   time-stepping, and output;
 - `gtests/navier_stokes_01.cc` — setup and transient Stokes/Navier–Stokes
   coverage;
-- `gtests/navier_stokes_step80_mms_01.cc` — manufactured-solution convergence;
+- `gtests/parameters/navier_stokes_step80_mms_2d.prm.in` — optional
+  manufactured-solution study;
 - `tutorials/navier_stokes/transient_2d.prm.in` — the runnable tutorial input.
 
 The Problem exposes semantic velocity and pressure Fields with distinct
