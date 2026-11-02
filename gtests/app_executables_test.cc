@@ -208,26 +208,13 @@ TEST(AppExecutables, Laplacian)
   run_app_with_parameter("laplacian", "gtests/parameters/laplacian_simple.prm");
 }
 
-TEST(AppExecutables, CoupledElasticity)
-{
-  if (!is_single_rank())
-    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  GTEST_SKIP() << "No coupled_elasticity application is configured in CI.";
-}
-
-TEST(AppExecutables, PseudoCoupling1D)
-{
-  if (!is_single_rank())
-    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  GTEST_SKIP() << "No pseudocoupling1D application is configured in CI.";
-}
-
 TEST(AppExecutables, ReducedPoisson)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_parameter("reduced_poisson",
-                         "tutorials/reduced_poisson/single_cylinder_3d.prm");
+  run_app_with_parameter(
+    "reduced_poisson",
+    "gtests/parameters/reduced_poisson_single_cylinder_3d.prm");
 }
 
 TEST(AppExecutables, NavierStokes)

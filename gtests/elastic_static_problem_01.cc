@@ -742,22 +742,12 @@ TEST(ElasticStaticProblem, IndependentResidualOracle)
   EXPECT_LT(residual.l2_norm(), 1.e-8);
 }
 
-TEST(ElasticStaticProblemValidation, DistributedRefinement)
+TEST(ElasticStaticProblemValidation, BOTH_DistributedRefinement)
 {
   check_distributed_refinement();
 }
 
-TEST(ElasticStaticProblemValidation, FullyDistributedRefinement)
-{
-  check_fullydistributed_refinement();
-}
-
-TEST(ElasticStaticProblemValidation, MPI_DistributedRefinement)
-{
-  check_distributed_refinement();
-}
-
-TEST(ElasticStaticProblemValidation, MPI_FullyDistributedRefinement)
+TEST(ElasticStaticProblemValidation, BOTH_FullyDistributedRefinement)
 {
   check_fullydistributed_refinement();
 }
