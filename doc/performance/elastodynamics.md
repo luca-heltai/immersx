@@ -157,3 +157,60 @@ provides the flexible outer iteration. The sparse physical Schur above follows
 directly from this linear system; it does not require an approximation to
 $M^{-1}M$. This is a structure-based choice, not a claim that one AMG setup or
 inner tolerance is optimal for every mesh, material contrast, or coupled model.
+
+## Measured changes
+
+The measured implementation is revision
+`930f0c4a954b772c1edb97cfce249e8d25db5129`. The
+{download}`optimization report <../../benchmarks/reports/elastodynamics-optimization-2026-11-02.json>`
+retains medians, ranges, binary checksums, original-binary replay, field
+comparisons, and validation provenance. Source references for both measured
+revisions are retained separately from later documentation changes.
+
+For the same 33,282-DoF problem on gpu02, optimized times are medians of
+three runs. Integrator settings, tolerances, output intervals, accepted step
+counts, and numbers of linear solves are unchanged within each row:
+
+| Execution | Original application time | Optimized median (range) | Speedup |
+|---|---:|---:|---:|
+| Elasticity control | 2.40 s | 2.43 s (2.40–2.46) | approximately 1 |
+| Native trapezoidal | 8.26 s | 2.57 s (2.57–2.68) | 3.21 |
+| IDA, maximum BDF order 1 | 31.1 s | 20.1 s (19.9–20.2) | 1.55 |
+| IDA, maximum BDF order 5 | 12.8 s | 6.57 s (6.55–6.70) | 1.95 |
+
+The original binaries and shared library still match their retained checksums.
+A fresh original-binary replay gives 2.42 s for Elasticity, 7.79 s for native
+Elastodynamics, and 30.7 s for IDA order 1, consistent with the original scale of
+the comparison. The report retains the fourth replay as well. The baseline
+largest-mesh timings have fewer samples than the optimized medians; these
+measurements do not estimate long-term timing variance.
+
+The eight native linear solves fall from 6.08 s to a median 1.25 s, including
+preconditioner setup. Outer iterations fall from 269–296 to 5–9 per solve;
+each new outer iteration includes inexact CG/AMG solves. Spatial assembly is
+performed once, the native time matrix is built once, and the static load is
+prepared once. IDA order 1 still takes 266 steps and 282 linear solves; its
+remaining runtime includes that additional integration work. Its force-update
+count falls from 284 to one.
+
+The first Schur implementation, revision `0fd9473`, took 3.06 s, 23.2 s, and
+7.47 s in single runs of the three elastodynamics variants. Building raw and
+condensed matrices in one cell pass and reserving rigid modes for Schur AMG
+improved those observations to the final ranges above. This comparison guided
+the implementation choice; it is not an exhaustive AMG parameter search.
+
+Across both measured meshes and all three optimized repetitions, the maximum
+absolute difference from the original exported displacement or velocity is
+$2.99\times10^{-8}$. Relative nodal differences are at most
+$3.24\times10^{-9}$ for displacement and $6.35\times10^{-11}$ for velocity.
+These comparisons use Float32 output and do not bound internal double-precision
+differences. Independent manufactured-solution tests check native backward
+Euler and trapezoidal lifting with nonzero moving boundaries and hanging nodes.
+
+The focused CTest executables include the affected physics and execution-core
+tests. All 12 unit/integration/validation groups pass in Debug and Release,
+serially and with two MPI ranks, including simplex, embedded dimensions, and
+fiber-coupled cases. The new public header also compiles independently in both
+variants. Shared ccache contents were verified across gpu02/gpu04; representative
+Release and Debug compilations in two distinct source/build trees each give a
+direct cache hit with stable source, build, macro, and debug prefix mappings.
