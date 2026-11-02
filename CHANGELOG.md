@@ -352,6 +352,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Limit Debug and Release CI builds to two compiler jobs with a 90-minute timeout. Skip incompatible optional 1D solver downloads while retaining client compilation checks.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Compile applications and tests without GCC 13 warnings.
 
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Cover elastodynamics cache invalidation, time-dependent loads, affine boundary lifting, and Schur factorization in serial and MPI.
