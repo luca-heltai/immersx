@@ -1391,6 +1391,18 @@
     "logs/optimized-tuned-ctest.log": "1f9a4a4fdb289f1f7b5711afde46706231453f99369c708d69416105c455dad9",
     "logs/public-header-check.log": "6e2ec36fd9c5d04d649b637611943d62959a545010a593d57b472c1f5d79b180",
     "logs/final-cache-verification.json": "8f4a9bff413598d1d7530e78deedbf3355e86ac79998878bfc0b1a0dd8a374e6",
-    "logs/ccache-node-sharing.json": "96d3a0ecc2cfb9f6bd94085c6e4b3d51f088f67c16f702682223c07b3344b4fa"
+    "logs/ccache-node-sharing.json": "96d3a0ecc2cfb9f6bd94085c6e4b3d51f088f67c16f702682223c07b3344b4fa",
+    "baseline/binary-archive.json": "ff5af3def31a98308e1eb13212016028cf72ab0e37721dc14ca6d2d4cb58ddf6",
+    "baseline/run-baseline.sh": "4fe2b25997a9b36e3f28b573a1b2cd9bd30f50fb97e1c467bcfcf0607a8db7eb"
+  },
+  "baseline_binary_archive": {
+    "source_revision": "6bd61abda38cd1c7908eea60623023f6d566ac56",
+    "directory": "/data/home/lheltai/codes/perf-elastodynamics-20261102/baseline/binaries",
+    "sha256": {
+      "elasticity": "2d1d040baee3ed26114ab71ac0640a02560d13fd48c1d1cc39c17ff010170fc4",
+      "elastodynamics": "7fa2f7ee7d296d4f44c9d28203ccc2e2de75c07810ec456932320eea0e592ed8",
+      "elastodynamics_adapter": "541610abf9722f4cbe679034d70065cc30f8d98dd7fac37b8499da9a565410c3",
+      "libimmersx_lib.so": "62c5c9d0de10bced47a56cbcd8ddab6025986379f5dcb3600d478d0342e75c1d"
+    }
   }
 }

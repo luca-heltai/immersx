@@ -7,6 +7,11 @@ records the source revision, binary and input checksums, timers, and iteration
 counts. Its measurements describe that revision, not the commit that adds the
 report or later optimizations.
 
+A detached copy of the original executables and shared library is retained in
+the baseline report's artifact directory under `binaries`, with verified
+checksums. Its `run-baseline.sh` selects that library explicitly so a later
+rebuild of the original build directory cannot change the archived runtime.
+
 ## Baseline problem
 
 The domain is the square $[0,0.1]^2$, with Q1 vector elements, density 1000,
