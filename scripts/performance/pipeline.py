@@ -6,6 +6,7 @@ import hashlib
 import os
 from pathlib import Path
 import platform
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -66,10 +67,10 @@ def plan(args):
                       "selected": todo[:args.limit], "configuration": config})
 
 
-def capture(args, output, cwd=None, timeout=1800):
+def capture(args, output, cwd=None, timeout=1800, env=None):
     try:
         p = subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, timeout=timeout)
+                           stderr=subprocess.STDOUT, timeout=timeout, env=env)
         output.write_text(p.stdout)
         return p.returncode
     except subprocess.TimeoutExpired as exc:
@@ -85,6 +86,28 @@ def cpu():
                      Path("/proc/cpuinfo").read_text().splitlines()
                      if line.startswith("model name")), platform.machine())
     return command(["sysctl", "-n", "machdep.cpu.brand_string"])
+
+
+def compiler_cache(source, build):
+    """Normalize historical checkouts too, even before their own cache launcher."""
+    if not shutil.which("ccache"):
+        raise ValueError("ccache is required for benchmark compilation")
+    directory = Path(os.environ.get("CCACHE_DIR", Path.home() / ".ccache")).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ, CCACHE_DIR=str(directory), CCACHE_BASEDIR=str(source),
+               CCACHE_NOHASHDIR="true")
+    disabled = subprocess.check_output(["ccache", "--get-config", "disable"],
+                                       env=env, text=True).strip()
+    if disabled != "false":
+        raise ValueError("ccache is disabled in the effective build configuration")
+    mappings = [f"-{flag}-prefix-map={path}=/immersx/{name}"
+                for path, name in ((source, "source"), (build, "build"))
+                for flag in ("ffile", "fdebug", "fmacro")]
+    flags = ["-DIMMERSX_USE_CCACHE=ON", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
+             "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+             "-DCMAKE_CXX_FLAGS=" + " ".join(filter(None, [os.environ.get("CXXFLAGS", ""),
+                 *(shlex.quote(mapping) for mapping in mappings)]))]
+    return flags, env
 
 
 def measure(args):
@@ -114,7 +137,9 @@ def measure(args):
                   "records": [], "errors": [],
                   "status": "failed", "raw_path": f"raw/{ident}/"}
         with tempfile.TemporaryDirectory(prefix="immersx-benchmark-") as tmp:
-            source, build = Path(tmp) / "source", Path(tmp) / "build"
+            source = Path(tmp) / "source"
+            # Keep generated include paths under the launcher's CCACHE_BASEDIR.
+            build = source / "build-performance"
             try:
                 result["benchmark_sources"] = {
                     name: git(args.repo, "rev-parse", f"{sha}:benchmarks/{name}.cc")
@@ -125,11 +150,15 @@ def measure(args):
                                       ("particle_penalty_coupling", "include/immersx/compatibility/dealii_9_9/dof_handler_coupling.h")):
                         result["benchmark_sources"][key] = git(args.repo, "rev-parse", f"{sha}:{path}")
                 git(args.repo, "worktree", "add", "--detach", str(source), sha)
+                cache_flags, build_env = compiler_cache(source, build)
                 flags = ["-DCMAKE_BUILD_TYPE=" + config["build_type"],
                          "-DIMMERSX_BUILD_BENCHMARKS=ON", "-DENABLE_COUPLED_PROBLEMS=OFF",
                          "-DENABLE_GOOGLE_TESTING=OFF", "-DENABLE_DEAL_II_APP_TESTING=OFF",
-                         "-DIMMERSX_USE_CCACHE=OFF", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
-                rc = capture(["cmake", "-S", str(source), "-B", str(build), *flags], out / "configure.log")
+                         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", *cache_flags]
+                capture(["ccache", "--show-config"], out / "ccache-config.log", env=build_env)
+                capture(["ccache", "--show-stats"], out / "ccache-before.log", env=build_env)
+                rc = capture(["cmake", "-S", str(source), "-B", str(build), *flags],
+                             out / "configure.log", env=build_env)
                 if rc:
                     raise ValueError(f"configure failed ({rc})")
                 cache = (build / "CMakeCache.txt").read_text()
@@ -137,18 +166,21 @@ def measure(args):
                 compiler = next(line.split("=", 1)[1] for line in cache.splitlines()
                                 if line.startswith("CMAKE_CXX_COMPILER:FILEPATH="))
                 compile_commands = load(build / "compile_commands.json")
-                benchmark_commands = [e["command"].replace(str(source), "/source").replace(str(build), "/build")
+                benchmark_commands = [e["command"].replace(str(build), "/build").replace(str(source), "/source")
                                       for e in compile_commands if "/benchmarks/" in e["file"]]
                 save(out / "compile_commands.json", compile_commands)
                 result["environment"].update({"compiler": command([compiler, "--version"]),
-                    "compile_commands": benchmark_commands, "cmake_options": flags,
+                    "compile_commands": benchmark_commands,
+                    "cmake_options": [flag.replace(str(build), "/build").replace(str(source), "/source")
+                                      for flag in flags],
                     "threads": 1, "rank_counts": config.get("particle_penalty_ranks", [1]),
                     "deal_ii_config": next((s for s in cache.splitlines() if s.startswith("deal.II_DIR:")), "unknown")})
                 suffix = "_debug" if config["build_type"] == "Debug" else ""
                 targets = [name + "_benchmark" + suffix for name in
                            ("weak_term_assembly", "lifted_integration_support", "particle_penalty")]
                 for target in targets:
-                    rc = capture(["cmake", "--build", str(build), "--target", target, "-j2"], out / (target + "-build.log"))
+                    rc = capture(["cmake", "--build", str(build), "--target", target,
+                                  "--verbose", "-j2"], out / (target + "-build.log"), env=build_env)
                     if rc:
                         result["errors"].append({"reason": f"{target} build failed ({rc})"})
                         continue
@@ -164,6 +196,8 @@ def measure(args):
                             result["environment"]["mpi_launcher_version"] = command([launcher, "--version"])
                             cmd = [launcher, "-np", str(ranks), *cmd]
                         env = dict(os.environ, OMPI_ALLOW_RUN_AS_ROOT="1", OMPI_ALLOW_RUN_AS_ROOT_CONFIRM="1")
+                        env.update({name: "1" for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                                                           "MKL_NUM_THREADS", "DEAL_II_NUM_THREADS")})
                         stdout, stderr = out / (stem + ".jsonl"), out / (stem + ".stderr")
                         with stdout.open("w") as so, stderr.open("w") as se:
                             try:
@@ -182,6 +216,7 @@ def measure(args):
                 result["environment"]["deal_ii_version"] = versions
                 if not versions:
                     result["errors"].append({"reason": "deal.II version unavailable"})
+                capture(["ccache", "--show-stats"], out / "ccache-after.log", env=build_env)
             except (ValueError, OSError, subprocess.CalledProcessError, StopIteration) as exc:
                 result["errors"].append({"reason": str(exc)})
             finally:

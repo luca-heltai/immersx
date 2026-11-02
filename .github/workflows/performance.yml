@@ -28,6 +28,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+
 jobs:
   measure:
     # Untrusted callers cannot select a dedicated runner.
@@ -40,6 +43,13 @@ jobs:
           persist-credentials: false
       - name: Test the harness
         run: python3 -m unittest discover -s scripts/performance/tests -v
+      - name: Restore benchmark compiler cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: performance-dealii-9.7.1-noble-v1
+          max-size: 1G
+          append-timestamp: true
+          update-package-index: true
       - name: Read persistent history
         run: python3 scripts/performance/archive.py read --output "$RUNNER_TEMP/history"
       - name: Plan every unmeasured first-parent commit
@@ -66,10 +76,22 @@ jobs:
           docker run --rm --user root \
             -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT -e GITHUB_REPOSITORY \
             -e OMPI_ALLOW_RUN_AS_ROOT=1 -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+            -e CCACHE_DIR=/repo/.ccache \
             -v "$GITHUB_WORKSPACE:/repo" \
             -v "$GITHUB_WORKSPACE/scripts/performance:/harness:ro" \
             -v "$RUNNER_TEMP/batch:/batch" \
-            "$digest" bash -c 'git config --global --add safe.directory /repo; options=(); if [ "$3" = true ]; then options+=(--stable); fi; python3 /harness/pipeline.py measure --repo /repo --plan /batch/plan.json --output /batch --environment "$2" --image "$1" "${options[@]}"' _ "$digest" "$ENVIRONMENT" "$STABLE"
+            "$digest" bash -ec '
+              apt-get update
+              apt-get install -y ccache
+              command -v ccache
+              ccache --show-config
+              git config --global --add safe.directory /repo
+              options=()
+              if [ "$3" = true ]; then options+=(--stable); fi
+              python3 /harness/pipeline.py measure --repo /repo --plan /batch/plan.json \
+                --output /batch --environment "$2" --image "$1" "${options[@]}"
+              ccache --show-stats
+            ' _ "$digest" "$ENVIRONMENT" "$STABLE"
       - name: Preserve partial results, raw output and plan
         if: always()
         uses: actions/upload-artifact@v4

@@ -4,6 +4,12 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      full_suite:
+        description: Run every CTest category, including validation and applications
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -14,7 +20,14 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
 
 jobs:
+  plan:
+    uses: ./.github/workflows/ci-plan.yml
+    with:
+      force-full: ${{ inputs.full_suite == true }}
+
   debug:
+    needs: plan
+    if: needs.plan.outputs.run_numeric == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:
@@ -46,25 +59,61 @@ jobs:
           cd build_linux_debug
           cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-fopenmp \
             -DIMMERSX_BUILD_BENCHMARKS=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ninja
 
+      - name: Record build dependencies for selection analysis
+        if: always()
+        run: |
+          if [ -f build_linux_debug/build.ninja ]; then
+            ninja -C build_linux_debug -t deps > build_linux_debug/compiler-dependencies.txt
+            ninja -C build_linux_debug -t graph > build_linux_debug/target-dependencies.dot
+          fi
+
       - name: CTest debug
+        env:
+          FULL_SUITE: ${{ needs.plan.outputs.full_suite }}
         run: |
           cd build_linux_debug
           ctest -N
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            ctest --parallel 2 -L quick --output-on-failure
+          ctest --show-only=json-v1 > ctest-manifest.json
+          if [ "$FULL_SUITE" != true ]; then
+            ctest --parallel 2 -L quick --no-tests=error --output-on-failure --output-junit ctest-results.xml
           else
-            ctest --parallel 2 --output-on-failure
+            ctest --parallel 2 --no-tests=error --output-on-failure --output-junit ctest-results.xml
           fi
+
+      - name: Report slow tests
+        if: always()
+        run: python3 scripts/ci/report_timings.py --build-dir build_linux_debug --output build_linux_debug/test-timings.json
+
+      - name: Preserve CTest timings and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-debug
+          path: |
+            build_linux_debug/ctest-manifest.json
+            build_linux_debug/ctest-results.xml
+            build_linux_debug/compile_commands.json
+            build_linux_debug/compiler-dependencies.txt
+            build_linux_debug/target-dependencies.dot
+            build_linux_debug/test-timings.json
+            build_linux_debug/gtests/test-results/
+            build_linux_debug/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Show ccache statistics
         if: always()
         run: ccache --show-stats
 
   release:
+    needs: plan
+    if: needs.plan.outputs.run_numeric == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:
@@ -96,20 +145,120 @@ jobs:
           cd build_linux_release
           cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp \
             -DIMMERSX_BUILD_BENCHMARKS=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ninja
 
+      - name: Record build dependencies for selection analysis
+        if: always()
+        run: |
+          if [ -f build_linux_release/build.ninja ]; then
+            ninja -C build_linux_release -t deps > build_linux_release/compiler-dependencies.txt
+            ninja -C build_linux_release -t graph > build_linux_release/target-dependencies.dot
+          fi
+
       - name: CTest release
+        env:
+          FULL_SUITE: ${{ needs.plan.outputs.full_suite }}
         run: |
           cd build_linux_release
           ctest -N
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            ctest --parallel 2 -L quick --output-on-failure
+          ctest --show-only=json-v1 > ctest-manifest.json
+          if [ "$FULL_SUITE" != true ]; then
+            ctest --parallel 2 -L quick --no-tests=error --output-on-failure --output-junit ctest-results.xml
           else
-            ctest --parallel 2 --output-on-failure
+            ctest --parallel 2 --no-tests=error --output-on-failure --output-junit ctest-results.xml
           fi
+
+      - name: Report slow tests
+        if: always()
+        run: python3 scripts/ci/report_timings.py --build-dir build_linux_release --output build_linux_release/test-timings.json
+
+      - name: Preserve CTest timings and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-release
+          path: |
+            build_linux_release/ctest-manifest.json
+            build_linux_release/ctest-results.xml
+            build_linux_release/compile_commands.json
+            build_linux_release/compiler-dependencies.txt
+            build_linux_release/target-dependencies.dot
+            build_linux_release/test-timings.json
+            build_linux_release/gtests/test-results/
+            build_linux_release/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Show ccache statistics
         if: always()
         run: ccache --show-stats
+
+  package:
+    needs: plan
+    if: needs.plan.outputs.run_numeric == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: dealii/dealii:v9.7.1-noble
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: metric-flow-x-package-dealii-9.7.1-noble-v1
+          max-size: 1G
+          append-timestamp: true
+          update-package-index: true
+      - name: Configure the complete package test matrix
+        run: |
+          command -v ccache
+          cmake -S . -B build_package -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DENABLE_COUPLED_PROBLEMS=OFF \
+            -DENABLE_GOOGLE_TESTING=OFF \
+            -DENABLE_DEAL_II_APP_TESTING=OFF \
+            -DIMMERSX_BUILD_CORAL_PLUGINS=OFF \
+            -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=ON
+      - name: Run every package configuration once
+        run: |
+          ctest --test-dir build_package --show-only=json-v1 > build_package/ctest-manifest.json
+          ctest --test-dir build_package --parallel 2 \
+            -R '^ImmersX\.integration\.MetricFlowXPackage\.' \
+            --no-tests=error --output-on-failure --output-junit ctest-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctest-package
+          path: |
+            build_package/ctest-manifest.json
+            build_package/ctest-results.xml
+            build_package/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  ci:
+    name: Numerical CI
+    needs: [plan, debug, release, package]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all selected checks
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ['NEEDS'])
+          assert jobs['plan']['result'] == 'success', 'CI selection failed'
+          selected = jobs['plan']['outputs'].get('run_numeric')
+          assert selected in ('true', 'false'), 'Missing or invalid CI selection'
+          expected = 'success' if selected == 'true' else 'skipped'
+          for name in ('debug', 'release', 'package'):
+              assert jobs[name]['result'] == expected, (name, jobs[name]['result'], expected)
+          PY

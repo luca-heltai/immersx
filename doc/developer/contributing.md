@@ -257,8 +257,10 @@ ctest --test-dir build-debug --output-on-failure
 ```
 
 Unit and integration tests are marked `quick`; MPI is independent and is
-marked `mpi`. Pull-request CI runs `quick`, while pushes to `master` run the
-full manifest. Do not add a second full GoogleTest invocation to CI.
+marked `mpi`. Pull-request CI runs `quick` unless the change selector recognizes
+only documentation inputs; pushes to `master` run the full manifest. See
+[CI selection](testing) for the conservative fallback, package job,
+and full-suite override. Do not add a second full GoogleTest invocation to CI.
 
 Run one serial test with:
 

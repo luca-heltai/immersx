@@ -342,6 +342,13 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Skip numerical and Coral builds for documentation-only pull requests. Record C++ component selection in observation mode, retain every quick test for other changes, and keep full coverage on master with an explicit manual override.
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Validate documentation previews independently of performance measurements, using two Sphinx workers by default. Keep benchmark correctness smoke tests on numerical pull requests and complete measurements on master, with shared compiler caching.
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Fix Coral compiler-cache restoration and reuse across checkouts. Run the complete MetricFlowX package configuration matrix once in a dedicated CI job.
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Split integration GoogleTests into suite groups while checking the complete serial/MPI inventory, retaining shared-output locks, and publishing individual case timings.
+
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Build and test container images on master and release tags, while keeping launcher and fingerprint checks on pull requests. Preserve CTest manifests, timings, and logs as CI artifacts.
+
 - [PR #318](https://github.com/luca-heltai/immersx/pull/318) Restore serial and MPI coverage for segment-clustered point and tensor-product elasticity coupling. Check the inclusion mass matrix and recovery of nonzero imposed Fourier data instead of printing debug output.
 
 - [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
