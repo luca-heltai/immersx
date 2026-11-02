@@ -127,6 +127,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Avoid spatial assembly for zero harmonic material coefficients while retaining essential boundary equations, including zero and purely viscous materials.
+
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Solve native and IDA elastodynamics with FGMRES and a physical Schur block factorization using CG/AMG inner solves, retaining the mass hierarchy and reusing unchanged Schur combinations.
 
 - [PR #320](https://github.com/luca-heltai/immersx/pull/320) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately, avoid building matrices for zero-vector actions, follow the current constraint structure on each build, and materialize sums with one temporary contribution at a time. The standard iterative LinearAdapter solve owns and reuses one assembled system matrix.
