@@ -13,6 +13,9 @@
 #include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/network.h>
 
+#include <functional>
+#include <set>
+
 namespace ImmersX::Vascularization
 {
   struct DiscretizationParameters
@@ -91,6 +94,26 @@ namespace ImmersX::Vascularization
   create_triangulation(const NetworkData           &network,
                        const DiscretizationResult  &discretization,
                        dealii::Triangulation<1, 3> &triangulation);
+
+  /**
+   * Build execution cells with selected vessels reversed. The returned
+   * intervals use the execution coordinate, while physical input remains
+   * unchanged. boundary_ids receives the original physical interval and vessel
+   * and returns boundary ids for the interval's two endpoints. Supply the
+   * callback on every rank; in distributed builds it runs only at physical
+   * vessel owners. These ids travel with cells
+   * to execution owners and ghosts; no global endpoint table is needed.
+   * Reversal also reverses the endpoint ids.
+   */
+  CellVessels
+  create_triangulation(
+    const NetworkData           &network,
+    const DiscretizationResult  &discretization,
+    dealii::Triangulation<1, 3> &triangulation,
+    const std::set<Id>          &reversed_vessels,
+    const std::function<std::array<dealii::types::boundary_id, 2>(
+      const VesselCell &,
+      const Vessel &)>          &boundary_ids = {});
 
   /** Recover the physical interval after any native binary 1D refinements. */
   VesselCell

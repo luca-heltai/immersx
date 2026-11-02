@@ -966,3 +966,127 @@ TEST(VascularDiscretization, BOTH_CrossingWorkTracksIntersectedCells)
       EXPECT_EQ(numerical.work[GrowthOperation::interval_cut_moves], 0u);
     }
 }
+
+TEST(VascularDiscretization, BOTH_ReversedMeshCarriesOwnedEndpointBoundaries)
+{
+  const auto           comm = MPI_COMM_WORLD;
+  const auto           rank = Utilities::MPI::this_mpi_process(comm);
+  const auto           last = Utilities::MPI::n_mpi_processes(comm) - 1;
+  NetworkData          network;
+  DiscretizationResult intervals;
+  std::set<Id>         reversed;
+  if (rank == last)
+    {
+      network = line(Point<3>(0., .4, .3), Point<3>(1., .4, .3));
+      for (auto &[id, node] : network.nodes)
+        node.owner = rank;
+      network.vessels.at(100).owner = rank;
+      reversed.insert(100);
+      DiscretizationCell first, second;
+      first.reference  = {100, 0., .25};
+      first.owner      = 0;
+      second.reference = {100, .25, 1.};
+      second.owner     = last;
+      intervals.cells  = {first, second};
+    }
+  parallel::fullydistributed::Triangulation<1, 3> mesh(comm);
+  unsigned int                                    calls = 0;
+  const auto references                                 = create_triangulation(
+    network,
+    intervals,
+    mesh,
+    reversed,
+    [&](const VesselCell &interval, const Vessel &vessel) {
+      EXPECT_EQ(rank, last);
+      EXPECT_EQ(interval.vessel, 100u);
+      EXPECT_EQ(vessel.nodes, (std::array<Id, 2>{{10, 20}}));
+      ++calls;
+      return std::array<types::boundary_id, 2>{
+        {types::boundary_id(interval.begin == 0. ? 13 : 255),
+         types::boundary_id(interval.end == 1. ? 29 : 255)}};
+    });
+  EXPECT_EQ(Utilities::MPI::sum(calls, comm), 2u);
+  EXPECT_EQ(mesh.n_global_active_cells(), 2u);
+  unsigned int physical_start = 0, physical_end = 0;
+  for (const auto &cell : mesh.active_cell_iterators())
+    if (!cell->is_artificial())
+      {
+        const auto reference = physical_reference(cell->id(), references);
+        EXPECT_NEAR(cell->vertex(0)[0], 1. - reference.begin, 1.e-14);
+        EXPECT_NEAR(cell->vertex(1)[0], 1. - reference.end, 1.e-14);
+        for (const auto face : cell->face_indices())
+          if (cell->face(face)->at_boundary())
+            {
+              const auto id = cell->face(face)->boundary_id();
+              EXPECT_EQ(id,
+                        face == 0 ? (reference.begin == 0. ? 29u : 255u) :
+                                    (reference.end == 1. ? 13u : 255u));
+              if (cell->is_locally_owned())
+                {
+                  physical_start += id == 13;
+                  physical_end += id == 29;
+                }
+            }
+      }
+  EXPECT_EQ(Utilities::MPI::sum(physical_start, comm), 1u);
+  EXPECT_EQ(Utilities::MPI::sum(physical_end, comm), 1u);
+  if (rank == last)
+    {
+      EXPECT_EQ(network.vessels.at(100).nodes, (std::array<Id, 2>{{10, 20}}));
+      EXPECT_DOUBLE_EQ(intervals.cells[0].reference.end, .25);
+    }
+}
+
+TEST(VascularDiscretization, SerialReversedMeshUsesPhysicalEndpointCallbacks)
+{
+  const auto network = line(Point<3>(0., .4, .3), Point<3>(1., .4, .3));
+  DiscretizationResult intervals;
+  DiscretizationCell   cell;
+  cell.reference = {100, 0., 1.};
+  intervals.cells.push_back(cell);
+  Triangulation<1, 3> mesh;
+  const auto          references = create_triangulation(
+    network,
+    intervals,
+    mesh,
+    {100},
+    [](const VesselCell &interval, const Vessel &vessel) {
+      EXPECT_EQ(vessel.nodes[0], 10u);
+      return std::array<types::boundary_id, 2>{
+        {types::boundary_id(interval.begin == 0. ? 13 : 255),
+         types::boundary_id(interval.end == 1. ? 29 : 255)}};
+    });
+  const auto first = mesh.begin_active();
+  EXPECT_DOUBLE_EQ(first->vertex(0)[0], 1.);
+  EXPECT_DOUBLE_EQ(first->vertex(1)[0], 0.);
+  EXPECT_EQ(first->face(0)->boundary_id(), 29u);
+  EXPECT_EQ(first->face(1)->boundary_id(), 13u);
+  EXPECT_DOUBLE_EQ(references.at(0).begin, 0.);
+  EXPECT_DOUBLE_EQ(references.at(0).end, 1.);
+  mesh.refine_global(1);
+  for (const auto &refined : mesh.active_cell_iterators())
+    {
+      const auto reference = physical_reference(refined->id(), references);
+      EXPECT_DOUBLE_EQ(refined->vertex(0)[0], 1. - reference.begin);
+      EXPECT_DOUBLE_EQ(refined->vertex(1)[0], 1. - reference.end);
+      for (const auto face : refined->face_indices())
+        if (refined->face(face)->at_boundary())
+          {
+            EXPECT_EQ(refined->face(face)->boundary_id(),
+                      face == 0 ? 29u : 13u);
+          }
+    }
+  intervals.cells[0].reference = {100, .25, .75};
+  Triangulation<1, 3> partial;
+  create_triangulation(network,
+                       intervals,
+                       partial,
+                       {100},
+                       [](const VesselCell &interval, const Vessel &) {
+                         EXPECT_DOUBLE_EQ(interval.begin, .25);
+                         EXPECT_DOUBLE_EQ(interval.end, .75);
+                         return std::array<types::boundary_id, 2>{{255, 255}};
+                       });
+  EXPECT_EQ(partial.begin_active()->face(0)->boundary_id(), 255u);
+  EXPECT_EQ(partial.begin_active()->face(1)->boundary_id(), 255u);
+}
