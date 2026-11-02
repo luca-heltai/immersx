@@ -22,6 +22,11 @@ subsection Navier-Stokes
     set Final time = 0.02
     set Output time interval = 0.02
   end
+  subsection IDA
+    subsection Running parameters
+      set Initial step size = 0.01
+    end
+  end
   subsection Fixed step
     set Policy = number_of_steps
     set Number of time steps = 2

@@ -17,58 +17,28 @@
 #include <deal.II/base/mpi.h>
 
 #include <gtest/gtest.h>
-#include <unistd.h>
 
-#include <atomic>
-#include <csignal>
-#include <cstdlib>
-#include <cstring>
-#include <deque>
 #include <string>
+
+#include "test_watchdog.h"
 
 namespace
 {
-  constexpr char default_timeout_message[] =
-    "GoogleTest exceeded the 115 second correctness-test budget.\n";
-  std::atomic<const char *> timeout_message{default_timeout_message};
-  static_assert(std::atomic<const char *>::is_always_lock_free,
-                "The test watchdog requires a signal-safe atomic pointer.");
-
-  void
-  test_time_limit_exceeded(int)
-  {
-    // A signal handler cannot use streams or MPI. A failed rank also makes
-    // the MPI launcher fail, rather than leaving a passing rank-zero report.
-    const char *message = timeout_message.load(std::memory_order_acquire);
-    const auto  written = ::write(STDERR_FILENO, message, std::strlen(message));
-    (void)written;
-    std::_Exit(EXIT_FAILURE);
-  }
-
   class TestTimeLimit : public ::testing::EmptyTestEventListener
   {
   public:
     void
     OnTestStart(const ::testing::TestInfo &info) override
     {
-      // Keep messages immutable and alive until program exit so the signal
-      // handler can identify a slow nonzero MPI rank without consulting GTest.
-      messages.emplace_back(
-        "GoogleTest " + std::string(info.test_suite_name()) + "." +
-        info.name() + " exceeded the 115 second correctness-test budget.\n");
-      timeout_message.store(messages.back().c_str(), std::memory_order_release);
-      ::alarm(115);
+      ImmersX::TestWatchdog::instance().arm(
+        std::string(info.test_suite_name()) + "." + info.name());
     }
 
     void
     OnTestEnd(const ::testing::TestInfo &) override
     {
-      ::alarm(0);
-      timeout_message.store(default_timeout_message, std::memory_order_release);
+      ImmersX::TestWatchdog::instance().disarm();
     }
-
-  private:
-    std::deque<std::string> messages;
   };
 } // namespace
 
@@ -131,8 +101,6 @@ main(int argc, char *argv[])
 
   ::testing::TestEventListeners &listeners =
     ::testing::UnitTest::GetInstance()->listeners();
-  AssertThrow(std::signal(SIGALRM, test_time_limit_exceeded) != SIG_ERR,
-              dealii::ExcMessage("Cannot install the GoogleTest time limit."));
   listeners.Append(new TestTimeLimit());
   if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0)
     {

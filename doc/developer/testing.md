@@ -58,7 +58,9 @@ Each GoogleTest case must finish within 120 seconds, including fixture setup
 and teardown. The common driver stops a case after 115 seconds on every MPI
 rank, leaving five seconds within the budget for launcher shutdown. A watchdog
 timeout fails the test process; the timing report also rejects completed cases
-above the 120-second limit. A CTest group can contain several
+above the 120-second limit. Application launchers register a private process group
+so a timeout also stops their subprocesses and closes their output pipes.
+A CTest group can contain several
 cases, so its aggregate duration is distinct from an individual case's budget.
 
 Use the smallest fixture that exercises the contract. Keep nonzero loads,

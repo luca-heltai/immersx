@@ -415,6 +415,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #323](https://github.com/luca-heltai/immersx/pull/323) Compile applications and tests without GCC 13 warnings.
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Reduce harmonic, simplex, and lifted-coupling fixtures, consolidate repeated solver-policy checks, and give the stationary Navier–Stokes simplex smoke test an explicit initial timestep and output assertions.
+
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Cover elastodynamics cache invalidation, time-dependent loads, affine boundary lifting, and Schur factorization in serial and MPI.
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Skip numerical and Coral builds for documentation-only pull requests. Record C++ component selection in observation mode, retain every quick test for other changes, and keep full coverage on master with an explicit manual override.
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Validate documentation previews independently of performance measurements, using two Sphinx workers by default. Keep benchmark correctness smoke tests on numerical pull requests and complete measurements on master, with shared compiler caching.
