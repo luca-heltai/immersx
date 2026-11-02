@@ -33,36 +33,27 @@ namespace ImmersX::Vascularization::internal
                   quadrature_revision = 0;
     std::vector<TerminalDemandUpdate> terminals;
     // If present, these totals ALREADY include the proposed new terminals.
-    std::optional<std::array<double, 2>> canonical_total_demand;
-    // Separate portal control preserves the existing arterial/venous input.
-    std::optional<double> canonical_portal_demand;
+    std::array<std::optional<double>, 3> canonical_total_demand{};
     template <class Archive>
     void
     serialize(Archive &ar, unsigned int)
     {
-      bool canonical = canonical_total_demand.has_value();
       ar &snapshot_revision &base_quadrature_revision &quadrature_revision
-        &terminals &canonical;
-      if constexpr (Archive::is_loading::value)
+        &terminals;
+      for (auto &total : canonical_total_demand)
         {
-          if (canonical)
-            canonical_total_demand.emplace();
-          else
-            canonical_total_demand.reset();
+          bool present = total.has_value();
+          ar  &present;
+          if constexpr (Archive::is_loading::value)
+            {
+              if (present)
+                total.emplace();
+              else
+                total.reset();
+            }
+          if (present)
+            ar &*total;
         }
-      if (canonical)
-        ar &(*canonical_total_demand)[0] & (*canonical_total_demand)[1];
-      bool portal = canonical_portal_demand.has_value();
-      ar  &portal;
-      if constexpr (Archive::is_loading::value)
-        {
-          if (portal)
-            canonical_portal_demand.emplace();
-          else
-            canonical_portal_demand.reset();
-        }
-      if (portal)
-        ar &*canonical_portal_demand;
     }
   };
 

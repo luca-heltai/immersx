@@ -1,12 +1,15 @@
 // Copyright (C) 2026 by Luca Heltai
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#include "growth_paths.h"
-
+#ifndef immersx_test_vascularization_forest_oracle_h
+#define immersx_test_vascularization_forest_oracle_h
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/vector.hpp>
 
 #include <immersx/vascularization/generation.h>
+
+#include "../source/vascularization/forest_state.h"
+#include "../source/vascularization/growth_paths.h"
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -24,7 +27,8 @@ namespace ImmersX::Vascularization::internal
       }
     };
   } // namespace
-  GrowthCandidatePaths
+  // Independent full-forest path reconstruction for the sparse-path tests.
+  inline GrowthCandidatePaths
   fetch_growth_candidates(const NetworkData                &network,
                           const ForestState                &forest,
                           const std::map<Id, unsigned int> &requests,
@@ -203,3 +207,5 @@ namespace ImmersX::Vascularization::internal
     return result;
   }
 } // namespace ImmersX::Vascularization::internal
+
+#endif
