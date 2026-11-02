@@ -271,10 +271,10 @@ namespace
     flow_domain_parameters.name_of_grid =
       metric_flow_parameter("Vtk file path for mesh input");
     flow_domain_parameters.read_vtk_fields = true;
-    Domain<1, 3>                         flow_domain(flow_domain_parameters,
+    Domain<1, 3> flow_domain(flow_domain_parameters,
                              flow_problem.triangulation());
-    Vascularization::GenerationResult    generated;
-    Vascularization::MetricFlowXTransfer transfer;
+    std::optional<Vascularization::GenerationResult>    generated;
+    std::optional<Vascularization::MetricFlowXTransfer> transfer;
     if (generate_network)
       {
         AssertThrow(
@@ -296,11 +296,11 @@ namespace
                                               generation_parameters,
                                               MPI_COMM_WORLD);
         AssertThrow(
-          generated.validation.valid(),
+          generated->validation.valid(),
           ExcMessage(
             "Vascular generation failed; the result cannot be adopted."));
         transfer = prepare_generated_flow(flow_problem,
-                                          generated,
+                                          *generated,
                                           vessel_young_modulus,
                                           vessel_wall_thickness,
                                           vessel_reference_pressure,
@@ -352,7 +352,7 @@ namespace
           unsigned int reference_degree = area_fe->degree;
           unsigned int local_taper = 0;
           const auto   rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
-          for (const auto &[id, vessel] : generated.network.vessels)
+          for (const auto &[id, vessel] : generated->network.vessels)
             if (vessel.owner == rank && vessel.radii[0] != vessel.radii[1])
               local_taper = 1;
           if (Utilities::MPI::max(local_taper, MPI_COMM_WORLD) != 0)
@@ -380,7 +380,7 @@ namespace
                 cell->get_dof_indices(indices);
                 const auto interval =
                   Vascularization::physical_reference(cell->id(),
-                                                      transfer.flow_cells);
+                                                      transfer->flow_cells);
                 const auto &properties =
                   flow_problem.vessel_properties(cell->material_id());
                 for (unsigned int i = 0; i < indices.size(); ++i)
@@ -409,6 +409,8 @@ namespace
       reference_area.update_ghost_values();
       return a0.field();
     }();
+    generated.reset();
+    transfer.reset();
     const auto A0 = frozen(reference_field, reference_area);
 
     solid_problem.setup_system();
