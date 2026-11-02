@@ -133,6 +133,10 @@ The report lists the longest build commands separately: elapsed command times
 can overlap and must not be summed as build wall time. The Debug job reserves
 4 GB for ccache; compare hits, misses, and cleanup counts on equivalent runs
 when checking whether that working set is sufficient.
+The numerical jobs use two compiler workers to contain peak memory use. Their
+whole-job deadlines, 120 minutes for Debug and 90 minutes for Release, include
+cold compilation and all selected tests. The 120-second per-case watchdog is
+independent of those workflow deadlines.
 `Testing/Temporary/LastTest.log` includes GoogleTest case timings even for
 successful groups. Partial logs are uploaded on failure when the runner can
 still execute cleanup steps; a hard job timeout can prevent the upload.
@@ -150,6 +154,59 @@ current configuration before rerunning a failed group.
 
 For application smoke tests and package checks, see
 [Test a documented workflow](../how-to/testing).
+
+## Retained cost audit
+
+The Debug CI job on revision `c7c1256` took 56 min 47 s:
+
+| Phase | Wall time |
+| --- | ---: |
+| Configuration and build | 29 min 05 s |
+| CTest | 25 min 15 s |
+| Setup, cache handling, and other steps | 2 min 27 s |
+
+Harmonic fiber reinforcement, lifted elasticity, and lifted Poisson accounted
+for 73% of CTest time, counting serial and two-rank execution. The Debug compiler
+cache reported 38.33% hits and 112 cleanups at its former 1 GB limit. This
+supports increasing the cache capacity; it does not attribute every miss to
+eviction. Compiler command durations overlap, so their sum is not build wall
+time.
+
+The {download}`source audit <../../benchmarks/reports/gtest-cost-audit-2026-11-02.json>`
+records decisions for all 115 original numerical GoogleTest source files,
+including retained independent oracles and the surviving checks for consolidated
+cases. It separately reviews the common driver and timing infrastructure.
+The {download}`build audit <../../benchmarks/reports/gtest-build-costs-2026-11-02.json>`
+retains compiler/cache evidence and the cross-checkout cache verification.
+The {download}`case observations <../../benchmarks/reports/gtest-runtime-2026-11-02.jsonl>`
+retain baseline and integrated candidate timings by configuration and rank count.
+
+Local runs use GNU 11.4 and deal.II 9.8 on gpu02, with OpenMP and BLAS limited to
+one thread. They are distinct from hosted CI timings. Baseline cases interrupted
+at 120 seconds are lower bounds, and the two original Release serial AL parity
+failures remain recorded. The removed fine-grid accuracy study and the omitted
+tails of convergence and parameter sweeps are explicitly documented; small
+correctness regressions do not establish the same accuracy or scaling coverage.
+
+The integrated local matrix on `7438d953` passes all 164 CTest groups and 1,829
+GoogleTest executions in Debug/Release, serial and two-rank MPI, with no skips or
+timeouts. The largest recorded case takes 28.529 seconds. Summed case times
+exclude process startup and CTest overhead:
+
+| Configuration | Baseline case seconds | Candidate case seconds |
+| --- | ---: | ---: |
+| Debug, serial | ≥ 1,725.509 | 623.372 |
+| Debug, MPI with two ranks | ≥ 1,255.765 | 403.465 |
+| Release, serial | 359.231 | 168.825 |
+| Release, MPI with two ranks | 253.927 | 112.609 |
+
+These are separate runs with changed fixtures and coverage, including the
+baseline failures and censored timings described above. They are an inventory
+of observed costs, not a matched benchmark or a hosted-CI speedup measurement.
+MPI case durations describe rank zero; successful launcher exits and the
+per-rank watchdog also cover the other ranks. Optional MetricFlowX, Coral,
+external FVM runtime, standalone benchmark, and deal.II-style application-test
+configurations were not run in this local matrix.
 
 ```{toctree}
 :maxdepth: 1
