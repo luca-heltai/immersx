@@ -46,6 +46,7 @@ developer/index
 performance/index
 performance/pipeline
 performance/particle-penalty
+performance/elastodynamics
 performance/metric-flow-x-elastodynamics
 changes
 about/index
