@@ -56,6 +56,26 @@ def log_cases(path):
             }
 
 
+def build_commands(build_dir):
+    """Read the latest Ninja timing for each output, retaining elapsed times."""
+    path = build_dir / ".ninja_log"
+    if not path.exists():
+        return []
+    outputs = {}
+    for line in path.read_text().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        start, end, _, output, command = line.split("\t")
+        outputs[output] = (int(start), int(end), command)
+    commands = {}
+    for output, (start, end, command) in outputs.items():
+        key = (start, end, command)
+        entry = commands.setdefault(key, {"seconds": (end - start) / 1000,
+                                          "outputs": []})
+        entry["outputs"].append(output)
+    return sorted(commands.values(), key=lambda entry: -entry["seconds"])
+
+
 def collect(build_dir):
     cases = []
     for path in sorted((build_dir / "gtests" / "test-results").glob("*.xml")):
@@ -87,14 +107,28 @@ def collect(build_dir):
                 status = "skipped"
             groups.append({"test": case.attrib["name"], "status": status,
                            "seconds": float(case.attrib.get("time", "0"))})
-    return {"build_dir": str(build_dir), "cases": cases, "groups": groups}
+    return {"build_dir": str(build_dir), "cases": cases, "groups": groups,
+            "build_commands": build_commands(build_dir)}
 
 
 def summary(report):
     lines = ["### GoogleTest case timings", ""]
+    if report.get("build_commands"):
+        lines += ["Longest Ninja commands (elapsed times can overlap):", "",
+                  "| Outputs | Seconds |", "| --- | ---: |"]
+        for command in report["build_commands"][:10]:
+            outputs = ", ".join(command["outputs"]).replace("|", "\\|")
+            lines.append(f"| `{outputs}` | {command['seconds']:.3f} |")
+        lines += [""]
     failures = [group["test"] for group in report["groups"] if group["status"] == "failed"]
     if failures:
         lines += ["CTest group failures: " + ", ".join(f"`{name}`" for name in failures), ""]
+    violations = report.get("over_budget", [])
+    if violations:
+        lines += [f"GoogleTest cases exceeding {report['max_case_seconds']:g} seconds:", ""]
+        lines += [f"- `{case['test']}`: {case['seconds']:.3f} s ({case['group']})"
+                  for case in violations]
+        lines += [""]
     lines += ["MPI case XML describes rank zero; CTest group status covers every rank.", ""]
     if not report["cases"]:
         return "\n".join(lines + ["No completed case timings are available.", ""])
@@ -112,8 +146,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--max-case-seconds", type=float, default=120,
+                        help="Fail when a completed GoogleTest case exceeds this wall time")
     args = parser.parse_args()
+    if args.max_case_seconds <= 0:
+        parser.error("--max-case-seconds must be positive")
     report = collect(args.build_dir)
+    report["max_case_seconds"] = args.max_case_seconds
+    report["over_budget"] = [case for case in report["cases"]
+                             if case["seconds"] > args.max_case_seconds]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     rendered = summary(report)
@@ -121,7 +162,8 @@ def main():
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:
             stream.write(rendered)
+    return 1 if report["over_budget"] else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

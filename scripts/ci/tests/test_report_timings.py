@@ -1,5 +1,8 @@
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -13,6 +16,46 @@ spec.loader.exec_module(report_timings)
 
 
 class Timings(unittest.TestCase):
+    def test_build_timings_keep_latest_outputs_and_count_multioutput_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary)
+            (build / ".ninja_log").write_text(
+                "# ninja log v5\n"
+                "0\t9000\t1\told.o\tcompile\n"
+                "0\t1000\t2\told.o\tcompile\n"
+                "1000\t3000\t3\tprogram\tlink\n"
+                "1000\t3000\t3\ttest-registry.cmake\tlink\n"
+            )
+            commands = report_timings.collect(build)["build_commands"]
+            self.assertEqual(len(commands), 2)
+            self.assertEqual(commands[0]["seconds"], 2)
+            self.assertEqual(set(commands[0]["outputs"]),
+                             {"program", "test-registry.cmake"})
+            self.assertEqual(commands[1], {"seconds": 1, "outputs": ["old.o"]})
+
+    def test_case_budget_fails_after_preserving_the_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary)
+            results = build / "gtests" / "test-results"
+            results.mkdir(parents=True)
+            source = results / "group.xml"
+            output = build / "timings.json"
+            for elapsed, expected in ((120, 0), (120.001, 1)):
+                with self.subTest(elapsed=elapsed):
+                    source.write_text(
+                        '<testsuites><testsuite><testcase classname="Suite" '
+                        f'name="Case" time="{elapsed}"/></testsuite></testsuites>'
+                    )
+                    result = subprocess.run(
+                        [sys.executable, str(Path(report_timings.__file__)),
+                         "--build-dir", str(build), "--output", str(output)],
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    report = json.loads(output.read_text())
+                    self.assertEqual(len(report["over_budget"]), expected)
+                    self.assertEqual(report["cases"][0]["seconds"], elapsed)
+
     def test_xml_ranks_status_and_partial_log(self):
         with tempfile.TemporaryDirectory() as temporary:
             build = Path(temporary)

@@ -17,8 +17,42 @@
 #include <deal.II/base/mpi.h>
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
+#include <csignal>
+#include <cstdlib>
 #include <string>
+
+namespace
+{
+  void
+  test_time_limit_exceeded(int)
+  {
+    constexpr char message[] =
+      "GoogleTest exceeded the 120 second correctness-test budget.\n";
+    // A signal handler cannot use streams or MPI. A failed rank also makes
+    // the MPI launcher fail, rather than leaving a passing rank-zero report.
+    const auto written = ::write(STDERR_FILENO, message, sizeof(message) - 1);
+    (void)written;
+    std::_Exit(EXIT_FAILURE);
+  }
+
+  class TestTimeLimit : public ::testing::EmptyTestEventListener
+  {
+  public:
+    void
+    OnTestStart(const ::testing::TestInfo &) override
+    {
+      ::alarm(120);
+    }
+
+    void
+    OnTestEnd(const ::testing::TestInfo &) override
+    {
+      ::alarm(0);
+    }
+  };
+} // namespace
 
 // The category guard needs a typed registry entry to check glob matching.
 // Keep this fixture in the common driver so it needs no separate translation
@@ -79,6 +113,9 @@ main(int argc, char *argv[])
 
   ::testing::TestEventListeners &listeners =
     ::testing::UnitTest::GetInstance()->listeners();
+  AssertThrow(std::signal(SIGALRM, test_time_limit_exceeded) != SIG_ERR,
+              dealii::ExcMessage("Cannot install the GoogleTest time limit."));
+  listeners.Append(new TestTimeLimit());
   if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0)
     {
       delete listeners.Release(listeners.default_result_printer());

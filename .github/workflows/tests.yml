@@ -41,19 +41,13 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ github.job }}-dealii-9.7.1-noble-v2
-          max-size: 1G
+          max-size: 4G
           append-timestamp: true
           update-package-index: true
           verbose: 1
 
-      - uses: robinraju/release-downloader@v1
-        with:
-          tag: "v0.2"
-          fileName: "lib1dsolver.a"
-
       - name: Build debug
         run: |
-          ls lib1dsolver.a
           rm -rf build_linux_debug
           mkdir build_linux_debug
           cd build_linux_debug
@@ -61,6 +55,7 @@ jobs:
             -DIMMERSX_BUILD_BENCHMARKS=ON \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
+            -DENABLE_COUPLED_PROBLEMS=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ninja
@@ -101,6 +96,7 @@ jobs:
             build_linux_debug/compile_commands.json
             build_linux_debug/compiler-dependencies.txt
             build_linux_debug/target-dependencies.dot
+            build_linux_debug/.ninja_log
             build_linux_debug/test-timings.json
             build_linux_debug/gtests/test-results/
             build_linux_debug/Testing/Temporary/
@@ -132,14 +128,8 @@ jobs:
           update-package-index: true
           verbose: 1
 
-      - uses: robinraju/release-downloader@v1
-        with:
-          tag: "v0.1"
-          fileName: "lib1dsolver.a"
-
       - name: Build release
         run: |
-          ls lib1dsolver.a
           rm -rf build_linux_release
           mkdir build_linux_release
           cd build_linux_release
@@ -147,6 +137,7 @@ jobs:
             -DIMMERSX_BUILD_BENCHMARKS=ON \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
+            -DENABLE_COUPLED_PROBLEMS=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ninja
@@ -187,6 +178,7 @@ jobs:
             build_linux_release/compile_commands.json
             build_linux_release/compiler-dependencies.txt
             build_linux_release/target-dependencies.dot
+            build_linux_release/.ninja_log
             build_linux_release/test-timings.json
             build_linux_release/gtests/test-results/
             build_linux_release/Testing/Temporary/
