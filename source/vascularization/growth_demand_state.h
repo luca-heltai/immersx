@@ -66,17 +66,13 @@ namespace ImmersX::Vascularization::internal
     // Per system: absolute demand, SI volume, physical-demand power
     // coefficient.
     std::array<long double, 9>           totals{};
-    std::optional<std::array<double, 2>> canonical_total_demand;
-    // Separate portal control preserves the existing arterial/venous input.
-    std::optional<double> canonical_portal_demand;
+    std::array<std::optional<double>, 3> canonical_total_demand{};
     long double
     total_demand(unsigned int system) const
     {
       AssertIndexRange(system, 3);
-      if (system < 2 && canonical_total_demand)
-        return (*canonical_total_demand)[system];
-      else if (system == 2 && canonical_portal_demand)
-        return *canonical_portal_demand;
+      if (canonical_total_demand[system])
+        return *canonical_total_demand[system];
       return totals[3 * system];
     }
     // Nine scalar controls per rank; no topology or per-terminal data.

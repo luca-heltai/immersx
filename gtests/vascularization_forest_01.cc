@@ -28,8 +28,8 @@
 #include "../source/vascularization/growth_execution.h"
 #include "../source/vascularization/growth_loop.h"
 #include "../source/vascularization/growth_ownership_delta.h"
-#include "../source/vascularization/growth_paths.h"
 #include "../source/vascularization/network_serialization.h"
+#include "vascularization_forest_oracle.h"
 using namespace dealii;
 using namespace ImmersX::Vascularization;
 using namespace ImmersX::Vascularization::internal;
@@ -1973,10 +1973,7 @@ TEST(VascularForest, BOTH_DemandUpdateDirectoryTransport)
   update.base_quadrature_revision = 3;
   update.quadrature_revision      = 4;
   update.terminals.push_back({base + rank(), .125 + rank()});
-  if (rank() % 2 == 0)
-    update.canonical_total_demand = std::array<double, 2>{{5., 0.}};
-  else if (rank() % 2 == 1)
-    update.canonical_portal_demand = 7. + rank();
+  update.canonical_total_demand[rank() % 3] = 7. + rank();
   std::map<unsigned int, std::vector<GrowthDemandUpdate>> send;
   send[(base + rank()) % size()].push_back(update);
   const auto    received = Utilities::MPI::some_to_some(MPI_COMM_WORLD, send);
@@ -1994,16 +1991,12 @@ TEST(VascularForest, BOTH_DemandUpdateDirectoryTransport)
         EXPECT_EQ(value.terminals.front().terminal, base + source);
         EXPECT_EQ(value.terminals.front().terminal % size(), rank());
         EXPECT_EQ(value.terminals.front().demand, .125 + source);
-        EXPECT_EQ(value.canonical_total_demand.has_value(), source % 2 == 0);
-        EXPECT_EQ(value.canonical_portal_demand.has_value(), source % 2 == 1);
-        if (value.canonical_portal_demand)
+        for (unsigned int system = 0; system < 3; ++system)
           {
-            EXPECT_EQ(*value.canonical_portal_demand, 7. + source);
-          }
-        if (value.canonical_total_demand)
-          {
-            EXPECT_EQ((*value.canonical_total_demand)[0], 5.);
-            EXPECT_EQ((*value.canonical_total_demand)[1], 0.);
+            EXPECT_EQ(value.canonical_total_demand[system].has_value(),
+                      source % 3 == system);
+            if (value.canonical_total_demand[system])
+              EXPECT_EQ(*value.canonical_total_demand[system], 7. + source);
           }
       }
   EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), size());
@@ -2344,13 +2337,9 @@ TEST(VascularForest, BOTH_DemandCandidateUsesUpdatedWeightsAndAcceptedReference)
           GrowthDemandState state(n, accepted, p, 7, MPI_COMM_WORLD);
           ASSERT_TRUE(state.validation().valid());
           GrowthDemandUpdate update;
-          update.snapshot_revision  = 7;
-          const double final_demand = 18.75 + new_demand;
-          if (system == System::arterial)
-            update.canonical_total_demand =
-              std::array<double, 2>{{final_demand, 0.}};
-          else if (system == System::portal)
-            update.canonical_portal_demand = final_demand;
+          update.snapshot_revision            = 7;
+          const double final_demand           = 18.75 + new_demand;
+          update.canonical_total_demand[slot] = final_demand;
           const std::map<Id, double> changed{{base + 30, .5},
                                              {base + 131, 2.25}};
           for (const auto &[id, demand] : changed)
