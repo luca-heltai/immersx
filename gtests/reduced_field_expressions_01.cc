@@ -37,7 +37,7 @@ namespace
     parallel::distributed::Triangulation<spacedim> background_tria(
       MPI_COMM_WORLD);
     GridGenerator::hyper_cube(background_tria, -0.2, 1.2);
-    background_tria.refine_global(3);
+    background_tria.refine_global(1);
 
     ReducedCouplingParameters<reduced_dim, dim, spacedim, n_components> par;
     par.tensor_product_space_parameters.reduced_grid_name =

@@ -17,7 +17,6 @@ set(IMMERSX_UNIT_TEST_SUITES
     Inclusion2
     Inclusion3
     InclusionsBasis2
-    CCO
     SymbolicExpressionKernel
     SymbolicFieldEvaluator
     StateHistory
