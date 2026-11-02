@@ -825,6 +825,17 @@ TEST(DistributedIDA, BOTH_LinearizationRetainsEachMatrixAtItsEvaluationPoint)
   vector      = 1.;
   global.vmult(solution, vector);
   EXPECT_NEAR(solution.block(0)[rank], 1., 1.e-12);
+  const auto monolithic = composition.monolithic_matrix(
+    composition.block_matrix(snapshot->state_storage,
+                             &snapshot->derivative_storage,
+                             2.,
+                             0.,
+                             &snapshot->linearization));
+  const auto flat_input  = composition.pack(vector);
+  auto       flat_action = flat_input;
+  monolithic.vmult(flat_action, flat_input);
+  flat_action -= composition.pack(solution);
+  EXPECT_LT(flat_action.l2_norm(), 1.e-12);
   global.Tvmult(solution, vector);
   EXPECT_EQ(factories, 5u);
   EXPECT_EQ(materializations, 5u);
@@ -937,6 +948,94 @@ TEST(DistributedIDA, BOTH_LinearizationRetainsMixedMatrixAndMatrixFreeTerms)
 }
 
 #  ifdef DEAL_II_WITH_UMFPACK
+TEST(DistributedIDA, SerialUMFPACKRetainsFactoriesAtEachLinearization)
+{
+  using namespace dealii;
+  TimeIntervalParameters time_parameters;
+  IDAParameters          ida_parameters;
+  Adapter adapter(time_parameters, ida_parameters, MPI_COMM_SELF);
+  adapter.set_serial_direct_solver();
+  IndexSet owned(1);
+  owned.add_index(0);
+  DynamicSparsityPattern sparsity(1, 1);
+  sparsity.add(0, 0);
+  auto native = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  native->reinit(owned, owned, sparsity, MPI_COMM_SELF);
+  unsigned int factories = 0, materializations = 0;
+  const auto   field    = adapter.add([&](auto &builder) {
+    using Model        = typename std::decay_t<decltype(builder)>::Model;
+    const auto u       = builder.differential_field("u", owned);
+    const auto factory = [&](const bool derivative) {
+      return typename Model::MatrixOperatorFactory(
+        [native, u, derivative, &factories, &materializations](
+          const auto &context) {
+          ++factories;
+          const double coefficient =
+            derivative ? 2. + context.derivative(u)[0] :
+                              1. + context.time() + context.state(u)[0];
+          native->set(0, 0, coefficient);
+          native->compress(VectorOperation::insert);
+          auto op        = matrix_operator<FieldVector>(*native);
+          op.materialize = [native, &materializations]() {
+            ++materializations;
+            return native;
+          };
+          return op;
+        });
+    };
+    builder.term(u, "state-and-rate")
+      .state(u, factory(false))
+      .derivative(u, factory(true));
+    return u;
+  });
+  auto         state    = adapter.make_state();
+  auto         dot      = adapter.make_state();
+  auto         rhs      = adapter.make_state();
+  auto         solution = adapter.make_state();
+  auto         action   = adapter.make_state();
+  state                 = 3.;
+  dot                   = 2.;
+  rhs                   = 26.;
+  adapter.solver().setup_jacobian(1., state, dot, 2.);
+  EXPECT_EQ(factories, 2u);
+  EXPECT_EQ(materializations, 2u);
+  const auto first_jacobian = adapter.current_jacobian();
+  adapter.solver().solve_with_jacobian(rhs, solution, 1.e-12);
+  EXPECT_NEAR(adapter.field(solution, field.fields())[0], 2., 1.e-12);
+  adapter.current_jacobian().vmult(action, solution);
+  action -= rhs;
+  EXPECT_LT(action.l2_norm(), 1.e-12);
+  EXPECT_EQ(factories, 2u);
+  EXPECT_EQ(materializations, 2u);
+  state = -1.;
+  dot   = 1.;
+  rhs   = 22.;
+  adapter.solver().setup_jacobian(2., state, dot, 3.);
+  EXPECT_EQ(factories, 4u);
+  EXPECT_EQ(materializations, 4u);
+  adapter.solver().solve_with_jacobian(rhs, solution, 1.e-12);
+  EXPECT_NEAR(adapter.field(solution, field.fields())[0], 2., 1.e-12);
+  adapter.current_jacobian().vmult(action, solution);
+  action -= rhs;
+  EXPECT_LT(action.l2_norm(), 1.e-12);
+  solution = 1.;
+  first_jacobian.vmult(action, solution);
+  EXPECT_NEAR(adapter.field(action, field.fields())[0], 13., 1.e-12);
+}
+
+TEST(DistributedIDA, SerialUMFPACKRejectsMatrixFreeJacobian)
+{
+  TimeIntervalParameters time_parameters;
+  IDAParameters          ida_parameters;
+  Adapter adapter(time_parameters, ida_parameters, MPI_COMM_SELF);
+  adapter.set_serial_direct_solver();
+  add_identity_field(adapter, 1);
+  auto state = adapter.make_state();
+  auto dot   = adapter.make_state();
+  EXPECT_THROW(adapter.solver().setup_jacobian(0., state, dot, 1.),
+               dealii::ExceptionBase);
+}
+
 TEST(DistributedIDA, SerialUMFPACKSolvesCurrentDAEJacobian)
 {
   using namespace dealii;
