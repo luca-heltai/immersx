@@ -89,6 +89,18 @@ namespace
     return DoFTools::map_dofs_to_support_points(problem.mapping(),
                                                 problem.dof_handler());
   }
+
+  void
+  refine_lower_left(Problem &problem)
+  {
+    auto &tria =
+      const_cast<parallel::TriangulationBase<2> &>(problem.triangulation());
+    for (const auto &cell : tria.active_cell_iterators())
+      if (cell->is_locally_owned() && cell->center()[0] < 0.5 &&
+          cell->center()[1] < 0.5)
+        cell->set_refine_flag();
+    tria.execute_coarsening_and_refinement();
+  }
 } // namespace
 
 
@@ -282,13 +294,7 @@ TEST(Elastodynamics, BOTH_TrapezoidalMovingBoundaryWithHangingNodes)
 
   Problem problem(parameters);
   problem.make_grid();
-  auto &tria =
-    const_cast<parallel::TriangulationBase<2> &>(problem.triangulation());
-  for (const auto &cell : tria.active_cell_iterators())
-    if (cell->is_locally_owned() && cell->center()[0] < 0.5 &&
-        cell->center()[1] < 0.5)
-      cell->set_refine_flag();
-  tria.execute_coarsening_and_refinement();
+  refine_lower_left(problem);
   problem.setup_fe();
   problem.setup_system();
   problem.assemble_operators();
@@ -306,6 +312,8 @@ TEST(Elastodynamics, BOTH_TrapezoidalMovingBoundaryWithHangingNodes)
   // exactly by Q1 and the trapezoidal rule, including hanging-node traces.
   for (unsigned int step = 0; step < 3; ++step)
     {
+      if (step == 1)
+        parameters.fixed_step_parameters.time_step = 0.01;
       problem.advance_one_timestep();
       const double time = problem.current_time();
       for (const auto index : problem.locally_owned_dofs())
@@ -315,6 +323,69 @@ TEST(Elastodynamics, BOTH_TrapezoidalMovingBoundaryWithHangingNodes)
                       time * time * scale,
                       1.e-10);
           EXPECT_NEAR(problem.velocity()(index), 2. * time * scale, 1.e-9);
+        }
+      EXPECT_EQ(problem.assembly_statistics().time_system_matrix,
+                step == 0 ? 1u : 2u);
+    }
+  EXPECT_EQ(problem.assembly_statistics().spatial_operators, 1u);
+  EXPECT_EQ(problem.assembly_statistics().body_force, 1u);
+  EXPECT_EQ(problem.assembly_statistics().time_system_matrix, 2u);
+}
+
+
+TEST(Elastodynamics, BOTH_BackwardEulerMovingBoundaryWithHangingNodes)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  configure_reuse_problem(R"(
+    subsection Elastodynamics
+      set Dirichlet boundary ids = 0,1,2,3
+      subsection Material properties
+        subsection default
+          set Rayleigh alpha = 1
+        end
+      end
+      subsection Fixed step
+        set Policy = fixed
+        set Strategy = backward_euler
+        set Time step = 0.025
+      end
+      subsection Functions
+        subsection Body force
+          set Function expression = 1+x; 0
+        end
+        subsection Displacement boundary
+          set Function expression = t*(1+x); 0
+        end
+        subsection Initial velocity
+          set Function expression = 1+x; 0
+        end
+      end
+    end
+  )");
+
+  Problem problem(parameters);
+  problem.make_grid();
+  refine_lower_left(problem);
+  problem.setup_fe();
+  problem.setup_system();
+  problem.assemble_operators();
+  problem.set_initial_conditions();
+  const auto points      = support_points(problem);
+  const auto x_component = component_direction(problem, 0);
+
+  // u=t*(1+x,0) has zero acceleration and interior elastic force. With
+  // Rayleigh alpha=1 its nonzero damping force is exactly (1+x,0).
+  for (unsigned int step = 0; step < 3; ++step)
+    {
+      problem.advance_one_timestep();
+      for (const auto index : problem.locally_owned_dofs())
+        {
+          const double scale = x_component(index) * (1. + points.at(index)[0]);
+          EXPECT_NEAR(problem.displacement()(index),
+                      problem.current_time() * scale,
+                      1.e-10);
+          EXPECT_NEAR(problem.velocity()(index), scale, 1.e-9);
         }
     }
   EXPECT_EQ(problem.assembly_statistics().spatial_operators, 1u);
