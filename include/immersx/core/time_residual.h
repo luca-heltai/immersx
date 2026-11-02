@@ -127,42 +127,7 @@ namespace ImmersX
                         auto matrix = op.matrix();
                         if (matrix.use_count() > 1)
                           matrix = detail::clone_matrix(*matrix);
-                        op              = MatrixOperator{};
-                        const auto view = payload_free(
-                          dealii::linear_operator<VectorType, VectorType>(
-                            *matrix));
-                        op.view = view;
-                        op.view.reinit_range_vector =
-                          [matrix, view](VectorType &vector, const bool omit) {
-                            view.reinit_range_vector(vector, omit);
-                          };
-                        op.view.reinit_domain_vector =
-                          [matrix, view](VectorType &vector, const bool omit) {
-                            view.reinit_domain_vector(vector, omit);
-                          };
-                        op.view.vmult = [matrix, view](VectorType       &dst,
-                                                       const VectorType &src) {
-                          view.vmult(dst, src);
-                        };
-                        op.view.vmult_add = [matrix,
-                                             view](VectorType       &dst,
-                                                   const VectorType &src) {
-                          view.vmult_add(dst, src);
-                        };
-                        op.view.Tvmult = [matrix, view](VectorType       &dst,
-                                                        const VectorType &src) {
-                          view.Tvmult(dst, src);
-                        };
-                        op.view.Tvmult_add = [matrix,
-                                              view](VectorType       &dst,
-                                                    const VectorType &src) {
-                          view.Tvmult_add(dst, src);
-                        };
-                        op.materialize = [matrix]() { return matrix; };
-                        op.materialize_into =
-                          [matrix](MatrixType &destination) {
-                            detail::copy_matrix(destination, *matrix);
-                          };
+                        op = matrix_operator<VectorType>(std::move(matrix));
                       }
                     entry.factory = [op](const Context &) { return op.view; };
                     entry.matrix_factory = [op](const Context &) { return op; };

@@ -871,39 +871,39 @@ namespace ImmersX
         !solve_ && linear_solver_ == LinearSolver::iterative;
       const auto snapshot =
         composition_.make_snapshot(time, state, state_dot, retain_matrices);
-      const auto operator_view =
+      const auto operator_view = std::make_shared<const Operator>(
         composition_.jacobian(snapshot->context,
                               alpha,
                               retain_matrices ? &snapshot->linearization :
-                                                nullptr);
+                                                nullptr));
 
       Operator stable;
-      stable.reinit_range_vector = [operator_view](GlobalVectorType &vector,
-                                                   const bool        omit) {
-        operator_view.reinit_range_vector(vector, omit);
-      };
-      stable.reinit_domain_vector = [operator_view](GlobalVectorType &vector,
-                                                    const bool        omit) {
-        operator_view.reinit_domain_vector(vector, omit);
-      };
+      stable.reinit_range_vector =
+        [operator_view, snapshot](GlobalVectorType &vector, const bool omit) {
+          operator_view->reinit_range_vector(vector, omit);
+        };
+      stable.reinit_domain_vector =
+        [operator_view, snapshot](GlobalVectorType &vector, const bool omit) {
+          operator_view->reinit_domain_vector(vector, omit);
+        };
       stable.vmult = [operator_view, snapshot](GlobalVectorType &destination,
                                                const GlobalVectorType &source) {
-        operator_view.vmult(destination, source);
+        operator_view->vmult(destination, source);
       };
       stable.vmult_add = [operator_view,
                           snapshot](GlobalVectorType       &destination,
                                     const GlobalVectorType &source) {
-        operator_view.vmult_add(destination, source);
+        operator_view->vmult_add(destination, source);
       };
       stable.Tvmult = [operator_view,
                        snapshot](GlobalVectorType       &destination,
                                  const GlobalVectorType &source) {
-        operator_view.Tvmult(destination, source);
+        operator_view->Tvmult(destination, source);
       };
       stable.Tvmult_add = [operator_view,
                            snapshot](GlobalVectorType       &destination,
                                      const GlobalVectorType &source) {
-        operator_view.Tvmult_add(destination, source);
+        operator_view->Tvmult_add(destination, source);
       };
       current_jacobian_ = std::move(stable);
       current_preconditioner_.reset();
@@ -983,36 +983,36 @@ namespace ImmersX
       else if (!solve_)
         {
           const auto keep_snapshot = [snapshot](Operator operator_view) {
+            const auto retained =
+              std::make_shared<const Operator>(std::move(operator_view));
             Operator result;
-            result.reinit_range_vector = [operator_view,
-                                          snapshot](GlobalVectorType &vector,
-                                                    const bool        omit) {
-              operator_view.reinit_range_vector(vector, omit);
-            };
-            result.reinit_domain_vector = [operator_view,
-                                           snapshot](GlobalVectorType &vector,
-                                                     const bool        omit) {
-              operator_view.reinit_domain_vector(vector, omit);
-            };
-            result.vmult = [operator_view,
+            result.reinit_range_vector =
+              [retained, snapshot](GlobalVectorType &vector, const bool omit) {
+                retained->reinit_range_vector(vector, omit);
+              };
+            result.reinit_domain_vector =
+              [retained, snapshot](GlobalVectorType &vector, const bool omit) {
+                retained->reinit_domain_vector(vector, omit);
+              };
+            result.vmult = [retained,
                             snapshot](GlobalVectorType       &destination,
                                       const GlobalVectorType &source) {
-              operator_view.vmult(destination, source);
+              retained->vmult(destination, source);
             };
-            result.vmult_add = [operator_view,
+            result.vmult_add = [retained,
                                 snapshot](GlobalVectorType       &destination,
                                           const GlobalVectorType &source) {
-              operator_view.vmult_add(destination, source);
+              retained->vmult_add(destination, source);
             };
-            result.Tvmult = [operator_view,
+            result.Tvmult = [retained,
                              snapshot](GlobalVectorType       &destination,
                                        const GlobalVectorType &source) {
-              operator_view.Tvmult(destination, source);
+              retained->Tvmult(destination, source);
             };
-            result.Tvmult_add = [operator_view,
+            result.Tvmult_add = [retained,
                                  snapshot](GlobalVectorType       &destination,
                                            const GlobalVectorType &source) {
-              operator_view.Tvmult_add(destination, source);
+              retained->Tvmult_add(destination, source);
             };
             return result;
           };

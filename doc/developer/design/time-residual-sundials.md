@@ -63,8 +63,9 @@ a materializer become owned matrices immediately, before another factory can
 reuse its native storage. Global Jacobian and Schur actions reuse these matrices
 throughout the linear solve. Matrix-free contributions remain actions evaluated
 from the same snapshot. The next setup builds a new linearization; residual
-evaluation remains independent. Custom linear solves and direct solvers keep
-their existing paths.
+evaluation remains independent. The adapter shares each composed Jacobian and
+preconditioner between its callbacks, avoiding duplicate copies of the operator
+graph. Custom linear solves and direct solvers keep their existing paths.
 
 `TimeIntervalParameters` owns the initial and final times and the physical
 output interval. `IDAParameters` owns IDA's adaptive-step controls, error
