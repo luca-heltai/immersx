@@ -2,7 +2,7 @@
 
 The baseline for the native and IDA execution paths is ImmersX revision
 `6bd61abda38cd1c7908eea60623023f6d566ac56`. The
-[retained report](../../benchmarks/reports/elastodynamics-baseline-2026-11-02.json)
+{download}`retained report <../../benchmarks/reports/elastodynamics-baseline-2026-11-02.json>`
 records the source revision, binary and input checksums, timers, and iteration
 counts. Its measurements describe that revision, not the commit that adds the
 report or later optimizations.
@@ -87,3 +87,67 @@ infer binary provenance from the checkout's current HEAD. Runtime dependency
 paths, if needed, must be supplied in the environment. Compare phase timers and
 iteration counts as well as total time; report numerical differences whenever
 the time integrator or tolerances change.
+
+## Reuse and block factorization
+
+Spatial setup invalidates the Problem's caches. Between spatial setups,
+`assemble_operators()` retains the mass, stiffness, and damping matrices.
+Volumetric loads and tractions have separate caches: a static contribution is
+retained, while a time-dependent contribution is evaluated at each new requested
+time. Time dependence is detected using the configured time variable name,
+including names other than `t`. Hanging-node topology is retained; only boundary
+data that depend on time require new interpolation. The initial velocity and
+the velocity derived by the native integrator remain distinct from the
+adapter's explicitly prescribed velocity boundary function.
+
+The native time matrix is an algebraic combination of the retained spatial
+matrices. It is reused while the step and integration rule are unchanged.
+The right-hand side uses matrix-vector products and affine lifting, including
+nonzero Dirichlet data and hanging-node constraints. Changing the step or IDA's
+derivative weight requires a new algebraic combination, not new spatial
+quadrature. `assembly_statistics()` exposes monotone counters for spatial
+assembly, load updates, constraint updates, and native time-matrix construction.
+
+On free variables, the IDA Jacobian is
+
+$$
+J=\begin{pmatrix}\alpha M&-M\\K&D+\alpha M\end{pmatrix},
+\qquad S=D+\alpha M+\alpha^{-1}K.
+$$
+
+Here the exact Schur complement remains sparse because the upper-right block
+is proportional to mass. The more general native time matrix is
+
+$$
+A=\begin{pmatrix}aM&-bM\\cK&aM+dD\end{pmatrix},
+\qquad S=aM+dD+\frac{bc}{a}K,
+$$
+
+with $a=1/h$ and $b=c=d=1$ for backward Euler, or $b=c=d=1/2$ for
+trapezoidal integration. The preconditioner applies a complete block
+factorization:
+
+$$
+w_u\approx(aM)^{-1}r_u,\qquad
+w_v\approx S^{-1}(r_v-cKw_u),\qquad
+z_u=w_u+\frac{b}{a}w_v,\quad z_v=w_v.
+$$
+
+Both inner solves use CG with AMG and a relative residual reduction of $10^{-2}$.
+That inner tolerance is not the requested accuracy of the physical solution:
+the outer FGMRES retains its configured stopping criterion. FGMRES uses right
+preconditioning and permits variable inner solves. Symmetric constraint
+projection keeps the inner matrices SPD; the exact outer system retains its
+constraint treatment. AMG receives rigid-body modes on full-dimensional vector
+spaces and component-wise constant modes for embedded spaces. The mass
+hierarchy is retained; the Schur hierarchy changes with its coefficients.
+
+This choice follows the block-factorization and nested-solve approach discussed
+by [Liu and Marsden (2019)](https://arxiv.org/abs/1809.06350) and the general
+Schur-complement treatment in
+[Wathen (2015)](https://people.maths.ox.ac.uk/wathen/preconditioning.pdf).
+[Saad (1993)](https://www-users.cse.umn.edu/~saad/PDF/umsi-91-279.pdf)
+provides the flexible outer iteration. The sparse physical Schur above follows
+directly from this linear system; it does not require an approximation to
+$M^{-1}M$. This is a structure-based choice, not a claim that one AMG setup or
+inner tolerance is optimal for every mesh, material contrast, or coupled model.

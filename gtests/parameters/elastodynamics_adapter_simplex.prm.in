@@ -10,12 +10,15 @@ subsection Elastodynamics
     set Grid generator = @TEST_DATA_DIR@/tests/simplex_cube.msh
     set Initial refinement = 0
   end
-  subsection Material
-    set Density = 1
-    set Lame mu = 1
-    set Lame lambda = 1
-    set Damping shear = 0
-    set Damping bulk = 0
+  subsection Material properties
+    subsection default
+      set Density = 1
+      set Lame mu = 1
+      set Lame lambda = 1
+      set Rayleigh alpha = 0
+      set Rayleigh beta = 0
+      set Viscosity eta = 0
+    end
   end
   subsection Time interval
     set Initial time = 0

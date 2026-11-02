@@ -95,6 +95,10 @@ namespace
   {
     auto &tria =
       const_cast<parallel::TriangulationBase<2> &>(problem.triangulation());
+    // Keep the isolated refinement patch: Domain's island smoothing would
+    // otherwise remove its refine flag and leave a uniform mesh.
+    tria.set_mesh_smoothing(
+      Triangulation<2>::limit_level_difference_at_vertices);
     for (const auto &cell : tria.active_cell_iterators())
       if (cell->is_locally_owned() && cell->center()[0] < 0.5 &&
           cell->center()[1] < 0.5)
@@ -371,6 +375,11 @@ TEST(Elastodynamics, BOTH_BackwardEulerMovingBoundaryWithHangingNodes)
   problem.setup_system();
   problem.assemble_operators();
   problem.set_initial_conditions();
+  AffineConstraints<double> hanging;
+  hanging.reinit(problem.locally_owned_dofs(), problem.locally_relevant_dofs());
+  DoFTools::make_hanging_node_constraints(problem.dof_handler(), hanging);
+  hanging.close();
+  EXPECT_GT(Utilities::MPI::sum(hanging.n_constraints(), MPI_COMM_WORLD), 0u);
   const auto points      = support_points(problem);
   const auto x_component = component_direction(problem, 0);
 

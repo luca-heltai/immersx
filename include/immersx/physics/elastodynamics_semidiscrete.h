@@ -155,8 +155,8 @@ namespace ImmersX
           const auto &context) {
           const auto &v_dot  = context.derivative(velocity_id);
           auto        result = mass.view * v_dot +
-                               stiffness.view * context.state(displacement_id) +
-                               damping.view * context.state(velocity_id);
+                        stiffness.view * context.state(displacement_id) +
+                        damping.view * context.state(velocity_id);
           typename SemiDiscreteModel<VectorType>::Operation forcing;
           forcing.reinit_vector = [&v_dot](VectorType &vector,
                                            const bool  omit) {

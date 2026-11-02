@@ -24,6 +24,7 @@
 
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/precondition.h>
+#include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/vector.h>
 
@@ -39,6 +40,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 
@@ -630,6 +632,7 @@ namespace ImmersX
     relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
 
     spatial_operators_ready = false;
+    time_preconditioner.reset();
     system_matrix_time_step.reset();
     volume_force_cache_time.reset();
     traction_force_cache_time.reset();
@@ -848,7 +851,7 @@ namespace ImmersX
         }
       destination.compress(VectorOperation::add);
       for (const auto &line : displacement_constraints_storage.get_lines())
-        if (destination.in_local_range(line.index))
+        if (owned_dofs.is_element(line.index))
           destination.set(line.index, line.index, constrained_diagonal);
       destination.compress(VectorOperation::insert);
     };
@@ -880,9 +883,10 @@ namespace ImmersX
     const bool refresh_volume =
       !volume_force_cache_time.has_value() ||
       (par.body_force_depends_on_time && *volume_force_cache_time != time);
-    const bool refresh_traction = !traction_force_cache_time.has_value() ||
-                                  (par.neumann_boundary_depends_on_time &&
-                                   *traction_force_cache_time != time);
+    const bool refresh_traction =
+      !traction_force_cache_time.has_value() ||
+      (!par.neumann_ids.empty() && par.neumann_boundary_depends_on_time &&
+       *traction_force_cache_time != time);
     if (!refresh_volume && !refresh_traction)
       {
         destination = cached_body_force;
@@ -1078,11 +1082,11 @@ namespace ImmersX
 
     acceleration.reinit(owned_dofs, mpi_communicator);
     acceleration = 0.;
-    SolverControl               control(par.solver_control.max_steps(),
+    SolverControl            control(par.solver_control.max_steps(),
                           par.solver_control.tolerance());
-    LA::MPI::PreconditionJacobi preconditioner;
+    LA::MPI::PreconditionAMG preconditioner;
     preconditioner.initialize(homogeneous_mass_matrix_storage);
-    SolverGMRES<VectorType> solver(control);
+    SolverCG<VectorType> solver(control);
     solver.solve(homogeneous_mass_matrix_storage,
                  acceleration,
                  projected_rhs,
@@ -1164,7 +1168,7 @@ namespace ImmersX
           }
     system_matrix_storage.compress(VectorOperation::add);
     for (const auto &line : combined_constraints_storage.get_lines())
-      if (system_matrix_storage.in_local_range(line.index))
+      if (combined_owned_dofs.is_element(line.index))
         system_matrix_storage.set(line.index, line.index, 1.);
     system_matrix_storage.compress(VectorOperation::insert);
     system_matrix_time_step = dt;
@@ -1243,11 +1247,92 @@ namespace ImmersX
         combined_solution(index)                  = displacement_storage(index);
         combined_solution(n_spatial_dofs + index) = velocity_storage(index);
       }
-    combined_constraints_storage.distribute(combined_solution);
+    // The condensed solve uses homogeneous slave entries; physical boundary
+    // values and hanging-node relations are restored after the solve.
+    for (const auto &line : combined_constraints_storage.get_lines())
+      if (combined_owned_dofs.is_element(line.index))
+        combined_solution(line.index) = 0.;
 
-    LA::MPI::PreconditionJacobi preconditioner;
-    preconditioner.initialize(system_matrix_storage);
-    SolverGMRES<VectorType> solver(par.solver_control);
+    if (!time_preconditioner)
+      {
+        TimerOutput::Scope setup_timer(computing_timer,
+                                       "Initialize block preconditioner");
+        IndexSet           constrained(dh.n_dofs());
+        for (const auto &line : displacement_constraints_storage.get_lines())
+          constrained.add_index(line.index);
+        constrained.compress();
+        LA::MPI::PreconditionAMG::AdditionalData amg_data;
+        if constexpr (dim == spacedim)
+          amg_data.constant_modes_values =
+            DoFTools::extract_rigid_body_modes(*mapping_storage, dh);
+        else
+          {
+            // deal.II does not instantiate extract_constant_modes() for
+            // embedded spaces; extract the component masks directly.
+            amg_data.constant_modes.assign(
+              spacedim, std::vector<bool>(owned_dofs.n_elements(), false));
+            for (unsigned int component = 0; component < spacedim; ++component)
+              {
+                const auto selected = DoFTools::extract_dofs(
+                  dh,
+                  fe_storage->component_mask(
+                    FEValuesExtractors::Scalar(component)));
+                std::size_t local_index = 0;
+                for (const auto index : owned_dofs)
+                  amg_data.constant_modes[component][local_index++] =
+                    selected.is_element(index);
+              }
+          }
+        amg_data.higher_order_elements = fe_storage->degree > 1;
+        time_preconditioner            = std::make_unique<
+          SecondOrderBlockPreconditioner<VectorType, MatrixType>>();
+        time_preconditioner->initialize(
+          homogeneous_mass_matrix_storage,
+          homogeneous_stiffness_matrix_storage,
+          homogeneous_damping_matrix_storage,
+          constrained,
+          [this](VectorType &vector, const bool omit) {
+            vector.reinit(owned_dofs, mpi_communicator, omit);
+          },
+          amg_data);
+      }
+    {
+      TimerOutput::Scope setup_timer(computing_timer,
+                                     "Update block Schur preconditioner");
+      time_preconditioner->set_coefficients(1. / *system_matrix_time_step,
+                                            system_matrix_theta,
+                                            system_matrix_theta,
+                                            system_matrix_theta);
+    }
+
+    VectorType source_displacement, source_velocity;
+    VectorType destination_displacement, destination_velocity;
+    source_displacement.reinit(owned_dofs, mpi_communicator);
+    source_velocity.reinit(source_displacement);
+    destination_displacement.reinit(source_displacement);
+    destination_velocity.reinit(source_displacement);
+    LinearOperator<VectorType> preconditioner;
+    preconditioner.vmult = [&](VectorType       &destination,
+                               const VectorType &source) {
+      for (const auto index : owned_dofs)
+        {
+          source_displacement(index) = source(index);
+          source_velocity(index)     = source(n_spatial_dofs + index);
+        }
+      time_preconditioner->vmult(destination_displacement,
+                                 destination_velocity,
+                                 source_displacement,
+                                 source_velocity);
+      for (const auto index : owned_dofs)
+        {
+          destination(index)                  = destination_displacement(index);
+          destination(n_spatial_dofs + index) = destination_velocity(index);
+        }
+    };
+    typename SolverFGMRES<VectorType>::AdditionalData solver_data;
+    solver_data.orthogonalization_strategy =
+      LinearAlgebra::OrthogonalizationStrategy::modified_gram_schmidt;
+    SolverFGMRES<VectorType> solver(par.solver_control, solver_data);
     solver.solve(system_matrix_storage,
                  combined_solution,
                  system_rhs_storage,
@@ -1263,7 +1348,7 @@ namespace ImmersX
     velocity_constraints_storage.distribute(velocity_storage);
     update_locally_relevant_state();
 
-    pcout << "   GMRES iterations: " << par.solver_control.last_step()
+    pcout << "   FGMRES iterations: " << par.solver_control.last_step()
           << std::endl;
   }
 
@@ -1509,7 +1594,7 @@ namespace ImmersX
           << ", " << par.time_parameters.final_time << "]" << std::endl
           << "      output interval: "
           << par.time_parameters.output_time_interval << std::endl
-          << "      linear solver: GMRES/Jacobi, max steps = "
+          << "      linear solver: FGMRES/block Schur with CG/AMG, max steps = "
           << par.solver_control.max_steps()
           << ", tolerance = " << par.solver_control.tolerance() << std::endl;
     par.prm.print_parameters(par.output_directory + "/used_parameters_" +

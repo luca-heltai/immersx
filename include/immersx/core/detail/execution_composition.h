@@ -1043,7 +1043,7 @@ namespace ImmersX::detail
         };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult                = [apply](GlobalVectorType       &dst,
-                                            const GlobalVectorType &src) {
+                             const GlobalVectorType &src) {
         apply(dst, src, false);
       };
       result.vmult_add = [apply,
@@ -1315,13 +1315,13 @@ namespace ImmersX::detail
                 const auto row_field = metadata.participants[i];
                 const auto col_field = metadata.participants[j];
                 const auto from      = materialized_block(row_field,
-                                                          metadata.multiplier,
-                                                          context,
-                                                          alpha);
+                                                     metadata.multiplier,
+                                                     context,
+                                                     alpha);
                 const auto to        = materialized_block(metadata.multiplier,
-                                                          col_field,
-                                                          context,
-                                                          alpha);
+                                                   col_field,
+                                                   context,
+                                                   alpha);
                 AssertThrow(from && to,
                             dealii::ExcMessage(
                               "Matrix-based augmented-Lagrangian composition "
@@ -1465,7 +1465,7 @@ namespace ImmersX::detail
       const auto primal_vmult_add  = primal_inverse.vmult_add;
       const auto primal_Tvmult     = primal_inverse.Tvmult;
       const auto primal_Tvmult_add = primal_inverse.Tvmult_add;
-      primal_inverse.vmult = [primal_matrix,
+      primal_inverse.vmult         = [primal_matrix,
                               primal_vmult](FieldVectorType       &dst,
                                             const FieldVectorType &src) {
         primal_vmult(dst, src);
@@ -1633,7 +1633,7 @@ namespace ImmersX::detail
         };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult                = [apply](GlobalVectorType       &dst,
-                                            const GlobalVectorType &src) {
+                             const GlobalVectorType &src) {
         apply(dst, src, false);
       };
       result.vmult_add = [apply, vector_memory](GlobalVectorType       &dst,
@@ -1797,7 +1797,7 @@ namespace ImmersX::detail
       const auto vmult_add  = result.vmult_add;
       const auto Tvmult     = result.Tvmult;
       const auto Tvmult_add = result.Tvmult_add;
-      result.vmult = [empty_matrix, vmult](FieldVectorType       &dst,
+      result.vmult          = [empty_matrix, vmult](FieldVectorType       &dst,
                                            const FieldVectorType &src) {
         vmult(dst, src);
       };
@@ -2057,7 +2057,7 @@ namespace ImmersX::detail
         };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult                = [apply](GlobalVectorType       &destination,
-                                            const GlobalVectorType &source) {
+                             const GlobalVectorType &source) {
         apply(destination, source, false);
       };
       result.vmult_add = [apply,
@@ -2129,10 +2129,13 @@ namespace ImmersX::detail
           "Second-order Schur reduction requires a positive derivative weight."));
       const auto owned =
         context.state(pair.displacement).locally_owned_elements();
+      const auto same_partition = [&owned](const dealii::IndexSet &partition) {
+        return owned.size() == partition.size() && owned == partition;
+      };
       const bool partition_matches =
-        owned == layout_.field(pair.displacement).locally_owned &&
-        owned == layout_.field(pair.velocity).locally_owned &&
-        owned == context.state(pair.velocity).locally_owned_elements();
+        same_partition(layout_.field(pair.displacement).locally_owned) &&
+        same_partition(layout_.field(pair.velocity).locally_owned) &&
+        same_partition(context.state(pair.velocity).locally_owned_elements());
       AssertThrow(dealii::Utilities::MPI::min(static_cast<unsigned int>(
                                                 partition_matches),
                                               communicator_) == 1,
@@ -2157,10 +2160,11 @@ namespace ImmersX::detail
           const auto mass_matrix      = mass->matrix();
           const auto stiffness_matrix = stiffness->matrix();
           const auto damping_matrix   = damping->matrix();
-          const auto matrix_matches   = [&owned](const MatrixType &matrix) {
-            return matrix.locally_owned_range_indices() == owned &&
-                   matrix.locally_owned_domain_indices() == owned;
-          };
+          const auto matrix_matches =
+            [&same_partition](const MatrixType &matrix) {
+              return same_partition(matrix.locally_owned_range_indices()) &&
+                     same_partition(matrix.locally_owned_domain_indices());
+            };
           const bool spatial_partitions_match =
             matrix_matches(*mass_matrix) && matrix_matches(*stiffness_matrix) &&
             matrix_matches(*damping_matrix);
@@ -2362,9 +2366,9 @@ namespace ImmersX::detail
         for (unsigned int j = 0; j < n; ++j)
           {
             auto  matrix = materialized_block(field_layout_.field(i),
-                                              field_layout_.field(j),
-                                              context,
-                                              alpha);
+                                             field_layout_.field(j),
+                                             context,
+                                             alpha);
             auto &block  = result.block(i, j);
             if (matrix)
               {

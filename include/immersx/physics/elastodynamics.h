@@ -47,6 +47,7 @@
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/domain.h>
+#include <immersx/core/second_order_preconditioner.h>
 #include <immersx/core/time_parameters.h>
 
 #include <list>
@@ -513,6 +514,9 @@ namespace ImmersX
     MatrixType homogeneous_mass_matrix_storage;
     MatrixType homogeneous_stiffness_matrix_storage;
     MatrixType homogeneous_damping_matrix_storage;
+
+    std::unique_ptr<SecondOrderBlockPreconditioner<VectorType, MatrixType>>
+      time_preconditioner;
 
     bool                          spatial_operators_ready = false;
     std::optional<double>         system_matrix_time_step;
