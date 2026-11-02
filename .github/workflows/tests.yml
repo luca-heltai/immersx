@@ -18,6 +18,9 @@ concurrency:
 env:
   # Match the directory restored and saved by ccache-action.
   CCACHE_DIR: ${{ github.workspace }}/.ccache
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
 
 jobs:
   plan:

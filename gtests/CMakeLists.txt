@@ -16,7 +16,6 @@ set(_target gtests)
 
 file(GLOB _test_files CONFIGURE_DEPENDS *cc)
 list(FILTER _test_files EXCLUDE REGEX "metric_flow_x_01\\.cc$")
-list(FILTER _test_files EXCLUDE REGEX "mms_convergence_main\\.cc$")
 
 include(GoogleTest)
 include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)

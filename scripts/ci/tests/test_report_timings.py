@@ -16,6 +16,33 @@ spec.loader.exec_module(report_timings)
 
 
 class Timings(unittest.TestCase):
+    def test_incomplete_final_ninja_record_preserves_case_and_build_timings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary)
+            results = build / "gtests" / "test-results"
+            results.mkdir(parents=True)
+            (results / "group.xml").write_text(
+                '<testsuites><testcase classname="Suite" name="Case" '
+                'time="0.5"/></testsuites>'
+            )
+            (build / ".ninja_log").write_text(
+                "# ninja log v5\n0\t1500\t1\tcomplete.o\tcompile\n1500\t"
+            )
+            report = report_timings.collect(build)
+            self.assertEqual(report["cases"][0]["test"], "Suite.Case")
+            self.assertEqual(report["build_commands"],
+                             [{"seconds": 1.5, "outputs": ["complete.o"]}])
+            self.assertEqual(len(report["warnings"]), 1)
+            self.assertIn("incomplete final Ninja record", report["warnings"][0])
+            self.assertIn(report["warnings"][0], report_timings.summary(report))
+
+    def test_malformed_complete_ninja_record_is_not_silently_ignored(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary)
+            (build / ".ninja_log").write_text("# ninja log v5\n0\t1000\n")
+            with self.assertRaisesRegex(ValueError, "malformed Ninja record"):
+                report_timings.collect(build)
+
     def test_build_timings_keep_latest_outputs_and_count_multioutput_once(self):
         with tempfile.TemporaryDirectory() as temporary:
             build = Path(temporary)
@@ -55,6 +82,69 @@ class Timings(unittest.TestCase):
                     report = json.loads(output.read_text())
                     self.assertEqual(len(report["over_budget"]), expected)
                     self.assertEqual(report["cases"][0]["seconds"], elapsed)
+
+    def test_case_budget_rejects_nonfinite_and_nonpositive_limits(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary)
+            output = build / "timings.json"
+            for limit in ("nan", "inf", "-inf", "0", "-1"):
+                with self.subTest(limit=limit):
+                    result = subprocess.run(
+                        [sys.executable, str(Path(report_timings.__file__)),
+                         "--build-dir", str(build), "--output", str(output),
+                         "--max-case-seconds=" + limit],
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("must be finite and positive", result.stderr)
+                    self.assertFalse(output.exists())
+
+    def test_nonroot_watchdog_timeout_preserves_passing_root_xml(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary)
+            results = build / "gtests" / "test-results"
+            results.mkdir(parents=True)
+            (results / "ImmersX_integration_MPI_Suite-abcd1234.xml").write_text(
+                '<testsuites><testcase classname="Suite" name="BOTH_Case" '
+                'time="0.25"/></testsuites>'
+            )
+            logs = build / "Testing" / "Temporary"
+            logs.mkdir(parents=True)
+            text = (
+                "2/10 Testing: ImmersX.integration.MPI.Suite\n"
+                "[       OK ] Suite.BOTH_Case (250 ms)\n"
+                "[ RUN      ] Suite.LaterCase\n"
+                "GoogleTest Suite.BOTH_Case exceeded the 120 second "
+                "correctness-test budget.\n"
+            )
+            for name in ("LastTest.log", "LastTest.log.tmp"):
+                (logs / name).write_text(text)
+            (build / "ctest-results.xml").write_text(
+                '<testsuite><testcase name="ImmersX.integration.MPI.Suite" '
+                'time="120.1"><failure/></testcase></testsuite>'
+            )
+            for limit in (120, 240):
+                with self.subTest(limit=limit):
+                    output = build / "timings.json"
+                    result = subprocess.run(
+                        [sys.executable, str(Path(report_timings.__file__)),
+                         "--build-dir", str(build), "--output", str(output),
+                         "--max-case-seconds", str(limit)],
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    report = json.loads(output.read_text())
+                    self.assertEqual(len(report["cases"]), 2)
+                    self.assertEqual(report["cases"][0]["status"], "timed_out")
+                    self.assertEqual(report["cases"][0]["seconds"], 120)
+                    self.assertEqual(report["cases"][0]["test"],
+                                     "Suite.BOTH_Case")
+                    self.assertIsNone(report["cases"][0]["rank"])
+                    self.assertEqual(report["cases"][1]["status"], "passed")
+                    self.assertEqual(report["cases"][1]["rank"], 0)
+                    self.assertEqual(len(report["over_budget"]), 1)
+                    self.assertIn("Suite.BOTH_Case", result.stdout)
+                    self.assertIn("timed_out", result.stdout)
 
     def test_xml_ranks_status_and_partial_log(self):
         with tempfile.TemporaryDirectory() as temporary:

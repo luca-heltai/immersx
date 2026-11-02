@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -39,11 +40,26 @@ def log_cases(path):
     expression = re.compile(
         r"^\[\s*(OK|FAILED)\s*\]\s+(\S+)\s+\((\d+) ms\)\s*$"
     )
+    timeout_expression = re.compile(
+        r"GoogleTest (\S+) exceeded the (\d+(?:\.\d+)?) second "
+        r"correctness-test budget\."
+    )
     group = None
     for line in path.read_text(errors="replace").splitlines():
         header = re.match(r"^\d+/\d+ Testing: (.+)$", line)
         if header:
             group = re.sub(r"[^a-zA-Z0-9_]", "_", header.group(1))
+        timeout = timeout_expression.search(line)
+        if timeout:
+            yield {
+                "test": timeout.group(1),
+                "seconds": float(timeout.group(2)),
+                "status": "timed_out",
+                "rank": None,
+                "group": group,
+                "source": str(path),
+            }
+            continue
         match = expression.match(line)
         if match:
             yield {
@@ -56,16 +72,29 @@ def log_cases(path):
             }
 
 
-def build_commands(build_dir):
+def build_commands(build_dir, warnings=None):
     """Read the latest Ninja timing for each output, retaining elapsed times."""
     path = build_dir / ".ninja_log"
     if not path.exists():
         return []
     outputs = {}
-    for line in path.read_text().splitlines():
+    text = path.read_text()
+    lines = text.splitlines()
+    for number, line in enumerate(lines, 1):
         if not line or line.startswith("#"):
             continue
-        start, end, _, output, command = line.split("\t")
+        if number == len(lines) and not text.endswith("\n"):
+            message = (f"{path}: ignored incomplete final Ninja record "
+                       f"at line {number}.")
+            if warnings is not None:
+                warnings.append(message)
+            else:
+                raise ValueError(message)
+            continue
+        fields = line.split("\t")
+        if len(fields) != 5 or not fields[3] or not fields[4]:
+            raise ValueError(f"{path}: malformed Ninja record at line {number}.")
+        start, end, _, output, command = fields
         outputs[output] = (int(start), int(end), command)
     commands = {}
     for output, (start, end, command) in outputs.items():
@@ -85,12 +114,21 @@ def collect(build_dir):
     # identities and is used only for cases with no XML result at all.
     reported = {(case["group"], case["test"]) for case in cases}
     reported_tests = {case["test"] for case in cases}
+    reported_timeouts = set()
     logs = build_dir / "Testing" / "Temporary"
     for name in ("LastTest.log", "LastTest.log.tmp"):
         path = logs / name
         if path.exists():
             for case in log_cases(path):
                 key = (case["group"], case["test"])
+                if case["status"] == "timed_out":
+                    # A non-root rank can time out after rank zero has already
+                    # emitted passing XML. Preserve both observations.
+                    if key not in reported_timeouts:
+                        cases.append(case)
+                        reported_timeouts.add(key)
+                    reported.add(key)
+                    continue
                 if key not in reported and (case["group"] is not None or
                                            case["test"] not in reported_tests):
                     cases.append(case)
@@ -107,12 +145,18 @@ def collect(build_dir):
                 status = "skipped"
             groups.append({"test": case.attrib["name"], "status": status,
                            "seconds": float(case.attrib.get("time", "0"))})
+    warnings = []
+    commands = build_commands(build_dir, warnings)
     return {"build_dir": str(build_dir), "cases": cases, "groups": groups,
-            "build_commands": build_commands(build_dir)}
+            "build_commands": commands, "warnings": warnings}
 
 
 def summary(report):
     lines = ["### GoogleTest case timings", ""]
+    if report.get("warnings"):
+        lines += ["Build timing warnings:", ""]
+        lines += [f"- {warning}" for warning in report["warnings"]]
+        lines += [""]
     if report.get("build_commands"):
         lines += ["Longest Ninja commands (elapsed times can overlap):", "",
                   "| Outputs | Seconds |", "| --- | ---: |"]
@@ -125,8 +169,10 @@ def summary(report):
         lines += ["CTest group failures: " + ", ".join(f"`{name}`" for name in failures), ""]
     violations = report.get("over_budget", [])
     if violations:
-        lines += [f"GoogleTest cases exceeding {report['max_case_seconds']:g} seconds:", ""]
-        lines += [f"- `{case['test']}`: {case['seconds']:.3f} s ({case['group']})"
+        lines += [f"GoogleTest time-budget failures (completed-case limit "
+                  f"{report['max_case_seconds']:g} seconds):", ""]
+        lines += [f"- `{case['test']}`: {case['seconds']:.3f} s, "
+                  f"{case['status']} ({case['group']})"
                   for case in violations]
         lines += [""]
     lines += ["MPI case XML describes rank zero; CTest group status covers every rank.", ""]
@@ -147,14 +193,16 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-case-seconds", type=float, default=120,
-                        help="Fail when a completed GoogleTest case exceeds this wall time")
+                        help="Fail when a completed case exceeds this wall time; "
+                             "watchdog timeouts always fail")
     args = parser.parse_args()
-    if args.max_case_seconds <= 0:
-        parser.error("--max-case-seconds must be positive")
+    if not math.isfinite(args.max_case_seconds) or args.max_case_seconds <= 0:
+        parser.error("--max-case-seconds must be finite and positive")
     report = collect(args.build_dir)
     report["max_case_seconds"] = args.max_case_seconds
     report["over_budget"] = [case for case in report["cases"]
-                             if case["seconds"] > args.max_case_seconds]
+                             if case["status"] == "timed_out" or
+                             case["seconds"] > args.max_case_seconds]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     rendered = summary(report)
