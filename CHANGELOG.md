@@ -162,6 +162,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Avoid spatial assembly for zero harmonic material coefficients while retaining essential boundary equations, including zero and purely viscous materials.
+
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Solve native and IDA elastodynamics with FGMRES and a physical Schur block factorization using CG/AMG inner solves, retaining the mass hierarchy and reusing unchanged Schur combinations.
 - [PR #320](https://github.com/luca-heltai/immersx/pull/320) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately, avoid building matrices for zero-vector actions, follow the current constraint structure on each build, and materialize sums with one temporary contribution at a time. The standard iterative LinearAdapter solve owns and reuses one assembled system matrix.
 - [PR #314](https://github.com/luca-heltai/immersx/pull/314) Release vascular bootstrap and generated-input data after native preparation, retain only live topology in incremental branch records, and construct selected tissue flow conditions without copying the physical graph.
@@ -234,7 +236,6 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #79](https://github.com/luca-heltai/immersx/pull/79) Stabilized the representation and constraint interaction architecture.
 - [PR #76](https://github.com/luca-heltai/immersx/pull/76) Separated the reduced-space core from the VTK backend.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Avoid spatial assembly for zero harmonic material coefficients while retaining essential boundary equations, including zero and purely viscous materials.
 
 ### Fixed
 
@@ -344,6 +345,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #323](https://github.com/luca-heltai/immersx/pull/323) Generate coupled elasticity API documentation without unmatched group warnings.
 
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Document the two-minute correctness-test budget, retain the complete source and cost audit, and keep the Navier–Stokes manufactured-solution input as a manual accuracy-study example.
+
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Retain the native and IDA elastodynamics performance baseline with revision and artifact checksums, and provide a reproducible comparison driver.
 - [PR #316](https://github.com/luca-heltai/immersx/pull/316) Organize site navigation into consistent sections and tutorial groups, fix README documentation URLs, and document page ownership and heading rules.
 - [PR #314](https://github.com/luca-heltai/immersx/pull/314) Register vascular pages in the current documentation sections and distinguish the linear PR stack from archived point-demand measurements.
@@ -372,7 +375,6 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #95](https://github.com/luca-heltai/immersx/pull/95) Updated the agent instructions and the contributing guide.
 - [PR #82](https://github.com/luca-heltai/immersx/pull/82) Revised the core architecture documentation.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Document the two-minute correctness-test budget and keep the Navier–Stokes manufactured-solution input as a manual accuracy-study example.
 
 ### Tutorial
 
@@ -417,7 +419,15 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #323](https://github.com/luca-heltai/immersx/pull/323) Compile applications and tests without GCC 13 warnings.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Reduce harmonic, simplex, and lifted-coupling fixtures, consolidate repeated solver-policy checks, and give the stationary Navier–Stokes simplex smoke test an explicit initial timestep and output assertions.
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Limit numerical CI to two concurrent compiler jobs and reserve separate workflow deadlines for cold Debug and Release builds.
+
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Reduce harmonic, simplex, and lifted-coupling fixtures, consolidate repeated solver-policy checks, and give the stationary Navier–Stokes simplex smoke test an explicit initial timestep and output assertions.
+
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Replace oversized physics and application fixtures with small analytic and native-solver regressions, remove obsolete smoke and convergence studies, and retain nonzero loads, boundary traces, and published error bounds.
+
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Replace network and trace convergence demonstrations with small analytic regressions, consolidate duplicate core assertions, and verify all products of the modal basis.
+
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Enforce a 120-second wall-time budget on every GoogleTest rank, retain timeout and partial build diagnostics, record Ninja command costs, enlarge the Debug compiler cache, and avoid downloading legacy 1D archives that fail the CI link check while retaining client-interface compilation.
 
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Cover elastodynamics cache invalidation, time-dependent loads, affine boundary lifting, and Schur factorization in serial and MPI.
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Skip numerical and Coral builds for documentation-only pull requests. Record C++ component selection in observation mode, retain every quick test for other changes, and keep full coverage on master with an explicit manual override.
@@ -465,9 +475,6 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #177](https://github.com/luca-heltai/immersx/pull/177) Reorganized the tests into labeled CTest suites.
 - [PR #169](https://github.com/luca-heltai/immersx/pull/169) Added the one-vessel two-way MetricFlowX-Elastodynamics MMS verification.
 - [PR #90](https://github.com/luca-heltai/immersx/pull/90) Reduced the Debug testsuite runtime.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Replace oversized physics and application fixtures with small analytic and native-solver regressions, remove obsolete smoke and convergence studies, and retain nonzero loads, boundary traces, and published error bounds.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Replace network and trace convergence demonstrations with small analytic regressions, consolidate duplicate core assertions, and verify all products of the modal basis.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Enforce a 120-second wall-time budget on every GoogleTest rank, retain timeout and partial build diagnostics, record Ninja command costs, enlarge the Debug compiler cache, and avoid downloading legacy 1D archives that fail the CI link check while retaining client-interface compilation.
 
 ## [0.3] - 2026-05-11
 
