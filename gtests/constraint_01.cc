@@ -438,7 +438,7 @@ TEST(Constraint, CombinesSignedSums)
   EXPECT_DOUBLE_EQ(coefficients[3], -1.);
 }
 
-TEST(Constraint, NonmatchingGeometryPreparesOnceForRepeatedActions)
+TEST(Constraint, NonmatchingGeometryBuildsOnDemandForRepeatedActions)
 {
   ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
 
@@ -492,8 +492,7 @@ TEST(Constraint, NonmatchingGeometryPreparesOnceForRepeatedActions)
 #endif
   const auto fields = make_constraint(c1 - c2).add(builder);
 #ifdef IMMERSX_WEAK_TERM_TESTING
-  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
-            preparations + 2);
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(), preparations);
 #endif
 
   Vector source_state;
@@ -541,7 +540,7 @@ TEST(Constraint, NonmatchingGeometryPreparesOnceForRepeatedActions)
   EXPECT_LT(reaction_residual.l2_norm(), 1.e-12);
 #ifdef IMMERSX_WEAK_TERM_TESTING
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
-            preparations + 2);
+            preparations + 6);
 #endif
 }
 

@@ -62,8 +62,10 @@ weak_term(symmetric_gradient(u), symmetric_gradient(test(v)));
 
 The term contributes to the residual row represented by the test field. Its
 linearization is generated from the active fields in the trial observable.
-Linear terms can use cached deal.II operators. Nonlinear terms evaluate the
-current state and provide the corresponding derivative.
+Registering a linear term retains its assembly actions, without constructing
+its matrix. Callers explicitly materialize and retain matrices that they reuse.
+Nonlinear terms evaluate the current state and provide the corresponding
+derivative.
 
 For a trial expression `E` and test expression `T`, the assembled matrix has
 the form
@@ -122,12 +124,14 @@ same dimension; embedded
 surfaces provide `conormal()`. A planar two-dimensional boundary also provides
 `tangent()`.
 
-Matching cell and boundary terms retain affine source offsets and refresh them
-when the constraints' inhomogeneities change. Nonmatching and lifted linear
-pairings currently require homogeneous source constraints and reject nonzero
-offsets, including changes made after assembly. Linear multiplier reaction rows
-also require homogeneous multiplier constraints. Constraint entries, meshes, and
-mappings must remain fixed for cached matching terms.
+Matching cell and boundary terms reintegrate affine source contributions on
+cells with nonzero constraint offsets when the prescribed values change.
+They do not retain local cell matrices. Supported nonmatching and lifted
+pairings also reconstruct affine source contributions from the current
+constraints; unsupported affine combinations raise an exception. Linear
+multiplier reaction rows require homogeneous multiplier constraints. Rebuild
+explicitly retained matrices when their coefficients, constraint structure,
+meshes, or mappings change.
 
 A `Constraint` is an Interaction assembled from weak terms with one
 independently defined multiplier field. The multiplier has its own FE space
