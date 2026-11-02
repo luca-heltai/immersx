@@ -250,6 +250,12 @@ end
       }
     if (higher_modes)
       {
+        // The modal-selection regression needs one affine polygon, not
+        // geometric convergence. Gauss2 integrates its Q1 mode products exactly
+        // and avoids a zero mode sum at segment midpoints.
+        space.section.refinement_level =
+          modern.geometry.section.refinement_level = 0;
+        space.section.n_q_points = modern.geometry.section.n_q_points = 2;
         space.section.inclusion_degree =
           modern.geometry.section.inclusion_degree    = 1;
         space.section.selected_coefficients           = {1, 4, 7};
@@ -368,6 +374,50 @@ end
             *load += *rhs;
           }
         terms.add(weak_term(value(u), test(lifted)));
+      }
+    if (higher_modes)
+      {
+        // MappingQ1 makes each coarse circle segment affine. Integrate the
+        // squared constant/x/y modes analytically on its line segments,
+        // independently of the configured section quadrature.
+        Triangulation<1, 2> polygon;
+        GridGenerator::hyper_sphere(polygon);
+        std::array<double, 3> squared_norms{};
+        double                max_x = 0., max_y = 0.;
+        for (const auto &point : polygon.get_vertices())
+          {
+            max_x = std::max(max_x, std::abs(point[0]));
+            max_y = std::max(max_y, std::abs(point[1]));
+          }
+        for (const auto &cell : polygon.active_cell_iterators())
+          {
+            const auto  &a = cell->vertex(0), &b = cell->vertex(1);
+            const double length = a.distance(b);
+            squared_norms[0] += length;
+            for (unsigned int d = 0; d < 2; ++d)
+              squared_norms[d + 1] +=
+                length * (a[d] * a[d] + a[d] * b[d] + b[d] * b[d]) / 3.;
+          }
+        squared_norms[1] /= max_x * max_x;
+        squared_norms[2] /= max_y * max_y;
+        const double radius_integral = (0.25 + 0.125) / 2.;
+        auto         constant_mode = *load, metric_action = *load;
+        const auto  &dofs = view.field("multiplier").dof_handler();
+        for (unsigned int slot = 0; slot < 3; ++slot)
+          {
+            const auto component =
+              DoFTools::extract_dofs(dofs,
+                                     dofs.get_fe().component_mask(
+                                       FEValuesExtractors::Scalar(slot)));
+            constant_mode = 0.;
+            for (const auto index : constant_mode.locally_owned_elements())
+              if (component.is_element(index))
+                constant_mode[index] = 1.;
+            metric->vmult(metric_action, constant_mode);
+            EXPECT_NEAR(constant_mode * metric_action,
+                        squared_norms[slot] * radius_integral,
+                        1.e-12);
+          }
       }
     auto rhs_difference = *load;
     rhs_difference -= reference.system_rhs.block(1);

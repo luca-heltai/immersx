@@ -284,6 +284,23 @@ TEST(FiberReinforcedElastodynamicsValidation, RejectsWrongMultiplierComponents)
   EXPECT_THROW(driver.setup(), dealii::ExceptionBase);
 }
 
+TEST(FiberReinforcedElastodynamicsValidation, ZeroPreservation)
+{
+  ParameterAcceptor::clear();
+  FiberReinforcedElastodynamicsParameters<2> parameters;
+  configure_problem(parameters, false);
+  FiberReinforcedElastodynamics<2> driver(parameters);
+  driver.run();
+
+  EXPECT_EQ(driver.time_step_number(), 2u);
+  EXPECT_NEAR(driver.current_time(), 0.02, 1.e-14);
+  EXPECT_TRUE(driver.matrix_problem().state_is_finite());
+  EXPECT_TRUE(driver.fiber_problem().state_is_finite());
+  EXPECT_NEAR(driver.matrix_problem().displacement().l2_norm(), 0., 1.e-12);
+  EXPECT_NEAR(driver.fiber_problem().displacement().l2_norm(), 0., 1.e-12);
+  EXPECT_LT(driver.residuals().velocity_constraint, 1.e-10);
+}
+
 TEST(FiberReinforcedElastodynamicsValidation,
      CoupledResponseDiffersFromIndependentMatrixHistory)
 {
