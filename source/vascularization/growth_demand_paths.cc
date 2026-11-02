@@ -13,7 +13,7 @@ namespace ImmersX::Vascularization::internal
     struct DemandPathRecord
     {
       GrowthPathBranch                  branch;
-      ForestBranch                      topology;
+      GrowthBranchTopology              topology;
       GrowthDemandSummary               value;
       std::map<Id, GrowthDemandSummary> children;
       GrowthDemandRootView              root;

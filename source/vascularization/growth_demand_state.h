@@ -20,6 +20,25 @@ namespace ImmersX::Vascularization::internal
   class GrowthExecution;
   class GrowthDemandJournal;
   using GrowthRootSumKey = std::pair<unsigned int, Id>;
+  // Physical summaries belong to GrowthDemandSummary, not to the topology
+  // retained from the independent bootstrap reconstruction.
+  struct GrowthBranchTopology
+  {
+    Id           parent = invalid_id, root = invalid_id, terminal = invalid_id;
+    unsigned int parent_owner   = dealii::numbers::invalid_unsigned_int;
+    unsigned int terminal_owner = dealii::numbers::invalid_unsigned_int;
+    std::map<Id, unsigned int> children;
+    double                     root_radius = 0.;
+
+    template <class Archive>
+    void
+    serialize(Archive &ar, unsigned int)
+    {
+      ar &parent &root &terminal &parent_owner &terminal_owner &children
+        &root_radius;
+    }
+  };
+
   // Moments are relative to this subtree's own demand. Changing a root or
   // system normalization therefore does not rewrite its descendants.
   struct GrowthDemandSummary
@@ -118,9 +137,9 @@ namespace ImmersX::Vascularization::internal
     validation() const;
 
     const GrowthDemandSummary &summary(Id) const;
-    const GrowthDemandSummary                     &
+    const GrowthDemandSummary                             &
     summary(Id, const GrowthDemandPreview &) const;
-    const ForestBranch &topology(Id) const;
+    const GrowthBranchTopology &topology(Id) const;
     std::map<Id, GrowthDemandSummary>
     children(Id, const GrowthDemandPreview &) const;
     GrowthDemandRootView
@@ -165,7 +184,7 @@ namespace ImmersX::Vascularization::internal
 
     struct Branch
     {
-      ForestBranch topology;
+      GrowthBranchTopology topology;
       double       length = 0., viscosity = 0., gamma = 3., leaf_demand = 0.;
       unsigned int system = 0;
       GrowthGeometryMeasure             geometry;

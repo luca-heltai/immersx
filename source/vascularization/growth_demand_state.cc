@@ -166,7 +166,13 @@ namespace ImmersX::Vascularization::internal
             continue;
           }
         Branch branch;
-        branch.topology        = topology;
+        branch.topology        = {topology.parent,
+                                  topology.root,
+                                  topology.terminal,
+                                  topology.parent_owner,
+                                  topology.terminal_owner,
+                                  topology.children,
+                                  topology.root_radius};
         branch.length          = length(network, id);
         branch.viscosity       = vessel->second.viscosity;
         branch.with_resistance = parameters.reference_flow > 0.;
@@ -407,7 +413,7 @@ namespace ImmersX::Vascularization::internal
     const auto found = preview.owned.find(id);
     return found == preview.owned.end() ? summary(id) : found->second;
   }
-  const ForestBranch &
+  const GrowthBranchTopology &
   GrowthDemandState::topology(Id id) const
   {
     return branches.at(id).topology;
