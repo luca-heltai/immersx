@@ -740,8 +740,10 @@ namespace ImmersX::detail
       terms.reserve(metadata->participants.size());
       for (const auto participant : metadata->participants)
         {
+          // A Schur matrix action must remain linear. Residual-stopped CG
+          // is reserved for the outer flexible block preconditioner.
           const auto inverse =
-            local_preconditioner(participant, state, context, alpha);
+            local_preconditioner(participant, state, context, alpha, true);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur construction requires a local inverse for "
@@ -1676,7 +1678,8 @@ namespace ImmersX::detail
     local_preconditioner(const FieldId                             field,
                          const GlobalVectorType                   &state,
                          const EvaluationContext<FieldVectorType> &context,
-                         const double                              alpha) const
+                         const double                              alpha,
+                         const bool fixed_linear_action = false) const
     {
       finalize();
       validate_state(state);
@@ -1694,10 +1697,14 @@ namespace ImmersX::detail
                   vector.reinit(owned, communicator);
                 };
               result.reinit_domain_vector = result.reinit_range_vector;
-              result.vmult = [inverse,
-                              displacement](FieldVectorType       &destination,
-                                            const FieldVectorType &source) {
-                if (displacement)
+              result.vmult = [inverse, displacement, fixed_linear_action](
+                               FieldVectorType       &destination,
+                               const FieldVectorType &source) {
+                if (fixed_linear_action && displacement)
+                  inverse->apply_mass_amg(destination, source);
+                else if (fixed_linear_action)
+                  inverse->apply_schur_amg(destination, source);
+                else if (displacement)
                   inverse->mass_inverse(destination, source);
                 else
                   inverse->schur_inverse(destination, source);

@@ -118,6 +118,25 @@ namespace ImmersX
       restore_constrained(destination, source);
     }
 
+    /** Fixed linear AMG action for use inside a Schur matrix operator. */
+    void
+    apply_mass_amg(VectorType &destination, const VectorType &source) const
+    {
+      AssertThrow(coefficients_set_, dealii::ExcNotInitialized());
+      apply_projected_amg(mass_amg_,
+                          destination,
+                          source,
+                          1. / coefficients_[0]);
+    }
+
+    /** Fixed linear AMG approximation of the physical Schur inverse. */
+    void
+    apply_schur_amg(VectorType &destination, const VectorType &source) const
+    {
+      AssertThrow(coefficients_set_, dealii::ExcNotInitialized());
+      apply_projected_amg(schur_amg_, destination, source, 1.);
+    }
+
     /** Apply the complete lower-diagonal-upper block inverse. */
     void
     vmult(VectorType       &destination_displacement,
@@ -165,6 +184,24 @@ namespace ImmersX
       for (const auto index : source.locally_owned_elements())
         if (constrained_.is_element(index))
           destination(index) = source(index);
+    }
+
+    void
+    apply_projected_amg(const dealii::LinearOperator<VectorType> &amg,
+                        VectorType                               &destination,
+                        const VectorType                         &source,
+                        const double                              scale) const
+    {
+      typename dealii::VectorMemory<VectorType>::Pointer right_hand_side(
+        vector_memory_);
+      right_hand_side->reinit(prototype_, true);
+      *right_hand_side = source;
+      for (const auto index : source.locally_owned_elements())
+        if (constrained_.is_element(index))
+          (*right_hand_side)(index) = 0.;
+      amg.vmult(destination, *right_hand_side);
+      destination *= scale;
+      restore_constrained(destination, source);
     }
 
     void
