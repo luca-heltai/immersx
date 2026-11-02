@@ -71,7 +71,9 @@ namespace
       {
         EXPECT_GT(background_constraints.n_constraints(), 0u);
         if constexpr (dim > 1)
-          EXPECT_GT(embedded_constraints.n_constraints(), 0u);
+          {
+            EXPECT_GT(embedded_constraints.n_constraints(), 0u);
+          }
       }
     MappingQ1<spacedim>      background_mapping;
     MappingQ1<dim, spacedim> embedded_mapping;

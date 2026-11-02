@@ -149,7 +149,6 @@ namespace ImmersX
      * DoFHandler. See compute_pressure_at_immersed_surface().
      */
     TrilinosWrappers::MPI::Vector pressure_at_immersed_surface_by_inclusion;
-    /// @}
 
   private:
     void

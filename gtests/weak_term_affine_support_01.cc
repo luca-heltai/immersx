@@ -312,10 +312,12 @@ TEST(WeakTerm, BOTH_AffineCellSupportHangingAndAsymmetric)
       if (affine_node != numbers::invalid_dof_index)
         constraints.set_inhomogeneity(affine_node, offset);
       if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 2)
-        EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
-                                        constraints.has_inhomogeneities()),
-                                      MPI_COMM_WORLD),
-                  offset == 0. ? 0u : 1u);
+        {
+          EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
+                                          constraints.has_inhomogeneities()),
+                                        MPI_COMM_WORLD),
+                    offset == 0. ? 0u : 1u);
+        }
       check_affine_model(explicit_model,
                          layout,
                          source,
@@ -660,10 +662,12 @@ TEST(WeakTerm, BOTH_AffineBoundarySupportHangingAndAsymmetric)
       if (corner != numbers::invalid_dof_index)
         constraints.set_inhomogeneity(corner, offset);
       if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 2)
-        EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
-                                        constraints.has_inhomogeneities()),
-                                      MPI_COMM_WORLD),
-                  offset == 0. ? 0u : 1u);
+        {
+          EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
+                                          constraints.has_inhomogeneities()),
+                                        MPI_COMM_WORLD),
+                    offset == 0. ? 0u : 1u);
+        }
       for (auto *model : {&explicit_model, &inferred_model})
         check_affine_model(
           *model,

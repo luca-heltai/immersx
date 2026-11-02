@@ -714,7 +714,9 @@ TEST(LiftedIntegrationSupport,
         }
       expected.compress(VectorOperation::add);
       if (amplitude != 0.)
-        EXPECT_GT(expected.l2_norm(), 1.e-5);
+        {
+          EXPECT_GT(expected.l2_norm(), 1.e-5);
+        }
       residual -= expected;
       EXPECT_LT(residual.l2_norm(), 1.e-12);
       const auto updated_operator =
@@ -902,7 +904,9 @@ TEST(LiftedIntegrationSupport, BOTH_ElastodynamicsMovingDirichlet)
         }
       expected.compress(VectorOperation::add);
       if (time != 0.)
-        EXPECT_GT(expected.l2_norm(), 1.e-6);
+        {
+          EXPECT_GT(expected.l2_norm(), 1.e-6);
+        }
       V error;
       error.reinit(expected);
       error = adapter.field(residual, line.fields());

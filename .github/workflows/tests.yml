@@ -29,7 +29,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.run_numeric == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     container:
       image: dealii/dealii:v9.7.1-noble
       options: --user root --env OMPI_ALLOW_RUN_AS_ROOT=1 --env OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -46,24 +46,19 @@ jobs:
           update-package-index: true
           verbose: 1
 
-      - uses: robinraju/release-downloader@v1
-        with:
-          tag: "v0.2"
-          fileName: "lib1dsolver.a"
-
       - name: Build debug
         run: |
-          ls lib1dsolver.a
           rm -rf build_linux_debug
           mkdir build_linux_debug
           cd build_linux_debug
           cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-fopenmp \
             -DIMMERSX_BUILD_BENCHMARKS=ON \
+            -DENABLE_COUPLED_PROBLEMS=OFF \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          ninja
+          cmake --build . --parallel 2
 
       - name: Record build dependencies for selection analysis
         if: always()
@@ -115,7 +110,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.run_numeric == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     container:
       image: dealii/dealii:v9.7.1-noble
       options: --user root --env OMPI_ALLOW_RUN_AS_ROOT=1 --env OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -132,24 +127,19 @@ jobs:
           update-package-index: true
           verbose: 1
 
-      - uses: robinraju/release-downloader@v1
-        with:
-          tag: "v0.1"
-          fileName: "lib1dsolver.a"
-
       - name: Build release
         run: |
-          ls lib1dsolver.a
           rm -rf build_linux_release
           mkdir build_linux_release
           cd build_linux_release
           cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp \
             -DIMMERSX_BUILD_BENCHMARKS=ON \
+            -DENABLE_COUPLED_PROBLEMS=OFF \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          ninja
+          cmake --build . --parallel 2
 
       - name: Record build dependencies for selection analysis
         if: always()

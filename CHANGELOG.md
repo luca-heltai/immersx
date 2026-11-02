@@ -287,6 +287,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #323](https://github.com/luca-heltai/immersx/pull/323) Generate coupled elasticity API documentation without unmatched group warnings.
+
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Retain the native and IDA elastodynamics performance baseline with revision and artifact checksums, and provide a reproducible comparison driver.
 
 - [PR #316](https://github.com/luca-heltai/immersx/pull/316) Organize site navigation into consistent sections and tutorial groups, fix README documentation URLs, and document page ownership and heading rules.
@@ -351,6 +353,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #323](https://github.com/luca-heltai/immersx/pull/323) Limit numerical CI builds to two compiler jobs. Allow 120 minutes for Debug and 90 for Release, and skip incompatible optional 1D solver downloads while retaining client compilation checks.
+
+- [PR #323](https://github.com/luca-heltai/immersx/pull/323) Compile applications and tests without GCC 13 warnings.
 
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Cover elastodynamics cache invalidation, time-dependent loads, affine boundary lifting, and Schur factorization in serial and MPI.
 

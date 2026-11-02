@@ -131,17 +131,6 @@ namespace
     return dst;
   }
 
-  // Set every locally owned entry that `constraints` constrains to zero.
-  void
-  clear_constrained_entries(const AffineConstraints<double> &constraints,
-                            LA::MPI::Vector                 &vector)
-  {
-    for (const auto i : vector.locally_owned_elements())
-      if (constraints.is_constrained(i))
-        vector[i] = 0.0;
-    vector.compress(VectorOperation::insert);
-  }
-
   std::string
   per_run_output_name(const std::string &name)
   {
