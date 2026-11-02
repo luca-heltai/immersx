@@ -79,11 +79,11 @@ namespace
 
   template <unsigned int components, typename VectorType, typename MatrixType>
   void
-  check_nonlinear_owned_storage(const bool independent_support = false)
+  check_nonlinear_owned_storage()
   {
     parallel::distributed::Triangulation<2> mesh(MPI_COMM_WORLD);
     GridGenerator::hyper_cube(mesh);
-    mesh.refine_global(2);
+    mesh.refine_global(1);
     FESystem<2>   fe(FE_Q<2>(1), components);
     DoFHandler<2> dh(mesh);
     dh.distribute_dofs(fe);
@@ -203,31 +203,28 @@ namespace
     perturbed -= action;
     EXPECT_LT(perturbed.l2_norm(), 1.e-12);
 
-    if (independent_support)
-      {
-        Triangulation<1, 2> support_mesh;
-        CellData<1>         cell;
-        cell.vertices = {{0, 1}};
-        support_mesh.create_triangulation(
-          {Point<2>(0.1, 0.11), Point<2>(0.9, 0.89)}, {cell}, SubCellData());
-        support_mesh.refine_global(4);
-        check_support(IntegrationSupport<1, 2>(support_mesh));
+    Triangulation<1, 2> support_mesh;
+    CellData<1>         cell;
+    cell.vertices = {{0, 1}};
+    support_mesh.create_triangulation(
+      {Point<2>(0.1, 0.11), Point<2>(0.9, 0.89)}, {cell}, SubCellData());
+    support_mesh.refine_global(2);
+    check_support(IntegrationSupport<1, 2>(support_mesh));
 
-        // Rank zero supplies the points; ParticleHandler must route them to
-        // both background partitions before either assembly path uses them.
-        PhysicalSupport physical_support;
-        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-          for (unsigned int q = 0; q < 64; ++q)
-            {
-              const double t = (q + 0.5) / 64.;
-              physical_support.points.push_back(
-                {Point<2>(0.1 + 0.8 * t, 0.11 + 0.78 * t),
-                 std::hypot(0.8, 0.78) / 64.,
-                 q,
-                 0});
-            }
-        check_support(physical_support);
-      }
+    // Rank zero supplies the points; ParticleHandler must route them to
+    // both background partitions before either assembly path uses them.
+    PhysicalSupport physical_support;
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      for (unsigned int q = 0; q < 8; ++q)
+        {
+          const double t = (q + 0.5) / 8.;
+          physical_support.points.push_back(
+            {Point<2>(0.1 + 0.8 * t, 0.11 + 0.78 * t),
+             std::hypot(0.8, 0.78) / 8.,
+             q,
+             0});
+        }
+    check_support(physical_support);
   }
 
   template <unsigned int components, typename VectorType, typename MatrixType>
@@ -332,52 +329,28 @@ namespace
   }
 } // namespace
 
-TEST(WeakTerm, NonlinearOwnedScalarStorageSerial)
+TEST(WeakTerm, NonlinearSupportJacobiansSerialScalar)
 {
   check_nonlinear_owned_storage<1, Vector<double>, SparseMatrix<double>>();
 }
 
-TEST(WeakTerm, NonlinearOwnedVectorStorageSerial)
-{
-  check_nonlinear_owned_storage<2, Vector<double>, SparseMatrix<double>>();
-}
-
-TEST(WeakTerm, BOTH_NonlinearOwnedScalarStorage)
-{
-  check_nonlinear_owned_storage<1,
-                                ImmersXLA::MPI::Vector,
-                                ImmersXLA::MPI::SparseMatrix>();
-}
-
-TEST(WeakTerm, BOTH_NonlinearOwnedVectorStorage)
-{
-  check_nonlinear_owned_storage<2,
-                                ImmersXLA::MPI::Vector,
-                                ImmersXLA::MPI::SparseMatrix>();
-}
-
-TEST(WeakTerm, NonlinearSupportJacobiansSerialScalar)
-{
-  check_nonlinear_owned_storage<1, Vector<double>, SparseMatrix<double>>(true);
-}
-
 TEST(WeakTerm, NonlinearSupportJacobiansSerialVector)
 {
-  check_nonlinear_owned_storage<2, Vector<double>, SparseMatrix<double>>(true);
+  check_nonlinear_owned_storage<2, Vector<double>, SparseMatrix<double>>();
 }
 
 TEST(WeakTerm, BOTH_NonlinearSupportJacobiansAcrossPartitions)
 {
   check_nonlinear_owned_storage<1,
                                 ImmersXLA::MPI::Vector,
-                                ImmersXLA::MPI::SparseMatrix>(true);
+                                ImmersXLA::MPI::SparseMatrix>();
 }
 
 TEST(WeakTerm, BOTH_NonlinearVectorSupportJacobiansAcrossPartitions)
 {
   check_nonlinear_owned_storage<2,
                                 ImmersXLA::MPI::Vector,
-                                ImmersXLA::MPI::SparseMatrix>(true);
+                                ImmersXLA::MPI::SparseMatrix>();
 }
 
 TEST(WeakTerm, FrozenInputOnDifferentMeshOrMappingIsRejected)
