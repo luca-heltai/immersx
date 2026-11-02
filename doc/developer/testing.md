@@ -55,9 +55,10 @@ GoogleTest targets are enabled only when `GTest` is available at configure time.
 ## Correctness-test budget
 
 Each GoogleTest case must finish within 120 seconds, including fixture setup
-and teardown. The common driver enforces this wall-time limit on every MPI
-rank. A case that exceeds it fails the test process; the timing report also
-rejects completed cases above the limit. A CTest group can contain several
+and teardown. The common driver stops a case after 115 seconds on every MPI
+rank, leaving five seconds within the budget for launcher shutdown. A watchdog
+timeout fails the test process; the timing report also rejects completed cases
+above the 120-second limit. A CTest group can contain several
 cases, so its aggregate duration is distinct from an individual case's budget.
 
 Use the smallest fixture that exercises the contract. Keep nonzero loads,

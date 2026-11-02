@@ -46,7 +46,7 @@ def main():
         if args.ranks > 1:
             command = [args.mpiexec, "-np", str(args.ranks)] + command
         process = subprocess.run(command, cwd=unrelated, text=True, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT, timeout=180)
+                                 stderr=subprocess.STDOUT, timeout=110)
         assert process.returncode == 0, process.stdout
         nodes, vessels = rows(output, "nodes"), rows(output, "vessels")
         terminals, pairs = rows(output, "terminals"), rows(output, "pairs", "territory")

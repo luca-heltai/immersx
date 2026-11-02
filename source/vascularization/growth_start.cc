@@ -449,7 +449,6 @@ namespace ImmersX::Vascularization::internal
     // Route all attachment point queries together using coarse background
     // boxes; neither terminal topology nor point coordinates are replicated.
     const auto  &routing       = geometry.routing(comm, geometry.counts);
-    const auto  &boxes         = routing.boxes;
     const auto  &covering_tree = routing.covering_tree;
     std::set<Id> explicit_ids(p.selected_terminals.begin(),
                               p.selected_terminals.end());
