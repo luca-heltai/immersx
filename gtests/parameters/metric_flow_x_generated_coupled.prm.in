@@ -1,4 +1,5 @@
-# Fully internal synthetic SI network; generation precedes flow DoFs and IDA.
+# Two terminals exercise a bifurcation; one solid refinement leaves interior
+# displacement DoFs free for the nonzero coupled-response check.
 include @IMMERSX_BINARY_DIR@/gtests/parameters/metric_flow_x_elastodynamics.prm
 
 subsection Elastodynamics
@@ -6,7 +7,7 @@ subsection Elastodynamics
   subsection Domain
     set Grid generator = hyper_cube
     set Grid generator arguments = 0:1:false
-    set Initial refinement = 2
+    set Initial refinement = 1
   end
 end
 
@@ -43,7 +44,7 @@ subsection Vascularization
     set Seed radius = .003
   end
   subsection Sampling
-    set Terminal count = 4
+    set Terminal count = 2
     set Terminal count multiplier factor = none
     set Random seed = 23
     set Density mesh exponent = 0

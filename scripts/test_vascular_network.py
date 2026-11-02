@@ -52,7 +52,7 @@ def main():
         def invoke(arguments, success=True):
             result = subprocess.run(command + arguments, cwd=cwd,
                                     text=True, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, timeout=120)
+                                    stderr=subprocess.STDOUT, timeout=110)
             assert (result.returncode == 0) == success, result.stdout
             return result.stdout
 

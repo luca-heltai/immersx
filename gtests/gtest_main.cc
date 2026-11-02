@@ -29,7 +29,7 @@
 namespace
 {
   constexpr char default_timeout_message[] =
-    "GoogleTest exceeded the 120 second correctness-test budget.\n";
+    "GoogleTest exceeded the 115 second correctness-test budget.\n";
   std::atomic<const char *> timeout_message{default_timeout_message};
   static_assert(std::atomic<const char *>::is_always_lock_free,
                 "The test watchdog requires a signal-safe atomic pointer.");
@@ -55,9 +55,9 @@ namespace
       // handler can identify a slow nonzero MPI rank without consulting GTest.
       messages.emplace_back(
         "GoogleTest " + std::string(info.test_suite_name()) + "." +
-        info.name() + " exceeded the 120 second correctness-test budget.\n");
+        info.name() + " exceeded the 115 second correctness-test budget.\n");
       timeout_message.store(messages.back().c_str(), std::memory_order_release);
-      ::alarm(120);
+      ::alarm(115);
     }
 
     void

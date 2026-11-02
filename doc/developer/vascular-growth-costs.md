@@ -1,11 +1,12 @@
 # Incremental vascular growth: execution and measured cost
 
-The public `generate()` interface keeps its SI controls and point-demand model.
+The measurements in this report use the pinned SI point-demand source of
+PR #312, before the mesh and integrated-demand changes of PR #311.
 An ordinary insertion updates persistent native state and checks the affected
 geometry. The final public network materializes physical radii, native ownership
 and ghosts, then passes an independent full reconstruction.
 
-The parallel mesh/demand PR #311 supplies different physical geometry measures
+The subsequent mesh/demand PR #311 supplies different physical geometry measures
 and integrated tissue-demand callbacks to the same private execution backend.
 Its timings describe a different physical problem and are reported separately.
 No public legacy switch or alternate approximate generator is used here.
@@ -306,16 +307,23 @@ its separate actual-package recheck is recorded in the PR validation log.
 This is a focused normal-project gate, not a claim to have run its entire
 unrelated PDE manifest again.
 
-The single expensive complete native repository matrix is assigned to the
-combined mesh/integrated-demand branch in PR #311. Committed trees `b9a10db`
-and `b34a6e0` have identical execution, demand-state/journal, owned-row,
-ownership-delta and wall-certificate source files; their caller loop and
-selector retain their respective SI and mesh-relative consumers. The drafts
-keep base #310 and require deliberate reconciliation of those overlapping
-callers before merging. See the PR records for the complete combined matrix
-and current CI status rather than attributing it to this separate SI branch.
+The measurements above describe the pinned point-demand source, before the
+mesh/integrated-demand changes in PR #311. The current stack is linear:
+`#304 → #310 → #312 → #311 → #313 → #314`. PR #311 reuses the incremental
+execution backend and changes its demand and geometry inputs; it does not
+install a second generator. Consult the PR validation records for the combined
+stack rather than treating the historical campaign as a measurement of its
+current defaults.
 
 Documentation is validated with `./scripts/build_doc.sh` on this worktree,
 using official Doxygen 1.18.0 and the declared Sphinx requirements. An older
 isolated Doxygen 1.9.1 installation incorrectly duplicated a friend signature
 in XML on the combined branch; no C++ source workaround is used.
+
+## Correctness tests and publication runs
+
+CTest retains the small standalone and liver CLI checks and the independent
+vascular regression tests. The complete illustrated-example campaign is a
+manual publication run, invoked with `scripts/run_vascular_examples.py` as
+described in the vascular tutorial; it is not repeated as a correctness test.
+The vascular CLI CTests have a 115-second wall-time limit.

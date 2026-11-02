@@ -349,7 +349,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             COMMAND ${_immersx_mpiexec} -np ${_ranks} $<TARGET_FILE:${_metric_flow_x_test_target}>)
         endif()
         set_tests_properties(${_vascular_name} PROPERTIES LABELS "integration;quick"
-          TIMEOUT 300 PROCESSORS ${_ranks} RESOURCE_LOCK ImmersX.TestOutput
+          TIMEOUT 115 PROCESSORS ${_ranks} RESOURCE_LOCK ImmersX.TestOutput
           ENVIRONMENT "GTEST_FILTER=${_vascular_transfer_filter}"
           SKIP_REGULAR_EXPRESSION "Installed MetricFlowX has no in-memory input API")
         if(_ranks GREATER 1)
@@ -436,11 +436,11 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             set(_coupled_labels "application;mpi")
           endif()
           set(_coupled_timeout 600)
-          if(_build_type STREQUAL "Debug")
-            # Allow for Debug assembly and materialization in every coupled case.
-            set(_coupled_timeout 1800)
-          endif()
           math(EXPR _coupled_application_timeout "${_coupled_timeout} - 10")
+          if(_case STREQUAL "Generated")
+            set(_coupled_timeout 115)
+            set(_coupled_application_timeout 110)
+          endif()
           add_test(NAME "${_coupled_name}"
             COMMAND "${CMAKE_COMMAND}"
               "-DTEST_EXECUTABLE=$<TARGET_FILE:metric_flow_x_elastodynamics${${_build_type}_postfix}>"

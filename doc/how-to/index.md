@@ -18,4 +18,5 @@ support-aware-weak-terms
 lifted-integration
 local-co-refinement
 vascular-generation
+surface-domains
 ```
