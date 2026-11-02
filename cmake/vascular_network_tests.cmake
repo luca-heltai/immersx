@@ -21,7 +21,8 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
         --output "${TEST_OUTPUT_DIR}/vascularization/${_target}/${_ranks}"
         --ranks "${_ranks}" --mpiexec "${_vascular_mpiexec}")
     set_tests_properties("${_name}" PROPERTIES LABELS "application"
-      TIMEOUT 115 PROCESSORS "${_ranks}")
+      TIMEOUT 115 PROCESSORS "${_ranks}"
+      ENVIRONMENT "${IMMERSX_NUMERICAL_TEST_ENVIRONMENT}")
     if(_ranks GREATER 1)
       set_property(TEST "${_name}" APPEND PROPERTY LABELS "mpi")
     endif()
