@@ -530,7 +530,8 @@ namespace ImmersX::Vascularization::internal
     require_all(valid,
                 s.comm,
                 "Integrated demands must remain finite and representable.");
-    update.canonical_total_demand = std::array<double, 2>{{total, 0.}};
+    update.canonical_total_demand[0] = total;
+    update.canonical_total_demand[1] = 0.;
     if (Utilities::MPI::sum(
           static_cast<std::uint64_t>(result.unresolved.size()), s.comm) > 0)
       result.validation.issues.push_back(

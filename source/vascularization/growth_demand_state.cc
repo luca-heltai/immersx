@@ -465,23 +465,21 @@ namespace ImmersX::Vascularization::internal
     const auto          comm = communicator;
     const auto          size = Utilities::MPI::n_mpi_processes(comm);
     GrowthDemandPreview result;
-    result.snapshot_revision       = revision;
-    result.canonical_total_demand  = update.canonical_total_demand;
-    result.canonical_portal_demand = update.canonical_portal_demand;
-    result.validation              = report;
+    result.snapshot_revision      = revision;
+    result.canonical_total_demand = update.canonical_total_demand;
+    result.validation             = report;
     bool valid = report.valid() && update.snapshot_revision == revision;
-    const std::array<std::uint64_t, 5> tokens{
-      {update.snapshot_revision,
-       update.base_quadrature_revision,
-       update.quadrature_revision,
-       static_cast<std::uint64_t>(update.canonical_total_demand.has_value()),
-       static_cast<std::uint64_t>(update.canonical_portal_demand.has_value())}};
+    std::array<std::uint64_t, 6> tokens{{update.snapshot_revision,
+                                         update.base_quadrature_revision,
+                                         update.quadrature_revision}};
+    std::array<double, 3>        canonical{};
+    for (unsigned int system = 0; system < 3; ++system)
+      {
+        tokens[3 + system] = update.canonical_total_demand[system].has_value();
+        canonical[system]  = update.canonical_total_demand[system].value_or(0.);
+      }
     for (const auto &other : Utilities::MPI::all_gather(comm, tokens))
       valid = valid && other == tokens;
-    const auto legacy =
-      update.canonical_total_demand.value_or(std::array<double, 2>{{0., 0.}});
-    const std::array<double, 3> canonical{
-      {legacy[0], legacy[1], update.canonical_portal_demand.value_or(0.)}};
     for (double value : canonical)
       valid = valid && std::isfinite(value) && value >= 0.;
     for (const auto &other : Utilities::MPI::all_gather(comm, canonical))

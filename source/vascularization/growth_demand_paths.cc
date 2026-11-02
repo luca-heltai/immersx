@@ -209,11 +209,8 @@ namespace ImmersX::Vascularization::internal
         physics.other_power_coefficient = other[3 * system + 2];
         physics.reference_volume        = accepted_volume[system];
         physics.reference_resistance    = accepted_resistance[system];
-        if (system < 2 && preview.canonical_total_demand)
-          physics.final_system_demand =
-            (*preview.canonical_total_demand)[system];
-        else if (system == 2 && preview.canonical_portal_demand)
-          physics.final_system_demand = *preview.canonical_portal_demand;
+        if (preview.canonical_total_demand[system])
+          physics.final_system_demand = *preview.canonical_total_demand[system];
         else
           physics.final_system_demand = preview.totals[3 * system] + new_demand;
         x.root_radius                 = root.root.radius;

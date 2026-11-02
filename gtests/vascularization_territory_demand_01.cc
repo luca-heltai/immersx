@@ -150,7 +150,7 @@ TEST(VascularTissueDemand,
   ASSERT_TRUE(preview.validation.valid());
   EXPECT_EQ(preview.demand.update.base_quadrature_revision, 0u);
   EXPECT_EQ(preview.demand.update.quadrature_revision, 1u);
-  EXPECT_DOUBLE_EQ((*preview.demand.update.canonical_total_demand)[0], 1.);
+  EXPECT_DOUBLE_EQ(*preview.demand.update.canonical_total_demand[0], 1.);
   state.prepare_adopt(preview);
   state.discard();
   EXPECT_EQ(state.quadrature_revision(), 0u);
@@ -169,7 +169,7 @@ TEST(VascularTissueDemand,
     }
   const auto update = state.preview({}, 23, revised);
   ASSERT_TRUE(update.validation.valid());
-  EXPECT_DOUBLE_EQ((*update.demand.update.canonical_total_demand)[0], 2.);
+  EXPECT_DOUBLE_EQ(*update.demand.update.canonical_total_demand[0], 2.);
   state.prepare_adopt(update);
   state.adopt();
   EXPECT_DOUBLE_EQ(state.total_demand(), 2.);
