@@ -222,3 +222,33 @@ TEST(WeakTerm, BOTH_IterativeAdapterOwnsItsRepeatedMatrixAction)
   for (const auto i : space.locally_owned_dofs())
     EXPECT_NEAR(adapter.field(state, u)[i], 2., 1.e-10);
 }
+
+TEST(WeakTerm, OwnedMatrixCallbacksRetainTheirStorage)
+{
+  using V      = Vector<double>;
+  using M      = SparseMatrix<double>;
+  auto pattern = std::make_shared<SparsityPattern>(2, 2, 1);
+  pattern->add(0, 0);
+  pattern->add(1, 1);
+  pattern->compress();
+  auto matrix =
+    std::shared_ptr<M>(new M(*pattern), [pattern](M *value) { delete value; });
+  matrix->set(0, 0, 2.);
+  matrix->set(1, 1, 3.);
+  std::weak_ptr<M> lifetime = matrix;
+  auto             op       = matrix_operator<V>(matrix);
+  auto             reinit   = op.view.reinit_range_vector;
+  auto             apply    = op.view.vmult;
+  matrix.reset();
+  op = {};
+  EXPECT_FALSE(lifetime.expired());
+  V source(2), destination;
+  source = 1.;
+  reinit(destination, false);
+  apply(destination, source);
+  EXPECT_DOUBLE_EQ(destination[0], 2.);
+  EXPECT_DOUBLE_EQ(destination[1], 3.);
+  reinit = {};
+  apply  = {};
+  EXPECT_TRUE(lifetime.expired());
+}
