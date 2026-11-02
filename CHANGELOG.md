@@ -352,7 +352,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Limit Debug and Release CI builds to two compiler jobs with a 90-minute timeout. Skip incompatible optional 1D solver downloads while retaining client compilation checks.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Limit numerical CI builds to two compiler jobs. Allow 120 minutes for Debug and 90 for Release, and skip incompatible optional 1D solver downloads while retaining client compilation checks.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Compile applications and tests without GCC 13 warnings.
 
