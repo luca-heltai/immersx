@@ -66,8 +66,15 @@ namespace ImmersX
       project(*mass_, 1.);
       project(*stiffness_, 0.);
       project(*damping_, 0.);
-      mass_amg_ =
-        make_amg_preconditioner<VectorType>(*mass_, reinit_vector_, amg_data_);
+      // Cartesian mass components are independent. Reserve the elastic
+      // rigid-body seeds for the Schur hierarchy, rather than enlarging
+      // the mass coarse spaces with rotational modes.
+      auto mass_amg_data = amg_data_;
+      mass_amg_data.constant_modes.clear();
+      mass_amg_data.constant_modes_values.clear();
+      mass_amg_         = make_amg_preconditioner<VectorType>(*mass_,
+                                                      reinit_vector_,
+                                                      mass_amg_data);
       coefficients_set_ = false;
     }
 

@@ -92,6 +92,8 @@ the time integrator or tolerances change.
 
 Spatial setup invalidates the Problem's caches. Between spatial setups,
 `assemble_operators()` retains the mass, stiffness, and damping matrices.
+The raw and homogeneously condensed operators use the same cell matrices
+from a single quadrature pass.
 Volumetric loads and tractions have separate caches: a static contribution is
 retained, while a time-dependent contribution is evaluated at each new requested
 time. Time dependence is detected using the configured time variable name,
@@ -138,9 +140,13 @@ That inner tolerance is not the requested accuracy of the physical solution:
 the outer FGMRES retains its configured stopping criterion. FGMRES uses right
 preconditioning and permits variable inner solves. Symmetric constraint
 projection keeps the inner matrices SPD; the exact outer system retains its
-constraint treatment. AMG receives rigid-body modes on full-dimensional vector
-spaces and component-wise constant modes for embedded spaces. The mass
-hierarchy is retained; the Schur hierarchy changes with its coefficients.
+constraint treatment. Schur AMG receives rigid-body modes on full-dimensional
+vector spaces and component-wise constant modes for embedded spaces. Mass AMG
+uses its default scalar seed: the Cartesian mass graph already separates the
+components, so rotational seeds would enlarge its coarse spaces unnecessarily.
+The mass hierarchy is retained; the Schur hierarchy changes with its
+coefficients. The [ML user guide](https://trilinos.github.io/pdfs/mlguide3.pdf)
+discusses nullspace information for smoothed aggregation.
 
 This choice follows the block-factorization and nested-solve approach discussed
 by [Liu and Marsden (2019)](https://arxiv.org/abs/1809.06350) and the general

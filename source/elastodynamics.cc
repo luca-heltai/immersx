@@ -697,6 +697,18 @@ namespace ImmersX
                                   owned_dofs,
                                   spatial_dsp,
                                   mpi_communicator);
+    homogeneous_mass_matrix_storage.reinit(owned_dofs,
+                                           owned_dofs,
+                                           spatial_dsp,
+                                           mpi_communicator);
+    homogeneous_stiffness_matrix_storage.reinit(owned_dofs,
+                                                owned_dofs,
+                                                spatial_dsp,
+                                                mpi_communicator);
+    homogeneous_damping_matrix_storage.reinit(owned_dofs,
+                                              owned_dofs,
+                                              spatial_dsp,
+                                              mpi_communicator);
     system_matrix_storage.reinit(combined_owned_dofs,
                                  combined_owned_dofs,
                                  combined_dsp,
@@ -739,9 +751,12 @@ namespace ImmersX
     AssertThrow(fe_storage != nullptr && quadrature != nullptr,
                 ExcMessage("setup_fe() must be called before assembly."));
 
-    mass_matrix_storage      = 0.;
-    stiffness_matrix_storage = 0.;
-    damping_matrix_storage   = 0.;
+    mass_matrix_storage                  = 0.;
+    stiffness_matrix_storage             = 0.;
+    damping_matrix_storage               = 0.;
+    homogeneous_mass_matrix_storage      = 0.;
+    homogeneous_stiffness_matrix_storage = 0.;
+    homogeneous_damping_matrix_storage   = 0.;
 
     AffineConstraints<double> no_constraints;
     no_constraints.close();
@@ -822,46 +837,40 @@ namespace ImmersX
           no_constraints.distribute_local_to_global(cell_damping,
                                                     local_dof_indices,
                                                     damping_matrix_storage);
+          displacement_constraints_storage.distribute_local_to_global(
+            cell_mass,
+            local_dof_indices,
+            local_dof_indices,
+            homogeneous_mass_matrix_storage);
+          displacement_constraints_storage.distribute_local_to_global(
+            cell_stiffness,
+            local_dof_indices,
+            local_dof_indices,
+            homogeneous_stiffness_matrix_storage);
+          displacement_constraints_storage.distribute_local_to_global(
+            cell_damping,
+            local_dof_indices,
+            local_dof_indices,
+            homogeneous_damping_matrix_storage);
         }
 
     mass_matrix_storage.compress(VectorOperation::add);
     stiffness_matrix_storage.compress(VectorOperation::add);
     damping_matrix_storage.compress(VectorOperation::add);
+    homogeneous_mass_matrix_storage.compress(VectorOperation::add);
+    homogeneous_stiffness_matrix_storage.compress(VectorOperation::add);
+    homogeneous_damping_matrix_storage.compress(VectorOperation::add);
 
-    const auto project_matrix = [&](const MatrixType &source,
-                                    MatrixType       &destination,
-                                    const double      constrained_diagonal) {
-      destination.copy_from(source);
-      destination = 0.;
-      destination.compress(VectorOperation::add);
-      FullMatrix<double>                   entry_matrix(1, 1);
-      std::vector<types::global_dof_index> row_index(1), column_index(1);
-      for (const auto row : source.locally_owned_range_indices())
-        {
-          row_index[0] = row;
-          for (auto entry = source.begin(row); entry != source.end(row);
-               ++entry)
-            if (entry->value() != 0.)
-              {
-                column_index[0]    = entry->column();
-                entry_matrix(0, 0) = entry->value();
-                displacement_constraints_storage.distribute_local_to_global(
-                  entry_matrix, row_index, column_index, destination);
-              }
-        }
-      destination.compress(VectorOperation::add);
-      for (const auto &line : displacement_constraints_storage.get_lines())
-        if (owned_dofs.is_element(line.index))
-          destination.set(line.index, line.index, constrained_diagonal);
-      destination.compress(VectorOperation::insert);
-    };
-    project_matrix(mass_matrix_storage, homogeneous_mass_matrix_storage, 1.);
-    project_matrix(stiffness_matrix_storage,
-                   homogeneous_stiffness_matrix_storage,
-                   0.);
-    project_matrix(damping_matrix_storage,
-                   homogeneous_damping_matrix_storage,
-                   0.);
+    const auto set_constraint_diagonal =
+      [&](MatrixType &destination, const double constrained_diagonal) {
+        for (const auto &line : displacement_constraints_storage.get_lines())
+          if (owned_dofs.is_element(line.index))
+            destination.set(line.index, line.index, constrained_diagonal);
+        destination.compress(VectorOperation::insert);
+      };
+    set_constraint_diagonal(homogeneous_mass_matrix_storage, 1.);
+    set_constraint_diagonal(homogeneous_stiffness_matrix_storage, 0.);
+    set_constraint_diagonal(homogeneous_damping_matrix_storage, 0.);
     spatial_operators_ready = true;
   }
 
