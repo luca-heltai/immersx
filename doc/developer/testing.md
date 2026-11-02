@@ -26,8 +26,8 @@ Test layout:
   algebra, geometry, and other reusable components.
 - `integration` contains interactions among ImmersX components, distributed
   execution, and solver/adapter composition.
-- `validation` contains manufactured-solution, convergence, oracle, and
-  physics-validation checks.
+- `validation` contains manufactured-solution, analytic/native oracle, and
+  physics-validation checks on small meshes.
 - `application` contains executable and end-to-end application behavior.
 
 Both `gtests/` and `tests/` use these primary categories. `quick` is an
@@ -51,6 +51,21 @@ ctest -R 'ImmersX\.integration\.MPI' --output-on-failure
 ```
 
 GoogleTest targets are enabled only when `GTest` is available at configure time.
+
+## Correctness-test budget
+
+Each GoogleTest case must finish within 120 seconds, including fixture setup
+and teardown. The common driver enforces this wall-time limit on every MPI
+rank. A case that exceeds it fails the test process; the timing report also
+rejects completed cases above the limit. A CTest group can contain several
+cases, so its aggregate duration is distinct from an individual case's budget.
+
+Use the smallest fixture that exercises the contract. Keep nonzero loads,
+moving boundary data, hanging nodes, distributed ownership, and independent
+oracles where they are needed. When consolidating tests, identify the surviving
+case for each assertion. Do not retain a large refinement or parameter sweep
+merely to exercise a path already covered on a small mesh. Manual accuracy and
+scalability studies belong outside the GoogleTest regression suite.
 
 ## CI selection
 
@@ -79,6 +94,12 @@ and Release jobs disable only that duplicate registration through
 `IMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF`; the local default remains `ON`.
 CI does not rerun the aggregate GoogleTest binary outside CTest.
 
+The ordinary jobs explicitly disable the optional legacy 1D solver rather than
+downloading archives that fail their toolchain link check. Its client interfaces
+are still compiled without linking that library. A compatible installation can
+enable the drivers in a local configuration; those application targets then
+provide the same interface compilation checks.
+
 Use the GitHub CI workflow's manual dispatch with `full_suite=true` to run all
 categories on a chosen branch. The final `ci` jobs require every selected job to
 succeed and accept only explicitly planned skips. Workflows remain triggered on
@@ -99,12 +120,17 @@ when a local allocation requires a different worker budget.
 
 The Debug and Release jobs preserve the CTest manifest, JUnit results, and
 temporary test logs as `ctest-debug` and `ctest-release` artifacts for 14 days.
-These artifacts also contain compile commands, Ninja header dependencies and
-the target graph for reviewing component selection. Runtime fixture dependencies
+These artifacts also contain compile commands, Ninja header dependencies,
+`.ninja_log` command durations, and the target graph for reviewing component
+selection. Runtime fixture dependencies
 still require explicit ownership. GoogleTest XML and `test-timings.json` record
 the case observations. The slowest
 cases are listed in the job summary. MPI XML describes rank zero; the MPI/CTest
 exit status remains authoritative for failures on any rank.
+The report lists the longest build commands separately: elapsed command times
+can overlap and must not be summed as build wall time. The Debug job reserves
+4 GB for ccache; compare hits, misses, and cleanup counts on equivalent runs
+when checking whether that working set is sufficient.
 `Testing/Temporary/LastTest.log` includes GoogleTest case timings even for
 successful groups. Partial logs are uploaded on failure when the runner can
 still execute cleanup steps; a hard job timeout can prevent the upload.

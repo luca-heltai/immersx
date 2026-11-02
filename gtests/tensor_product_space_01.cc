@@ -136,60 +136,36 @@ TEST(TensorProductSpace, MPI_ImmersedGridPartitioning) // NOLINT
 
 
 
-TEST(TensorProductSpace, OrthoNormality) // NOLINT
+TEST(TensorProductSpace, CrossSectionWeightsMatchReferenceMass)
 {
-  static constexpr int reduced_dim  = 1;
-  static constexpr int dim          = 2;
-  static constexpr int spacedim     = 3;
-  static constexpr int n_components = 1;
-
-  // Setup parameters
-  TensorProductSpaceParameters<reduced_dim, dim, spacedim, n_components> params;
+  constexpr double                         thickness = 0.125;
+  TensorProductSpaceParameters<1, 2, 3, 1> params;
   params.thickness = "0.125";
-
   params.reduced_grid_name =
-    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
-  // Create the tensor product space
-  TensorProductSpace<reduced_dim, dim, spacedim, n_components> tps(params);
-
-  // Initialize the tensor product space
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
+  params.section.inclusion_degree      = 1;
+  params.section.selected_coefficients = {0, 1, 2};
+  TensorProductSpace<1, 2, 3, 1> tps(params);
   tps.initialize();
 
-  // Loop over the first cross-section quadrature points, and integrate phi_i *
-  // phi_j. This should give delta_ij We can do this by looping over all
-  // quadrature points, and checking that the integral is 0 for i != j
-  const auto &weigths         = tps.get_locally_owned_weights();
+  const auto &weights         = tps.get_locally_owned_weights();
   const auto &reduced_weights = tps.get_locally_owned_reduced_weights();
+  const auto &cross           = tps.get_reference_cross_section();
+  ASSERT_EQ(cross.n_selected_basis(), 3u);
+  ASSERT_FALSE(reduced_weights.empty());
+  ASSERT_GE(weights.size(), cross.n_quadrature_points());
 
-  const auto &cross = tps.get_reference_cross_section();
-
-  for (size_t i = 0; i < cross.n_selected_basis(); ++i)
-    for (size_t j = 0; i < cross.n_selected_basis(); ++i)
+  for (unsigned int i = 0; i < cross.n_selected_basis(); ++i)
+    for (unsigned int j = 0; j < cross.n_selected_basis(); ++j)
       {
-        double integral = 0.0;
-        for (size_t q = 0;
-             q < tps.get_reference_cross_section().n_quadrature_points();
-             ++q)
-          {
-            auto phi_i = cross.shape_value(i, q, 0);
-            auto phi_j = cross.shape_value(j, q, 0);
-
-            integral += phi_i * phi_j * weigths[q][0] / reduced_weights[0][0];
-          }
-        if (i != j)
-          {
-            ASSERT_NEAR(integral, 0.0, 1e-10)
-              << "Integral of phi_" << i << " and phi_" << j
-              << " should be zero.";
-          }
-        else
-          {
-            ASSERT_NEAR(integral,
-                        tps.get_reference_cross_section().measure(0.125),
-                        1e-10)
-              << "Integral of phi_" << i << " and phi_" << j
-              << " should be one.";
-          }
+        double integral = 0.;
+        for (unsigned int q = 0; q < cross.n_quadrature_points(); ++q)
+          integral += cross.shape_value(i, q, 0) * cross.shape_value(j, q, 0) *
+                      weights[q][0] / reduced_weights[0][0];
+        const double expected = i == j ? cross.measure(thickness) *
+                                           cross.get_basis_mean_squares()[i] :
+                                         0.;
+        EXPECT_NEAR(integral, expected, 1.e-10);
       }
 }
 

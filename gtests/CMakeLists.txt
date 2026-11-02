@@ -15,8 +15,7 @@
 set(_target gtests)
 
 file(GLOB _test_files CONFIGURE_DEPENDS *cc)
-list(FILTER _test_files EXCLUDE REGEX "(vascularization_)?metric_flow_x_01\\.cc$")
-list(FILTER _test_files EXCLUDE REGEX "mms_convergence_main\\.cc$")
+list(FILTER _test_files EXCLUDE REGEX "metric_flow_x_01\\.cc$")
 
 include(GoogleTest)
 include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
@@ -187,7 +186,13 @@ FOREACH(_build_type ${_d2_build_types})
     IF(ENABLE_COUPLED_PROBLEMS)
       TARGET_COMPILE_DEFINITIONS(${_exe} PRIVATE ENABLE_COUPLED_PROBLEMS)
     ENDIF()
-    if(OpenMP_CXX_FOUND AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    # When the optional library is absent, still compile its clients so their
+    # public interfaces remain checked. Enabled application targets already
+    # provide this compilation in the normal build.
+    if(ENABLE_COUPLED_PROBLEMS)
+      add_dependencies(${_exe} coupled_elasticity${_p} pseudocoupling1D${_p})
+    elseif(OpenMP_CXX_FOUND AND
+       NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
       set(_optional_1d_clients "immersx_optional_1d_clients${_p}")
       add_library(${_optional_1d_clients} OBJECT
         "${CMAKE_SOURCE_DIR}/apps/app_coupled_elasticity.cc"

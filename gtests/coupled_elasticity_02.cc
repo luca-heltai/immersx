@@ -128,7 +128,7 @@ namespace
         set Coupling type                      = @COUPLING@
         set Dirichlet boundary ids             = 2,3,4,5
         set FE degree                          = 1
-        set Initial refinement                 = 3
+        set Initial refinement                 = 2
         set Normal flux boundary ids           = 0,1
         set Output directory                   = @TEST_OUTPUT_DIR@/gtests/data/pressure_comparison_@NAME@
         set Output name                        = pressure_comparison_@NAME@

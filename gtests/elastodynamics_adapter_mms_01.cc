@@ -160,7 +160,7 @@ namespace
   void
   expect_rates(const std::vector<Measurements> &results)
   {
-    ASSERT_EQ(results.size(), 3u);
+    ASSERT_EQ(results.size(), 2u);
     for (unsigned int i = 1; i < results.size(); ++i)
       {
         const double h_ratio = results[i - 1].h / results[i].h;
@@ -180,37 +180,28 @@ namespace
   }
 } // namespace
 
-TEST(ElastodynamicsAdapterMMS, StrongDirichlet)
+TEST(ElastodynamicsAdapterMMS, StrongDirichletSpatialRegression)
 {
-  const auto result = measure_case(strong_file(), 2, true);
+  const std::vector<Measurements> results = {
+    measure_case(strong_file(), 1), measure_case(strong_file(), 2, true)};
+  const auto &result = results.back();
   EXPECT_LT(result.l2_displacement, 8.e-2);
   EXPECT_LT(result.h1_displacement, 7.e-1);
   EXPECT_LT(result.l2_velocity, 5.e-1);
+  expect_rates(results);
 }
 
-TEST(ElastodynamicsAdapterMMS, Neumann)
+TEST(ElastodynamicsAdapterMMS, NeumannSpatialRegression)
 {
-  const auto result = measure_case(neumann_file(), 1);
+  const std::vector<Measurements> results = {measure_case(neumann_file(), 1),
+                                             measure_case(neumann_file(), 2)};
+  const auto                     &result  = results.front();
   EXPECT_LT(result.l2_displacement, 3.e-1);
   EXPECT_LT(result.h1_displacement, 1.7);
   EXPECT_LT(result.l2_velocity, 8.e-1);
-}
-
-TEST(ElastodynamicsAdapterMMS, StrongDirichletSpatialConvergence)
-{
-  std::vector<Measurements> results;
-  for (const auto refinement : {1u, 2u, 3u})
-    results.push_back(measure_case(strong_file(), refinement));
   expect_rates(results);
 }
 
-TEST(ElastodynamicsAdapterMMS, NeumannSpatialConvergence)
-{
-  std::vector<Measurements> results;
-  for (const auto refinement : {1u, 2u, 3u})
-    results.push_back(measure_case(neumann_file(), refinement));
-  expect_rates(results);
-}
 #else
 TEST(ElastodynamicsAdapterMMS, RequiresSundials)
 {

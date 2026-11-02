@@ -69,13 +69,15 @@ TEST(ReducedCoupling, MPI_Constructor) // NOLINT
                           "reduced-coupling/reduced_coupling_01.prm"));
 
   par.tensor_product_space_parameters.reduced_grid_name =
-    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
 
   ReducedCoupling<reduced_dim, dim, spacedim, n_components> coupling(
     background_tria, par);
 
   // Initialize everything
   coupling.initialize();
+  EXPECT_GT(coupling.get_dof_handler().n_dofs(), 0u);
+  EXPECT_GT(coupling.get_particles().n_global_particles(), 0u);
 }
 
 
@@ -269,7 +271,7 @@ TEST(ReducedCoupling, MPI_ConstructorP1) // NOLINT
                           "reduced-coupling/reduced_coupling_01_p1.prm"));
 
   par.tensor_product_space_parameters.reduced_grid_name =
-    ImmersX::TestPaths::data_filename("tests/mstree_100.vtk");
+    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
   par.tensor_product_space_parameters.section.inclusion_degree = 1;
   par.coupling_rhs_expressions = {"1", "0", "0"};
 
@@ -278,6 +280,8 @@ TEST(ReducedCoupling, MPI_ConstructorP1) // NOLINT
 
   // Initialize everything
   coupling.initialize();
+  EXPECT_GT(coupling.get_dof_handler().n_dofs(), 0u);
+  EXPECT_GT(coupling.get_particles().n_global_particles(), 0u);
 }
 
 #endif // DEAL_II_WITH_VTK
