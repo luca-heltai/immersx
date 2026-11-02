@@ -498,9 +498,19 @@ namespace ImmersX
         return detail::sum_matrices(operators);
       };
       result.materialize_into = [operators](MatrixType &destination) {
-        operators.front().materialize_into_matrix(destination);
-        for (std::size_t i = 1; i < operators.size(); ++i)
-          destination.add(1., *operators[i].matrix());
+        const auto matrix = detail::sum_matrices(operators);
+        if constexpr (detail::has_sparse_reinit<MatrixType>::value &&
+                      !detail::has_distributed_partitions<MatrixType>::value)
+          {
+            AssertThrow(
+              destination.m() == matrix->m() && destination.n() == matrix->n(),
+              dealii::ExcMessage(
+                "Initialize the destination sparsity before assembling a serial sparse matrix."));
+            destination = 0.;
+            detail::set_matrix_values(destination, *matrix);
+          }
+        else
+          detail::copy_matrix(destination, *matrix);
       };
       return result;
     }

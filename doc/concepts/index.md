@@ -5,9 +5,10 @@ reduced spaces, semantic fields, and additive residual contributions.
 
 ```{toctree}
 :maxdepth: 1
+:titlesonly:
 
 overview
 mathematical-background
 architecture
-application-roadmap
+../tutorials/metric-flow-x-elastodynamics-coupling
 ```

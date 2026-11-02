@@ -257,8 +257,10 @@ ctest --test-dir build-debug --output-on-failure
 ```
 
 Unit and integration tests are marked `quick`; MPI is independent and is
-marked `mpi`. Pull-request CI runs `quick`, while pushes to `master` run the
-full manifest. Do not add a second full GoogleTest invocation to CI.
+marked `mpi`. Pull-request CI runs `quick` unless the change selector recognizes
+only documentation inputs; pushes to `master` run the full manifest. See
+[CI selection](testing) for the conservative fallback, package job,
+and full-suite override. Do not add a second full GoogleTest invocation to CI.
 
 Run one serial test with:
 
@@ -428,7 +430,9 @@ small external consumer project.
 
 Documentation sources live in `doc/` and use Sphinx/MyST.
 
-When adding a new page, add it to the `doc/index.md` toctree.
+Add each new page to the toctree of its owning section or tutorial group.
+Keep `doc/index.md` limited to section indexes. Follow the navigation and
+heading conventions in [Documentation](documentation).
 
 Install documentation requirements and build with:
 
@@ -559,7 +563,7 @@ Before handing off a substantial change:
 - [ ] Relevant CTest tests pass.
 - [ ] Release validation was performed when appropriate.
 - [ ] Documentation was updated when public behavior changed.
-- [ ] New documentation pages were added to `doc/index.md`.
+- [ ] New documentation pages have exactly one parent in the navigation.
 - [ ] `./scripts/indent` was run before each commit.
 - [ ] The complete diff was reviewed.
 - [ ] Commits are small and meaningful.

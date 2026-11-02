@@ -239,6 +239,7 @@ block numbers remain inside the adapter.
 
 Each frequency has constant coefficients during one linear solve. Prepare the
 new frequency and create a fresh adapter composition for the next solve so its
-cached weak terms use the new coefficients. For a new constitutive term, add
-its real and imaginary weak contributions with this same phase convention;
+weak-term assembly actions use the new coefficients. For a new constitutive
+term, add its real and imaginary weak contributions with this same phase
+convention;
 frequency-dependent solver policy belongs in the execution adapter.

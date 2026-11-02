@@ -468,7 +468,7 @@ TEST(LiftedIntegrationSupport,
 }
 
 TEST(LiftedIntegrationSupport,
-     BOTH_RejectsChangedConstraintStructureCollectively)
+     BOTH_ReassemblesChangedConstraintStructureCollectively)
 {
   ParameterAcceptor::clear();
   LiftedLineFixture             fixture;
@@ -500,8 +500,8 @@ TEST(LiftedIntegrationSupport,
   using M         = ImmersXLA::MPI::SparseMatrix;
   SemiDiscreteModel<V, M>   model;
   SemidiscreteBuilder<V, M> builder(layout, model);
-  weak_term(value(bulk), test(lift(value(line), geometry).mode(0)))
-    .add(builder);
+  const auto                lifted = lift(value(line), geometry).mode(0);
+  weak_term(value(bulk), test(lifted)).add(builder);
   V state, residual;
   detail::initialize_weak_vector(state,
                                  bulk.locally_owned_dofs(),
@@ -518,7 +518,30 @@ TEST(LiftedIntegrationSupport,
   constraints.reinit(bulk_space.locally_owned_dofs(),
                      bulk_space.locally_relevant_dofs());
   constraints.close();
-  EXPECT_THROW(model.evaluate_row(line.id(), context, residual), ExceptionBase);
+  residual = 0.;
+  EXPECT_NO_THROW(model.evaluate_row(line.id(), context, residual));
+  V expected;
+  detail::initialize_weak_vector(expected,
+                                 line.locally_owned_dofs(),
+                                 MPI_COMM_WORLD);
+  expected = 0.;
+  Tensor<1, 3> constant;
+  for (unsigned int d = 0; d < 3; ++d)
+    constant[d] = 1.;
+  for (const auto &point : lifted.lifted_points())
+    {
+      dealii::Vector<double> local(point.dof_indices.size());
+      for (unsigned int i = 0; i < local.size(); ++i)
+        local[i] = point.weight * point.source_basis_values[i] *
+                   (constant * point.mode_vector);
+      line.constraints().distribute_local_to_global(local,
+                                                    point.dof_indices,
+                                                    expected);
+    }
+  expected.compress(VectorOperation::add);
+  EXPECT_GT(expected.l2_norm(), 0.);
+  residual -= expected;
+  EXPECT_LT(residual.l2_norm(), 1.e-12);
 }
 
 TEST(LiftedIntegrationSupport, BOTH_VectorLiftHangingNodesAndAffineSourceShift)
@@ -605,7 +628,7 @@ TEST(LiftedIntegrationSupport, BOTH_VectorLiftHangingNodesAndAffineSourceShift)
 }
 
 TEST(LiftedIntegrationSupport,
-     BOTH_VectorLiftAutomaticAffineUpdatesAndStructureGuard)
+     BOTH_VectorLiftAutomaticAffineUpdatesAndExplicitMatrixReuse)
 {
   ParameterAcceptor::clear();
   LiftedLineFixture             fixture;
@@ -658,7 +681,7 @@ TEST(LiftedIntegrationSupport,
   const auto matrix_operator =
     model.state_matrix_operator(line.id(), bulk.id(), context);
   ASSERT_TRUE(matrix_operator.has_value());
-  const auto *matrix = matrix_operator->source_matrix();
+  const auto matrix = matrix_operator->matrix();
   ASSERT_NE(matrix, nullptr);
   for (const double amplitude : {1., -0.5, 0., 2.})
     {
@@ -697,15 +720,31 @@ TEST(LiftedIntegrationSupport,
       const auto updated_operator =
         model.state_matrix_operator(line.id(), bulk.id(), context);
       ASSERT_TRUE(updated_operator.has_value());
-      EXPECT_EQ(updated_operator->source_matrix(), matrix);
+      const auto updated_matrix = updated_operator->matrix();
+      EXPECT_EQ(updated_matrix->n_nonzero_elements(),
+                matrix->n_nonzero_elements());
+      for (const auto i : line.locally_owned_dofs())
+        if (matrix->row_length(i) != 0)
+          {
+            for (auto entry = matrix->begin(i), end = matrix->end(i);
+                 entry != end;
+                 ++entry)
+              EXPECT_DOUBLE_EQ(updated_matrix->el(i, entry->column()),
+                               entry->value());
+          }
     }
-  // Offsets may change, but an already condensed matrix cannot follow a new
-  // set of constraint masters or constrained DoFs.
+  // A new assembly follows the changed constraint structure; the matrix
+  // explicitly retained by the caller still represents the previous system.
   constraints.clear();
   constraints.reinit(bulk_space.locally_owned_dofs(),
                      bulk_space.locally_relevant_dofs());
   constraints.close();
-  EXPECT_THROW(model.evaluate_row(line.id(), context, residual), ExceptionBase);
+  residual = 0.;
+  EXPECT_NO_THROW(model.evaluate_row(line.id(), context, residual));
+  EXPECT_DOUBLE_EQ(residual.l2_norm(), 0.);
+  const auto rebuilt = matrix_operator->matrix();
+  EXPECT_GT(rebuilt->frobenius_norm(), 0.);
+  EXPECT_DOUBLE_EQ(matrix->frobenius_norm(), 0.);
 }
 
 namespace

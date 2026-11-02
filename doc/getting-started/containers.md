@@ -100,11 +100,13 @@ contains a launcher with that digest embedded and checksums.
 
 The workflow follows MetricFlowX's container pipeline: native AMD64 and ARM64
 builds, a digest-pinned deal.II base, and a daily check at midnight in
-`Europe/Rome`. Manual dispatch on `master` also checks for changed inputs.
+`Europe/Rome`. Pushes and manual dispatch on `master` also check for changed inputs.
 The fingerprint includes tracked source, build files, installed resources,
 entry point, launcher, and verification scripts. An existing tested fingerprint
 reuses the published image. A release tag always builds its exact revision.
-Pull requests build and test both architectures without publishing.
+Pull requests check launcher syntax and run the launcher and fingerprint unit
+tests without building images. Image builds and runtime checks run after merging
+to `master` and for release tags.
 
 Before publishing the multi-architecture index, CI checks default help,
 application dispatch, a nonzero-forcing Poisson solve with one and two MPI

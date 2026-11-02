@@ -1,0 +1,74 @@
+# Section 5.1 of Belponer, Caiazzo, Heltai, "Mixed-dimensional modeling of
+# vascular tissues with reduced Lagrange multipliers": unit disk with one
+# inclusion of radius 0.2 at the origin and normal inflation ubar = 0.1.
+# Former prms/elasticity/circle_one_hole.prm, adaptive refinement as in the
+# fixed_number data of Fig. 2.
+set dimension       = 2
+set space dimension = 2
+
+subsection Error
+  set Enable computation of the errors = true
+  set Error precision                  = 6
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
+
+subsection Functions
+  subsection Exact solution
+    set Function constants  = ri=0.2, re=1, di=0.1
+    set Function expression = if((x^2+y^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*x/(x^2+y^2) - x), di *x/ri); if((x^2+y^2) > (ri*ri), ri*di / (re*re-ri*ri) * (re*re*y/(x^2+y^2) - y), di*y/ri)
+    set Variable names      = x,y,t
+    set Weight expression   = if((x^2+y^2) > 0.04, 1., 0.)
+  end
+end
+
+subsection Immersed Problem
+  set Dirichlet boundary ids = 0
+  set FE degree              = 1
+  set Initial refinement     = 3
+  set Output directory       = @TEST_OUTPUT_DIR@/gtests/parameters/elasticity_04_axis_symmetric
+  set Output name            = solution
+  subsection Grid generation
+    set Domain type              = cylinder
+    set Grid generator           = cylinder
+    set Grid generator arguments = 1.
+  end
+  subsection Immersed inclusions
+    set Inclusions                        = 0, 0, 0.2
+    set Inclusions refinement             = 400
+    set Number of fourier coefficients    = 2
+    set Reference inclusion data          = 0, 0, 0.1, 0, 0, 0.1
+    set Selection of Fourier coefficients = 2, 5
+  end
+  subsection Material properties
+    subsection default
+      set Lame lambda = 1
+      set Lame mu     = 1
+    end
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 6
+    set Refinement fraction         = 0.3
+    set Strategy                    = fixed_number
+  end
+end
+
+subsection Solvers
+  subsection Augmented Lagrange
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+  subsection Displacement
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+  subsection Reduced mass
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+end

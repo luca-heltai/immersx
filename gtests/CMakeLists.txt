@@ -211,111 +211,38 @@ FOREACH(_build_type ${_d2_build_types})
       "ImmersX${${_build_type}_ctest_suffix}.TestCategoryGuard"
       PROPERTIES LABELS "unit;quick" TIMEOUT 60)
 
-    set(_unit_patterns)
-    foreach(_suite ${IMMERSX_UNIT_TEST_SUITES})
-      list(APPEND _unit_patterns "${_suite}.*")
-    endforeach()
-    string(JOIN ":" _unit_filter ${_unit_patterns})
-    set(_integration_patterns)
-    foreach(_suite ${IMMERSX_INTEGRATION_TEST_SUITES})
-      list(APPEND _integration_patterns "${_suite}.*")
-    endforeach()
-    string(JOIN ":" _integration_filter ${_integration_patterns})
-    set(_validation_patterns)
-    foreach(_suite ${IMMERSX_VALIDATION_TEST_SUITES})
-      list(APPEND _validation_patterns "${_suite}.*")
-    endforeach()
-    string(JOIN ":" _validation_filter ${_validation_patterns})
-    set(_application_patterns)
-    foreach(_suite ${IMMERSX_APPLICATION_TEST_SUITES})
-      list(APPEND _application_patterns "${_suite}.*")
-    endforeach()
-    string(JOIN ":" _application_filter ${_application_patterns})
-    set(_unit_mpi_suites)
-    foreach(_suite ${IMMERSX_UNIT_TEST_SUITES})
-      list(APPEND _unit_mpi_suites "${_suite}.MPI_*" "${_suite}.BOTH_*")
-    endforeach()
-    set(_integration_mpi_suites)
-    foreach(_suite ${IMMERSX_INTEGRATION_TEST_SUITES})
-      list(APPEND _integration_mpi_suites "${_suite}.MPI_*" "${_suite}.BOTH_*")
-    endforeach()
-    set(_validation_mpi_suites)
-    foreach(_suite ${IMMERSX_VALIDATION_TEST_SUITES})
-      list(APPEND _validation_mpi_suites "${_suite}.MPI_*" "${_suite}.BOTH_*")
-    endforeach()
-    set(_application_mpi_suites)
-    foreach(_suite ${IMMERSX_APPLICATION_TEST_SUITES})
-      list(APPEND _application_mpi_suites "${_suite}.MPI_*" "${_suite}.BOTH_*")
-    endforeach()
-    list(APPEND _integration_mpi_suites
-         "ElasticStaticProblem.BOTH_ConfigurableDisplacementSpace")
-    list(APPEND _validation_mpi_suites
-         "FiberReinforcedElastodynamicsValidation.BOTH_ConfigurableMultiplierSpace")
-    string(JOIN ":" _unit_mpi_filter ${_unit_mpi_suites})
-    # Local co-refinement uses the same assertions in serial and MPI. Include
-    # its BOTH_ cases in the authoritative integration MPI run.
-    list(APPEND _integration_mpi_suites "LocalCoRefinement.BOTH_*")
-    string(JOIN ":" _integration_mpi_filter ${_integration_mpi_suites})
-    string(JOIN ":" _validation_mpi_filter ${_validation_mpi_suites})
-    string(JOIN ":" _application_mpi_filter ${_application_mpi_suites})
+    # Discover the compiled registry after linking. Integration suites get
+    # independent CTest entries without compiling their translation units twice.
+    set(_groups_file "${CMAKE_CURRENT_BINARY_DIR}/${_exe}_test_groups.cmake")
+    set(_groups_include "${CMAKE_CURRENT_BINARY_DIR}/${_exe}_test_include.cmake")
+    set(_groups_script "${CMAKE_CURRENT_SOURCE_DIR}/discover_test_groups.cmake")
     find_program(_immersx_mpiexec NAMES mpirun mpiexec)
-
-    # One aggregate executable keeps the translation units compiled once.
-    # CTest provides the user-facing category and process-count matrix.
-    # Category runs and parameter-driven applications share configured output
-    # paths. Their common lock permits configure-only fixtures to run alongside.
-    foreach(_category unit integration validation application)
-      set(_category_quick FALSE)
-      set(_category_timeout 300)
-      if(_category STREQUAL "unit")
-        set(_category_filter "${_unit_filter}")
-        set(_category_mpi_filter "${_unit_mpi_filter}")
-        set(_category_quick TRUE)
-      elseif(_category STREQUAL "integration")
-        set(_category_filter "${_integration_filter}")
-        set(_category_mpi_filter "${_integration_mpi_filter}")
-        set(_category_quick TRUE)
-        set(_category_timeout 600)
-      elseif(_category STREQUAL "validation")
-        set(_category_filter "${_validation_filter}")
-        set(_category_mpi_filter "${_validation_mpi_filter}")
-        set(_category_timeout 1200)
-      elseif(_category STREQUAL "application")
-        set(_category_filter "${_application_filter}")
-        set(_category_mpi_filter "${_application_mpi_filter}")
-        set(_category_timeout 1200)
-      endif()
-
-      set(_serial_test
-          "ImmersX${${_build_type}_ctest_suffix}.${_category}.Serial")
-      add_test(NAME ${_serial_test}
-               COMMAND ${CMAKE_COMMAND} -E env
-                       "GTEST_FILTER=${_category_filter}-*.MPI_*"
-                       $<TARGET_FILE:${_exe}>)
-      set(_labels "${_category}")
-      if(_category_quick)
-        list(APPEND _labels quick)
-      endif()
-      set_tests_properties(${_serial_test}
-                           PROPERTIES LABELS "${_labels}"
-                                      TIMEOUT ${_category_timeout}
-                                      RESOURCE_LOCK ImmersX.TestOutput)
-
-      if(_immersx_mpiexec)
-        set(_mpi_test
-            "ImmersX${${_build_type}_ctest_suffix}.${_category}.MPI")
-        add_test(NAME ${_mpi_test}
-                 COMMAND ${CMAKE_COMMAND} -E env
-                         "GTEST_FILTER=${_category_mpi_filter}"
-                         ${_immersx_mpiexec} -np 2
-                         $<TARGET_FILE:${_exe}>)
-        set_tests_properties(${_mpi_test}
-                             PROPERTIES LABELS "${_labels};mpi"
-                                        TIMEOUT ${_category_timeout}
-                                        PROCESSORS 2
-                                        RESOURCE_LOCK ImmersX.TestOutput)
-      endif()
-    endforeach()
+    if(NOT _immersx_mpiexec)
+      set(_immersx_mpiexec "")
+    endif()
+    add_custom_command(TARGET ${_exe} POST_BUILD
+      BYPRODUCTS "${_groups_file}"
+      COMMAND ${CMAKE_COMMAND}
+              "-DTEST_EXECUTABLE=$<TARGET_FILE:${_exe}>"
+              "-DCATEGORY_FILE=${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake"
+              "-DTEST_NAME_PREFIX=ImmersX${${_build_type}_ctest_suffix}"
+              "-DTEST_RESULTS_DIR=${CMAKE_CURRENT_BINARY_DIR}/test-results"
+              "-DMPIEXEC=${_immersx_mpiexec}"
+              "-DOUTPUT_FILE=${_groups_file}"
+              -P "${_groups_script}"
+      VERBATIM)
+    set_property(TARGET ${_exe} APPEND PROPERTY LINK_DEPENDS
+      "${_groups_script}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake"
+      "${CMAKE_CURRENT_SOURCE_DIR}/check_test_categories.cmake")
+    file(GENERATE OUTPUT "${_groups_include}" CONTENT
+"if(EXISTS [==[${_groups_file}]==])
+  include([==[${_groups_file}]==])
+else()
+  add_test(ImmersX${${_build_type}_ctest_suffix}.GoogleTests.NOT_BUILT NOT_BUILT)
+endif()
+")
+    set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES "${_groups_include}")
     IF(IMMERSX_INSTALL_TESTS)
       INSTALL(TARGETS ${_exe}
         RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/immersx/tests)

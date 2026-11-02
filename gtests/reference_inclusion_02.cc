@@ -75,3 +75,81 @@ TEST(Inclusion3, CheckComponents) // NOLINT
   for (unsigned int i = 0; i < N; ++i)
     ASSERT_NEAR(ref.get_component(i), exact_component[i], 0.1);
 }
+namespace
+{
+  // One inclusion along z, in the format cx, cy, cz, dx, dy, dz, r, vessel id.
+  void
+  setup_inclusions(Inclusions<3>                   &inclusions,
+                   const unsigned int               n_coefficients,
+                   const std::vector<unsigned int> &selection,
+                   const bool                       with_inclusion = true)
+  {
+    inclusions.set_n_q_points(4);
+    inclusions.set_n_coefficients(n_coefficients);
+    inclusions.set_fourier_coefficients(selection);
+    if (with_inclusion)
+      inclusions.inclusions.push_back({0, 0, 0, 0, 0, 1, .5, 0});
+  }
+} // namespace
+
+TEST(Inclusion3, SelectionSetsNumberOfCoefficients) // NOLINT
+{
+  Inclusions<3> inclusions(3);
+  setup_inclusions(inclusions, 0, {3, 7});
+  inclusions.initialize();
+  EXPECT_EQ(inclusions.n_dofs_per_inclusion(), 2u);
+  EXPECT_EQ(inclusions.get_n_coefficients(), 2u);
+  EXPECT_EQ(inclusions.get_selected_coefficients(),
+            (std::vector<unsigned int>{3, 7}));
+}
+
+TEST(Inclusion3, SelectionMatchesNumberOfCoefficients) // NOLINT
+{
+  Inclusions<3> inclusions(3);
+  setup_inclusions(inclusions, 2, {3, 7});
+  inclusions.initialize();
+  EXPECT_EQ(inclusions.n_dofs_per_inclusion(), 2u);
+  EXPECT_EQ(inclusions.get_n_coefficients(), 2u);
+}
+
+TEST(Inclusion3, SelectionMismatchThrows) // NOLINT
+{
+  Inclusions<3> inclusions(3);
+  setup_inclusions(inclusions, 3, {3, 7});
+  EXPECT_THROW(inclusions.initialize(), ExceptionBase);
+}
+
+TEST(Inclusion3, NoSelectionUsesAllComponentsOfFirstModes) // NOLINT
+{
+  Inclusions<3> inclusions(3);
+  setup_inclusions(inclusions, 2, {});
+  inclusions.initialize();
+  EXPECT_EQ(inclusions.n_dofs_per_inclusion(), 6u);
+  EXPECT_EQ(inclusions.get_n_coefficients(), 2u);
+  EXPECT_EQ(inclusions.get_selected_coefficients(),
+            (std::vector<unsigned int>{0, 1, 2, 3, 4, 5}));
+}
+
+TEST(Inclusion3, NoSelectionNoCoefficientsGivesNoDofs) // NOLINT
+{
+  Inclusions<3> inclusions(3);
+  setup_inclusions(inclusions, 0, {});
+  testing::internal::CaptureStdout();
+  inclusions.initialize();
+  const std::string output = testing::internal::GetCapturedStdout();
+  EXPECT_EQ(inclusions.n_dofs_per_inclusion(), 0u);
+  EXPECT_EQ(inclusions.n_dofs(), 0u);
+  EXPECT_NE(output.find("no Fourier coefficients are selected"),
+            std::string::npos);
+}
+
+TEST(Inclusion3, NoInclusionsNoCoefficientsIsSilent) // NOLINT
+{
+  Inclusions<3> inclusions(3);
+  setup_inclusions(inclusions, 0, {}, false);
+  testing::internal::CaptureStdout();
+  inclusions.initialize();
+  const std::string output = testing::internal::GetCapturedStdout();
+  EXPECT_EQ(inclusions.n_dofs_per_inclusion(), 0u);
+  EXPECT_TRUE(output.empty());
+}

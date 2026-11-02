@@ -82,6 +82,10 @@ main(int argc, char *argv[])
   if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0)
     {
       delete listeners.Release(listeners.default_result_printer());
+      // XML is written by rank zero too. Concurrent listeners would overwrite
+      // the same report; MPI/CTest exit status still includes every rank.
+      if (listeners.default_xml_generator() != nullptr)
+        delete listeners.Release(listeners.default_xml_generator());
     }
   return RUN_ALL_TESTS();
 }

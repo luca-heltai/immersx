@@ -37,6 +37,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ParticleCoupling
     ApplicationRoadmap
     ContributorPhysics
+    CoupledElasticity
     FoundationalApplications
     TractionParameters
     DistributedIDA
@@ -45,6 +46,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ElasticStaticDimensions
     ElasticStaticExecution
     ElasticStaticProblem
+    ElasticityProblem
     ElasticityCouplingParameters
     ElasticityCouplingConstruction
     ElasticityCouplingIntegration

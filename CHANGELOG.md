@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
+
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Exercise vesselwise displacement and pressure exchange on tetrahedral tissue meshes in pseudocoupling1D, including repeated solves with updated coupling data.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Use simplex meshes in the tissue component of the legacy 1D coupling drivers. Build this component independently of the optional hemodynamics library and check pointwise displacement and pressure exchange in serial and MPI.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run the coupled MetricFlowX wall model on a quadratic tetrahedral solid, including RCR outlets and default or immersed vessel ownership.
@@ -43,6 +45,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Compose harmonic elasticity Problems with `LinearAdapter` using separate real and imaginary displacement Fields, material-dependent damping, and phased body and Neumann loads.
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Support Field-local absolute tolerances, a history-preserving startup tolerance ramp, and cumulative IDA progress statistics.
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Expose all backported IDA solver controls through IDAParameters while preserving existing defaults.
+- [PR #286](https://github.com/luca-heltai/immersx/pull/286) Run coupled elasticity without the optional 1D solver, compute vessel-wall pressure with point or tensor-product coupling, and update radial vessel data between solves.
 - [PR #277](https://github.com/luca-heltai/immersx/pull/277) Allow local co-refinement to partition embedded cells with their background owners through the `immersed` policy, preserving imported fields on the final partition.
 - [PR #275](https://github.com/luca-heltai/immersx/pull/275) Allow Domain to observe an externally owned triangulation, retaining its imported fields without taking ownership of the mesh.
 - [PR #275](https://github.com/luca-heltai/immersx/pull/275) Allow serial and distributed coupled IDA solves with native deal.II SparseDirectMUMPS when DEAL_II_WITH_MUMPS is enabled, selected through the application parameter file.
@@ -126,6 +129,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Solve native and IDA elastodynamics with FGMRES and a physical Schur block factorization using CG/AMG inner solves, retaining the mass hierarchy and reusing unchanged Schur combinations.
 
+- [PR #320](https://github.com/luca-heltai/immersx/pull/320) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately, avoid building matrices for zero-vector actions, follow the current constraint structure on each build, and materialize sums with one temporary contribution at a time. The standard iterative LinearAdapter solve owns and reuses one assembled system matrix.
+
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Interpret the harmonic reinforcement root dimension as the reinforcement mesh dimension and the space dimension as the matrix dimension. Use dimension one for a line reinforcement in 2D or 3D.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Share one frequency list between the harmonic matrix and fiber, and preserve the actual initial refinement when saving and reloading either supported parameter alias.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Support harmonic elasticity on embedded domains with `1 <= dim <= spacedim <= 3` and independent parameter subsections. Grid settings use `Domain`, while existing grid and refinement entries remain accepted.
@@ -182,6 +187,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Reuse elastodynamics spatial operators, static loads and boundary constraints until spatial setup changes; build native time systems from cached matrices with affine boundary lifting.
 
+- [PR #320](https://github.com/luca-heltai/immersx/pull/320) Keep caller-owned matrices unchanged when replaying scaled matrix contributions.
+
+- [PR #316](https://github.com/luca-heltai/immersx/pull/316) Open performance charts on the compatible series with the most measurements and show CPU, kernel, point count, and commit range in the series selector.
+
+- [PR #301](https://github.com/luca-heltai/immersx/pull/301) Write the HDF5 vessel pressure on every rank, so parallel coupled elasticity runs where some rank owns no vessel no longer hang.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Refresh tissue coupling data through the cached bulk assembly, group pressures by retained multiplier modes, and interpolate gathered pressures without an MPI collective inside the rank-zero callback.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include prescribed bulk values in the Reduced Poisson coupling right-hand side. Nonzero Dirichlet data now satisfy the same immersed constraint as the complete physical solution.
@@ -279,6 +289,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Retain the native and IDA elastodynamics performance baseline with revision and artifact checksums, and provide a reproducible comparison driver.
 
+- [PR #316](https://github.com/luca-heltai/immersx/pull/316) Organize site navigation into consistent sections and tutorial groups, fix README documentation URLs, and document page ownership and heading rules.
+
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Complete the application reference with both lifted applications and document uniform simplex selection, refinement limits, and optional coupling dependencies.
 
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Document simplex meshes in the elastodynamics tutorial and reading the solid mesh from a file in the MetricFlowX–elastodynamics tutorial.
@@ -340,7 +352,20 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Cover elastodynamics cache invalidation, time-dependent loads, affine boundary lifting, and Schur factorization in serial and MPI, and update simplex test inputs to the current material schema.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Cover elastodynamics cache invalidation, time-dependent loads, affine boundary lifting, and Schur factorization in serial and MPI.
+
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Skip numerical and Coral builds for documentation-only pull requests. Record C++ component selection in observation mode, retain every quick test for other changes, and keep full coverage on master with an explicit manual override.
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Validate documentation previews independently of performance measurements, using two Sphinx workers by default. Keep benchmark correctness smoke tests on numerical pull requests and complete measurements on master, with shared compiler caching.
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Fix Coral compiler-cache restoration and reuse across checkouts. Run the complete MetricFlowX package configuration matrix once in a dedicated CI job.
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Split integration GoogleTests into suite groups while checking the complete serial/MPI inventory, retaining shared-output locks, and publishing individual case timings.
+
+- [PR #321](https://github.com/luca-heltai/immersx/pull/321) Build and test container images on master and release tags, while keeping launcher and fingerprint checks on pull requests. Preserve CTest manifests, timings, and logs as CI artifacts.
+
+- [PR #320](https://github.com/luca-heltai/immersx/pull/320) Check deferred vector-constraint and transient fiber assembly, with explicit matrix reuse in the distributed regression tests.
+
+- [PR #318](https://github.com/luca-heltai/immersx/pull/318) Restore serial and MPI coverage for segment-clustered point and tensor-product elasticity coupling. Check the inclusion mass matrix and recovery of nonzero imposed Fourier data instead of printing debug output.
+
+- [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
 
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include the new explicit elasticity, Laplacian, and reduced Poisson correctness suites in CTest validation runs and keep compiled test-category coverage complete.
 

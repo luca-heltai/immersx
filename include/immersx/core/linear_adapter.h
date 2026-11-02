@@ -450,7 +450,19 @@ namespace ImmersX
       state         = composition_.make_state();
       composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
-      const auto operator_view = composition_.jacobian(0., state, nullptr, 0.);
+      std::unique_ptr<BlockMatrixType> iterative_matrix;
+      auto operator_view = composition_.jacobian(0., state, nullptr, 0.);
+      if (!solve_ && composition_.can_materialize_matrix(state))
+        {
+          pcout << "LinearAdapter: assembling the iterative solve matrix."
+                << std::endl;
+          // This solve owns the matrix it reuses. Weak terms retain only the
+          // recipes, so applying their views would otherwise reassemble it.
+          iterative_matrix.reset(
+            new BlockMatrixType(composition_.block_matrix(state)));
+          operator_view =
+            dealii::linear_operator(operator_view, *iterative_matrix);
+        }
       if (solve_)
         {
           pcout << "LinearAdapter: invoking the configured linear solver."

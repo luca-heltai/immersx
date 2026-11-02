@@ -1,4 +1,4 @@
-# Mathematical Background
+# Mathematical background
 
 This repository is about partial differential equations posed on a bulk domain and coupled with thin embedded structures. Typical examples are:
 
@@ -8,7 +8,7 @@ This repository is about partial differential equations posed on a bulk domain a
 
 The common theme is that the embedded structure is geometrically thin, so resolving it with a fully conforming mesh is often too expensive or unnecessary. The repository contains several weak-coupling formulations, including reduced Lagrange-multiplier formulations, but a multiplier is one interaction family rather than the definition of every mixed-dimensional model. The architectural common denominator is the additive semi-discrete residual described in {doc}`architecture`. The main references behind the reduced-coupling viewpoint are {cite:p}`AlzettaHeltai-2020-a`, {cite:p}`HeltaiCaiazzo-2019-a`, {cite:p}`HeltaiZunino-2023-a`, and {cite:p}`BelponerCaiazzoHeltai-2025-a`.
 
-## Geometric Setting
+## Geometric setting
 
 Let
 
@@ -26,7 +26,7 @@ In the fully resolved description, one would work on a thin physical inclusion $
 
 The mathematical problem is to transfer information between the bulk field on $\Omega$ and the reduced field on $\gamma$ or on the interface of the thin inclusion.
 
-## Bulk PDE Models
+## Bulk PDE models
 
 ### Scalar model
 
@@ -94,7 +94,7 @@ $$
 
 This is the bulk model behind `ElasticityProblem` and the coupled elasticity applications.
 
-## Why Lagrange Multipliers Appear
+## Why Lagrange multipliers appear
 
 Suppose now that the bulk field must satisfy a condition on an embedded object. A simple model is:
 
@@ -173,7 +173,7 @@ steady Newton solve, a DAE or IMEX integrator, or a history-backed
 partitioned driver. The specific state-access and Jacobian contracts are
 documented in {doc}`architecture`.
 
-## Reduced Lagrange Multiplier Spaces
+## Reduced Lagrange multiplier spaces
 
 In a full formulation, the multiplier would live on the full interface of the thin inclusion. If the inclusion is a slender three-dimensional tube, that interface is two-dimensional. The reduced formulation replaces that full interface space with a lower-dimensional space constructed on a characteristic set, typically the centerline.
 
@@ -229,7 +229,7 @@ This is the reason the repository contains classes such as:
 - `TensorProductSpace`, which combines reduced and transverse directions;
 - `ParticleCoupling`, which manages the interaction between reduced geometry data and the background discretization.
 
-## What Is Being Reduced
+## What is being reduced
 
 The reduction is not the same in every application. The code supports different interpretations.
 
@@ -255,7 +255,7 @@ The same mixed-dimensional machinery also applies to scalar PDEs. In that case, 
 
 This is why the repository is not purely an elasticity code: the scalar case is mathematically simpler, but it is also the cleanest setting in which to study the stability and approximation properties of the reduced multiplier construction.
 
-## Typical Weak Form With Reduction
+## Typical weak form with reduction
 
 A useful model for the repository is the following.
 
@@ -294,7 +294,7 @@ reduced-coupling code:
 - use of cross-sectional quadrature and basis functions;
 - explicit right-hand side assembly on the reduced space.
 
-## Two Concrete Examples
+## Two concrete examples
 
 ### Example A: Elastic body with an immersed one-dimensional inclusion
 
@@ -328,7 +328,7 @@ The second equation determines $\lambda$ so that the reduced interface condition
 
 This is the clean scalar analogue of the elasticity machinery and is useful for understanding the repository before tackling the vector-valued case.
 
-## Mathematical References
+## Mathematical references
 
 The papers in `doc/papers/` develop different parts of the mathematical picture described above:
 

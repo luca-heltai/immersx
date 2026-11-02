@@ -30,7 +30,17 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  harness:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Test performance validation and history
+        run: python3 -B -m unittest discover -s scripts/performance/tests -v
+
   performance:
+    if: github.ref == 'refs/heads/master' && contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event_name)
     uses: ./.github/workflows/performance.yml
     with:
       official: ${{ github.ref == 'refs/heads/master' && contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event_name) }}
@@ -60,7 +70,7 @@ jobs:
 
   archive:
     needs: [performance, publish-history]
-    if: ${{ !cancelled() && (needs.publish-history.result == 'success' || needs.publish-history.result == 'skipped') }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/master' && contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event_name) && (needs.publish-history.result == 'success' || needs.publish-history.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -91,7 +101,7 @@ jobs:
 
   build:
     needs: archive
-    if: ${{ !cancelled() && needs.archive.result == 'success' }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master') || needs.archive.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -101,9 +111,23 @@ jobs:
         with:
           python-version: '3.12'
       - uses: actions/download-artifact@v4
+        if: needs.archive.result == 'success'
         with:
           name: performance-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/performance-report
+      - name: Prepare an unmeasured preview
+        if: needs.archive.result == 'skipped'
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          plan = {'source_sha': sha, 'baseline': None, 'commits': []}
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'preview-plan.json').write_text(json.dumps(plan))
+          PY
+          python3 scripts/performance/pipeline.py export \
+            --archive "$RUNNER_TEMP/unmeasured-preview" \
+            --plan "$RUNNER_TEMP/preview-plan.json" \
+            --output "$RUNNER_TEMP/performance-report"
       - name: Verify report source
         run: |
           python3 - <<'PY'
@@ -154,3 +178,26 @@ jobs:
         if: steps.fresh.outputs.current == 'true'
         id: deployment
         uses: actions/deploy-pages@v4
+
+  ci:
+    name: Documentation CI
+    needs: [harness, build, performance, publish-history, archive]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require documentation and the applicable performance checks
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ['NEEDS'])
+          for name in ('harness', 'build'):
+              assert jobs[name]['result'] == 'success', (name, jobs[name]['result'])
+          official = os.environ['REF'] == 'refs/heads/master' and os.environ['EVENT'] in ('push', 'schedule', 'workflow_dispatch')
+          expected = 'success' if official else 'skipped'
+          for name in ('performance', 'publish-history', 'archive'):
+              assert jobs[name]['result'] == expected, (name, jobs[name]['result'], expected)
+          PY

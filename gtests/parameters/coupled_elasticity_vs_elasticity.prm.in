@@ -1,0 +1,51 @@
+set dimension       = 3
+set space dimension = 3
+subsection Error
+  set Enable computation of the errors = false
+end
+subsection Immersed Problem
+  set Coupling type                      = Point
+  set Dirichlet boundary ids             = 2,3,4,5
+  set FE degree                          = 1
+  set Initial refinement                 = 2
+  set Normal flux boundary ids           = 0,1
+  set Output directory                   = @TEST_OUTPUT_DIR@/gtests/parameters/coupled_elasticity_vs_elasticity
+  set Output name                        = solution
+  set Output pressure                    = false
+  set Output results also before solving = false
+  set Pressure coupling                  = false
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -2:2:true
+  end
+  subsection Immersed inclusions
+    set Inclusions file                   = @TEST_DATA_DIR@/tests/cylinder_x.txt
+    set Reference inclusion data          = 0,0,0,0.5,0,0,0,0.5,0
+    set Inclusions refinement             = 16
+    set Number of fourier coefficients    = 2
+    set Selection of Fourier coefficients = 3,7
+    set Cluster inclusions with segments  = true
+  end
+  subsection Material properties
+    subsection default
+      set Lame lambda = 1
+      set Lame mu     = 1
+    end
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 1
+  end
+end
+subsection Solvers
+  subsection Augmented Lagrange
+    set Max steps = 100
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-10
+  end
+  subsection Displacement
+    set Max steps = 1000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+end

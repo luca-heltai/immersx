@@ -449,7 +449,7 @@ TEST(ContributorCore, AbsentRectangularBlocksSkipExpensiveProducts)
   EXPECT_EQ(transpose_result.l2_norm(), 0.);
 }
 
-TEST(ContributorCore, SumMaterializesEachOperandOnce)
+TEST(ContributorCore, SumReplaysOperandsForGraphAndValues)
 {
   using Vector = dealii::Vector<double>;
   using Matrix = dealii::SparseMatrix<double>;
@@ -478,8 +478,8 @@ TEST(ContributorCore, SumMaterializesEachOperandOnce)
   };
   const auto sum = ImmersX::detail::sum_matrices(
     std::vector<ImmersX::MaterializedOperator<Vector, Matrix>>{first, second});
-  EXPECT_EQ(first_calls, 1u);
-  EXPECT_EQ(second_calls, 1u);
+  EXPECT_EQ(first_calls, 2u);
+  EXPECT_EQ(second_calls, 2u);
   a.set(0, 0, 99.);
   Vector source(2), result(2);
   source[0] = 11.;
@@ -539,7 +539,7 @@ TEST(ContributorCore, BOTH_DistributedMatrixCloneOwnsRectangularSnapshot)
     EXPECT_DOUBLE_EQ(result[i], (2. + i) * (i + 1.) - .5 * (i + 2.));
 }
 
-TEST(ContributorCore, BOTH_DistributedSumMaterializesEachOperandOnce)
+TEST(ContributorCore, BOTH_DistributedSumReplaysOperandsForGraphAndValues)
 {
   using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
   using Vector     = ImmersX::ImmersXLA::MPI::Vector;
@@ -579,8 +579,8 @@ TEST(ContributorCore, BOTH_DistributedSumMaterializesEachOperandOnce)
   };
   const auto sum = ImmersX::detail::sum_matrices(
     std::vector<ImmersX::MaterializedOperator<Vector, Matrix>>{first, second});
-  EXPECT_EQ(first_calls, 1u);
-  EXPECT_EQ(second_calls, 1u);
+  EXPECT_EQ(first_calls, 2u);
+  EXPECT_EQ(second_calls, 2u);
   Vector source, result;
   source.reinit(rows, MPI_COMM_WORLD);
   result.reinit(rows, MPI_COMM_WORLD);
@@ -591,4 +591,30 @@ TEST(ContributorCore, BOTH_DistributedSumMaterializesEachOperandOnce)
   for (const auto i : rows)
     EXPECT_DOUBLE_EQ(result[i],
                      (2. + i) * (i + 1.) - .5 * ((i + 1) % size + 1.));
+}
+
+TEST(ContributorCore, ReplayingScaledSharedMatrixLeavesSourceUnchanged)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+  dealii::SparsityPattern sparsity(2, 2);
+  sparsity.add(0, 0);
+  sparsity.add(1, 1);
+  sparsity.compress();
+  const auto matrix = std::make_shared<Matrix>(sparsity);
+  matrix->set(0, 0, 2.);
+  matrix->set(1, 1, 5.);
+  auto source        = ImmersX::matrix_operator<Vector>(*matrix);
+  source.materialize = [matrix] { return matrix; };
+  const auto scaled  = 3. * source;
+  for (unsigned int build = 0; build < 2; ++build)
+    {
+      const auto sum = ImmersX::detail::sum_matrices(
+        std::vector<ImmersX::MaterializedOperator<Vector, Matrix>>{scaled,
+                                                                   scaled});
+      EXPECT_DOUBLE_EQ(sum->el(0, 0), 12.);
+      EXPECT_DOUBLE_EQ(sum->el(1, 1), 30.);
+      EXPECT_DOUBLE_EQ(matrix->el(0, 0), 2.);
+      EXPECT_DOUBLE_EQ(matrix->el(1, 1), 5.);
+    }
 }

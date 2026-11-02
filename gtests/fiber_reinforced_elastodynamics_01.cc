@@ -460,8 +460,7 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
                     weak_term(value(fiber_velocity), test(multiplier)));
   const auto coupling = ida.add(constraint, "fiber_coupling");
 #  ifdef IMMERSX_WEAK_TERM_TESTING
-  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
-            preparations + 1);
+  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(), preparations);
 #  endif
 
   using MatrixType          = ImmersXLA::MPI::SparseMatrix;
@@ -489,7 +488,7 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
       ->matrix();
 #  ifdef IMMERSX_WEAK_TERM_TESTING
   EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
-            preparations + 1);
+            preparations + 2);
 #  endif
   auto state     = ida.make_state();
   auto state_dot = ida.make_state();
@@ -743,8 +742,8 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
   EXPECT_LT(residual.l2_norm(), 1.e-5);
   EXPECT_LT(ida.field(residual, coupling.fields().multiplier).l2_norm(), 1.e-5);
 #  ifdef IMMERSX_WEAK_TERM_TESTING
-  EXPECT_EQ(detail::weak_term_nonmatching_preparations.load(),
-            preparations + 1);
+  EXPECT_GT(detail::weak_term_nonmatching_preparations.load(),
+            preparations + 2);
 #  endif
 
   const std::filesystem::path multiplier_output =

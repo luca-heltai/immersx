@@ -131,6 +131,15 @@ compilers, flags, builds, meshes or repetition counts never share a series.
 A kernel update or any edit to that benchmark source starts a new series, even
 if the edit is only a comment. Ordinary library changes keep the series.
 
+The viewer orders compatible series by decreasing measurement count, with ties
+preferring the series whose last measurement is on the newest commit. It keeps
+a user's selected series while filters change if that series is still
+available. Labels show the CPU, kernel, measurement count, commit range, and
+compatibility hash. Hosted runners change CPU models and kernels, so a long
+archive can contain several short series. A one-point series has no trend;
+use another compatible series or collect more measurements on the same
+environment.
+
 The shipped harness is version 4. Earlier archives remain readable and are
 never rewritten or relabelled. Version 2 separated explicit timing contracts
 from the old CP8 recipe; version 4 adds the distributed penalty suite. The additive timing fields from PR #250 are preserved and included

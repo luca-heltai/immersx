@@ -2356,7 +2356,7 @@ TEST(WeakTerm, BOTH_AutomaticAffineUpdatesOnCellAndBoundarySupport)
       const auto           matrix_operator =
         model.state_matrix_operator(target.id(), source.id(), context);
       ASSERT_TRUE(matrix_operator.has_value());
-      const auto *matrix = matrix_operator->source_matrix();
+      const auto matrix = matrix_operator->matrix();
       ASSERT_NE(matrix, nullptr);
       for (const double time : {0.2, 0.4, 0.1, 0.})
         {
@@ -2385,7 +2385,18 @@ TEST(WeakTerm, BOTH_AutomaticAffineUpdatesOnCellAndBoundarySupport)
           const auto updated_operator =
             model.state_matrix_operator(target.id(), source.id(), context);
           ASSERT_TRUE(updated_operator.has_value());
-          EXPECT_EQ(updated_operator->source_matrix(), matrix);
+          const auto updated_matrix = updated_operator->matrix();
+          EXPECT_EQ(updated_matrix->n_nonzero_elements(),
+                    matrix->n_nonzero_elements());
+          for (const auto i : target.locally_owned_dofs())
+            if (matrix->row_length(i) != 0)
+              {
+                for (auto entry = matrix->begin(i), end = matrix->end(i);
+                     entry != end;
+                     ++entry)
+                  EXPECT_DOUBLE_EQ(updated_matrix->el(i, entry->column()),
+                                   entry->value());
+              }
         }
     }
 }

@@ -299,6 +299,11 @@ namespace ImmersX
                   radius_ ? radius_(cell->id(), p) : support_.thickness(p, 0.);
                 const double weight =
                   values.JxW(q) * support_.section_measure(r);
+                // The modes have maximum one, so the Gram matrix of mode ci
+                // on the cross section is |D| times its mean square, and the
+                // datum is the amplitude of the mode (see ReducedCoupling).
+                const auto &mean_squares =
+                  support_.reference_cross_section().get_basis_mean_squares();
                 for (unsigned int i = 0; i < n; ++i)
                   {
                     const auto ci =
@@ -306,7 +311,7 @@ namespace ImmersX
                     const auto vi =
                       values[dealii::FEValuesExtractors::Scalar(ci)].value(i,
                                                                            q);
-                    load[i] += vi * data_values[ci] * weight;
+                    load[i] += vi * data_values[ci] * weight * mean_squares[ci];
                     for (unsigned int j = 0; j < n; ++j)
                       if (ci ==
                           cell->get_fe().system_to_component_index(j).first)
@@ -314,7 +319,7 @@ namespace ImmersX
                           vi *
                           values[dealii::FEValuesExtractors::Scalar(ci)].value(
                             j, q) *
-                          weight;
+                          weight * mean_squares[ci];
                   }
               }
             field_.constraints().distribute_local_to_global(local,
