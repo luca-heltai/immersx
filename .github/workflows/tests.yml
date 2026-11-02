@@ -57,7 +57,6 @@ jobs:
           cd build_linux_debug
           cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-fopenmp \
             -DIMMERSX_BUILD_BENCHMARKS=ON \
-            -DENABLE_COUPLED_PROBLEMS=OFF \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
             -DENABLE_COUPLED_PROBLEMS=OFF \
@@ -140,7 +139,6 @@ jobs:
           cd build_linux_release
           cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp \
             -DIMMERSX_BUILD_BENCHMARKS=ON \
-            -DENABLE_COUPLED_PROBLEMS=OFF \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
             -DENABLE_COUPLED_PROBLEMS=OFF \
