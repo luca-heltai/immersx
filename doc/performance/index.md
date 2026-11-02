@@ -77,6 +77,7 @@ parameter-selected serial UMFPACK path.
 :titlesonly:
 
 particle-penalty
+elastodynamics
 metric-flow-x-elastodynamics
 pipeline
 ```

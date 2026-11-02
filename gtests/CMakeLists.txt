@@ -44,6 +44,7 @@ set(_public_headers
     immersx/core/reduced_field_utils.h
     immersx/core/reduced_field_values.h
     immersx/core/semidiscrete_pde_models.h
+    immersx/core/second_order_preconditioner.h
     immersx/core/state.h
     immersx/core/state_history.h
     immersx/core/sundials_ida_adapter.h

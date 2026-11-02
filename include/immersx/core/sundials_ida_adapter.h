@@ -997,6 +997,15 @@ namespace ImmersX
                   include_schur_primal_coupling_));
               current_solver_is_flexible_ = true;
             }
+          else if (composition_.has_isolated_second_order_pair())
+            {
+              current_preconditioner_ =
+                keep_snapshot(composition_.second_order_preconditioner(
+                  snapshot->state_storage,
+                  snapshot->derivative_storage,
+                  alpha));
+              current_solver_is_flexible_ = true;
+            }
           else if (composition_.has_complete_local_preconditioners())
             {
               current_preconditioner_ =

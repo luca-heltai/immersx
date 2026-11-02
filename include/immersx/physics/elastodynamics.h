@@ -47,11 +47,13 @@
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/domain.h>
+#include <immersx/core/second_order_preconditioner.h>
 #include <immersx/core/time_parameters.h>
 
 #include <list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -182,6 +184,17 @@ namespace ImmersX
 
     /** Convergence table for the displacement at the final time. */
     mutable dealii::ParsedConvergenceTable convergence_table;
+
+  private:
+    template <int, int>
+    friend class ElastodynamicsSolver;
+
+    bool body_force_depends_on_time            = true;
+    bool neumann_boundary_depends_on_time      = true;
+    bool body_force_is_zero                    = false;
+    bool neumann_boundary_is_zero              = false;
+    bool displacement_boundary_depends_on_time = true;
+    bool velocity_boundary_depends_on_time     = true;
   };
 
 
@@ -227,7 +240,9 @@ namespace ImmersX
     void
     setup_system();
 
-    /** Assemble the continuous spatial operators `M`, `K`, `D`. */
+    /** Assemble `M`, `K`, `D` once after setup_system(). Repeated calls reuse
+     * the operators until the next spatial setup.
+     */
     void
     assemble_operators();
 
@@ -340,17 +355,45 @@ namespace ImmersX
     const MatrixType &
     damping_matrix() const;
 
+    /** Homogeneously condensed spatial operators. The mass operator has
+     * identity rows on constrained DoFs; stiffness and damping have zero rows.
+     */
+    const MatrixType &
+    homogeneous_mass_matrix() const;
+
+    const MatrixType &
+    homogeneous_stiffness_matrix() const;
+
+    const MatrixType &
+    homogeneous_damping_matrix() const;
+
     /** Return the body-force vector assembled at the current time. */
     const VectorType &
     body_force_vector() const;
 
-    /** Assemble the body-force row at an externally supplied time. */
+    /** Return the load at an externally supplied time. Time-independent body
+     * forces and tractions are reused until the next setup_system().
+     */
     void
     body_force_at_time(double time, VectorType &destination) const;
 
     /** Update time-dependent essential constraints without changing state. */
     void
     update_constraints(double time) const;
+
+    /** Counts of actual assembly/update work over this object's lifetime. */
+    struct AssemblyStatistics
+    {
+      unsigned long spatial_operators  = 0;
+      unsigned long body_force         = 0;
+      unsigned long constraints        = 0;
+      unsigned long time_system_matrix = 0;
+    };
+
+    /** Return monotone counters; spatial setup invalidates caches, not counts.
+     */
+    const AssemblyStatistics &
+    assembly_statistics() const;
 
     /** Return the internal time-integration matrix from the last step. */
     const MatrixType &
@@ -385,7 +428,17 @@ namespace ImmersX
     assemble_body_force(double time);
 
     void
-    add_initial_acceleration_constraint_rhs(VectorType &rhs) const;
+    update_constraints(double time, bool update_velocity) const;
+
+    void
+    prepare_time_integration_matrix(double dt, double theta);
+
+    void
+    assemble_time_integration_rhs(const VectorType &previous_displacement,
+                                  const VectorType &previous_velocity,
+                                  const VectorType &previous_body_force,
+                                  double            dt,
+                                  double            theta);
 
     void
     assemble_backward_euler_system(const VectorType &previous_displacement,
@@ -449,6 +502,7 @@ namespace ImmersX
     dealii::IndexSet                          relevant_dofs;
     dealii::IndexSet                          combined_owned_dofs;
     dealii::IndexSet                          combined_relevant_dofs;
+    dealii::AffineConstraints<double>         hanging_node_constraints_storage;
     mutable dealii::AffineConstraints<double> displacement_constraints_storage;
     mutable dealii::AffineConstraints<double> velocity_constraints_storage;
     mutable dealii::AffineConstraints<double> combined_constraints_storage;
@@ -457,6 +511,26 @@ namespace ImmersX
     MatrixType stiffness_matrix_storage;
     MatrixType damping_matrix_storage;
     MatrixType system_matrix_storage;
+    MatrixType homogeneous_mass_matrix_storage;
+    MatrixType homogeneous_stiffness_matrix_storage;
+    MatrixType homogeneous_damping_matrix_storage;
+
+    std::unique_ptr<SecondOrderBlockPreconditioner<VectorType, MatrixType>>
+      time_preconditioner;
+
+    bool                          spatial_operators_ready = false;
+    std::optional<double>         system_matrix_time_step;
+    double                        system_matrix_theta = 0.;
+    mutable std::optional<double> displacement_constraints_time;
+    mutable std::optional<double> velocity_constraints_time;
+    mutable bool       velocity_constraints_are_boundary_data = false;
+    mutable bool       combined_constraints_initialized       = false;
+    mutable VectorType cached_body_force;
+    mutable VectorType cached_volume_force;
+    mutable VectorType cached_traction_force;
+    mutable std::optional<double> volume_force_cache_time;
+    mutable std::optional<double> traction_force_cache_time;
+    mutable AssemblyStatistics    assembly_statistics_storage;
 
     VectorType body_force_storage;
     VectorType displacement_storage;

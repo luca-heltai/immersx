@@ -10,6 +10,8 @@
 #ifndef immersx_elastodynamics_semidiscrete_h
 #define immersx_elastodynamics_semidiscrete_h
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/fe_space.h>
@@ -78,6 +80,39 @@ namespace ImmersX
         return make_amg_preconditioner(linearized_matrix, prototype);
       });
 
+    builder.second_order_pair(
+      displacement_id,
+      velocity_id,
+      [&problem]() { return problem.assembly_statistics().spatial_operators; },
+      [&problem]() {
+        SecondOrderPreconditionerData data;
+        data.constrained =
+          dealii::IndexSet(problem.locally_owned_dofs().size());
+        for (const auto &line : problem.constraints().get_lines())
+          data.constrained.add_index(line.index);
+        data.constrained.compress();
+        if constexpr (dim == spacedim)
+          data.amg_data.constant_modes_values =
+            dealii::DoFTools::extract_rigid_body_modes(problem.mapping(),
+                                                       problem.dof_handler());
+        else
+          for (unsigned int component = 0; component < spacedim; ++component)
+            {
+              const auto selected = dealii::DoFTools::extract_dofs(
+                problem.dof_handler(),
+                problem.fe().component_mask(
+                  dealii::FEValuesExtractors::Scalar(component)));
+              auto &mode = data.amg_data.constant_modes.emplace_back(
+                problem.locally_owned_dofs().n_elements(), false);
+              std::size_t local_index = 0;
+              for (const auto index : problem.locally_owned_dofs())
+                mode[local_index++] = selected.is_element(index);
+            }
+        data.amg_data.higher_order_elements =
+          problem.dof_handler().get_fe().degree > 1;
+        return data;
+      });
+
     using Space = typename ElastodynamicsFields<dim, spacedim>::Space;
     auto space  = std::make_shared<Space>(finite_element_space_view(problem));
     const auto displacement =
@@ -123,7 +158,8 @@ namespace ImmersX
                         stiffness.view * context.state(displacement_id) +
                         damping.view * context.state(velocity_id);
           typename SemiDiscreteModel<VectorType>::Operation forcing;
-          forcing.reinit_vector = [v_dot](VectorType &vector, const bool omit) {
+          forcing.reinit_vector = [&v_dot](VectorType &vector,
+                                           const bool  omit) {
             vector.reinit(v_dot, omit);
           };
           forcing.apply = [&problem,

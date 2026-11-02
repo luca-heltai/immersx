@@ -1,0 +1,1408 @@
+{
+  "date": "2026-11-02",
+  "baseline_revision": "6bd61abda38cd1c7908eea60623023f6d566ac56",
+  "optimized_revision": "930f0c4a954b772c1edb97cfce249e8d25db5129",
+  "initial_schur_revision": "0fd9473cdf2811c0354afcaa335af70637f5afe3",
+  "run_node": "gpu02",
+  "cpu": "AMD EPYC7763",
+  "ranks": 1,
+  "thread_limit": 1,
+  "build_type": "Release targets in DebugRelease configuration",
+  "compiler": "GNU11.4.0",
+  "dealii": "9.8.0",
+  "artifact_directory": "/data/home/lheltai/codes/perf-elastodynamics-20261102",
+  "summary": [
+    {
+      "refinement": 6,
+      "spatial_dofs": 8450,
+      "variant": "elasticity",
+      "repetitions": 3,
+      "steps": 8,
+      "application_seconds": {
+        "median": 0.972,
+        "minimum": 0.941,
+        "maximum": 0.979
+      },
+      "timers": {
+        "Assemble Coupling matrix": {
+          "calls": 10,
+          "median_seconds": 4.06e-05
+        },
+        "Assemble matrices and rhs": {
+          "calls": 1,
+          "median_seconds": 0.0254
+        },
+        "Assemble rhs": {
+          "calls": 10,
+          "median_seconds": 0.0296
+        },
+        "Initial setup": {
+          "calls": 1,
+          "median_seconds": 0.000374
+        },
+        "Postprocessing: Computing stresses": {
+          "calls": 8,
+          "median_seconds": 0.0345
+        },
+        "Postprocessing: Output results": {
+          "calls": 9,
+          "median_seconds": 0.598
+        },
+        "Setup dofs": {
+          "calls": 1,
+          "median_seconds": 0.0154
+        },
+        "Setup inclusion": {
+          "calls": 1,
+          "median_seconds": 0.000106
+        },
+        "Solve (newmark)": {
+          "calls": 8,
+          "median_seconds": 0.142
+        }
+      },
+      "original_baseline_application_seconds": 0.964,
+      "speedup_vs_original": 0.9917695473251029
+    },
+    {
+      "refinement": 6,
+      "spatial_dofs": 8450,
+      "variant": "elastodynamics",
+      "repetitions": 3,
+      "steps": 8,
+      "application_seconds": {
+        "median": 0.844,
+        "minimum": 0.835,
+        "maximum": 0.882
+      },
+      "timers": {
+        "Assemble body force": {
+          "calls": 1,
+          "median_seconds": 6.15e-05
+        },
+        "Assemble spatial operators": {
+          "calls": 1,
+          "median_seconds": 0.024
+        },
+        "Assemble time-integration rhs": {
+          "calls": 8,
+          "median_seconds": 0.0103
+        },
+        "Build time-integration matrix": {
+          "calls": 1,
+          "median_seconds": 0.0474
+        },
+        "Initial setup": {
+          "calls": 1,
+          "median_seconds": 0.000373
+        },
+        "Initialize block preconditioner": {
+          "calls": 1,
+          "median_seconds": 0.0323
+        },
+        "Make grid": {
+          "calls": 1,
+          "median_seconds": 0.0137
+        },
+        "Output results": {
+          "calls": 9,
+          "median_seconds": 0.356
+        },
+        "Set initial conditions": {
+          "calls": 1,
+          "median_seconds": 0.00597
+        },
+        "Setup system": {
+          "calls": 1,
+          "median_seconds": 0.0589
+        },
+        "Solve time-integration system": {
+          "calls": 8,
+          "median_seconds": 0.315
+        },
+        "Update block Schur preconditioner": {
+          "calls": 8,
+          "median_seconds": 0.0294
+        }
+      },
+      "outer_iterations": {
+        "minimum": 6,
+        "maximum": 9,
+        "total": 61,
+        "linear_solves": 8
+      },
+      "original_baseline_application_seconds": 1.31,
+      "speedup_vs_original": 1.5521327014218012
+    },
+    {
+      "refinement": 6,
+      "spatial_dofs": 8450,
+      "variant": "adapter1",
+      "repetitions": 3,
+      "steps": 264,
+      "application_seconds": {
+        "median": 5.25,
+        "minimum": 5.21,
+        "maximum": 5.32
+      },
+      "timers": {
+        "Assemble body force": {
+          "calls": 1,
+          "median_seconds": 7.05e-05
+        },
+        "Assemble spatial operators": {
+          "calls": 1,
+          "median_seconds": 0.0247
+        },
+        "Evaluate residual": {
+          "calls": 276,
+          "median_seconds": 0.198
+        },
+        "Initial setup": {
+          "calls": 1,
+          "median_seconds": 0.000353
+        },
+        "Linear solve": {
+          "calls": 276,
+          "median_seconds": 4.06
+        },
+        "Make grid": {
+          "calls": 1,
+          "median_seconds": 0.0139
+        },
+        "Output results": {
+          "calls": 9,
+          "median_seconds": 0.434
+        },
+        "Set initial conditions": {
+          "calls": 1,
+          "median_seconds": 0.00633
+        },
+        "Setup Jacobian": {
+          "calls": 6,
+          "median_seconds": 0.281
+        },
+        "Setup system": {
+          "calls": 1,
+          "median_seconds": 0.0578
+        },
+        "Solve DAE": {
+          "calls": 1,
+          "median_seconds": 5.12
+        }
+      },
+      "outer_iterations": {
+        "minimum": 3,
+        "maximum": 5,
+        "total": 1103,
+        "linear_solves": 276
+      },
+      "original_baseline_application_seconds": 7.04,
+      "speedup_vs_original": 1.340952380952381
+    },
+    {
+      "refinement": 6,
+      "spatial_dofs": 8450,
+      "variant": "adapter5",
+      "repetitions": 3,
+      "steps": 48,
+      "application_seconds": {
+        "median": 1.92,
+        "minimum": 1.91,
+        "maximum": 1.93
+      },
+      "timers": {
+        "Assemble body force": {
+          "calls": 1,
+          "median_seconds": 6.12e-05
+        },
+        "Assemble spatial operators": {
+          "calls": 1,
+          "median_seconds": 0.0243
+        },
+        "Evaluate residual": {
+          "calls": 64,
+          "median_seconds": 0.0487
+        },
+        "Initial setup": {
+          "calls": 1,
+          "median_seconds": 0.000355
+        },
+        "Linear solve": {
+          "calls": 64,
+          "median_seconds": 1.02
+        },
+        "Make grid": {
+          "calls": 1,
+          "median_seconds": 0.0139
+        },
+        "Output results": {
+          "calls": 9,
+          "median_seconds": 0.379
+        },
+        "Set initial conditions": {
+          "calls": 1,
+          "median_seconds": 0.00608
+        },
+        "Setup Jacobian": {
+          "calls": 7,
+          "median_seconds": 0.306
+        },
+        "Setup system": {
+          "calls": 1,
+          "median_seconds": 0.058
+        },
+        "Solve DAE": {
+          "calls": 1,
+          "median_seconds": 1.8
+        }
+      },
+      "outer_iterations": {
+        "minimum": 3,
+        "maximum": 5,
+        "total": 254,
+        "linear_solves": 64
+      },
+      "original_baseline_application_seconds": 2.84,
+      "speedup_vs_original": 1.4791666666666667
+    },
+    {
+      "refinement": 7,
+      "spatial_dofs": 33282,
+      "variant": "elasticity",
+      "repetitions": 3,
+      "steps": 8,
+      "application_seconds": {
+        "median": 2.43,
+        "minimum": 2.4,
+        "maximum": 2.46
+      },
+      "timers": {
+        "Assemble Coupling matrix": {
+          "calls": 10,
+          "median_seconds": 5.36e-05
+        },
+        "Assemble matrices and rhs": {
+          "calls": 1,
+          "median_seconds": 0.0977
+        },
+        "Assemble rhs": {
+          "calls": 10,
+          "median_seconds": 0.112
+        },
+        "Initial setup": {
+          "calls": 1,
+          "median_seconds": 0.00047
+        },
+        "Postprocessing: Computing stresses": {
+          "calls": 8,
+          "median_seconds": 0.048
+        },
+        "Postprocessing: Output results": {
+          "calls": 9,
+          "median_seconds": 0.895
+        },
+        "Setup dofs": {
+          "calls": 1,
+          "median_seconds": 0.0608
+        },
+        "Setup inclusion": {
+          "calls": 1,
+          "median_seconds": 0.000228
+        },
+        "Solve (newmark)": {
+          "calls": 8,
+          "median_seconds": 0.953
+        }
+      },
+      "original_baseline_application_seconds": 2.4,
+      "speedup_vs_original": 0.9876543209876543
+    },
+    {
+      "refinement": 7,
+      "spatial_dofs": 33282,
+      "variant": "elastodynamics",
+      "repetitions": 3,
+      "steps": 8,
+      "application_seconds": {
+        "median": 2.57,
+        "minimum": 2.57,
+        "maximum": 2.68
+      },
+      "timers": {
+        "Assemble body force": {
+          "calls": 1,
+          "median_seconds": 0.000163
+        },
+        "Assemble spatial operators": {
+          "calls": 1,
+          "median_seconds": 0.0971
+        },
+        "Assemble time-integration rhs": {
+          "calls": 8,
+          "median_seconds": 0.043
+        },
+        "Build time-integration matrix": {
+          "calls": 1,
+          "median_seconds": 0.193
+        },
+        "Initial setup": {
+          "calls": 1,
+          "median_seconds": 0.000452
+        },
+        "Initialize block preconditioner": {
+          "calls": 1,
+          "median_seconds": 0.115
+        },
+        "Make grid": {
+          "calls": 1,
+          "median_seconds": 0.0472
+        },
+        "Output results": {
+          "calls": 9,
+          "median_seconds": 0.674
+        },
+        "Set initial conditions": {
+          "calls": 1,
+          "median_seconds": 0.0223
+        },
+        "Setup system": {
+          "calls": 1,
+          "median_seconds": 0.228
+        },
+        "Solve time-integration system": {
+          "calls": 8,
+          "median_seconds": 1.25
+        },
+        "Update block Schur preconditioner": {
+          "calls": 8,
+          "median_seconds": 0.0732
+        }
+      },
+      "outer_iterations": {
+        "minimum": 5,
+        "maximum": 9,
+        "total": 64,
+        "linear_solves": 8
+      },
+      "original_baseline_application_seconds": 8.26,
+      "speedup_vs_original": 3.2140077821011674
+    },
+    {
+      "refinement": 7,
+      "spatial_dofs": 33282,
+      "variant": "adapter1",
+      "repetitions": 3,
+      "steps": 266,
+      "application_seconds": {
+        "median": 20.1,
+        "minimum": 19.9,
+        "maximum": 20.2
+      },
+      "timers": {
+        "Assemble body force": {
+          "calls": 1,
+          "median_seconds": 0.000165
+        },
+        "Assemble spatial operators": {
+          "calls": 1,
+          "median_seconds": 0.0967
+        },
+        "Evaluate residual": {
+          "calls": 282,
+          "median_seconds": 0.662
+        },
+        "Initial setup": {
+          "calls": 1,
+          "median_seconds": 0.000485
+        },
+        "Linear solve": {
+          "calls": 282,
+          "median_seconds": 16.7
+        },
+        "Make grid": {
+          "calls": 1,
+          "median_seconds": 0.0488
+        },
+        "Output results": {
+          "calls": 9,
+          "median_seconds": 0.763
+        },
+        "Set initial conditions": {
+          "calls": 1,
+          "median_seconds": 0.0223
+        },
+        "Setup Jacobian": {
+          "calls": 8,
+          "median_seconds": 0.816
+        },
+        "Setup system": {
+          "calls": 1,
+          "median_seconds": 0.232
+        },
+        "Solve DAE": {
+          "calls": 1,
+          "median_seconds": 19.6
+        }
+      },
+      "outer_iterations": {
+        "minimum": 3,
+        "maximum": 5,
+        "total": 1141,
+        "linear_solves": 282
+      },
+      "original_baseline_application_seconds": 31.1,
+      "speedup_vs_original": 1.5472636815920398
+    },
+    {
+      "refinement": 7,
+      "spatial_dofs": 33282,
+      "variant": "adapter5",
+      "repetitions": 3,
+      "steps": 52,
+      "application_seconds": {
+        "median": 6.57,
+        "minimum": 6.55,
+        "maximum": 6.7
+      },
+      "timers": {
+        "Assemble body force": {
+          "calls": 1,
+          "median_seconds": 0.000164
+        },
+        "Assemble spatial operators": {
+          "calls": 1,
+          "median_seconds": 0.0985
+        },
+        "Evaluate residual": {
+          "calls": 68,
+          "median_seconds": 0.166
+        },
+        "Initial setup": {
+          "calls": 1,
+          "median_seconds": 0.000461
+        },
+        "Linear solve": {
+          "calls": 68,
+          "median_seconds": 4.28
+        },
+        "Make grid": {
+          "calls": 1,
+          "median_seconds": 0.048
+        },
+        "Output results": {
+          "calls": 9,
+          "median_seconds": 0.704
+        },
+        "Set initial conditions": {
+          "calls": 1,
+          "median_seconds": 0.0223
+        },
+        "Setup Jacobian": {
+          "calls": 8,
+          "median_seconds": 0.79
+        },
+        "Setup system": {
+          "calls": 1,
+          "median_seconds": 0.23
+        },
+        "Solve DAE": {
+          "calls": 1,
+          "median_seconds": 6.1
+        }
+      },
+      "outer_iterations": {
+        "minimum": 3,
+        "maximum": 5,
+        "total": 277,
+        "linear_solves": 68
+      },
+      "original_baseline_application_seconds": 12.8,
+      "speedup_vs_original": 1.9482496194824963
+    }
+  ],
+  "baseline_replay": {
+    "source_revision": "6bd61abda38cd1c7908eea60623023f6d566ac56",
+    "host": "gpu02",
+    "ranks": 1,
+    "thread_limit": 1,
+    "build": "/data/home/lheltai/codes/perf-elastodynamics-20261102/build-gpu04",
+    "executables": {
+      "elasticity": "2d1d040baee3ed26114ab71ac0640a02560d13fd48c1d1cc39c17ff010170fc4",
+      "elastodynamics": "7fa2f7ee7d296d4f44c9d28203ccc2e2de75c07810ec456932320eea0e592ed8",
+      "elastodynamics_adapter": "541610abf9722f4cbe679034d70065cc30f8d98dd7fac37b8499da9a565410c3"
+    },
+    "records": [
+      {
+        "variant": "elasticity",
+        "refinement": 7,
+        "repetition": 1,
+        "exit_status": 0,
+        "input_sha256": "a79d94ff98d01bfbcaa442feeea71824a23785a8c7c45966c8b7a4bd256ad3e6",
+        "log": "r7-elasticity-1/run.log",
+        "command": [
+          "/data/home/lheltai/codes/perf-elastodynamics-20261102/build-gpu04/elasticity",
+          "/data/home/lheltai/codes/perf-elastodynamics-20261102/baseline-replay/r7-elasticity-1/input.prm"
+        ],
+        "timers": {
+          "Assemble Coupling matrix": {
+            "calls": 10,
+            "seconds": 9.06e-05
+          },
+          "Assemble matrices and rhs": {
+            "calls": 1,
+            "seconds": 0.0987
+          },
+          "Assemble rhs": {
+            "calls": 10,
+            "seconds": 0.112
+          },
+          "Initial setup": {
+            "calls": 1,
+            "seconds": 0.000532
+          },
+          "Postprocessing: Computing stresses": {
+            "calls": 8,
+            "seconds": 0.0505
+          },
+          "Postprocessing: Output results": {
+            "calls": 9,
+            "seconds": 0.893
+          },
+          "Setup dofs": {
+            "calls": 1,
+            "seconds": 0.0582
+          },
+          "Setup inclusion": {
+            "calls": 1,
+            "seconds": 0.000241
+          },
+          "Solve (newmark)": {
+            "calls": 8,
+            "seconds": 0.947
+          }
+        },
+        "application_seconds": [
+          2.42
+        ],
+        "steps": 8,
+        "linear_iterations": []
+      },
+      {
+        "variant": "elastodynamics",
+        "refinement": 7,
+        "repetition": 1,
+        "exit_status": 0,
+        "input_sha256": "487f7e1aabb77a36cecf77fd31729564ee31ef1874d72ca36c45e369929aabe5",
+        "log": "r7-elastodynamics-1/run.log",
+        "command": [
+          "/data/home/lheltai/codes/perf-elastodynamics-20261102/build-gpu04/elastodynamics",
+          "/data/home/lheltai/codes/perf-elastodynamics-20261102/baseline-replay/r7-elastodynamics-1/input.prm"
+        ],
+        "timers": {
+          "Assemble body force": {
+            "calls": 9,
+            "seconds": 0.0831
+          },
+          "Assemble spatial operators": {
+            "calls": 1,
+            "seconds": 0.0746
+          },
+          "Assemble trapezoidal system": {
+            "calls": 8,
+            "seconds": 0.927
+          },
+          "Initial setup": {
+            "calls": 1,
+            "seconds": 0.00052
+          },
+          "Make grid": {
+            "calls": 1,
+            "seconds": 0.0478
+          },
+          "Output results": {
+            "calls": 9,
+            "seconds": 0.685
+          },
+          "Set initial conditions": {
+            "calls": 1,
+            "seconds": 0.0369
+          },
+          "Setup system": {
+            "calls": 1,
+            "seconds": 0.221
+          },
+          "Solve time-integration system": {
+            "calls": 8,
+            "seconds": 5.65
+          }
+        },
+        "application_seconds": [
+          7.79
+        ],
+        "steps": 8,
+        "linear_iterations": [
+          296,
+          294,
+          288,
+          287,
+          269,
+          279,
+          270,
+          269
+        ]
+      },
+      {
+        "variant": "adapter1",
+        "refinement": 7,
+        "repetition": 1,
+        "exit_status": 0,
+        "input_sha256": "4f6a4812ffed65bd72bc33769ab3775a38b904069d5e236b32b356bd2ff791a6",
+        "log": "r7-adapter1-1/run.log",
+        "command": [
+          "/data/home/lheltai/codes/perf-elastodynamics-20261102/build-gpu04/elastodynamics_adapter",
+          "/data/home/lheltai/codes/perf-elastodynamics-20261102/baseline-replay/r7-adapter1-1/input.prm"
+        ],
+        "timers": {
+          "Evaluate residual": {
+            "calls": 282,
+            "seconds": 5.08
+          },
+          "Linear solve": {
+            "calls": 282,
+            "seconds": 21.2
+          },
+          "Setup Jacobian": {
+            "calls": 8,
+            "seconds": 2.33
+          },
+          "Solve DAE": {
+            "calls": 1,
+            "seconds": 30.1
+          },
+          "Assemble body force": {
+            "calls": 284,
+            "seconds": 2.62
+          },
+          "Assemble spatial operators": {
+            "calls": 1,
+            "seconds": 0.0763
+          },
+          "Initial setup": {
+            "calls": 1,
+            "seconds": 0.000644
+          },
+          "Make grid": {
+            "calls": 1,
+            "seconds": 0.0462
+          },
+          "Output results": {
+            "calls": 9,
+            "seconds": 0.781
+          },
+          "Set initial conditions": {
+            "calls": 1,
+            "seconds": 0.0375
+          },
+          "Setup system": {
+            "calls": 1,
+            "seconds": 0.225
+          }
+        },
+        "application_seconds": [
+          30.3,
+          30.7
+        ],
+        "steps": 266,
+        "linear_iterations": [
+          11,
+          11,
+          10,
+          11,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          11,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          11,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          11,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          10,
+          11,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          9,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          11,
+          14,
+          16,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14,
+          14
+        ]
+      },
+      {
+        "variant": "adapter5",
+        "refinement": 7,
+        "repetition": 1,
+        "exit_status": 0,
+        "input_sha256": "4d7f35f989734faf03fb4a1564b06c7287a45934d4fe92510ed506b448ebca04",
+        "log": "r7-adapter5-1/run.log",
+        "command": [
+          "/data/home/lheltai/codes/perf-elastodynamics-20261102/build-gpu04/elastodynamics_adapter",
+          "/data/home/lheltai/codes/perf-elastodynamics-20261102/baseline-replay/r7-adapter5-1/input.prm"
+        ],
+        "timers": {
+          "Evaluate residual": {
+            "calls": 68,
+            "seconds": 1.23
+          },
+          "Linear solve": {
+            "calls": 68,
+            "seconds": 7.67
+          },
+          "Setup Jacobian": {
+            "calls": 8,
+            "seconds": 2.34
+          },
+          "Solve DAE": {
+            "calls": 1,
+            "seconds": 12.2
+          },
+          "Assemble body force": {
+            "calls": 70,
+            "seconds": 0.648
+          },
+          "Assemble spatial operators": {
+            "calls": 1,
+            "seconds": 0.0739
+          },
+          "Initial setup": {
+            "calls": 1,
+            "seconds": 0.000547
+          },
+          "Make grid": {
+            "calls": 1,
+            "seconds": 0.0466
+          },
+          "Output results": {
+            "calls": 9,
+            "seconds": 0.719
+          },
+          "Set initial conditions": {
+            "calls": 1,
+            "seconds": 0.0373
+          },
+          "Setup system": {
+            "calls": 1,
+            "seconds": 0.226
+          }
+        },
+        "application_seconds": [
+          12.4,
+          12.8
+        ],
+        "steps": 52,
+        "linear_iterations": [
+          11,
+          11,
+          10,
+          11,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          11,
+          11,
+          11,
+          11,
+          10,
+          11,
+          10,
+          11,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          11,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          11,
+          10,
+          10,
+          10,
+          10,
+          13,
+          14,
+          13,
+          13,
+          13,
+          13,
+          13,
+          13,
+          18,
+          19,
+          18,
+          18,
+          18,
+          19,
+          18,
+          19,
+          19,
+          19,
+          26,
+          28,
+          25,
+          25,
+          27,
+          26,
+          27,
+          27,
+          27,
+          27,
+          27
+        ]
+      }
+    ],
+    "library_sha256": "62c5c9d0de10bced47a56cbcd8ddab6025986379f5dcb3600d478d0342e75c1d"
+  },
+  "optimized_binary_checksums": {
+    "elasticity": "e2c4db5e2b2976e2da1ab8ba5820184c2cc2f238ed261cf84a2ca3fc383d77f8",
+    "elastodynamics": "77aa5f06611177df35b8bfce7415e4a577b2c067d365be6662def54a203847bb",
+    "elastodynamics_adapter": "9385c703c4641026cfdeef27e62ee96fdab376118651a537df1c7c85c9c9f308"
+  },
+  "optimized_library_sha256": "eb0060d1ef61e0c5e34a1b18bcf2f63f88b18b2e0c5175b7948b8736a6e3fd75",
+  "validation": {
+    "focused_ctest_groups": 12,
+    "configurations": [
+      "Debug",
+      "Release"
+    ],
+    "process_counts": [
+      1,
+      2
+    ],
+    "all_passed": true,
+    "log": "logs/optimized-tuned-ctest.log",
+    "new_public_header_standalone_compile": [
+      "Debug",
+      "Release"
+    ],
+    "ccache_report": "logs/final-cache-verification.json",
+    "ccache_shared_node_content_test": "logs/ccache-node-sharing.json",
+    "field_comparison": {
+      "baseline_revision": "6bd61abda38cd1c7908eea60623023f6d566ac56",
+      "optimized_revision": "930f0c4a954b772c1edb97cfce249e8d25db5129",
+      "output_precision": "Float32",
+      "records": {
+        "r6-elasticity-1": {
+          "displacement": {
+            "maximum_absolute_difference": 0.0,
+            "relative_l2_difference": 0.0
+          }
+        },
+        "r6-elasticity-2": {
+          "displacement": {
+            "maximum_absolute_difference": 0.0,
+            "relative_l2_difference": 0.0
+          }
+        },
+        "r6-elasticity-3": {
+          "displacement": {
+            "maximum_absolute_difference": 0.0,
+            "relative_l2_difference": 0.0
+          }
+        },
+        "r6-elastodynamics-1": {
+          "displacement": {
+            "maximum_absolute_difference": 1.8545406538795622e-16,
+            "relative_l2_difference": 6.699767150123622e-17
+          },
+          "velocity": {
+            "maximum_absolute_difference": 3.2836360448198695e-14,
+            "relative_l2_difference": 1.3361283858983052e-16
+          }
+        },
+        "r6-elastodynamics-2": {
+          "displacement": {
+            "maximum_absolute_difference": 1.8545406538795622e-16,
+            "relative_l2_difference": 6.699767150123622e-17
+          },
+          "velocity": {
+            "maximum_absolute_difference": 3.2836360448198695e-14,
+            "relative_l2_difference": 1.3361283858983052e-16
+          }
+        },
+        "r6-elastodynamics-3": {
+          "displacement": {
+            "maximum_absolute_difference": 1.8545406538795622e-16,
+            "relative_l2_difference": 6.699767150123622e-17
+          },
+          "velocity": {
+            "maximum_absolute_difference": 3.2836360448198695e-14,
+            "relative_l2_difference": 1.3361283858983052e-16
+          }
+        },
+        "r6-adapter1-1": {
+          "displacement": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 3.235673488580442e-09
+          },
+          "velocity": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 6.340700051717716e-11
+          }
+        },
+        "r6-adapter1-2": {
+          "displacement": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 3.235673488580442e-09
+          },
+          "velocity": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 6.340700051717716e-11
+          }
+        },
+        "r6-adapter1-3": {
+          "displacement": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 3.235673488580442e-09
+          },
+          "velocity": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 6.340700051717716e-11
+          }
+        },
+        "r6-adapter5-1": {
+          "displacement": {
+            "maximum_absolute_difference": 2.218704898911849e-14,
+            "relative_l2_difference": 3.806457205155486e-15
+          },
+          "velocity": {
+            "maximum_absolute_difference": 3.725290298461914e-09,
+            "relative_l2_difference": 6.89669426275319e-12
+          }
+        },
+        "r6-adapter5-2": {
+          "displacement": {
+            "maximum_absolute_difference": 2.218704898911849e-14,
+            "relative_l2_difference": 3.806457205155486e-15
+          },
+          "velocity": {
+            "maximum_absolute_difference": 3.725290298461914e-09,
+            "relative_l2_difference": 6.89669426275319e-12
+          }
+        },
+        "r6-adapter5-3": {
+          "displacement": {
+            "maximum_absolute_difference": 2.218704898911849e-14,
+            "relative_l2_difference": 3.806457205155486e-15
+          },
+          "velocity": {
+            "maximum_absolute_difference": 3.725290298461914e-09,
+            "relative_l2_difference": 6.89669426275319e-12
+          }
+        },
+        "r7-elasticity-1": {
+          "displacement": {
+            "maximum_absolute_difference": 0.0,
+            "relative_l2_difference": 0.0
+          }
+        },
+        "r7-elasticity-2": {
+          "displacement": {
+            "maximum_absolute_difference": 0.0,
+            "relative_l2_difference": 0.0
+          }
+        },
+        "r7-elasticity-3": {
+          "displacement": {
+            "maximum_absolute_difference": 0.0,
+            "relative_l2_difference": 0.0
+          }
+        },
+        "r7-elastodynamics-1": {
+          "displacement": {
+            "maximum_absolute_difference": 8.192761540288097e-16,
+            "relative_l2_difference": 2.4746569520720767e-16
+          },
+          "velocity": {
+            "maximum_absolute_difference": 9.516692989208764e-14,
+            "relative_l2_difference": 4.0434698555467374e-16
+          }
+        },
+        "r7-elastodynamics-2": {
+          "displacement": {
+            "maximum_absolute_difference": 8.192761540288097e-16,
+            "relative_l2_difference": 2.4746569520720767e-16
+          },
+          "velocity": {
+            "maximum_absolute_difference": 9.516692989208764e-14,
+            "relative_l2_difference": 4.0434698555467374e-16
+          }
+        },
+        "r7-elastodynamics-3": {
+          "displacement": {
+            "maximum_absolute_difference": 8.192761540288097e-16,
+            "relative_l2_difference": 2.4746569520720767e-16
+          },
+          "velocity": {
+            "maximum_absolute_difference": 9.516692989208764e-14,
+            "relative_l2_difference": 4.0434698555467374e-16
+          }
+        },
+        "r7-adapter1-1": {
+          "displacement": {
+            "maximum_absolute_difference": 4.656612873077393e-10,
+            "relative_l2_difference": 2.916051407191702e-11
+          },
+          "velocity": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 5.713547061799979e-11
+          }
+        },
+        "r7-adapter1-2": {
+          "displacement": {
+            "maximum_absolute_difference": 4.656612873077393e-10,
+            "relative_l2_difference": 2.916051407191702e-11
+          },
+          "velocity": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 5.713547061799979e-11
+          }
+        },
+        "r7-adapter1-3": {
+          "displacement": {
+            "maximum_absolute_difference": 4.656612873077393e-10,
+            "relative_l2_difference": 2.916051407191702e-11
+          },
+          "velocity": {
+            "maximum_absolute_difference": 2.9802322387695312e-08,
+            "relative_l2_difference": 5.713547061799979e-11
+          }
+        },
+        "r7-adapter5-1": {
+          "displacement": {
+            "maximum_absolute_difference": 5.651923457618009e-14,
+            "relative_l2_difference": 1.4815137407313976e-14
+          },
+          "velocity": {
+            "maximum_absolute_difference": 1.4901161193847656e-08,
+            "relative_l2_difference": 1.0984474781303831e-11
+          }
+        },
+        "r7-adapter5-2": {
+          "displacement": {
+            "maximum_absolute_difference": 5.651923457618009e-14,
+            "relative_l2_difference": 1.4815137407313976e-14
+          },
+          "velocity": {
+            "maximum_absolute_difference": 1.4901161193847656e-08,
+            "relative_l2_difference": 1.0984474781303831e-11
+          }
+        },
+        "r7-adapter5-3": {
+          "displacement": {
+            "maximum_absolute_difference": 5.651923457618009e-14,
+            "relative_l2_difference": 1.4815137407313976e-14
+          },
+          "velocity": {
+            "maximum_absolute_difference": 1.4901161193847656e-08,
+            "relative_l2_difference": 1.0984474781303831e-11
+          }
+        }
+      }
+    }
+  },
+  "artifact_sha256": {
+    "baseline-replay/measurements.json": "ca6c9ad359f14c540c4a36752dc441c5d66dcf4448399fc3b2844e849cb987a5",
+    "optimized-first/measurements.json": "d2f362ea5c252ebd3166bb4310ee883f1ec87f0199b17ddc1961a99c48962a05",
+    "optimized-final/measurements.json": "6de77b54a960bfdf744056e89f87e1d5709e7fc80ee4d036da2f7d08729148dc",
+    "optimized-field-comparison.json": "ea1db23ab3fac22c9bfa83da7217396677a827b85bbf798a8a0e0979d7cf7c63",
+    "logs/optimized-tuned-ctest.log": "1f9a4a4fdb289f1f7b5711afde46706231453f99369c708d69416105c455dad9",
+    "logs/public-header-check.log": "6e2ec36fd9c5d04d649b637611943d62959a545010a593d57b472c1f5d79b180",
+    "logs/final-cache-verification.json": "8f4a9bff413598d1d7530e78deedbf3355e86ac79998878bfc0b1a0dd8a374e6",
+    "logs/ccache-node-sharing.json": "96d3a0ecc2cfb9f6bd94085c6e4b3d51f088f67c16f702682223c07b3344b4fa",
+    "baseline/binary-archive.json": "ff5af3def31a98308e1eb13212016028cf72ab0e37721dc14ca6d2d4cb58ddf6",
+    "baseline/run-baseline.sh": "4fe2b25997a9b36e3f28b573a1b2cd9bd30f50fb97e1c467bcfcf0607a8db7eb"
+  },
+  "baseline_binary_archive": {
+    "source_revision": "6bd61abda38cd1c7908eea60623023f6d566ac56",
+    "directory": "/data/home/lheltai/codes/perf-elastodynamics-20261102/baseline/binaries",
+    "sha256": {
+      "elasticity": "2d1d040baee3ed26114ab71ac0640a02560d13fd48c1d1cc39c17ff010170fc4",
+      "elastodynamics": "7fa2f7ee7d296d4f44c9d28203ccc2e2de75c07810ec456932320eea0e592ed8",
+      "elastodynamics_adapter": "541610abf9722f4cbe679034d70065cc30f8d98dd7fac37b8499da9a565410c3",
+      "libimmersx_lib.so": "62c5c9d0de10bced47a56cbcd8ddab6025986379f5dcb3600d478d0342e75c1d"
+    }
+  }
+}
