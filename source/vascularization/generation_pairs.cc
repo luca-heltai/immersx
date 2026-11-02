@@ -9,6 +9,8 @@
 #include <cmath>
 #include <set>
 
+#include "reference_flow_internal.h"
+
 namespace ImmersX::Vascularization::internal
 {
   namespace
@@ -269,10 +271,9 @@ namespace ImmersX::Vascularization::internal
           return;
         // Keep original boundary data, including unpaired input terminals.
         // Only owned new tissue records enter the independent demand sums.
-        auto demand_network = r.network;
-        demand_network.terminals.clear();
+        std::set<Id> selected_terminals;
         for (const auto &[id, writer] : selected)
-          demand_network.terminals.emplace(id, r.network.terminals.at(id));
+          selected_terminals.insert(id);
         const std::map<System, double> total_flows =
           p.portal.enabled ?
             std::map<System, double>{
@@ -282,9 +283,11 @@ namespace ImmersX::Vascularization::internal
               {System::venous, p.reference_flow}} :
             std::map<System, double>{{System::arterial, p.reference_flow},
                                      {System::venous, p.reference_flow}};
-        const auto loads =
-          demand_flow_conditions(demand_network, {}, total_flows, {}, comm);
-        auto conditions = p.reference_conditions;
+        const auto loads      = owned_demand_flow_conditions(r.network,
+                                                        total_flows,
+                                                        selected_terminals,
+                                                        comm);
+        auto       conditions = p.reference_conditions;
         for (const auto &[id, flow] : loads.inflows)
           if (!conditions.inflows.emplace(id, flow).second)
             fail(
