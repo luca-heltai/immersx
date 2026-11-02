@@ -18,6 +18,12 @@ namespace
     initialize_parameters(TestPaths::parameter_path(
       "gtests/parameters/fiber_harmonic_simplex_" + std::to_string(dim) +
       std::to_string(sd) + ".prm"));
+    if constexpr (sd == 3)
+      parameters.matrix_parameters.name_of_grid =
+        TestPaths::data_filename("tests/simplex_unit_cube.msh");
+    if constexpr (dim == 3)
+      parameters.fiber_parameters.name_of_grid =
+        TestPaths::data_filename("tests/simplex_unit_cube.msh");
     parameters.formulation = shared ? "shared" : "independent";
     FiberReinforcedElasticityFreq<dim, sd> driver(parameters);
     driver.setup();

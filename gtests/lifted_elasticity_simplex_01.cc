@@ -34,9 +34,11 @@ namespace
     parameters.domain_parameters.triangulation_type    = "fullydistributed";
     parameters.domain_parameters.initial_refinement    = 0;
     parameters.domain_parameters.name_of_grid =
-      simplex ? TestPaths::data_filename(dim == 2 ? "tests/simplex_square.msh" :
-                                                    "tests/simplex_cube.msh") :
-                "hyper_cube";
+      simplex ?
+        TestPaths::data_filename(dim == 2 ? "tests/simplex_square.msh" :
+                                 coupled  ? "tests/simplex_cube.msh" :
+                                            "tests/simplex_unit_cube.msh") :
+        "hyper_cube";
     parameters.domain_parameters.arguments_for_grid = "0:1:false";
     parameters.execution.solver                     = LinearSolver::direct;
     parameters.coupling                             = "none";
