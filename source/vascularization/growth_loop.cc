@@ -245,38 +245,41 @@ namespace ImmersX::Vascularization::internal
     // Startup has established native topology and fixed physical radii only.
     // Assign all initial Di before the first Murray/flow/objective evaluation,
     // including a request satisfied by its initial leaves without insertions.
-    count_copy(work, initial);
-    auto                    weighted_initial = initial;
-    GrowthDemandJointUpdate initial_demands;
-    if (demand_callbacks.bootstrap)
-      {
-        const auto leaves =
-          collect_growth_leaf_terminals(initial, mutable_owned, comm);
-        if (!leaves.validation.valid())
-          {
-            run.validation = leaves.validation;
-            return run;
-          }
-        initial_demands = demand_callbacks.bootstrap(initial, leaves.owned, 0);
-        run.validation  = initialize_growth_demands(
-          weighted_initial, leaves.owned, initial_demands, 0, comm);
-        if (!run.validation.valid())
-          {
-            demand_callbacks.discard();
-            return run;
-          }
-        demand_callbacks.prepare_adopt(
-          initial_demands.update.quadrature_revision, 1);
-      }
-    run.accepted = commit_growth_splits(bg,
-                                        mapping,
-                                        weighted_initial,
-                                        mutable_owned,
-                                        fixed_owned_roots,
-                                        {},
-                                        p,
-                                        comm,
-                                        &geometry);
+    {
+      count_copy(work, initial);
+      auto                    weighted_initial = initial;
+      GrowthDemandJointUpdate initial_demands;
+      if (demand_callbacks.bootstrap)
+        {
+          const auto leaves =
+            collect_growth_leaf_terminals(initial, mutable_owned, comm);
+          if (!leaves.validation.valid())
+            {
+              run.validation = leaves.validation;
+              return run;
+            }
+          initial_demands =
+            demand_callbacks.bootstrap(initial, leaves.owned, 0);
+          run.validation = initialize_growth_demands(
+            weighted_initial, leaves.owned, initial_demands, 0, comm);
+          if (!run.validation.valid())
+            {
+              demand_callbacks.discard();
+              return run;
+            }
+          demand_callbacks.prepare_adopt(
+            initial_demands.update.quadrature_revision, 1);
+        }
+      run.accepted = commit_growth_splits(bg,
+                                          mapping,
+                                          weighted_initial,
+                                          mutable_owned,
+                                          fixed_owned_roots,
+                                          {},
+                                          p,
+                                          comm,
+                                          &geometry);
+    }
     if (!run.accepted.committed)
       {
         if (demand_callbacks.discard)
@@ -499,6 +502,8 @@ namespace ImmersX::Vascularization::internal
         run.validation = execution.validation();
         return run;
       }
+    // The execution controller owns the accepted rows and summaries now.
+    run.accepted                 = {};
     const auto update_quadrature = [&](GrowthStatistics &statistics) {
       if (demand_callbacks.quadrature_diagnostics)
         {
