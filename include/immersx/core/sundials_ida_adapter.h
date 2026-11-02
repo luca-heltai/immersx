@@ -867,9 +867,15 @@ namespace ImmersX
     {
       ++jacobian_setups_;
       dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
-      const auto snapshot = composition_.make_snapshot(time, state, state_dot);
+      const bool                 retain_matrices =
+        !solve_ && linear_solver_ == LinearSolver::iterative;
+      const auto snapshot =
+        composition_.make_snapshot(time, state, state_dot, retain_matrices);
       const auto operator_view =
-        composition_.jacobian(snapshot->context, alpha);
+        composition_.jacobian(snapshot->context,
+                              alpha,
+                              retain_matrices ? &snapshot->linearization :
+                                                nullptr);
 
       Operator stable;
       stable.reinit_range_vector = [operator_view](GlobalVectorType &vector,
@@ -1023,7 +1029,8 @@ namespace ImmersX
                   alpha,
                   1000,
                   1.e-9,
-                  include_schur_primal_coupling_));
+                  include_schur_primal_coupling_,
+                  snapshot.get()));
               current_solver_is_flexible_ = true;
             }
           else if (composition_.has_isolated_second_order_pair())
@@ -1032,7 +1039,8 @@ namespace ImmersX
                 keep_snapshot(composition_.second_order_preconditioner(
                   snapshot->state_storage,
                   snapshot->derivative_storage,
-                  alpha));
+                  alpha,
+                  snapshot.get()));
               current_solver_is_flexible_ = true;
             }
           else if (composition_.has_complete_local_preconditioners())
@@ -1043,11 +1051,13 @@ namespace ImmersX
                                   snapshot->state_storage,
                                   true,
                                   &snapshot->derivative_storage,
-                                  alpha) :
+                                  alpha,
+                                  snapshot.get()) :
                                 composition_.block_diagonal_preconditioner(
                                   snapshot->state_storage,
                                   &snapshot->derivative_storage,
-                                  alpha));
+                                  alpha,
+                                  snapshot.get()));
               current_solver_is_flexible_ = composition_.n_fields() > 1;
             }
         }
