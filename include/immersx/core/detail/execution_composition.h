@@ -519,9 +519,10 @@ namespace ImmersX::detail
     /** Materialize the current linearization as a true block sparse matrix. */
     BlockMatrixType
     block_matrix(const GlobalVectorType &state,
-                 const GlobalVectorType *state_dot = nullptr,
-                 const double            alpha     = 0.,
-                 const double            time      = 0.) const
+                 const GlobalVectorType *state_dot      = nullptr,
+                 const double            alpha          = 0.,
+                 const double            time           = 0.,
+                 const Model            *prepared_model = nullptr) const
     {
       finalize();
       validate_state(state);
@@ -539,7 +540,7 @@ namespace ImmersX::detail
         }
       else
         context.emplace(time, state_view, nullptr);
-      return make_block_matrix(*context, alpha);
+      return make_block_matrix(*context, alpha, prepared_model);
     }
 
     /** Convert a block matrix to its concatenated monolithic sparse matrix. */
@@ -2339,21 +2340,23 @@ namespace ImmersX::detail
 
     bool
     can_materialize_matrix(const EvaluationContext<FieldVectorType> &context,
-                           const double alpha) const
+                           const double                              alpha,
+                           const Model *prepared_model = nullptr) const
     {
+      const auto &model = prepared_model ? *prepared_model : model_;
       for (unsigned int i = 0; i < field_layout_.n_blocks(); ++i)
         for (unsigned int j = 0; j < field_layout_.n_blocks(); ++j)
           {
             const auto row       = field_layout_.field(i);
             const auto column    = field_layout_.field(j);
-            const bool has_state = model_.has_state_operator(row, column);
+            const bool has_state = model.has_state_operator(row, column);
             const bool has_derivative =
-              model_.has_derivative_operator(row, column);
+              model.has_derivative_operator(row, column);
             if (has_state &&
-                !model_.state_matrix_operator(row, column, context).has_value())
+                !model.state_matrix_operator(row, column, context).has_value())
               return false;
             if (alpha != 0. && has_derivative &&
-                !model_.derivative_matrix_operator(row, column, context)
+                !model.derivative_matrix_operator(row, column, context)
                    .has_value())
               return false;
           }
@@ -2402,9 +2405,10 @@ namespace ImmersX::detail
 
     BlockMatrixType
     make_block_matrix(const EvaluationContext<FieldVectorType> &context,
-                      const double                              alpha) const
+                      const double                              alpha,
+                      const Model *prepared_model = nullptr) const
     {
-      AssertThrow(can_materialize_matrix(context, alpha),
+      AssertThrow(can_materialize_matrix(context, alpha, prepared_model),
                   dealii::ExcMessage(
                     "The current execution linearization is not completely "
                     "matrix-based."));
@@ -2419,7 +2423,8 @@ namespace ImmersX::detail
             auto  matrix = materialized_block(field_layout_.field(i),
                                              field_layout_.field(j),
                                              context,
-                                             alpha);
+                                             alpha,
+                                             prepared_model);
             auto &block  = result.block(i, j);
             if (matrix)
               {

@@ -57,15 +57,17 @@ Problems provide the two derivative operators separately. The adapter can
 use its built-in GMRES/FGMRES path or an application-supplied linear solve
 callback.
 
-For the built-in iterative path, each Jacobian setup retains the separate
+For the built-in linear solvers, each Jacobian setup retains the separate
 `dF/dy` and `dF/dydot` contributions at that time and state. Contributions with
 a materializer become owned matrices immediately, before another factory can
-reuse its native storage. Global Jacobian and Schur actions reuse these matrices
-throughout the linear solve. Matrix-free contributions remain actions evaluated
-from the same snapshot. The next setup builds a new linearization; residual
+reuse its native storage. Global Jacobian and Schur actions and direct matrix
+factorization reuse these matrices throughout the linear solve. Matrix-free
+contributions remain actions evaluated from the same snapshot. The next setup builds a new linearization; residual
 evaluation remains independent. The adapter shares each composed Jacobian and
 preconditioner between its callbacks, avoiding duplicate copies of the operator
-graph. Custom linear solves and direct solvers keep their existing paths.
+graph. Direct solvers require materializable contributions; matrix-free terms
+remain available to iterative and custom solves. Custom linear solve callbacks
+keep their existing path.
 
 `TimeIntervalParameters` owns the initial and final times and the physical
 output interval. `IDAParameters` owns IDA's adaptive-step controls, error

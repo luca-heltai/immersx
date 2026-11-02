@@ -239,7 +239,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Retain materializable IDA Jacobian contributions per evaluation point and share composed operator callbacks, so iterative global and Schur actions reuse owned matrices without duplicating callback trees. Preserve matrix-free actions and fresh residual evaluation.
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Retain materializable IDA Jacobian contributions per evaluation point and share composed operator callbacks, so iterative global and Schur actions and direct factorization reuse owned matrices without duplicating callback trees or rebuilding contributions during capability checks. Preserve matrix-free actions and fresh residual evaluation.
 
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Reuse elastodynamics spatial operators, static loads and boundary constraints until spatial setup changes; build native time systems from cached matrices with affine boundary lifting.
 - [PR #320](https://github.com/luca-heltai/immersx/pull/320) Keep caller-owned matrices unchanged when replaying scaled matrix contributions.

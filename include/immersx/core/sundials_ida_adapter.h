@@ -867,9 +867,8 @@ namespace ImmersX
     {
       ++jacobian_setups_;
       dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
-      const bool                 retain_matrices =
-        !solve_ && linear_solver_ == LinearSolver::iterative;
-      const auto snapshot =
+      const bool                 retain_matrices = !solve_;
+      const auto                 snapshot =
         composition_.make_snapshot(time, state, state_dot, retain_matrices);
       const auto operator_view = std::make_shared<const Operator>(
         composition_.jacobian(snapshot->context,
@@ -917,7 +916,8 @@ namespace ImmersX
             composition_.block_matrix(snapshot->state_storage,
                                       &snapshot->derivative_storage,
                                       alpha,
-                                      time));
+                                      time,
+                                      &snapshot->linearization));
           if (linear_solver_ == LinearSolver::umfpack)
             {
               dealii::DynamicSparsityPattern sparsity(matrix.m(), matrix.n());
