@@ -47,7 +47,6 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ElasticStaticProblem
     ElasticityProblem
     ElasticityCouplingParameters
-    ElasticityCouplingConstruction
     ElasticityCouplingIntegration
     ElasticityCouplingParticleOutput
     Elastodynamics
@@ -65,6 +64,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     KINSOLAdapter
     TimeIntervalParameters
     ReducedCoupling
+    ReducedPoisson
     TensorProductSpace
     TensorProductCoupling
     ReducedCoupling0D
@@ -97,8 +97,7 @@ set(IMMERSX_APPLICATION_TEST_SUITES
     Poisson
     PoissonExecution
     PrescribedPoisson
-    LiftedPoissonApplication
-    ReducedPoisson)
+    LiftedPoissonApplication)
 
 set(_immersx_category_suites
     ${IMMERSX_UNIT_TEST_SUITES}

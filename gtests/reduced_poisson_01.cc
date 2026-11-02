@@ -14,65 +14,107 @@
 //
 // ---------------------------------------------------------------------
 
-#include <deal.II/grid/grid_generator.h>
-#include <deal.II/grid/tria.h>
-
 #include <gtest/gtest.h>
+#include <immersx/io/utils.h>
+#include <immersx/physics/reduced_poisson.h>
 
-#include <filesystem>
+#include <string>
+#include <vector>
 
 #include "test_paths.h"
 
 #ifdef DEAL_II_WITH_VTK
-
-#  include <immersx/physics/reduced_poisson.h>
-
 using namespace ImmersX;
-#  include <immersx/io/utils.h>
-
 using namespace dealii;
 
-TEST(ReducedPoisson, MPI_OneCylinder) // NOLINT
+namespace
 {
-  ParameterAcceptor::clear();
-  ReducedPoissonParameters<3> par;
-  initialize_parameters(ImmersX::TestPaths::data_filename(
-                          "tests/reduced_poisson_01_one_cylinder.prm"),
-                        ImmersX::TestPaths::output_directory(
-                          "reduced-poisson/one-cylinder.prm"));
+  void
+  check_augmented_lagrangian(const unsigned int inclusion_degree)
+  {
+    ParameterAcceptor::clear();
+    ReducedPoissonParameters<3> parameters;
+    initialize_parameters_from_string(R"(
+      subsection Reduced Poisson
+        set Dirichlet boundary ids = 0
+        subsection Grid generation
+          set Grid generator = hyper_cube
+          set Grid generator arguments = 0:1:false
+          set Initial refinement = 2
+        end
+        subsection Right hand side
+          set Function expression = 0
+        end
+      end
+    )");
+    auto &coupling = parameters.reduced_coupling_parameters;
+    auto &tensor   = coupling.tensor_product_space_parameters;
+    tensor.reduced_grid_name =
+      TestPaths::data_filename("tests/simplex_interior_line_3d.vtk");
+    tensor.thickness                     = "0.05";
+    tensor.fe_degree                     = 1;
+    tensor.n_q_points                    = 3;
+    tensor.section.inclusion_degree      = inclusion_degree;
+    tensor.section.selected_coefficients = inclusion_degree == 0 ?
+                                             std::vector<unsigned int>{0} :
+                                             std::vector<unsigned int>{0, 1, 2};
+    coupling.coupling_rhs_expressions =
+      inclusion_degree == 0 ? std::vector<std::string>{"1"} :
+                              std::vector<std::string>{"1", "0", "0"};
+    auto &refinement                           = coupling.refinement_parameters;
+    refinement.space_pre_refinement_cycles     = 0;
+    refinement.space_post_refinement_cycles    = 0;
+    refinement.embedded_pre_refinement_cycles  = 0;
+    refinement.embedded_post_refinement_cycles = 0;
+    refinement.max_refinement_level            = 0;
+    parameters.inner_control.set_max_steps(1000);
+    parameters.inner_control.set_tolerance(1.e-12);
+    parameters.inner_control.set_reduction(1.e-12);
+    parameters.outer_control.set_max_steps(1000);
+    parameters.outer_control.set_tolerance(1.e-12);
+    parameters.outer_control.set_reduction(1.e-12);
+    parameters.solver_name = "AL";
 
-  par.reduced_coupling_parameters.tensor_product_space_parameters
-    .reduced_grid_name =
-    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
-  par.output_directory =
-    ImmersX::TestPaths::output_directory("reduced-poisson/one-cylinder");
-  par.output_name = "reduced_poisson_01_one_cylinder";
-  std::filesystem::create_directories(par.output_directory);
+    ReducedPoisson<3> problem(parameters);
+    problem.make_grid();
+    problem.setup_fe();
+    problem.setup_dofs();
+    problem.assemble_poisson_system();
+    problem.assemble_coupling_system();
+    ASSERT_GT(problem.coupling_matrix_frobenius_norm(), 0.);
+    problem.solve();
+    ASSERT_TRUE(problem.bulk_solution_is_finite());
+    ASSERT_TRUE(problem.multiplier_solution_is_finite());
+    ASSERT_GT(problem.bulk_solution_l2_norm(), 0.);
+    ASSERT_GT(problem.multiplier_solution_l2_norm(), 0.);
+    auto constraint_residual = problem.modal_rhs();
+    problem.assembled_coupling().Tvmult(constraint_residual,
+                                        problem.bulk_values());
+    constraint_residual -= problem.modal_rhs();
+    EXPECT_LT(constraint_residual.l2_norm(),
+              1.e-8 * problem.modal_rhs().l2_norm());
+    const auto augmented_bulk       = problem.bulk_values();
+    const auto augmented_multiplier = problem.modal_values();
 
-  ReducedPoisson<3> problem(par);
-  problem.run();
+    parameters.solver_name = "Schur";
+    problem.solve();
+    auto bulk_difference       = problem.bulk_values();
+    auto multiplier_difference = problem.modal_values();
+    bulk_difference -= augmented_bulk;
+    multiplier_difference -= augmented_multiplier;
+    EXPECT_LT(bulk_difference.l2_norm(), 1.e-8 * augmented_bulk.l2_norm());
+    EXPECT_LT(multiplier_difference.l2_norm(),
+              1.e-8 * augmented_multiplier.l2_norm());
+  }
+} // namespace
+
+TEST(ReducedPoisson, BOTH_ConstantModeAugmentedLagrangianMatchesSchur)
+{
+  check_augmented_lagrangian(0);
 }
 
-
-TEST(ReducedPoisson, MPI_OneCylinderP1) // NOLINT
+TEST(ReducedPoisson, BOTH_LinearModesAugmentedLagrangianMatchesSchur)
 {
-  ParameterAcceptor::clear();
-  ReducedPoissonParameters<3> par;
-  initialize_parameters(ImmersX::TestPaths::data_filename(
-    "tests/reduced_poisson_01_one_cylinder_p1.prm"));
-
-  par.reduced_coupling_parameters.tensor_product_space_parameters
-    .reduced_grid_name =
-    ImmersX::TestPaths::data_filename("tests/one_cylinder.vtk");
-  par.output_directory =
-    ImmersX::TestPaths::output_directory("reduced-poisson/one-cylinder-p1");
-  par.output_name = "reduced_poisson_01_one_cylinder_p1";
-  std::filesystem::create_directories(par.output_directory);
-  par.reduced_coupling_parameters.tensor_product_space_parameters.section
-    .inclusion_degree = 1;
-
-  ReducedPoisson<3> problem(par);
-  problem.run();
+  check_augmented_lagrangian(1);
 }
-
-#endif // DEAL_II_WITH_VTK
+#endif

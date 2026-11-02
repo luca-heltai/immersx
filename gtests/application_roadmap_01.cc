@@ -867,7 +867,7 @@ check_p3g1_tied_elasticity(const std::string &output_prefix)
     parameters.output_name = subsection;
     // Keep the Q1 multiplier coarser than the unconstrained primal spaces.
     parameters.fe_degree                            = 2;
-    parameters.domain_parameters.initial_refinement = 2;
+    parameters.domain_parameters.initial_refinement = 1;
     parameters.dirichlet_ids                        = {0, 1, 2, 3};
     parameters.domain_parameters.name_of_grid       = "hyper_cube";
     parameters.domain_parameters.arguments_for_grid = "-1: 1: false";

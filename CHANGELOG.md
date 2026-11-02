@@ -354,6 +354,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Replace oversized physics and application fixtures with small analytic and native-solver regressions, remove obsolete smoke and convergence studies, and retain nonzero loads, boundary traces, and published error bounds.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Replace network and trace convergence demonstrations with small analytic regressions, consolidate duplicate core assertions, and verify all products of the modal basis.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Enforce a 120-second wall-time budget for each GoogleTest case, record Ninja command costs, enlarge the Debug compiler cache, and avoid downloading legacy 1D archives that fail the CI link check while retaining client-interface compilation.
