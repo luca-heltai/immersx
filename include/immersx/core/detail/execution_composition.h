@@ -2154,12 +2154,28 @@ namespace ImmersX::detail
           AssertThrow(mass && stiffness && damping,
                       dealii::ExcMessage("Second-order factorization requires "
                                          "matrix-backed M, K and D blocks."));
+          const auto mass_matrix      = mass->matrix();
+          const auto stiffness_matrix = stiffness->matrix();
+          const auto damping_matrix   = damping->matrix();
+          const auto matrix_matches   = [&owned](const MatrixType &matrix) {
+            return matrix.locally_owned_range_indices() == owned &&
+                   matrix.locally_owned_domain_indices() == owned;
+          };
+          const bool spatial_partitions_match =
+            matrix_matches(*mass_matrix) && matrix_matches(*stiffness_matrix) &&
+            matrix_matches(*damping_matrix);
+          AssertThrow(dealii::Utilities::MPI::min(static_cast<unsigned int>(
+                                                    spatial_partitions_match),
+                                                  communicator_) == 1,
+                      dealii::ExcMessage(
+                        "Changed second-order spatial operator partitions "
+                        "require a new execution composition and state."));
           const auto data    = pair.preconditioner_data();
           auto       inverse = std::make_shared<SecondOrderPreconditioner>();
           inverse->initialize(
-            *mass->matrix(),
-            *stiffness->matrix(),
-            *damping->matrix(),
+            *mass_matrix,
+            *stiffness_matrix,
+            *damping_matrix,
             data.constrained,
             [owned, communicator = communicator_](FieldVectorType &vector,
                                                   const bool) {

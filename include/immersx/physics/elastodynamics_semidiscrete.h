@@ -104,7 +104,7 @@ namespace ImmersX
                   dealii::FEValuesExtractors::Scalar(component)));
               auto &mode = data.amg_data.constant_modes.emplace_back(
                 problem.locally_owned_dofs().n_elements(), false);
-              unsigned int local_index = 0;
+              std::size_t local_index = 0;
               for (const auto index : problem.locally_owned_dofs())
                 mode[local_index++] = selected.is_element(index);
             }
