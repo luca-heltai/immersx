@@ -238,6 +238,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Retain materializable IDA Jacobian contributions per evaluation point so iterative global and Schur actions reuse owned matrices while preserving matrix-free actions and fresh residual evaluation.
+
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Reuse elastodynamics spatial operators, static loads and boundary constraints until spatial setup changes; build native time systems from cached matrices with affine boundary lifting.
 - [PR #320](https://github.com/luca-heltai/immersx/pull/320) Keep caller-owned matrices unchanged when replaying scaled matrix contributions.
 - [PR #316](https://github.com/luca-heltai/immersx/pull/316) Open performance charts on the compatible series with the most measurements and show CPU, kernel, point count, and commit range in the series selector.
