@@ -18006,5 +18006,100 @@
       "standalone benchmark targets",
       "deal.II-style application testing"
     ]
+  },
+  "later_master_integration": {
+    "upstream_revision": "4f62d6ea45ff6f30dea6a502bc6abf0a83124c92",
+    "upstream_pull_request": 323,
+    "prior_pr_head": "08124cd454873b05aaa865b91aa1eee319cec4e0",
+    "changes": "Preserve upstream named borrowed ranges/Field values, aggregate and conditional-assertion braces, unused-code removal and Doxygen grouping correction. Resolve changelog entries in descending PR order and remove duplicate equivalent CMake options. Numerical fixture sizes, reference values and tolerances are unchanged.",
+    "peer_review": "The three overlapping numerical files retain both PR324 fixtures/oracles and PR323 diagnostics/lifetime fixes. All other reviewed numerical source hashes are unchanged.",
+    "changed_cpp_source_hashes": [
+      {
+        "path": "apps/app_coupled_elasticity.cc",
+        "before_source_sha256": "5a88fb85dbdd1410e15e034ef8423875ef8236800aa7c139ed07602f0083f346",
+        "integrated_source_sha256": "1d64847226918e8ae562f9869d9134dcade391e8a7cd1c88d96460c623b31b07"
+      },
+      {
+        "path": "gtests/boundary_conditions_01.cc",
+        "before_source_sha256": "b6567c1197d7e9a13ba42388d21be730988c76be6af0a34e55e4f87437186dd2",
+        "integrated_source_sha256": "3869650e1e249bcdebad61c4161a100c8ec97a62ed9ca249a57d03c5ec965050"
+      },
+      {
+        "path": "gtests/distributed_ida_adapters_01.cc",
+        "before_source_sha256": "e99ad617ad9a99af4e5fd2772f6f0e3fca89b4ffc366b80fb1a3654a746ca475",
+        "integrated_source_sha256": "a198285adda4d5f127e09c41c344063bd5cc1c58f008f22a3817da20bc26dbec"
+      },
+      {
+        "path": "gtests/domain_01.cc",
+        "before_source_sha256": "e85cb6dc56845a45dd3a236373a6315e04911d5af75de4036812e5da799e6133",
+        "integrated_source_sha256": "27d7e646fb724f662bef119d99264f905561085ac7939ffe57bed9225e77bd8b"
+      },
+      {
+        "path": "gtests/elasticity_03.cc",
+        "before_source_sha256": "da887bb252b60d343260558ada786365f796a63d7b49bddbf04b6ed71370ea96",
+        "integrated_source_sha256": "e85d983aab842230deb176666e33715a3b8c31c2aa5f8a8a928dfa6ee58d02f1"
+      },
+      {
+        "path": "gtests/elastodynamics_01.cc",
+        "before_source_sha256": "fa46dcf7b9cff873511413feb5ffbf875a364de0da0ff1e068d6cdb6c183092f",
+        "integrated_source_sha256": "6dd867a1552b8805d1e43e4afa8838972d4a16df536ef5c86787a6f8f44a09d8"
+      },
+      {
+        "path": "gtests/elastodynamics_simplex_01.cc",
+        "before_source_sha256": "0a025d1ac3b55a9f6db62ad9661313a3f1ea44061b531dcc5ddf08d37473b565",
+        "integrated_source_sha256": "fa6d69361c4286abe0427181210c06d93f42501789295d81ca77c90b7bcdf229"
+      },
+      {
+        "path": "gtests/lifted_integration_support_01.cc",
+        "before_source_sha256": "46fbebf36584e5da65ce1e8b76ca742fd8a23dd8498e5afe9bca58164dfe6d67",
+        "integrated_source_sha256": "86521bdd02a9a2f1f02b8a3f62844ea5f7d838e4911785c194ea0f9334d91b9e"
+      },
+      {
+        "path": "gtests/lifted_poisson_parity_01.cc",
+        "before_source_sha256": "26b9c95ae669fb603828fdddad2055a0f0005e25f31bf912eeaa8862c76d817d",
+        "integrated_source_sha256": "3714f8cc1a6c2566884c42f137e54c53fe03dee3df429383f1864586932b0776"
+      },
+      {
+        "path": "gtests/local_co_refinement_01.cc",
+        "before_source_sha256": "78327a80a45fc4ee8b9335819b6db4b53d3ce6b72d25db94c3c8f77bcd9bf12b",
+        "integrated_source_sha256": "97b40a5cc78616cf90948961f3185f0a57862a910cbf0b489ae6ec6431664082"
+      },
+      {
+        "path": "gtests/weak_term_affine_support_01.cc",
+        "before_source_sha256": "67caddd17bd7efad966fb38ebf4f3b439730b8a5479bdffffb2608fd38b6afa8",
+        "integrated_source_sha256": "797370189bfd937e0dce4965fe3d8e3ffe7d40de67ca5ef3c6c09c4ee62ad06a"
+      },
+      {
+        "path": "gtests/weak_term_support_oracles_01.cc",
+        "before_source_sha256": "7293727fde9969d86fee7d4c92a508ec412b19797b07f106bb21d619407cc577",
+        "integrated_source_sha256": "4b9374a653ae58ca577ff9e6d4f5a1949bbf6e1491449c1a4322483933aa1d25"
+      },
+      {
+        "path": "gtests/weak_term_vector_coupling_01.cc",
+        "before_source_sha256": "90e17c74456f18d8d1e0085c5457b4460b8516c35034a494c71677963c069b0f",
+        "integrated_source_sha256": "00a65cfe3779b7e3a6e5dc4502d67107e5a8e88a280fae9567b2d5f255e8a7d7"
+      },
+      {
+        "path": "include/immersx/physics/coupled_elasticity.h",
+        "before_source_sha256": "ddfb61a8939d0c293190acc0b5915f3cbf0dce84feb4a865ca3a52cd17691ce2",
+        "integrated_source_sha256": "95c8225beb97d8db0b1e04162f1d9142440d39ad3b0b3b576a91eb3682146b0a"
+      }
+    ],
+    "historical_evidence_policy": "The original review hashes and runtime records remain tied to the explicitly named earlier source revisions. They are not silently relabelled as measurements of the merged source.",
+    "local_focused_validation": {
+      "groups_passed": 54,
+      "case_executions_passed": 1165,
+      "skips": 0,
+      "timeouts": 0,
+      "maximum_recorded_case": {
+        "test": "NavierStokes.BOTH_HypercubePoiseuilleIDA",
+        "seconds": 28.987,
+        "group": "ImmersX.Debug.validation.Serial"
+      },
+      "ctest_wall_seconds": 559.77,
+      "junit_sha256": "209bf1e1a3931336a98282db1945716f73d66aef77c42ad30fd6adf58aca20a9",
+      "scope": "Affected integration suites, unit, all four validation groups, and category/public-header checks in Debug/Release serial/MPI. Unchanged suites were not repeated locally; prior full-matrix evidence remains separately versioned."
+    },
+    "documentation": "Full build_doc.sh with Doxygen1.14 and strict Sphinx7.4 succeeds without warnings after the upstream grouping correction."
   }
 }

@@ -384,11 +384,14 @@ TEST(ElastodynamicsValidation, BOTH_RefinementCyclesAdvanceSequentially)
   problem.run();
 
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-    for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
-         ++cycle)
-      EXPECT_TRUE(std::filesystem::exists(
-        std::filesystem::path(parameters.output_directory) /
-        (parameters.output_name + "_cycle_" + std::to_string(cycle) + ".pvd")));
+    {
+      for (unsigned int cycle = 0; cycle < parameters.n_refinement_cycles;
+           ++cycle)
+        EXPECT_TRUE(std::filesystem::exists(
+          std::filesystem::path(parameters.output_directory) /
+          (parameters.output_name + "_cycle_" + std::to_string(cycle) +
+           ".pvd")));
+    }
 }
 
 

@@ -291,6 +291,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Document the two-minute correctness-test budget, retain the complete source and cost audit, and keep the Navier–Stokes manufactured-solution input as a manual accuracy-study example.
 
+- [PR #323](https://github.com/luca-heltai/immersx/pull/323) Generate coupled elasticity API documentation without unmatched group warnings.
+
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Retain the native and IDA elastodynamics performance baseline with revision and artifact checksums, and provide a reproducible comparison driver.
 
 - [PR #316](https://github.com/luca-heltai/immersx/pull/316) Organize site navigation into consistent sections and tutorial groups, fix README documentation URLs, and document page ownership and heading rules.
@@ -356,15 +358,17 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Limit numerical CI to two concurrent compiler jobs and reserve separate workflow deadlines for cold Debug and Release builds.
-
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Reduce harmonic, simplex, and lifted-coupling fixtures, consolidate repeated solver-policy checks, and give the stationary Navier–Stokes simplex smoke test an explicit initial timestep and output assertions.
 
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Replace oversized physics and application fixtures with small analytic and native-solver regressions, remove obsolete smoke and convergence studies, and retain nonzero loads, boundary traces, and published error bounds.
 
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Replace network and trace convergence demonstrations with small analytic regressions, consolidate duplicate core assertions, and verify all products of the modal basis.
 
-- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Enforce a 120-second wall-time budget on every GoogleTest rank, retain timeout and partial build diagnostics, record Ninja command costs, enlarge the Debug compiler cache, and avoid downloading legacy 1D archives that fail the CI link check while retaining client-interface compilation.
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Enforce a 120-second wall-time budget on every GoogleTest rank, retain timeout and partial build diagnostics, record Ninja command costs, enlarge the Debug compiler cache.
+
+- [PR #323](https://github.com/luca-heltai/immersx/pull/323) Limit numerical CI builds to two compiler jobs. Allow 120 minutes for Debug and 90 for Release, and skip incompatible optional 1D solver downloads while retaining client compilation checks.
+
+- [PR #323](https://github.com/luca-heltai/immersx/pull/323) Compile applications and tests without GCC 13 warnings.
 
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Cover elastodynamics cache invalidation, time-dependent loads, affine boundary lifting, and Schur factorization in serial and MPI.
 

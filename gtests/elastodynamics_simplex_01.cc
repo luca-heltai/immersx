@@ -70,11 +70,10 @@ namespace
   }
 
   void
-  run_linear_field(ElastodynamicsParameters<3> &parameters,
-                   const std::string           &grid_generator,
-                   const std::string           &grid_arguments,
-                   const std::string           &triangulation_type,
-                   const std::string           &output_name)
+  run_linear_field(const std::string &grid_generator,
+                   const std::string &grid_arguments,
+                   const std::string &triangulation_type,
+                   const std::string &output_name)
   {
     initialize_parameters_from_string(
       R"(
@@ -176,8 +175,7 @@ TEST(Elastodynamics, BOTH_LinearFieldIsExactOnSimplexMesh)
 {
   ParameterAcceptor::clear();
   ElastodynamicsParameters<3> parameters;
-  run_linear_field(parameters,
-                   TestPaths::data_filename("tests/simplex_cube.msh"),
+  run_linear_field(TestPaths::data_filename("tests/simplex_cube.msh"),
                    "",
                    "fullydistributed",
                    "simplex");
@@ -196,8 +194,7 @@ TEST(Elastodynamics, BOTH_LinearFieldIsExactOnHypercubeMesh)
 {
   ParameterAcceptor::clear();
   ElastodynamicsParameters<3> parameters;
-  run_linear_field(parameters,
-                   "subdivided_hyper_cube",
+  run_linear_field("subdivided_hyper_cube",
                    "2: 0: 1: false",
                    "distributed",
                    "hypercube");

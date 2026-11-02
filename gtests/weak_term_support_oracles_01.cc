@@ -52,7 +52,9 @@ TEST(WeakTerm, BoundaryMassMatchesMatrixCreator)
         DoFTools::make_hanging_node_constraints(dh, constraints);
         constraints.close();
         if (refined)
-          ASSERT_GT(constraints.n_constraints(), 0u);
+          {
+            ASSERT_GT(constraints.n_constraints(), 0u);
+          }
         const auto &mapping = StaticMappingQ1<2>::mapping;
         const auto  space   = fe_space(dh, mapping, constraints);
         StateLayout layout;

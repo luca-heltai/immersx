@@ -55,9 +55,9 @@ namespace
               {
                 const auto p      = points.at(indices[i]);
                 local[indices[i]] = {
-                  {std::llround(1.e12 * p[0]),
-                   std::llround(1.e12 * p[1]),
-                   std::llround(1.e12 * p[2])},
+                  {{std::llround(1.e12 * p[0]),
+                    std::llround(1.e12 * p[1]),
+                    std::llround(1.e12 * p[2])}},
                   dh.get_fe().system_to_component_index(i).first};
               }
         }
