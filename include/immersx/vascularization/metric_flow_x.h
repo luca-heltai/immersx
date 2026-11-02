@@ -310,63 +310,29 @@ namespace ImmersX::Vascularization
                   }
             }
 
-        // This temporary input is used only to construct flow-oriented cells.
-        // The caller's physical result keeps its growth reference orientation.
-        auto mesh_input = network;
-        auto intervals  = generation.discretization;
-        for (auto &[id, vessel] : mesh_input.vessels)
-          if (reversed.count(id))
-            {
-              std::swap(vessel.nodes[0], vessel.nodes[1]);
-              std::swap(vessel.radii[0], vessel.radii[1]);
-            }
-        for (auto &cell : intervals.cells)
-          if (reversed.count(cell.reference.vessel))
-            {
-              const double begin   = 1. - cell.reference.end;
-              cell.reference.end   = 1. - cell.reference.begin;
-              cell.reference.begin = begin;
-            }
-        transfer.flow_cells =
-          create_triangulation(mesh_input, intervals, flow.triangulation());
+        transfer.flow_cells = create_triangulation(
+          network,
+          generation.discretization,
+          flow.triangulation(),
+          reversed,
+          [&](const VesselCell &interval, const Vessel &vessel) {
+            std::array<types::boundary_id, 2> ids{{255, 255}};
+            for (unsigned int end = 0; end < 2; ++end)
+              if ((end == 0 ? interval.begin : interval.end) == double(end))
+                {
+                  const auto found =
+                    transfer.boundary_ids.find(vessel.nodes[end]);
+                  ids[end] =
+                    found == transfer.boundary_ids.end() ? 255 : found->second;
+                }
+            return ids;
+          });
         for (const auto &cell : flow.triangulation().active_cell_iterators())
           if (!cell->is_artificial())
             {
               const auto reference =
                 physical_reference(cell->id(), transfer.flow_cells);
               cell->set_material_id(transfer.vessel_ids.at(reference.vessel));
-              for (const auto face : cell->face_indices())
-                if (cell->face(face)->at_boundary())
-                  cell->face(face)->set_boundary_id(255);
-            }
-        // Endpoint ids are assigned by physical vessel owners, then travel
-        // with numerical intervals to their execution owners and ghosts.
-        std::map<Id, std::array<types::boundary_id, 2>> endpoint_boundaries;
-        for (const auto &[id, vessel] : mesh_input.vessels)
-          if (vessel.owner == rank)
-            {
-              auto &ids = endpoint_boundaries[id];
-              for (unsigned int v = 0; v < 2; ++v)
-                {
-                  const auto boundary_id =
-                    transfer.boundary_ids.find(vessel.nodes[v]);
-                  ids[v] = boundary_id == transfer.boundary_ids.end() ?
-                             255 :
-                             boundary_id->second;
-                }
-            }
-        const auto endpoints = collect(endpoint_boundaries);
-        for (const auto &cell : flow.triangulation().active_cell_iterators())
-          if (!cell->is_artificial())
-            {
-              const auto reference =
-                physical_reference(cell->id(), transfer.flow_cells);
-              if (reference.begin == 0. && cell->face(0)->at_boundary())
-                cell->face(0)->set_boundary_id(
-                  endpoints.at(reference.vessel)[0]);
-              if (reference.end == 1. && cell->face(1)->at_boundary())
-                cell->face(1)->set_boundary_id(
-                  endpoints.at(reference.vessel)[1]);
             }
         flow.setup(input);
         return transfer;

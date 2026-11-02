@@ -134,7 +134,8 @@ namespace
         EXPECT_EQ(Utilities::MPI::sum(boundary_calls, comm), three ? 5u : 3u);
         ASSERT_EQ(transfer.vessel_ids.size(), three ? 3u : 2u);
         ASSERT_EQ(transfer.terminal_ids.size(), three ? 3u : 2u);
-        EXPECT_EQ(transfer.reversed_vessels, std::set<Id>({base + 13}));
+        ASSERT_EQ(transfer.reversed_vessels.size(), 1u);
+        EXPECT_EQ(transfer.reversed_vessels.count(base + 13), 1u);
         EXPECT_EQ(transfer.boundary_ids.at(base + 1), 0u);
         EXPECT_EQ(Utilities::MPI::sum(portal_calls, comm), three ? 1u : 0u);
         if (three)
@@ -165,6 +166,20 @@ namespace
             EXPECT_EQ(result.network.vessels.at(id).radii, vessel.radii);
             EXPECT_EQ(result.network.vessels.at(id).system, vessel.system);
           }
+        for (const auto &cell : flow.triangulation().active_cell_iterators())
+          if (!cell->is_artificial())
+            {
+              const auto interval =
+                physical_reference(cell->id(), transfer.flow_cells);
+              if (interval.begin != 0. && cell->face(0)->at_boundary())
+                {
+                  EXPECT_EQ(cell->face(0)->boundary_id(), 255u);
+                }
+              if (interval.end != 1. && cell->face(1)->at_boundary())
+                {
+                  EXPECT_EQ(cell->face(1)->boundary_id(), 255u);
+                }
+            }
         auto state = flow.make_state(), rate = flow.make_state(),
              residual = flow.make_state();
         flow.initialize_consistent_state(state, rate, .17);
