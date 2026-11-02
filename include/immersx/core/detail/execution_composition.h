@@ -11,6 +11,7 @@
 #define immersx_detail_execution_composition_h
 
 #include <deal.II/base/index_set.h>
+#include <deal.II/base/mpi.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/linear_operator_tools.h>
@@ -1040,7 +1041,7 @@ namespace ImmersX::detail
         };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult                = [apply](GlobalVectorType       &dst,
-                             const GlobalVectorType &src) {
+                                            const GlobalVectorType &src) {
         apply(dst, src, false);
       };
       result.vmult_add = [apply,
@@ -1312,13 +1313,13 @@ namespace ImmersX::detail
                 const auto row_field = metadata.participants[i];
                 const auto col_field = metadata.participants[j];
                 const auto from      = materialized_block(row_field,
-                                                     metadata.multiplier,
-                                                     context,
-                                                     alpha);
+                                                          metadata.multiplier,
+                                                          context,
+                                                          alpha);
                 const auto to        = materialized_block(metadata.multiplier,
-                                                   col_field,
-                                                   context,
-                                                   alpha);
+                                                          col_field,
+                                                          context,
+                                                          alpha);
                 AssertThrow(from && to,
                             dealii::ExcMessage(
                               "Matrix-based augmented-Lagrangian composition "
@@ -1462,7 +1463,7 @@ namespace ImmersX::detail
       const auto primal_vmult_add  = primal_inverse.vmult_add;
       const auto primal_Tvmult     = primal_inverse.Tvmult;
       const auto primal_Tvmult_add = primal_inverse.Tvmult_add;
-      primal_inverse.vmult         = [primal_matrix,
+      primal_inverse.vmult = [primal_matrix,
                               primal_vmult](FieldVectorType       &dst,
                                             const FieldVectorType &src) {
         primal_vmult(dst, src);
@@ -1630,7 +1631,7 @@ namespace ImmersX::detail
         };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult                = [apply](GlobalVectorType       &dst,
-                             const GlobalVectorType &src) {
+                                            const GlobalVectorType &src) {
         apply(dst, src, false);
       };
       result.vmult_add = [apply, vector_memory](GlobalVectorType       &dst,
@@ -1789,7 +1790,7 @@ namespace ImmersX::detail
       const auto vmult_add  = result.vmult_add;
       const auto Tvmult     = result.Tvmult;
       const auto Tvmult_add = result.Tvmult_add;
-      result.vmult          = [empty_matrix, vmult](FieldVectorType       &dst,
+      result.vmult = [empty_matrix, vmult](FieldVectorType       &dst,
                                            const FieldVectorType &src) {
         vmult(dst, src);
       };
@@ -2049,7 +2050,7 @@ namespace ImmersX::detail
         };
       result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult                = [apply](GlobalVectorType       &destination,
-                             const GlobalVectorType &source) {
+                                            const GlobalVectorType &source) {
         apply(destination, source, false);
       };
       result.vmult_add = [apply,
@@ -2119,8 +2120,21 @@ namespace ImmersX::detail
         alpha > 0.,
         dealii::ExcMessage(
           "Second-order Schur reduction requires a positive derivative weight."));
-      auto &inverse = second_order_preconditioners_[pair.displacement];
-      if (!inverse)
+      const auto owned =
+        context.state(pair.displacement).locally_owned_elements();
+      const bool partition_matches =
+        owned == layout_.field(pair.displacement).locally_owned &&
+        owned == layout_.field(pair.velocity).locally_owned &&
+        owned == context.state(pair.velocity).locally_owned_elements();
+      AssertThrow(dealii::Utilities::MPI::min(static_cast<unsigned int>(
+                                                partition_matches),
+                                              communicator_) == 1,
+                  dealii::ExcMessage(
+                    "A changed second-order field partition requires a new "
+                    "execution composition."));
+      const auto revision = pair.revision();
+      auto      &cached   = second_order_preconditioners_[pair.displacement];
+      if (!cached.inverse || cached.revision != revision)
         {
           const auto mass = model_.derivative_matrix_operator(pair.displacement,
                                                               pair.displacement,
@@ -2133,24 +2147,23 @@ namespace ImmersX::detail
           AssertThrow(mass && stiffness && damping,
                       dealii::ExcMessage("Second-order factorization requires "
                                          "matrix-backed M, K and D blocks."));
-          const auto owned = layout_.field(pair.displacement).locally_owned;
-          AssertThrow(owned == layout_.field(pair.velocity).locally_owned,
-                      dealii::ExcMessage("A second-order pair must use the "
-                                         "same spatial partition."));
-          inverse = std::make_shared<SecondOrderPreconditioner>();
+          const auto data    = pair.preconditioner_data();
+          auto       inverse = std::make_shared<SecondOrderPreconditioner>();
           inverse->initialize(
             *mass->matrix(),
             *stiffness->matrix(),
             *damping->matrix(),
-            pair.constrained,
+            data.constrained,
             [owned, communicator = communicator_](FieldVectorType &vector,
                                                   const bool) {
               vector.reinit(owned, communicator);
             },
-            pair.amg_data);
+            data.amg_data);
+          cached.inverse  = std::move(inverse);
+          cached.revision = revision;
         }
-      inverse->set_coefficients(alpha, 1., 1., 1.);
-      return inverse;
+      cached.inverse->set_coefficients(alpha, 1., 1., 1.);
+      return cached.inverse;
     }
 
     LocalOperator
@@ -2326,9 +2339,9 @@ namespace ImmersX::detail
         for (unsigned int j = 0; j < n; ++j)
           {
             auto  matrix = materialized_block(field_layout_.field(i),
-                                             field_layout_.field(j),
-                                             context,
-                                             alpha);
+                                              field_layout_.field(j),
+                                              context,
+                                              alpha);
             auto &block  = result.block(i, j);
             if (matrix)
               {
@@ -2462,7 +2475,12 @@ namespace ImmersX::detail
     mutable Model                                               model_;
     mutable BlockFieldLayout<FieldVectorType, GlobalVectorType> field_layout_;
     mutable bool finalized_ = false;
-    mutable std::map<FieldId, std::shared_ptr<SecondOrderPreconditioner>>
+    struct CachedSecondOrderPreconditioner
+    {
+      unsigned long                              revision = 0;
+      std::shared_ptr<SecondOrderPreconditioner> inverse;
+    };
+    mutable std::map<FieldId, CachedSecondOrderPreconditioner>
       second_order_preconditioners_;
   };
 } // namespace ImmersX::detail

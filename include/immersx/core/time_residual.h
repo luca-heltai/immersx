@@ -55,16 +55,25 @@ namespace ImmersX
     std::vector<FieldId> participants;
   };
 
+  /** Mesh-dependent data for the symmetric spatial block solves. */
+  struct SecondOrderPreconditionerData
+  {
+    dealii::IndexSet                                constrained;
+    ImmersXLA::MPI::PreconditionAMG::AdditionalData amg_data;
+  };
+
   /** Two fields satisfying u_dot = v and M v_dot + K u + D v = f.
    * This physical relation permits sparse Schur reduction in an execution
    * adapter without exposing integration coefficients to the contributor.
+   * The revision changes when the spatial operators or constraint topology
+   * change. Mesh data are requested only when that revision changes.
    */
   struct SecondOrderPair
   {
-    FieldId                                         displacement;
-    FieldId                                         velocity;
-    dealii::IndexSet                                constrained;
-    ImmersXLA::MPI::PreconditionAMG::AdditionalData amg_data;
+    FieldId                                        displacement;
+    FieldId                                        velocity;
+    std::function<unsigned long()>                 revision;
+    std::function<SecondOrderPreconditionerData()> preconditioner_data;
   };
 
   /** A term-wise semi-discrete residual model for F(t,y,ydot)=0. */
@@ -371,6 +380,9 @@ namespace ImmersX
     {
       AssertThrow(pair.displacement != pair.velocity,
                   dealii::ExcMessage("A second-order pair needs two fields."));
+      AssertThrow(pair.revision && pair.preconditioner_data,
+                  dealii::ExcMessage("A second-order pair needs a spatial "
+                                     "revision and mesh-data factory."));
       for (const auto &existing : second_order_pairs_)
         AssertThrow(existing.displacement != pair.displacement &&
                       existing.displacement != pair.velocity &&
