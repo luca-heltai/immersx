@@ -57,7 +57,9 @@ GoogleTest targets are enabled only when `GTest` is available at configure time.
 Each GoogleTest case must finish within 120 seconds, including fixture setup
 and teardown. The common driver enforces this wall-time limit on every MPI
 rank. A case that exceeds it fails the test process; the timing report also
-rejects completed cases above the limit. A CTest group can contain several
+rejects completed cases above the limit. Application launchers register a private
+process group so a timeout also stops their subprocesses and closes their output
+pipes. A CTest group can contain several
 cases, so its aggregate duration is distinct from an individual case's budget.
 
 Use the smallest fixture that exercises the contract. Keep nonzero loads,

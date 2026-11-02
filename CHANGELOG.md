@@ -356,6 +356,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Reduce harmonic, simplex, and lifted-coupling fixtures, consolidate repeated solver-policy checks, and give the stationary Navier–Stokes simplex smoke test an explicit initial timestep and output assertions.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Replace oversized physics and application fixtures with small analytic and native-solver regressions, remove obsolete smoke and convergence studies, and retain nonzero loads, boundary traces, and published error bounds.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Replace network and trace convergence demonstrations with small analytic regressions, consolidate duplicate core assertions, and verify all products of the modal basis.

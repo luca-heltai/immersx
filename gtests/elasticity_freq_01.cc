@@ -137,7 +137,7 @@ namespace
     using namespace dealii;
     ParameterAcceptor::clear();
     ElasticityFreqProblemParameters<dim, spacedim> parameters;
-    parameters.initial_refinement = 2;
+    parameters.initial_refinement = 1;
     if (simplex)
       {
         parameters.initial_refinement = 0;

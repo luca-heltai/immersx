@@ -133,7 +133,9 @@ TEST(WeakTerm, BoundaryMassMatchesMatrixCreator)
                   matrix->vmult(actual, probe);
                   for (unsigned int i = 0; i < dh.n_dofs(); ++i)
                     if (!constraints.is_constrained(i))
-                      EXPECT_NEAR(actual[i], expected[i], 2.e-13);
+                      {
+                        EXPECT_NEAR(actual[i], expected[i], 2.e-13);
+                      }
                 }
             // A nonconstant, non-polynomial nodal vector also checks actions
             // and the transpose, not only the constant-field row sums.

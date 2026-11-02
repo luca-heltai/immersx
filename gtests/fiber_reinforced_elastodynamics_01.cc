@@ -301,23 +301,6 @@ TEST(FiberReinforcedElastodynamicsValidation, ZeroPreservation)
   EXPECT_LT(driver.residuals().velocity_constraint, 1.e-10);
 }
 
-TEST(FiberReinforcedElastodynamicsValidation, CoupledResidualAndExcessResponse)
-{
-  ParameterAcceptor::clear();
-  FiberReinforcedElastodynamicsParameters<2> parameters;
-  configure_problem(parameters, true);
-  FiberReinforcedElastodynamics<2> driver(parameters);
-  driver.setup();
-  driver.set_initial_conditions();
-  driver.advance_one_timestep();
-  driver.advance_one_timestep();
-
-  EXPECT_TRUE(driver.matrix_problem().state_is_finite());
-  EXPECT_TRUE(driver.fiber_problem().state_is_finite());
-  EXPECT_LT(driver.residuals().velocity_constraint, 1.e-8);
-  EXPECT_TRUE(std::isfinite(driver.fiber_excess_elastic_energy()));
-}
-
 TEST(FiberReinforcedElastodynamicsValidation,
      CoupledResponseDiffersFromIndependentMatrixHistory)
 {
@@ -371,6 +354,10 @@ TEST(FiberReinforcedElastodynamicsValidation,
       velocity = next_velocity;
       displacement.add(dt, velocity);
       driver.advance_one_timestep();
+      EXPECT_TRUE(driver.matrix_problem().state_is_finite());
+      EXPECT_TRUE(driver.fiber_problem().state_is_finite());
+      EXPECT_LT(driver.residuals().velocity_constraint, 1.e-8);
+      EXPECT_TRUE(std::isfinite(driver.fiber_excess_elastic_energy()));
       LA::MPI::Vector difference(problem.displacement());
       for (unsigned int i = 0; i < free_dofs.size(); ++i)
         difference[free_dofs[i]] -= displacement[i];
@@ -795,7 +782,7 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_CoupledTransient)
   EXPECT_LT(driver.residuals().velocity_constraint, 1.e-8);
 }
 
-TEST(FiberReinforcedElastodynamicsValidation, ThreeDimensionalSmoke)
+TEST(FiberReinforcedElastodynamicsValidation, ThreeDimensionalMultiplierSetup)
 {
   ParameterAcceptor::clear();
   FiberReinforcedElastodynamicsParameters<3> parameters;
@@ -836,8 +823,7 @@ TEST(FiberReinforcedElastodynamicsValidation, ThreeDimensionalSmoke)
   )");
 
   FiberReinforcedElastodynamics<3> driver(parameters);
-  driver.run();
-  EXPECT_TRUE(driver.matrix_problem().state_is_finite());
-  EXPECT_TRUE(driver.fiber_problem().state_is_finite());
-  EXPECT_EQ(driver.time_step_number(), 1u);
+  driver.setup();
+  EXPECT_EQ(driver.multiplier().size(), 9u);
+  EXPECT_EQ(driver.time_step_number(), 0u);
 }

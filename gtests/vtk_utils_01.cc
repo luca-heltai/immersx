@@ -27,7 +27,6 @@
 #include <immersx/core/reduced_field_utils.h>
 #include <mpi.h>
 
-#include <cstdio>  // For std::remove
 #include <fstream> // For writing temporary VTK file
 #include <memory>
 #include <string>

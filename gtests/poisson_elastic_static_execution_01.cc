@@ -9,11 +9,11 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdlib>
 #include <filesystem>
 #include <string>
 
 #include "test_paths.h"
+#include "test_watchdog.h"
 
 namespace
 {
@@ -54,7 +54,8 @@ namespace
     const auto command = "cd " + shell_quote(run_directory.string()) + " && " +
                          shell_quote(executable.string()) + " " +
                          shell_quote(parameter.string());
-    ASSERT_EQ(std::system(command.c_str()), 0) << command;
+    ASSERT_EQ(ImmersX::TestWatchdog::run_owned_application(command), 0)
+      << command;
   }
 } // namespace
 

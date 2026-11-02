@@ -8,7 +8,6 @@
 #include <immersx/config.h>
 
 #include <cmath>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -17,8 +16,9 @@
 #include <vector>
 
 #include "test_paths.h"
+#include "test_watchdog.h"
 
-// Quote a path for the POSIX shell used by std::system().
+// Quote a path for the POSIX shell used by the application launcher.
 static std::string
 shell_quote(const std::string &value)
 {
@@ -104,7 +104,7 @@ run_application(const char                  *exe,
     shell_quote(executable.string()) + " " +
     shell_quote(parameter_file.string()) +
     (log.empty() ? "" : " > " + shell_quote(log.string()) + " 2>&1");
-  const int ret = std::system(cmd.c_str());
+  const int ret = ImmersX::TestWatchdog::run_owned_application(cmd);
   EXPECT_EQ(ret, 0) << "Command failed: " << cmd;
 }
 
@@ -597,6 +597,17 @@ TEST(AppExecutables, NavierStokesSimplex)
     GTEST_SKIP() << "The application launcher is serial.";
   run_app_with_parameter("navier_stokes",
                          "gtests/parameters/navier_stokes_simplex.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("navier-stokes-simplex");
+  const auto records = read_pvd_records(output_directory / "navier_stokes.pvd");
+  ASSERT_EQ(records.size(), 2u);
+  EXPECT_NEAR(records[0].first, 0., 1.e-12);
+  EXPECT_NEAR(records[1].first, 0.02, 1.e-12);
+  EXPECT_NE(records[0].second, records[1].second);
+  for (const auto &record : records)
+    EXPECT_TRUE(
+      std::filesystem::is_regular_file(output_directory / record.second));
 }
 
 TEST(AppExecutables, ReducedPoissonSimplex)
