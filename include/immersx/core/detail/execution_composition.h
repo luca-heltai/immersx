@@ -21,6 +21,7 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
+#include <immersx/core/second_order_preconditioner.h>
 
 #include <algorithm>
 #include <cmath>
@@ -235,6 +236,8 @@ namespace ImmersX::detail
     using SaddlePointMetadata = typename Model::SaddlePointMetadata;
     using MatrixType          = typename Model::MatrixOperator::Matrix;
     using BlockMatrixType     = ImmersXLA::MPI::BlockSparseMatrix;
+    using SecondOrderPreconditioner =
+      SecondOrderBlockPreconditioner<FieldVectorType, MatrixType>;
 
     explicit ExecutionComposition(const MPI_Comm communicator)
       : communicator_(communicator)
@@ -626,6 +629,65 @@ namespace ImmersX::detail
                     "starts."));
       model_.add_preconditioner(
         field, typename Model::PreconditionerFactory(std::move(factory)));
+    }
+
+    bool
+    has_isolated_second_order_pair() const
+    {
+      return layout_.n_fields() == 2 && model_.second_order_pairs().size() == 1;
+    }
+
+    /** Inexact full LDU for an isolated mass-based second-order system. */
+    Operator
+    second_order_preconditioner(const GlobalVectorType &state,
+                                const GlobalVectorType &state_dot,
+                                const double            alpha) const
+    {
+      finalize();
+      validate_state(state);
+      validate_state(state_dot);
+      AssertThrow(has_isolated_second_order_pair(),
+                  dealii::ExcMessage("The full second-order factorization "
+                                     "requires an isolated field pair."));
+      StateView<FieldVectorType> state_view(layout_, 0.);
+      StateView<FieldVectorType> derivative_view(layout_, 0.);
+      field_layout_.bind_state(state_view, state);
+      field_layout_.bind_state(derivative_view, state_dot);
+      EvaluationContext<FieldVectorType> context(0.,
+                                                 state_view,
+                                                 &derivative_view);
+      const auto &pair         = model_.second_order_pairs().front();
+      const auto  inverse      = second_order_inverse(pair, context, alpha);
+      const auto  displacement = field_layout_.block(pair.displacement);
+      const auto  velocity     = field_layout_.block(pair.velocity);
+      const auto  partitions   = field_layout_.block_partitions();
+      const auto  communicator = communicator_;
+      Operator    result;
+      result.reinit_range_vector =
+        [partitions, communicator](GlobalVectorType &vector, const bool) {
+          vector.reinit(partitions, communicator);
+        };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult =
+        [inverse, displacement, velocity](GlobalVectorType       &destination,
+                                          const GlobalVectorType &source) {
+          inverse->vmult(destination.block(displacement),
+                         destination.block(velocity),
+                         source.block(displacement),
+                         source.block(velocity));
+        };
+      auto memory =
+        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+      result.vmult_add = [apply = result.vmult,
+                          memory](GlobalVectorType       &destination,
+                                  const GlobalVectorType &source) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
+          *memory);
+        contribution->reinit(destination);
+        apply(*contribution, source);
+        destination += *contribution;
+      };
+      return result;
     }
 
     const std::vector<SaddlePointMetadata> &
@@ -1617,6 +1679,45 @@ namespace ImmersX::detail
     {
       finalize();
       validate_state(state);
+      if (alpha > 0.)
+        for (const auto &pair : model_.second_order_pairs())
+          if (field == pair.displacement || field == pair.velocity)
+            {
+              const auto inverse = second_order_inverse(pair, context, alpha);
+              const bool displacement = field == pair.displacement;
+              LocalOperator result;
+              const auto    owned = layout_.field(field).locally_owned;
+              result.reinit_range_vector =
+                [owned, communicator = communicator_](FieldVectorType &vector,
+                                                      const bool) {
+                  vector.reinit(owned, communicator);
+                };
+              result.reinit_domain_vector = result.reinit_range_vector;
+              result.vmult = [inverse,
+                              displacement](FieldVectorType       &destination,
+                                            const FieldVectorType &source) {
+                if (displacement)
+                  inverse->mass_inverse(destination, source);
+                else
+                  inverse->schur_inverse(destination, source);
+              };
+              // Each inner system and its AMG cycle are symmetric. A flexible
+              // outer solver is still required for residual-stopped CG.
+              result.Tvmult = result.vmult;
+              auto memory   = std::make_shared<
+                dealii::GrowingVectorMemory<FieldVectorType>>();
+              result.vmult_add = [apply = result.vmult,
+                                  memory](FieldVectorType       &destination,
+                                          const FieldVectorType &source) {
+                typename dealii::VectorMemory<FieldVectorType>::Pointer
+                  contribution(*memory);
+                contribution->reinit(destination);
+                apply(*contribution, source);
+                destination += *contribution;
+              };
+              result.Tvmult_add = result.vmult_add;
+              return result;
+            }
       if (!model_.has_preconditioner(field))
         return std::nullopt;
 
@@ -2009,6 +2110,49 @@ namespace ImmersX::detail
     }
 
   private:
+    std::shared_ptr<SecondOrderPreconditioner>
+    second_order_inverse(const SecondOrderPair                    &pair,
+                         const EvaluationContext<FieldVectorType> &context,
+                         const double                              alpha) const
+    {
+      AssertThrow(
+        alpha > 0.,
+        dealii::ExcMessage(
+          "Second-order Schur reduction requires a positive derivative weight."));
+      auto &inverse = second_order_preconditioners_[pair.displacement];
+      if (!inverse)
+        {
+          const auto mass = model_.derivative_matrix_operator(pair.displacement,
+                                                              pair.displacement,
+                                                              context);
+          const auto stiffness = model_.state_matrix_operator(pair.velocity,
+                                                              pair.displacement,
+                                                              context);
+          const auto damping =
+            model_.state_matrix_operator(pair.velocity, pair.velocity, context);
+          AssertThrow(mass && stiffness && damping,
+                      dealii::ExcMessage("Second-order factorization requires "
+                                         "matrix-backed M, K and D blocks."));
+          const auto owned = layout_.field(pair.displacement).locally_owned;
+          AssertThrow(owned == layout_.field(pair.velocity).locally_owned,
+                      dealii::ExcMessage("A second-order pair must use the "
+                                         "same spatial partition."));
+          inverse = std::make_shared<SecondOrderPreconditioner>();
+          inverse->initialize(
+            *mass->matrix(),
+            *stiffness->matrix(),
+            *damping->matrix(),
+            pair.constrained,
+            [owned, communicator = communicator_](FieldVectorType &vector,
+                                                  const bool) {
+              vector.reinit(owned, communicator);
+            },
+            pair.amg_data);
+        }
+      inverse->set_coefficients(alpha, 1., 1., 1.);
+      return inverse;
+    }
+
     LocalOperator
     linearized_operator(const FieldId                             row,
                         const FieldId                             column,
@@ -2318,6 +2462,8 @@ namespace ImmersX::detail
     mutable Model                                               model_;
     mutable BlockFieldLayout<FieldVectorType, GlobalVectorType> field_layout_;
     mutable bool finalized_ = false;
+    mutable std::map<FieldId, std::shared_ptr<SecondOrderPreconditioner>>
+      second_order_preconditioners_;
   };
 } // namespace ImmersX::detail
 

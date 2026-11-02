@@ -55,6 +55,18 @@ namespace ImmersX
     std::vector<FieldId> participants;
   };
 
+  /** Two fields satisfying u_dot = v and M v_dot + K u + D v = f.
+   * This physical relation permits sparse Schur reduction in an execution
+   * adapter without exposing integration coefficients to the contributor.
+   */
+  struct SecondOrderPair
+  {
+    FieldId                                         displacement;
+    FieldId                                         velocity;
+    dealii::IndexSet                                constrained;
+    ImmersXLA::MPI::PreconditionAMG::AdditionalData amg_data;
+  };
+
   /** A term-wise semi-discrete residual model for F(t,y,ydot)=0. */
   template <typename VectorType,
             typename MatrixType = ImmersXLA::MPI::SparseMatrix>
@@ -149,6 +161,12 @@ namespace ImmersX
     saddle_points() const
     {
       return saddle_points_;
+    }
+
+    const std::vector<SecondOrderPair> &
+    second_order_pairs() const
+    {
+      return second_order_pairs_;
     }
 
     void
@@ -349,6 +367,21 @@ namespace ImmersX
     }
 
     void
+    add_second_order_pair(SecondOrderPair pair)
+    {
+      AssertThrow(pair.displacement != pair.velocity,
+                  dealii::ExcMessage("A second-order pair needs two fields."));
+      for (const auto &existing : second_order_pairs_)
+        AssertThrow(existing.displacement != pair.displacement &&
+                      existing.displacement != pair.velocity &&
+                      existing.velocity != pair.displacement &&
+                      existing.velocity != pair.velocity,
+                    dealii::ExcMessage(
+                      "A field belongs to more than one second-order pair."));
+      second_order_pairs_.push_back(std::move(pair));
+    }
+
+    void
     add_saddle_point(SaddlePointMetadata metadata)
     {
       AssertThrow(!metadata.participants.empty(),
@@ -483,6 +516,7 @@ namespace ImmersX
     std::map<FieldId, PreconditionerFactory>       preconditioners_;
     std::map<FieldId, MatrixOperatorFactory>       multiplier_metrics_;
     std::vector<SaddlePointMetadata>               saddle_points_;
+    std::vector<SecondOrderPair>                   second_order_pairs_;
     std::vector<ContextUpdateFactory>              context_updates_;
   };
 } // namespace ImmersX

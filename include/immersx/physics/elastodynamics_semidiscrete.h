@@ -10,6 +10,8 @@
 #ifndef immersx_elastodynamics_semidiscrete_h
 #define immersx_elastodynamics_semidiscrete_h
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
 #include <immersx/core/fe_space.h>
@@ -78,6 +80,24 @@ namespace ImmersX
         return make_amg_preconditioner(linearized_matrix, prototype);
       });
 
+    dealii::IndexSet constrained(problem.locally_owned_dofs().size());
+    for (const auto &line : problem.constraints().get_lines())
+      constrained.add_index(line.index);
+    constrained.compress();
+    typename ImmersXLA::MPI::PreconditionAMG::AdditionalData amg_data;
+    if constexpr (dim == spacedim)
+      amg_data.constant_modes_values =
+        dealii::DoFTools::extract_rigid_body_modes(problem.mapping(),
+                                                   problem.dof_handler());
+    else
+      amg_data.constant_modes =
+        dealii::DoFTools::extract_constant_modes(problem.dof_handler());
+    amg_data.higher_order_elements = problem.dof_handler().get_fe().degree > 1;
+    builder.second_order_pair(displacement_id,
+                              velocity_id,
+                              constrained,
+                              amg_data);
+
     using Space = typename ElastodynamicsFields<dim, spacedim>::Space;
     auto space  = std::make_shared<Space>(finite_element_space_view(problem));
     const auto displacement =
@@ -123,7 +143,8 @@ namespace ImmersX
                         stiffness.view * context.state(displacement_id) +
                         damping.view * context.state(velocity_id);
           typename SemiDiscreteModel<VectorType>::Operation forcing;
-          forcing.reinit_vector = [v_dot](VectorType &vector, const bool omit) {
+          forcing.reinit_vector = [&v_dot](VectorType &vector,
+                                           const bool  omit) {
             vector.reinit(v_dot, omit);
           };
           forcing.apply = [&problem,

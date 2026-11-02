@@ -232,6 +232,19 @@ namespace ImmersX
         field, typename Model::PreconditionerFactory(std::move(factory)));
     }
 
+    /** Describe a mass-based second-order displacement/velocity relation. */
+    void
+    second_order_pair(
+      const FieldId           displacement,
+      const FieldId           velocity,
+      const dealii::IndexSet &constrained,
+      const typename ImmersXLA::MPI::PreconditionAMG::AdditionalData &amg_data =
+        {})
+    {
+      model_.add_second_order_pair(
+        {displacement, velocity, constrained, amg_data});
+    }
+
     /** Register a semantic multiplier/primal saddle-point relation. */
     void
     saddle_point(const FieldId multiplier, std::vector<FieldId> participants)
