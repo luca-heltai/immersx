@@ -19,6 +19,7 @@
 #include <limits>
 
 #include "../source/vascularization/archive_internal.h"
+#include "../source/vascularization/reference_flow_internal.h"
 #include "test_paths.h"
 
 using namespace dealii;
@@ -1095,4 +1096,46 @@ TEST(VascularReferenceFlow, BOTH_GeneratedThreeNetworksShareNonzeroDemandFlow)
         EXPECT_EQ(found->venous, old.venous);
         EXPECT_EQ(found->resistances, old.resistances);
       }
+}
+
+TEST(VascularReferenceFlow,
+     BOTH_OwnedDemandSelectionLeavesOtherTerminalsUntouched)
+{
+  const auto   comm = MPI_COMM_WORLD;
+  const auto   rank = Utilities::MPI::this_mpi_process(comm);
+  const auto   last = Utilities::MPI::n_mpi_processes(comm) - 1;
+  NetworkData  network;
+  std::set<Id> selected;
+  for (unsigned int i = 0; i < 2; ++i)
+    if ((i == 0 ? 0u : last) == rank)
+      {
+        const Id node                = 10 + i;
+        network.nodes[node].position = Point<3>(i, 0., 0.);
+        network.nodes[node].owner    = rank;
+        network.terminals[100 + i]   = {
+          node, 200 + i, System::arterial, rank, i == 0 ? 1. : 3.};
+        selected.insert(100 + i);
+      }
+  const Id unused_node                = 1000 + rank;
+  network.nodes[unused_node].position = Point<3>(rank, 1., 0.);
+  network.nodes[unused_node].owner    = rank;
+  network.terminals[2000 + rank]      = {
+    unused_node, 3000 + rank, System::arterial, rank, 100.};
+  const auto conditions =
+    ImmersX::Vascularization::internal::owned_demand_flow_conditions(
+      network, {{System::arterial, 8.e-9}}, selected, comm);
+  EXPECT_EQ(conditions.inflows.size(), selected.size());
+  EXPECT_FALSE(conditions.inflows.count(unused_node));
+  for (Id id : selected)
+    {
+      const auto &terminal = network.terminals.at(id);
+      EXPECT_NEAR(conditions.inflows.at(terminal.node),
+                  id == 100 ? -2.e-9 : -6.e-9,
+                  1.e-23);
+    }
+  if (rank == 0)
+    selected.insert(999999);
+  EXPECT_THROW(ImmersX::Vascularization::internal::owned_demand_flow_conditions(
+                 network, {{System::arterial, 8.e-9}}, selected, comm),
+               ExceptionBase);
 }

@@ -24,6 +24,8 @@
 #include <tuple>
 #include <type_traits>
 
+#include "reference_flow_internal.h"
+
 namespace ImmersX::Vascularization
 {
   void
@@ -941,6 +943,14 @@ namespace ImmersX::Vascularization
       network, pairs, triplets, conditions, parameters, communicator);
   }
 
+  static ReferenceConditions
+  demand_flow_conditions_impl(const NetworkData &,
+                              const std::map<Id, double> &,
+                              const std::map<System, double> &,
+                              const std::vector<Id> &,
+                              MPI_Comm,
+                              const std::set<Id> *);
+
   ReferenceConditions
   demand_flow_conditions(const NetworkData          &network,
                          const std::map<Id, double> &port_pressures,
@@ -962,6 +972,33 @@ namespace ImmersX::Vascularization
                          const std::map<System, double> &total_flows,
                          const std::vector<Id>          &selected_terminals,
                          MPI_Comm                        communicator)
+  {
+    return demand_flow_conditions_impl(network,
+                                       port_pressures,
+                                       total_flows,
+                                       selected_terminals,
+                                       communicator,
+                                       nullptr);
+  }
+
+  ReferenceConditions
+  internal::owned_demand_flow_conditions(
+    const NetworkData              &network,
+    const std::map<System, double> &total_flows,
+    const std::set<Id>             &owned_selected,
+    MPI_Comm                        communicator)
+  {
+    return demand_flow_conditions_impl(
+      network, {}, total_flows, {}, communicator, &owned_selected);
+  }
+
+  static ReferenceConditions
+  demand_flow_conditions_impl(const NetworkData              &network,
+                              const std::map<Id, double>     &port_pressures,
+                              const std::map<System, double> &total_flows,
+                              const std::vector<Id> &selected_terminals,
+                              MPI_Comm               communicator,
+                              const std::set<Id>    *owned_selected)
   {
     using namespace dealii;
     const Rank rank        = Utilities::MPI::this_mpi_process(communicator),
@@ -1018,6 +1055,13 @@ namespace ImmersX::Vascularization
     for (Id id : requested)
       if (id % size == rank)
         valid = terminal_registry.count(id) && valid;
+    if (owned_selected)
+      for (Id id : *owned_selected)
+        {
+          const auto terminal = network.terminals.find(id);
+          valid               = terminal != network.terminals.end() &&
+                  terminal->second.owner == rank && valid;
+        }
     require_all(
       valid,
       "Demand-flow identities require unique authoritative nodes and terminals, colocated terminal authority, and existing selected ids.");
@@ -1060,7 +1104,9 @@ namespace ImmersX::Vascularization
     std::vector<Id>       selected;
     std::array<double, 3> scale{}, sum{};
     for (const auto &[id, t] : network.terminals)
-      if (t.owner == rank && (requested.empty() || requested.count(id)))
+      if (t.owner == rank &&
+          (owned_selected ? owned_selected->count(id) :
+                            requested.empty() || requested.count(id)))
         {
           valid = total_flows.count(t.system) && valid;
           selected.push_back(id);
