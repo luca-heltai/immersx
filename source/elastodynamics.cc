@@ -33,6 +33,7 @@
 #include <immersx/physics/elastodynamics.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -71,6 +72,78 @@ namespace ImmersX
       AssertThrow(!ec,
                   ExcMessage("Could not create output directory '" + directory +
                              "': " + ec.message()));
+    }
+
+
+    bool
+    expression_depends_on_time(const ParameterHandler &prm,
+                               const unsigned int      dimension)
+    {
+      const auto variables =
+        Utilities::split_string_list(prm.get("Variable names"));
+      if (variables.size() <= dimension)
+        return false;
+      const auto &time_variable = variables[dimension];
+      const auto  expression    = prm.get("Function expression");
+      for (std::size_t i = 0; i < expression.size();)
+        if (std::isalpha(static_cast<unsigned char>(expression[i])) ||
+            expression[i] == '_')
+          {
+            const auto begin = i++;
+            while (i < expression.size() &&
+                   (std::isalnum(static_cast<unsigned char>(expression[i])) ||
+                    expression[i] == '_'))
+              ++i;
+            if (expression.substr(begin, i - begin) == time_variable)
+              return true;
+          }
+        else
+          ++i;
+      return false;
+    }
+
+    bool
+    expression_is_zero(const ParameterHandler &prm)
+    {
+      for (const auto &component :
+           Utilities::split_string_list(prm.get("Function expression"), ';'))
+        {
+          std::size_t parsed = 0;
+          try
+            {
+              if (std::stod(component, &parsed) != 0. ||
+                  parsed != component.size())
+                return false;
+            }
+          catch (const std::invalid_argument &)
+            {
+              return false;
+            }
+          catch (const std::out_of_range &)
+            {
+              return false;
+            }
+        }
+      return true;
+    }
+
+    template <typename VectorType>
+    void
+    project_rhs(const VectorType                &source,
+                const AffineConstraints<double> &constraints,
+                VectorType                      &destination)
+    {
+      destination = 0.;
+      destination.compress(VectorOperation::add);
+      for (const auto index : source.locally_owned_elements())
+        {
+          const double value = source(index);
+          constraints.distribute_local_to_global(&value,
+                                                 &value + 1,
+                                                 &index,
+                                                 destination);
+        }
+      destination.compress(VectorOperation::add);
     }
 
     template <int dim, int spacedim>
@@ -225,6 +298,25 @@ namespace ImmersX
     convergence_table.add_parameters(this->prm);
     this->prm.leave_subsection();
 
+    const auto track_time_dependence = [](auto &function,
+                                          bool &depends_on_time) {
+      function.parse_parameters_call_back.connect([&depends_on_time]() {
+        depends_on_time =
+          expression_depends_on_time(ParameterAcceptor::prm, spacedim);
+      });
+    };
+    body_force.parse_parameters_call_back.connect([this]() {
+      body_force_is_zero = expression_is_zero(ParameterAcceptor::prm);
+    });
+    neumann_boundary.parse_parameters_call_back.connect([this]() {
+      neumann_boundary_is_zero = expression_is_zero(ParameterAcceptor::prm);
+    });
+    track_time_dependence(body_force, body_force_depends_on_time);
+    track_time_dependence(neumann_boundary, neumann_boundary_depends_on_time);
+    track_time_dependence(displacement_boundary,
+                          displacement_boundary_depends_on_time);
+    track_time_dependence(velocity_boundary, velocity_boundary_depends_on_time);
+
     const std::string material_root =
       normalize_elastodynamics_subsection(subsection) + "Material properties/";
 
@@ -376,16 +468,30 @@ namespace ImmersX
   void
   ElastodynamicsSolver<dim, spacedim>::rebuild_combined_constraints() const
   {
-    combined_constraints_storage.clear();
-    combined_constraints_storage.reinit(combined_owned_dofs,
-                                        combined_relevant_dofs);
-    copy_constraints(displacement_constraints_storage,
-                     combined_constraints_storage,
-                     0);
-    copy_constraints(velocity_constraints_storage,
-                     combined_constraints_storage,
-                     dh.n_dofs());
-    combined_constraints_storage.close();
+    if (!combined_constraints_initialized)
+      {
+        combined_constraints_storage.clear();
+        combined_constraints_storage.reinit(combined_owned_dofs,
+                                            combined_relevant_dofs);
+        copy_constraints(displacement_constraints_storage,
+                         combined_constraints_storage,
+                         0);
+        copy_constraints(velocity_constraints_storage,
+                         combined_constraints_storage,
+                         dh.n_dofs());
+        combined_constraints_storage.close();
+        combined_constraints_initialized = true;
+      }
+    else
+      {
+        for (const auto &line : displacement_constraints_storage.get_lines())
+          combined_constraints_storage.set_inhomogeneity(line.index,
+                                                         line.inhomogeneity);
+        for (const auto &line : velocity_constraints_storage.get_lines())
+          combined_constraints_storage.set_inhomogeneity(dh.n_dofs() +
+                                                           line.index,
+                                                         line.inhomogeneity);
+      }
   }
 
 
@@ -399,17 +505,8 @@ namespace ImmersX
     const double dt = current_time - previous_time;
     AssertThrow(dt > 0., ExcMessage("Time must increase between steps."));
 
-    velocity_constraints_storage.clear();
-    velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
-
     for (const auto &line : displacement_constraints_storage.get_lines())
       {
-        velocity_constraints_storage.add_line(line.index);
-        for (const auto &entry : line.entries)
-          velocity_constraints_storage.add_entry(line.index,
-                                                 entry.first,
-                                                 entry.second);
-
         const double previous_value =
           previous_displacement.is_constrained(line.index) ?
             previous_displacement.get_inhomogeneity(line.index) :
@@ -417,7 +514,7 @@ namespace ImmersX
         velocity_constraints_storage.set_inhomogeneity(
           line.index, (line.inhomogeneity - previous_value) / dt);
       }
-    velocity_constraints_storage.close();
+    velocity_constraints_are_boundary_data = false;
     rebuild_combined_constraints();
   }
 
@@ -433,17 +530,8 @@ namespace ImmersX
     const double dt = current_time - previous_time;
     AssertThrow(dt > 0., ExcMessage("Time must increase between steps."));
 
-    velocity_constraints_storage.clear();
-    velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
-
     for (const auto &line : displacement_constraints_storage.get_lines())
       {
-        velocity_constraints_storage.add_line(line.index);
-        for (const auto &entry : line.entries)
-          velocity_constraints_storage.add_entry(line.index,
-                                                 entry.first,
-                                                 entry.second);
-
         const double previous_displacement_value =
           previous_displacement.is_constrained(line.index) ?
             previous_displacement.get_inhomogeneity(line.index) :
@@ -457,7 +545,7 @@ namespace ImmersX
           2. * (line.inhomogeneity - previous_displacement_value) / dt -
             previous_velocity_value);
       }
-    velocity_constraints_storage.close();
+    velocity_constraints_are_boundary_data = false;
     rebuild_combined_constraints();
   }
 
@@ -467,32 +555,64 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::update_constraints(
     const double time) const
   {
-    displacement_constraints_storage.clear();
-    displacement_constraints_storage.reinit(owned_dofs, relevant_dofs);
-    DoFTools::make_hanging_node_constraints(dh,
-                                            displacement_constraints_storage);
-    par.displacement_boundary.set_time(time);
-    for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(
-        *mapping_storage,
-        dh,
-        id,
-        par.displacement_boundary,
-        displacement_constraints_storage);
-    displacement_constraints_storage.close();
+    update_constraints(time, true);
+  }
 
-    velocity_constraints_storage.clear();
-    velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
-    DoFTools::make_hanging_node_constraints(dh, velocity_constraints_storage);
-    par.velocity_boundary.set_time(time);
-    for (const auto id : par.dirichlet_ids)
-      VectorTools::interpolate_boundary_values(*mapping_storage,
-                                               dh,
-                                               id,
-                                               par.velocity_boundary,
-                                               velocity_constraints_storage);
-    velocity_constraints_storage.close();
 
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::update_constraints(
+    const double time,
+    const bool   update_velocity) const
+  {
+    const bool update_displacement =
+      !displacement_constraints_time.has_value() ||
+      (!par.dirichlet_ids.empty() &&
+       par.displacement_boundary_depends_on_time &&
+       *displacement_constraints_time != time);
+    const bool refresh_velocity =
+      update_velocity &&
+      (!velocity_constraints_time.has_value() ||
+       !velocity_constraints_are_boundary_data ||
+       (!par.dirichlet_ids.empty() && par.velocity_boundary_depends_on_time &&
+        *velocity_constraints_time != time));
+    if (!update_displacement && !refresh_velocity)
+      return;
+
+    if (update_displacement)
+      {
+        displacement_constraints_storage.copy_from(
+          hanging_node_constraints_storage);
+        par.displacement_boundary.set_time(time);
+        for (const auto id : par.dirichlet_ids)
+          VectorTools::interpolate_boundary_values(
+            *mapping_storage,
+            dh,
+            id,
+            par.displacement_boundary,
+            displacement_constraints_storage);
+        displacement_constraints_storage.close();
+        displacement_constraints_time = time;
+      }
+
+    if (refresh_velocity)
+      {
+        velocity_constraints_storage.copy_from(
+          hanging_node_constraints_storage);
+        par.velocity_boundary.set_time(time);
+        for (const auto id : par.dirichlet_ids)
+          VectorTools::interpolate_boundary_values(
+            *mapping_storage,
+            dh,
+            id,
+            par.velocity_boundary,
+            velocity_constraints_storage);
+        velocity_constraints_storage.close();
+        velocity_constraints_time              = time;
+        velocity_constraints_are_boundary_data = true;
+      }
+
+    ++assembly_statistics_storage.constraints;
     rebuild_combined_constraints();
   }
 
@@ -508,6 +628,18 @@ namespace ImmersX
     dh.distribute_dofs(*fe_storage);
     owned_dofs    = dh.locally_owned_dofs();
     relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
+
+    spatial_operators_ready = false;
+    system_matrix_time_step.reset();
+    volume_force_cache_time.reset();
+    traction_force_cache_time.reset();
+    displacement_constraints_time.reset();
+    velocity_constraints_time.reset();
+    combined_constraints_initialized = false;
+    hanging_node_constraints_storage.clear();
+    hanging_node_constraints_storage.reinit(owned_dofs, relevant_dofs);
+    DoFTools::make_hanging_node_constraints(dh,
+                                            hanging_node_constraints_storage);
 
     const auto n_spatial_dofs = dh.n_dofs();
     combined_owned_dofs       = IndexSet(2 * n_spatial_dofs);
@@ -535,39 +667,15 @@ namespace ImmersX
                                                mpi_communicator,
                                                relevant_dofs);
 
-    DynamicSparsityPattern               combined_dsp(combined_relevant_dofs);
-    std::vector<types::global_dof_index> cell_dof_indices(
-      fe_storage->n_dofs_per_cell());
-    for (const auto &cell : dh.active_cell_iterators())
-      if (cell->is_locally_owned())
+    DynamicSparsityPattern combined_dsp(combined_relevant_dofs);
+    for (const auto row : relevant_dofs)
+      for (unsigned int k = 0; k < spatial_dsp.row_length(row); ++k)
         {
-          cell->get_dof_indices(cell_dof_indices);
-          for (const auto i : cell_dof_indices)
-            for (const auto j : cell_dof_indices)
-              {
-                combined_dsp.add(i, j);
-                combined_dsp.add(i, n_spatial_dofs + j);
-                combined_dsp.add(n_spatial_dofs + i, j);
-                combined_dsp.add(n_spatial_dofs + i, n_spatial_dofs + j);
-              }
-
-          for (const auto i : cell_dof_indices)
-            if (displacement_constraints_storage.is_constrained(i))
-              {
-                const auto *entries =
-                  displacement_constraints_storage.get_constraint_entries(i);
-                if (entries != nullptr)
-                  for (const auto &entry : *entries)
-                    for (const auto j : cell_dof_indices)
-                      {
-                        combined_dsp.add(entry.first, j);
-                        combined_dsp.add(j, entry.first);
-                        combined_dsp.add(n_spatial_dofs + entry.first,
-                                         n_spatial_dofs + j);
-                        combined_dsp.add(n_spatial_dofs + j,
-                                         n_spatial_dofs + entry.first);
-                      }
-              }
+          const auto column = spatial_dsp.column_number(row, k);
+          combined_dsp.add(row, column);
+          combined_dsp.add(row, n_spatial_dofs + column);
+          combined_dsp.add(n_spatial_dofs + row, column);
+          combined_dsp.add(n_spatial_dofs + row, n_spatial_dofs + column);
         }
     SparsityTools::distribute_sparsity_pattern(combined_dsp,
                                                combined_owned_dofs,
@@ -592,6 +700,9 @@ namespace ImmersX
                                  mpi_communicator);
 
     body_force_storage.reinit(owned_dofs, mpi_communicator);
+    cached_body_force.reinit(owned_dofs, mpi_communicator);
+    cached_volume_force.reinit(owned_dofs, mpi_communicator);
+    cached_traction_force.reinit(owned_dofs, mpi_communicator);
     displacement_storage.reinit(owned_dofs, mpi_communicator);
     velocity_storage.reinit(owned_dofs, mpi_communicator);
     locally_relevant_displacement.reinit(owned_dofs,
@@ -618,7 +729,10 @@ namespace ImmersX
   void
   ElastodynamicsSolver<dim, spacedim>::assemble_operators()
   {
+    if (spatial_operators_ready)
+      return;
     TimerOutput::Scope t(computing_timer, "Assemble spatial operators");
+    ++assembly_statistics_storage.spatial_operators;
     AssertThrow(fe_storage != nullptr && quadrature != nullptr,
                 ExcMessage("setup_fe() must be called before assembly."));
 
@@ -710,6 +824,42 @@ namespace ImmersX
     mass_matrix_storage.compress(VectorOperation::add);
     stiffness_matrix_storage.compress(VectorOperation::add);
     damping_matrix_storage.compress(VectorOperation::add);
+
+    const auto project_matrix = [&](const MatrixType &source,
+                                    MatrixType       &destination,
+                                    const double      constrained_diagonal) {
+      destination.copy_from(source);
+      destination = 0.;
+      destination.compress(VectorOperation::add);
+      FullMatrix<double>                   entry_matrix(1, 1);
+      std::vector<types::global_dof_index> row_index(1), column_index(1);
+      for (const auto row : source.locally_owned_range_indices())
+        {
+          row_index[0] = row;
+          for (auto entry = source.begin(row); entry != source.end(row);
+               ++entry)
+            if (entry->value() != 0.)
+              {
+                column_index[0]    = entry->column();
+                entry_matrix(0, 0) = entry->value();
+                displacement_constraints_storage.distribute_local_to_global(
+                  entry_matrix, row_index, column_index, destination);
+              }
+        }
+      destination.compress(VectorOperation::add);
+      for (const auto &line : displacement_constraints_storage.get_lines())
+        if (destination.in_local_range(line.index))
+          destination.set(line.index, line.index, constrained_diagonal);
+      destination.compress(VectorOperation::insert);
+    };
+    project_matrix(mass_matrix_storage, homogeneous_mass_matrix_storage, 1.);
+    project_matrix(stiffness_matrix_storage,
+                   homogeneous_stiffness_matrix_storage,
+                   0.);
+    project_matrix(damping_matrix_storage,
+                   homogeneous_damping_matrix_storage,
+                   0.);
+    spatial_operators_ready = true;
   }
 
 
@@ -727,10 +877,19 @@ namespace ImmersX
     const double time,
     VectorType  &destination) const
   {
+    const bool refresh_volume =
+      !volume_force_cache_time.has_value() ||
+      (par.body_force_depends_on_time && *volume_force_cache_time != time);
+    const bool refresh_traction = !traction_force_cache_time.has_value() ||
+                                  (par.neumann_boundary_depends_on_time &&
+                                   *traction_force_cache_time != time);
+    if (!refresh_volume && !refresh_traction)
+      {
+        destination = cached_body_force;
+        return;
+      }
     TimerOutput::Scope t(computing_timer, "Assemble body force");
-    par.body_force.set_time(time);
-    destination.reinit(owned_dofs, mpi_communicator);
-    destination = 0.;
+    ++assembly_statistics_storage.body_force;
 
     AffineConstraints<double> no_constraints;
     no_constraints.close();
@@ -753,58 +912,80 @@ namespace ImmersX
                                              Vector<double>(spacedim));
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
-    for (const auto &cell : dh.active_cell_iterators())
-      if (cell->is_locally_owned())
-        {
-          cell_rhs = 0.;
-          fe_values.reinit(cell);
-          par.body_force.vector_value_list(fe_values.get_quadrature_points(),
-                                           force_values);
-          for (unsigned int q = 0; q < n_q_points; ++q)
-            for (unsigned int i = 0; i < dofs_per_cell; ++i)
-              {
-                const auto component =
-                  fe_storage->system_to_component_index(i).first;
-                cell_rhs(i) += fe_values[vector_field].value(i, q)[component] *
-                               force_values[q](component) * fe_values.JxW(q);
-              }
+    if (refresh_volume)
+      {
+        cached_volume_force = 0.;
+        if (!par.body_force_is_zero)
+          {
+            par.body_force.set_time(time);
+            for (const auto &cell : dh.active_cell_iterators())
+              if (cell->is_locally_owned())
+                {
+                  cell_rhs = 0.;
+                  fe_values.reinit(cell);
+                  par.body_force.vector_value_list(
+                    fe_values.get_quadrature_points(), force_values);
+                  for (unsigned int q = 0; q < n_q_points; ++q)
+                    for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                      {
+                        const auto component =
+                          fe_storage->system_to_component_index(i).first;
+                        cell_rhs(i) +=
+                          fe_values[vector_field].value(i, q)[component] *
+                          force_values[q](component) * fe_values.JxW(q);
+                      }
 
-          cell->get_dof_indices(local_dof_indices);
-          no_constraints.distribute_local_to_global(cell_rhs,
-                                                    local_dof_indices,
-                                                    destination);
-        }
+                  cell->get_dof_indices(local_dof_indices);
+                  no_constraints.distribute_local_to_global(
+                    cell_rhs, local_dof_indices, cached_volume_force);
+                }
+          }
+        cached_volume_force.compress(VectorOperation::add);
+        volume_force_cache_time = time;
+      }
 
-    par.neumann_boundary.set_time(time);
-    for (const auto &cell : dh.active_cell_iterators())
-      if (cell->is_locally_owned())
-        for (const auto face : cell->face_indices())
-          if (cell->face(face)->at_boundary() &&
-              par.neumann_ids.find(cell->face(face)->boundary_id()) !=
-                par.neumann_ids.end())
-            {
-              fe_face_values.reinit(cell, face);
-              std::vector<Vector<double>> values(
-                fe_face_values.n_quadrature_points, Vector<double>(spacedim));
-              par.neumann_boundary.vector_value_list(
-                fe_face_values.get_quadrature_points(), values);
-              cell_rhs = 0.;
-              for (unsigned int q = 0; q < fe_face_values.n_quadrature_points;
-                   ++q)
-                for (unsigned int i = 0; i < dofs_per_cell; ++i)
-                  {
-                    const auto component =
-                      fe_storage->system_to_component_index(i).first;
-                    cell_rhs(i) += fe_face_values.shape_value(i, q) *
-                                   values[q](component) * fe_face_values.JxW(q);
-                  }
-              cell->get_dof_indices(local_dof_indices);
-              no_constraints.distribute_local_to_global(cell_rhs,
-                                                        local_dof_indices,
-                                                        destination);
-            }
-
-    destination.compress(VectorOperation::add);
+    if (refresh_traction)
+      {
+        cached_traction_force = 0.;
+        if (!par.neumann_boundary_is_zero && !par.neumann_ids.empty())
+          {
+            par.neumann_boundary.set_time(time);
+            for (const auto &cell : dh.active_cell_iterators())
+              if (cell->is_locally_owned())
+                for (const auto face : cell->face_indices())
+                  if (cell->face(face)->at_boundary() &&
+                      par.neumann_ids.find(cell->face(face)->boundary_id()) !=
+                        par.neumann_ids.end())
+                    {
+                      fe_face_values.reinit(cell, face);
+                      std::vector<Vector<double>> values(
+                        fe_face_values.n_quadrature_points,
+                        Vector<double>(spacedim));
+                      par.neumann_boundary.vector_value_list(
+                        fe_face_values.get_quadrature_points(), values);
+                      cell_rhs = 0.;
+                      for (unsigned int q = 0;
+                           q < fe_face_values.n_quadrature_points;
+                           ++q)
+                        for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                          {
+                            const auto component =
+                              fe_storage->system_to_component_index(i).first;
+                            cell_rhs(i) += fe_face_values.shape_value(i, q) *
+                                           values[q](component) *
+                                           fe_face_values.JxW(q);
+                          }
+                      cell->get_dof_indices(local_dof_indices);
+                      no_constraints.distribute_local_to_global(
+                        cell_rhs, local_dof_indices, cached_traction_force);
+                    }
+          }
+        cached_traction_force.compress(VectorOperation::add);
+        traction_force_cache_time = time;
+      }
+    cached_body_force = cached_volume_force;
+    cached_body_force += cached_traction_force;
+    destination = cached_body_force;
   }
 
 
@@ -832,6 +1013,7 @@ namespace ImmersX
     // The initial velocity is the value of the initial condition, not an
     // independently prescribed boundary datum.  In particular, do not impose
     // the default zero velocity boundary on a moving displacement boundary.
+    velocity_constraints_are_boundary_data = false;
     velocity_constraints_storage.clear();
     velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
     DoFTools::make_hanging_node_constraints(dh, velocity_constraints_storage);
@@ -884,90 +1066,30 @@ namespace ImmersX
     damping_matrix_storage.vmult(work, velocity_storage);
     rhs -= work;
 
-    // The constrained mass matrix below has its constrained columns removed.
-    // Move the corresponding inhomogeneous acceleration values to the right
-    // hand side before solving the unconstrained rows.
-    add_initial_acceleration_constraint_rhs(rhs);
-
-    for (const auto index : velocity_storage.locally_owned_elements())
-      if (velocity_constraints_storage.is_constrained(index))
-        rhs(index) = 0.;
-
-    MatrixType constrained_mass;
-    constrained_mass.copy_from(mass_matrix_storage);
-    for (const auto row : constrained_mass.locally_owned_range_indices())
-      {
-        std::vector<types::global_dof_index> constrained_columns;
-        for (auto entry = constrained_mass.begin(row);
-             entry != constrained_mass.end(row);
-             ++entry)
-          if (velocity_constraints_storage.is_constrained(entry->column()))
-            constrained_columns.push_back(entry->column());
-        for (const auto column : constrained_columns)
-          constrained_mass.set(row, column, 0.);
-      }
-    constrained_mass.compress(VectorOperation::insert);
-    for (const auto &line : velocity_constraints_storage.get_lines())
-      if (constrained_mass.in_local_range(line.index))
-        constrained_mass.clear_row(line.index, 1.);
-    constrained_mass.compress(VectorOperation::insert);
+    VectorType lifting;
+    lifting.reinit(owned_dofs, mpi_communicator);
+    lifting = 0.;
+    velocity_constraints_storage.distribute(lifting);
+    mass_matrix_storage.vmult(work, lifting);
+    rhs -= work;
+    VectorType projected_rhs;
+    projected_rhs.reinit(rhs);
+    project_rhs(rhs, velocity_constraints_storage, projected_rhs);
 
     acceleration.reinit(owned_dofs, mpi_communicator);
     acceleration = 0.;
     SolverControl               control(par.solver_control.max_steps(),
                           par.solver_control.tolerance());
     LA::MPI::PreconditionJacobi preconditioner;
-    preconditioner.initialize(constrained_mass);
+    preconditioner.initialize(homogeneous_mass_matrix_storage);
     SolverGMRES<VectorType> solver(control);
-    solver.solve(constrained_mass, acceleration, rhs, preconditioner);
+    solver.solve(homogeneous_mass_matrix_storage,
+                 acceleration,
+                 projected_rhs,
+                 preconditioner);
     velocity_constraints_storage.distribute(acceleration);
   }
 
-
-  template <int dim, int spacedim>
-  void
-  ElastodynamicsSolver<dim, spacedim>::add_initial_acceleration_constraint_rhs(
-    VectorType &rhs) const
-  {
-    FEValues<dim, spacedim>          fe_values(*mapping_storage,
-                                      *fe_storage,
-                                      *quadrature,
-                                      update_values | update_JxW_values);
-    const FEValuesExtractors::Vector vector_field(0);
-    const unsigned int dofs_per_cell = fe_storage->n_dofs_per_cell();
-    const unsigned int n_q_points    = quadrature->size();
-
-    FullMatrix<double>               cell_mass(dofs_per_cell, dofs_per_cell);
-    Vector<double>                   zero_local_rhs(dofs_per_cell);
-    std::vector<Tensor<1, spacedim>> values(dofs_per_cell);
-    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-
-    for (const auto &cell : dh.active_cell_iterators())
-      if (cell->is_locally_owned())
-        {
-          const auto mp  = par.get_material_properties(cell->material_id());
-          cell_mass      = 0.;
-          zero_local_rhs = 0.;
-          fe_values.reinit(cell);
-
-          for (unsigned int q = 0; q < n_q_points; ++q)
-            {
-              for (unsigned int k = 0; k < dofs_per_cell; ++k)
-                values[k] = fe_values[vector_field].value(k, q);
-
-              for (unsigned int i = 0; i < dofs_per_cell; ++i)
-                for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                  cell_mass(i, j) +=
-                    mp.density * (values[i] * values[j]) * fe_values.JxW(q);
-            }
-
-          cell->get_dof_indices(local_dof_indices);
-          velocity_constraints_storage.distribute_local_to_global(
-            zero_local_rhs, local_dof_indices, rhs, cell_mass);
-        }
-
-    rhs.compress(VectorOperation::add);
-  }
 
 
   template <int dim, int spacedim>
@@ -977,132 +1099,9 @@ namespace ImmersX
     const VectorType &previous_velocity,
     const double      dt)
   {
-    TimerOutput::Scope t(computing_timer, "Assemble backward-Euler system");
-    system_matrix_storage = 0.;
-    system_rhs_storage    = 0.;
-
-    locally_relevant_displacement = previous_displacement;
-    locally_relevant_displacement.update_ghost_values();
-    locally_relevant_velocity = previous_velocity;
-    locally_relevant_velocity.update_ghost_values();
-
-    FEValues<dim, spacedim>          fe_values(*mapping_storage,
-                                      *fe_storage,
-                                      *quadrature,
-                                      update_values | update_gradients |
-                                        update_quadrature_points |
-                                        update_JxW_values);
-    const FEValuesExtractors::Vector vector_field(0);
-    const unsigned int dofs_per_cell  = fe_storage->n_dofs_per_cell();
-    const unsigned int n_q_points     = quadrature->size();
-    const auto         n_spatial_dofs = dh.n_dofs();
-
-    FullMatrix<double> cell_mass(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_stiffness(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_damping(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_matrix(2 * dofs_per_cell, 2 * dofs_per_cell);
-    Vector<double>     cell_rhs(2 * dofs_per_cell);
-    std::vector<Tensor<2, spacedim>>     symmetric_gradients(dofs_per_cell);
-    std::vector<double>                  divergences(dofs_per_cell);
-    std::vector<Tensor<1, spacedim>>     values(dofs_per_cell);
-    std::vector<Vector<double>>          force_values(n_q_points,
-                                             Vector<double>(spacedim));
-    std::vector<types::global_dof_index> spatial_indices(dofs_per_cell);
-    std::vector<types::global_dof_index> combined_indices(2 * dofs_per_cell);
-
-    for (const auto &cell : dh.active_cell_iterators())
-      if (cell->is_locally_owned())
-        {
-          const auto mp  = par.get_material_properties(cell->material_id());
-          cell_mass      = 0.;
-          cell_stiffness = 0.;
-          cell_damping   = 0.;
-          cell_matrix    = 0.;
-          cell_rhs       = 0.;
-          fe_values.reinit(cell);
-          par.body_force.vector_value_list(fe_values.get_quadrature_points(),
-                                           force_values);
-
-          for (unsigned int q = 0; q < n_q_points; ++q)
-            {
-              for (unsigned int k = 0; k < dofs_per_cell; ++k)
-                {
-                  symmetric_gradients[k] =
-                    fe_values[vector_field].symmetric_gradient(k, q);
-                  divergences[k] = fe_values[vector_field].divergence(k, q);
-                  values[k]      = fe_values[vector_field].value(k, q);
-                }
-              for (unsigned int i = 0; i < dofs_per_cell; ++i)
-                for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                  {
-                    const auto jxw = fe_values.JxW(q);
-
-                    cell_mass(i, j) +=
-                      mp.density * (values[i] * values[j]) * jxw;
-
-                    cell_stiffness(i, j) +=
-                      (2. * mp.lame_mu *
-                         scalar_product(symmetric_gradients[i],
-                                        symmetric_gradients[j]) +
-                       mp.lame_lambda * divergences[i] * divergences[j]) *
-                      jxw;
-
-                    cell_damping(i, j) +=
-                      (mp.rayleigh_alpha * mp.density *
-                         (values[i] * values[j]) +
-
-                       (mp.viscosity_eta + 2. * mp.rayleigh_beta * mp.lame_mu) *
-                         scalar_product(symmetric_gradients[i],
-                                        symmetric_gradients[j]) +
-
-                       (mp.rayleigh_beta * mp.lame_lambda) * divergences[i] *
-                         divergences[j]) *
-                      jxw;
-                  }
-
-              for (unsigned int i = 0; i < dofs_per_cell; ++i)
-                {
-                  const auto component =
-                    fe_storage->system_to_component_index(i).first;
-                  cell_rhs(dofs_per_cell + i) +=
-                    fe_values[vector_field].value(i, q)[component] *
-                    force_values[q](component) * fe_values.JxW(q);
-                }
-            }
-
-          cell->get_dof_indices(spatial_indices);
-          for (unsigned int i = 0; i < dofs_per_cell; ++i)
-            {
-              combined_indices[i] = spatial_indices[i];
-              combined_indices[dofs_per_cell + i] =
-                n_spatial_dofs + spatial_indices[i];
-              for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                {
-                  cell_matrix(i, j) += cell_mass(i, j) / dt;
-                  cell_matrix(i, dofs_per_cell + j) -= cell_mass(i, j);
-                  cell_matrix(dofs_per_cell + i, j) += cell_stiffness(i, j);
-                  cell_matrix(dofs_per_cell + i, dofs_per_cell + j) +=
-                    cell_mass(i, j) / dt + cell_damping(i, j);
-                  cell_rhs(i) +=
-                    cell_mass(i, j) / dt *
-                    locally_relevant_displacement(spatial_indices[j]);
-                  cell_rhs(dofs_per_cell + i) +=
-                    cell_mass(i, j) / dt *
-                    locally_relevant_velocity(spatial_indices[j]);
-                }
-            }
-
-          combined_constraints_storage.distribute_local_to_global(
-            cell_matrix,
-            cell_rhs,
-            combined_indices,
-            system_matrix_storage,
-            system_rhs_storage,
-            true);
-        }
-
-    system_matrix_storage.compress(VectorOperation::add);
-    system_rhs_storage.compress(VectorOperation::add);
+    prepare_time_integration_matrix(dt, 1.);
+    assemble_time_integration_rhs(
+      previous_displacement, previous_velocity, body_force_storage, dt, 1.);
   }
 
 
@@ -1114,138 +1113,119 @@ namespace ImmersX
     const VectorType &previous_body_force,
     const double      dt)
   {
-    TimerOutput::Scope t(computing_timer, "Assemble trapezoidal system");
-    system_matrix_storage = 0.;
-    system_rhs_storage    = 0.;
+    prepare_time_integration_matrix(dt, .5);
+    assemble_time_integration_rhs(
+      previous_displacement, previous_velocity, previous_body_force, dt, .5);
+  }
 
-    locally_relevant_displacement = previous_displacement;
-    locally_relevant_displacement.update_ghost_values();
-    locally_relevant_velocity = previous_velocity;
-    locally_relevant_velocity.update_ghost_values();
 
-    FEValues<dim, spacedim>          fe_values(*mapping_storage,
-                                      *fe_storage,
-                                      *quadrature,
-                                      update_values | update_gradients |
-                                        update_JxW_values);
-    const FEValuesExtractors::Vector vector_field(0);
-    const unsigned int dofs_per_cell  = fe_storage->n_dofs_per_cell();
-    const unsigned int n_q_points     = quadrature->size();
-    const auto         n_spatial_dofs = dh.n_dofs();
-
-    FullMatrix<double> cell_mass(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_stiffness(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_damping(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_matrix(2 * dofs_per_cell, 2 * dofs_per_cell);
-    Vector<double>     cell_rhs(2 * dofs_per_cell);
-    std::vector<Tensor<2, spacedim>>     symmetric_gradients(dofs_per_cell);
-    std::vector<double>                  divergences(dofs_per_cell);
-    std::vector<Tensor<1, spacedim>>     values(dofs_per_cell);
-    std::vector<types::global_dof_index> spatial_indices(dofs_per_cell);
-    std::vector<types::global_dof_index> combined_indices(2 * dofs_per_cell);
-
-    for (const auto &cell : dh.active_cell_iterators())
-      if (cell->is_locally_owned())
-        {
-          const auto mp  = par.get_material_properties(cell->material_id());
-          cell_mass      = 0.;
-          cell_stiffness = 0.;
-          cell_damping   = 0.;
-          cell_matrix    = 0.;
-          cell_rhs       = 0.;
-          fe_values.reinit(cell);
-
-          for (unsigned int q = 0; q < n_q_points; ++q)
-            {
-              for (unsigned int k = 0; k < dofs_per_cell; ++k)
-                {
-                  symmetric_gradients[k] =
-                    fe_values[vector_field].symmetric_gradient(k, q);
-                  divergences[k] = fe_values[vector_field].divergence(k, q);
-                  values[k]      = fe_values[vector_field].value(k, q);
-                }
-              for (unsigned int i = 0; i < dofs_per_cell; ++i)
-                for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                  {
-                    const auto jxw = fe_values.JxW(q);
-
-                    cell_mass(i, j) +=
-                      mp.density * (values[i] * values[j]) * jxw;
-
-                    cell_stiffness(i, j) +=
-                      (2. * mp.lame_mu *
-                         scalar_product(symmetric_gradients[i],
-                                        symmetric_gradients[j]) +
-                       mp.lame_lambda * divergences[i] * divergences[j]) *
-                      jxw;
-
-                    cell_damping(i, j) +=
-                      (mp.rayleigh_alpha * mp.density *
-                         (values[i] * values[j]) +
-
-                       (mp.viscosity_eta + 2. * mp.rayleigh_beta * mp.lame_mu) *
-                         scalar_product(symmetric_gradients[i],
-                                        symmetric_gradients[j]) +
-
-                       (mp.rayleigh_beta * mp.lame_lambda) * divergences[i] *
-                         divergences[j]) *
-                      jxw;
-                  }
-            }
-
-          cell->get_dof_indices(spatial_indices);
-          for (unsigned int i = 0; i < dofs_per_cell; ++i)
-            {
-              combined_indices[i] = spatial_indices[i];
-              combined_indices[dofs_per_cell + i] =
-                n_spatial_dofs + spatial_indices[i];
-              for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                {
-                  // (d^{n+1} - d^n) / dt = (v^n + v^{n+1}) / 2.
-                  cell_matrix(i, j) += cell_mass(i, j) / dt;
-                  cell_matrix(i, dofs_per_cell + j) -= 0.5 * cell_mass(i, j);
-                  cell_rhs(i) +=
-                    cell_mass(i, j) / dt *
-                      locally_relevant_displacement(spatial_indices[j]) +
-                    0.5 * cell_mass(i, j) *
-                      locally_relevant_velocity(spatial_indices[j]);
-
-                  // M (v^{n+1} - v^n) / dt + D (v^n + v^{n+1}) / 2
-                  // + K (d^n + d^{n+1}) / 2 = (f^n + f^{n+1}) / 2.
-                  cell_matrix(dofs_per_cell + i, j) +=
-                    0.5 * cell_stiffness(i, j);
-                  cell_matrix(dofs_per_cell + i, dofs_per_cell + j) +=
-                    cell_mass(i, j) / dt + 0.5 * cell_damping(i, j);
-                  cell_rhs(dofs_per_cell + i) +=
-                    cell_mass(i, j) / dt *
-                      locally_relevant_velocity(spatial_indices[j]) -
-                    0.5 * cell_damping(i, j) *
-                      locally_relevant_velocity(spatial_indices[j]) -
-                    0.5 * cell_stiffness(i, j) *
-                      locally_relevant_displacement(spatial_indices[j]);
-                }
-            }
-
-          combined_constraints_storage.distribute_local_to_global(
-            cell_matrix,
-            cell_rhs,
-            combined_indices,
-            system_matrix_storage,
-            system_rhs_storage,
-            true);
-        }
-
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::prepare_time_integration_matrix(
+    const double dt,
+    const double theta)
+  {
+    const bool same_step =
+      system_matrix_time_step.has_value() &&
+      std::abs(*system_matrix_time_step - dt) <=
+        32. * std::numeric_limits<double>::epsilon() *
+          std::max(std::abs(dt), std::abs(*system_matrix_time_step));
+    if (same_step && system_matrix_theta == theta)
+      return;
+    AssertThrow(spatial_operators_ready,
+                ExcMessage("Assemble spatial operators before advancing."));
+    TimerOutput::Scope timer(computing_timer, "Build time-integration matrix");
+    ++assembly_statistics_storage.time_system_matrix;
+    const auto n_spatial_dofs = dh.n_dofs();
+    system_matrix_storage     = 0.;
     system_matrix_storage.compress(VectorOperation::add);
-    system_rhs_storage.compress(VectorOperation::add);
+    for (const auto row : owned_dofs)
+      if (!displacement_constraints_storage.is_constrained(row))
+        for (auto entry = homogeneous_mass_matrix_storage.begin(row);
+             entry != homogeneous_mass_matrix_storage.end(row);
+             ++entry)
+          {
+            const auto   column = entry->column();
+            const double mass   = entry->value();
+            const double stiffness =
+              homogeneous_stiffness_matrix_storage.el(row, column);
+            const double damping =
+              homogeneous_damping_matrix_storage.el(row, column);
+            system_matrix_storage.add(row, column, mass / dt);
+            system_matrix_storage.add(row,
+                                      n_spatial_dofs + column,
+                                      -theta * mass);
+            system_matrix_storage.add(n_spatial_dofs + row,
+                                      column,
+                                      theta * stiffness);
+            system_matrix_storage.add(n_spatial_dofs + row,
+                                      n_spatial_dofs + column,
+                                      mass / dt + theta * damping);
+          }
+    system_matrix_storage.compress(VectorOperation::add);
+    for (const auto &line : combined_constraints_storage.get_lines())
+      if (system_matrix_storage.in_local_range(line.index))
+        system_matrix_storage.set(line.index, line.index, 1.);
+    system_matrix_storage.compress(VectorOperation::insert);
+    system_matrix_time_step = dt;
+    system_matrix_theta     = theta;
+  }
 
-    // The external load has already been assembled globally, including its
-    // volume and Neumann contributions. Add it once to the unconstrained
-    // velocity rows rather than once per cell.
+
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::assemble_time_integration_rhs(
+    const VectorType &previous_displacement,
+    const VectorType &previous_velocity,
+    const VectorType &previous_body_force,
+    const double,
+    const double theta)
+  {
+    TimerOutput::Scope timer(computing_timer, "Assemble time-integration rhs");
+    // Use the cached step after normalizing roundoff in the final time step.
+    const double dt = *system_matrix_time_step;
+    VectorType   displacement_rhs, velocity_rhs, work;
+    displacement_rhs.reinit(owned_dofs, mpi_communicator);
+    velocity_rhs.reinit(displacement_rhs);
+    work.reinit(displacement_rhs);
+    mass_matrix_storage.vmult(displacement_rhs, previous_displacement);
+    displacement_rhs /= dt;
+    mass_matrix_storage.vmult(velocity_rhs, previous_velocity);
+    displacement_rhs.add(1. - theta, velocity_rhs);
+    velocity_rhs /= dt;
+    stiffness_matrix_storage.vmult(work, previous_displacement);
+    velocity_rhs.add(-(1. - theta), work);
+    damping_matrix_storage.vmult(work, previous_velocity);
+    velocity_rhs.add(-(1. - theta), work);
+    velocity_rhs.add(theta, body_force_storage);
+    velocity_rhs.add(1. - theta, previous_body_force);
+
+    VectorType displacement_lifting, velocity_lifting;
+    displacement_lifting.reinit(displacement_rhs);
+    velocity_lifting.reinit(displacement_rhs);
+    displacement_lifting = 0.;
+    velocity_lifting     = 0.;
+    displacement_constraints_storage.distribute(displacement_lifting);
+    velocity_constraints_storage.distribute(velocity_lifting);
+    mass_matrix_storage.vmult(work, displacement_lifting);
+    displacement_rhs.add(-1. / dt, work);
+    stiffness_matrix_storage.vmult(work, displacement_lifting);
+    velocity_rhs.add(-theta, work);
+    mass_matrix_storage.vmult(work, velocity_lifting);
+    displacement_rhs.add(theta, work);
+    velocity_rhs.add(-1. / dt, work);
+    damping_matrix_storage.vmult(work, velocity_lifting);
+    velocity_rhs.add(-theta, work);
+
+    VectorType raw_rhs;
+    raw_rhs.reinit(combined_owned_dofs, mpi_communicator);
     for (const auto index : owned_dofs)
-      if (!velocity_constraints_storage.is_constrained(index))
-        system_rhs_storage(n_spatial_dofs + index) +=
-          0.5 * (previous_body_force(index) + body_force_storage(index));
-    system_rhs_storage.compress(VectorOperation::add);
+      {
+        raw_rhs(index)               = displacement_rhs(index);
+        raw_rhs(dh.n_dofs() + index) = velocity_rhs(index);
+      }
+    raw_rhs.compress(VectorOperation::insert);
+    project_rhs(raw_rhs, combined_constraints_storage, system_rhs_storage);
   }
 
 
@@ -1315,7 +1295,7 @@ namespace ImmersX
       velocity_constraints_storage);
     const auto next_time = current_time_storage + dt;
 
-    update_constraints(next_time);
+    update_constraints(next_time, false);
     if (par.fixed_step_parameters.time_step_strategy == "trapezoidal")
       update_trapezoidal_velocity_constraints(previous_constraints,
                                               previous_velocity_constraints,
@@ -1711,6 +1691,38 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::locally_relevant_dofs() const
   {
     return relevant_dofs;
+  }
+
+
+  template <int dim, int spacedim>
+  const typename ElastodynamicsSolver<dim, spacedim>::MatrixType &
+  ElastodynamicsSolver<dim, spacedim>::homogeneous_mass_matrix() const
+  {
+    return homogeneous_mass_matrix_storage;
+  }
+
+
+  template <int dim, int spacedim>
+  const typename ElastodynamicsSolver<dim, spacedim>::MatrixType &
+  ElastodynamicsSolver<dim, spacedim>::homogeneous_stiffness_matrix() const
+  {
+    return homogeneous_stiffness_matrix_storage;
+  }
+
+
+  template <int dim, int spacedim>
+  const typename ElastodynamicsSolver<dim, spacedim>::MatrixType &
+  ElastodynamicsSolver<dim, spacedim>::homogeneous_damping_matrix() const
+  {
+    return homogeneous_damping_matrix_storage;
+  }
+
+
+  template <int dim, int spacedim>
+  const typename ElastodynamicsSolver<dim, spacedim>::AssemblyStatistics &
+  ElastodynamicsSolver<dim, spacedim>::assembly_statistics() const
+  {
+    return assembly_statistics_storage;
   }
 
 
