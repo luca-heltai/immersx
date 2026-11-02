@@ -348,10 +348,12 @@ TEST(BoundaryConditions, FieldMaskSubmaskAndAutomaticNormalFlux)
   ASSERT_GT(flux.constraints().n_constraints(), 0u);
   ASSERT_EQ(flux.constraints().n_constraints(),
             explicit_flux.constraints().n_constraints());
+  const auto automatic_lines = flux.constraints().get_lines();
+  const auto explicit_lines  = explicit_flux.constraints().get_lines();
   for (unsigned int i = 0; i < flux.constraints().n_constraints(); ++i)
     {
-      const auto &automatic_line = flux.constraints().get_lines()[i];
-      const auto &explicit_line  = explicit_flux.constraints().get_lines()[i];
+      const auto &automatic_line = automatic_lines[i];
+      const auto &explicit_line  = explicit_lines[i];
       EXPECT_EQ(automatic_line.index, explicit_line.index);
       EXPECT_DOUBLE_EQ(
         flux.constraints().get_inhomogeneity(automatic_line.index),

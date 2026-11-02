@@ -689,7 +689,7 @@ TEST(DistributedIDA, BOTH_SchurRetainsDisplacementVelocityPath)
       builder.preconditioner(u, inverse);
       builder.preconditioner(v, inverse);
       builder.saddle_point(lambda, {u, v}, identity);
-      return std::array<FieldId, 3>{u, v, lambda};
+      return std::array<FieldId, 3>{{u, v, lambda}};
     },
     "solid");
   auto state        = composition.make_state();
@@ -760,7 +760,7 @@ TEST(DistributedIDA, SerialUMFPACKSolvesCurrentDAEJacobian)
           .derivative(v, identity)
           .state(lambda, identity);
         builder.term(lambda, "position").state(u, identity);
-        return std::array<FieldId, 3>{u, v, lambda};
+        return std::array<FieldId, 3>{{u, v, lambda}};
       })
       .fields();
   auto state                    = adapter.make_state();

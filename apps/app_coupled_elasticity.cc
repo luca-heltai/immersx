@@ -53,7 +53,6 @@ main(int argc, char *argv[])
       unsigned int Pa_to_dyn_conversion = 10;
       unsigned int couplingStart        = 9;
       unsigned int coupling_mode        = 0;
-      double       baseline_pExt        = 5; // value to test!!
 
       if (argc > 2)
         {

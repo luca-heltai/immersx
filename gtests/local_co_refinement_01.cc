@@ -255,9 +255,13 @@ TEST(LocalCoRefinement, BOTH_StrategiesAndFinalReports)
       EXPECT_TRUE(report.satisfied());
       EXPECT_GT(report.intersecting_pairs, 0u);
       if (strategy == "space")
-        EXPECT_EQ(embedded.triangulation().n_global_active_cells(), 4u);
+        {
+          EXPECT_EQ(embedded.triangulation().n_global_active_cells(), 4u);
+        }
       else if (strategy == "embedded")
-        EXPECT_EQ(space.triangulation().n_global_active_cells(), 64u);
+        {
+          EXPECT_EQ(space.triangulation().n_global_active_cells(), 64u);
+        }
     }
 }
 
@@ -310,7 +314,9 @@ TEST(LocalCoRefinement, BOTH_TransfersBothDomainsAndDefersFullyDistributed)
         if (cell->is_locally_owned())
           for (const auto &face : cell->face_iterators())
             if (face->at_boundary())
-              EXPECT_EQ(face->boundary_id(), 12u);
+              {
+                EXPECT_EQ(face->boundary_id(), 12u);
+              }
       EXPECT_FALSE(space.grid_is_prepared());
       EXPECT_FALSE(embedded.grid_is_prepared());
       EXPECT_TRUE(embedded.uses_fully_distributed_triangulation());
@@ -385,8 +391,10 @@ TEST(LocalCoRefinement, BOTH_PostRefinementIsLocalAndIndependentOfStrategy)
   EXPECT_EQ(embedded.triangulation().n_global_active_cells(), 4u);
   for (const auto &cell : space.triangulation().active_cell_iterators())
     if (cell->is_locally_owned())
-      EXPECT_EQ(cell->level(),
-                cell->center()[1] > .25 && cell->center()[1] < .75 ? 3 : 2);
+      {
+        EXPECT_EQ(cell->level(),
+                  cell->center()[1] > .25 && cell->center()[1] < .75 ? 3 : 2);
+      }
   check_report(
     space, embedded, report, parameters.lower_factor, parameters.upper_factor);
 }
@@ -519,7 +527,9 @@ TEST(LocalCoRefinement, BOTH_DiscontinuousFieldsOnLocallyRefinedMesh)
       for (const auto &cell :
            space.refinement_triangulation().active_cell_iterators())
         if (cell->is_locally_owned())
-          EXPECT_EQ(cell->material_id(), cell->center()[0] < .5 ? 7u : 9u);
+          {
+            EXPECT_EQ(cell->material_id(), cell->center()[0] < .5 ? 7u : 9u);
+          }
       RefinementParameters<1> parameters;
       parameters.refinement_strategy = "both";
       const auto report =
@@ -634,9 +644,13 @@ TEST(LocalCoRefinement, DocumentationExamples)
       EXPECT_GT(report.intersecting_pairs, 0u);
       if (example.name == "both" || example.name == "both-wide" ||
           example.name == "both-post")
-        EXPECT_TRUE(report.satisfied());
+        {
+          EXPECT_TRUE(report.satisfied());
+        }
       if (example.name == "both-capped")
-        EXPECT_FALSE(report.satisfied());
+        {
+          EXPECT_FALSE(report.satisfied());
+        }
       summary << example.name << ',' << example.strategy << ',' << example.lower
               << ',' << example.upper << ',' << example.space_pre << ','
               << example.embedded_pre << ',' << example.space_post << ','
@@ -793,11 +807,15 @@ TEST(LocalCoRefinement, BOTH_ImmersedOwnershipPreservesFields)
                           nullptr);
                 for (const auto &face : cell->face_iterators())
                   if (face->at_boundary())
-                    EXPECT_EQ(face->boundary_id(), 13u);
+                    {
+                      EXPECT_EQ(face->boundary_id(), 13u);
+                    }
               }
         }
   if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 2)
-    EXPECT_GT(default_mismatches, 0u);
+    {
+      EXPECT_GT(default_mismatches, 0u);
+    }
 }
 
 TEST(LocalCoRefinement, RejectsUnsupportedPartitioningBeforePreparation)

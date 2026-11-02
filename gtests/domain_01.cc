@@ -274,13 +274,14 @@ TEST(Domain, BOTH_TransfersExternalFieldsWithoutRereading)
   {
     Domain<2> domain(parameters, triangulation);
     ASSERT_TRUE(domain.has_vtk_fields());
-    const auto a0 = domain.field("a0");
+    const auto a0       = domain.field("a0");
+    const auto a0_field = a0.field();
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       std::filesystem::remove(filename);
     MPI_Barrier(MPI_COMM_WORLD);
     triangulation.refine_global(1);
     EXPECT_EQ(a0.field().dof_handler().n_dofs(), 4u);
-    for (const auto index : a0.field().locally_owned_dofs())
+    for (const auto index : a0_field.locally_owned_dofs())
       EXPECT_DOUBLE_EQ(a0.coefficients()[index], 3.5);
     for (const auto &cell : triangulation.active_cell_iterators())
       if (cell->is_locally_owned())
@@ -288,7 +289,7 @@ TEST(Domain, BOTH_TransfersExternalFieldsWithoutRereading)
     triangulation.execute_coarsening_and_refinement();
     EXPECT_EQ(triangulation.n_global_active_cells(), 1u);
     EXPECT_EQ(a0.field().dof_handler().n_dofs(), 1u);
-    for (const auto index : a0.field().locally_owned_dofs())
+    for (const auto index : a0_field.locally_owned_dofs())
       EXPECT_DOUBLE_EQ(a0.coefficients()[index], 3.5);
   }
   triangulation.refine_global(1);
@@ -333,7 +334,8 @@ TEST(Domain, TransfersImportedFieldsAcrossInitialRefinement)
   ASSERT_EQ(domain.triangulation().n_global_active_cells(), 4u);
   EXPECT_EQ(n_dofs, 4u);
   EXPECT_EQ(&field.coefficients(), coefficients);
-  for (const auto index : field.field().locally_owned_dofs())
+  const auto imported_field = field.field();
+  for (const auto index : imported_field.locally_owned_dofs())
     EXPECT_DOUBLE_EQ(field.coefficients()[index], 3.5);
 }
 
@@ -377,7 +379,8 @@ TEST(Domain, TransfersImportedFieldsAcrossLocalRefinement)
   tria.execute_coarsening_and_refinement();
 
   EXPECT_GT(field.field().dof_handler().n_dofs(), before_n_dofs);
-  for (const auto index : field.field().locally_owned_dofs())
+  const auto imported_field = field.field();
+  for (const auto index : imported_field.locally_owned_dofs())
     EXPECT_DOUBLE_EQ(field.coefficients()[index], 3.5);
 }
 

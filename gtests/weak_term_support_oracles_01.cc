@@ -54,7 +54,9 @@ TEST(WeakTerm, BoundaryMassMatchesMatrixCreator)
         DoFTools::make_hanging_node_constraints(dh, constraints);
         constraints.close();
         if (refined)
-          ASSERT_GT(constraints.n_constraints(), 0u);
+          {
+            ASSERT_GT(constraints.n_constraints(), 0u);
+          }
         const auto &mapping = StaticMappingQ1<2>::mapping;
         const auto  space   = fe_space(dh, mapping, constraints);
         StateLayout layout;
@@ -135,7 +137,9 @@ TEST(WeakTerm, BoundaryMassMatchesMatrixCreator)
                   matrix->vmult(actual, probe);
                   for (unsigned int i = 0; i < dh.n_dofs(); ++i)
                     if (!constraints.is_constrained(i))
-                      EXPECT_NEAR(actual[i], expected[i], 2.e-13);
+                      {
+                        EXPECT_NEAR(actual[i], expected[i], 2.e-13);
+                      }
                 }
             // A nonconstant, non-polynomial nodal vector also checks actions
             // and the transpose, not only the constant-field row sums.
