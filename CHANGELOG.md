@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Classify source cells against a distributed background using quadrature or supplied physical points, assign material ids for outside, partial and inside coverage, and synchronize ghost-cell labels.
+- [PR #327](https://github.com/luca-heltai/immersx/pull/327) Classify source cells against a distributed background using quadrature or supplied physical points, assign material ids for outside, partial and inside coverage, and synchronize ghost-cell labels.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Build flow-oriented vascular meshes directly from immutable physical data, transferring endpoint boundary identifiers only with the numerical cells that need them.
 
