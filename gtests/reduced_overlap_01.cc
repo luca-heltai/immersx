@@ -10,7 +10,11 @@
 
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/coupling/inclusions.h>
 #include <immersx/coupling/reduced_coupling.h>
+
+#include <cmath>
+#include <cstdint>
 
 #include "test_paths.h"
 
@@ -61,6 +65,16 @@ namespace
     ImmersXLA::MPI::Vector rhs(owned, MPI_COMM_WORLD),
       expected_rhs(owned, MPI_COMM_WORLD);
     coupling.assemble_reduced_rhs(rhs);
+    ImmersXLA::MPI::Vector prescribed(owned, MPI_COMM_WORLD),
+      expected_prescribed(owned, MPI_COMM_WORLD);
+    coupling.assemble_prescribed_rhs(prescribed);
+    const auto data = coupling.source_modal_data_values();
+    for (const auto &[entity, values] : data)
+      {
+        (void)entity;
+        for (const auto &coefficients : values)
+          EXPECT_EQ(coefficients, (std::vector<double>{1., 2., -0.5}));
+      }
     std::uint64_t local_inside = 0, local_outside = 0;
     double        local_cross_mode = 0.;
     for (unsigned int q = 0; q < points.size(); ++q)
@@ -104,6 +118,8 @@ namespace
           {
             if (found)
               expected_rhs[indices[i]] += weights[q][0] * basis[i] * imposed;
+            expected_prescribed[indices[i]] +=
+              weights[q][0] * basis[i] * imposed;
             for (unsigned int j = 0; j < indices.size(); ++j)
               {
                 const double entry = weights[q][0] * basis[i] * basis[j];
@@ -116,6 +132,7 @@ namespace
     expected_inside.compress(VectorOperation::add);
     expected_outside.compress(VectorOperation::add);
     expected_rhs.compress(VectorOperation::add);
+    expected_prescribed.compress(VectorOperation::add);
     EXPECT_GT(Utilities::MPI::sum(local_inside, MPI_COMM_WORLD), 0u);
     EXPECT_GT(Utilities::MPI::sum(local_outside, MPI_COMM_WORLD), 0u);
     EXPECT_GT(Utilities::MPI::sum(local_cross_mode, MPI_COMM_WORLD), 1.e-5);
@@ -128,6 +145,8 @@ namespace
     EXPECT_LT(total.frobenius_norm(), 1.e-12);
     rhs -= expected_rhs;
     EXPECT_LT(rhs.l2_norm(), 1.e-12);
+    prescribed -= expected_prescribed;
+    EXPECT_LT(prescribed.l2_norm(), 1.e-12);
   }
 } // namespace
 
@@ -178,4 +197,122 @@ TEST(ReducedCoupling0D, BOTH_ExteriorCentersRetainSourceSamples)
             3u);
   check_sampled_gram(coupling, Point<2>(), Point<2>(1., 1.));
 }
+
+namespace
+{
+  void
+  check_inclusion_overlap(const bool cluster)
+  {
+    ParameterAcceptor::clear();
+    parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+    GridGenerator::hyper_cube(background, 0., 1.);
+    background.refine_global(1);
+    Inclusions<2> inclusions(2);
+    inclusions.set_n_q_points(32);
+    inclusions.set_n_coefficients(3);
+    inclusions.inclusions            = {{-0.1, 0.5, 0.25},
+                                        {2., 2., 0.25},
+                                        {0.35, 0.35, 0.25},
+                                        {0.4, 0.4, 0.25}};
+    inclusions.cluster_with_segments = cluster;
+    inclusions.setup_inclusions_particles(background);
+    IndexSet owned;
+    if (cluster)
+      {
+        EXPECT_EQ(inclusions.n_global_segments(), 3u);
+        const auto partitioning = Utilities::MPI::create_ascending_partitioning(
+          MPI_COMM_WORLD, inclusions.n_local_segments());
+        owned = partitioning[Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)]
+                  .tensor_product(complete_index_set(6));
+      }
+    else
+      owned =
+        Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
+                                                               4)
+          .tensor_product(complete_index_set(6));
+    IndexSet relevant = owned;
+    for (const auto inclusion : inclusions.locally_owned_source_inclusions())
+      {
+        const auto indices = inclusions.get_dof_indices(inclusion * 32);
+        relevant.add_indices(indices.begin(), indices.end());
+      }
+    relevant.compress();
+    DynamicSparsityPattern graph(relevant);
+    for (const auto inclusion : inclusions.locally_owned_source_inclusions())
+      {
+        const auto indices = inclusions.get_dof_indices(inclusion * 32);
+        for (const auto i : indices)
+          for (const auto j : indices)
+            graph.add(i, j);
+      }
+    SparsityTools::distribute_sparsity_pattern(graph,
+                                               owned,
+                                               MPI_COMM_WORLD,
+                                               relevant);
+    ImmersXLA::MPI::SparseMatrix total, overlap, outside, expected_overlap,
+      expected_outside;
+    for (auto *matrix :
+         {&total, &overlap, &outside, &expected_overlap, &expected_outside})
+      matrix->reinit(owned, owned, graph, MPI_COMM_WORLD);
+    inclusions.assemble_coupling_mass_matrix(total);
+    inclusions.assemble_overlap_mass_matrix(overlap);
+    inclusions.assemble_outside_mass_matrix(outside);
+    const auto    source      = inclusions.locally_owned_source_points();
+    std::uint64_t found_count = 0;
+    for (const auto inclusion : inclusions.locally_owned_source_inclusions())
+      {
+        const auto points  = inclusions.get_current_support_points(inclusion);
+        const auto indices = inclusions.get_dof_indices(inclusion * 32);
+        for (unsigned int q = 0; q < 32; ++q)
+          {
+            const auto &point = points[q];
+            const bool found = point[0] >= -1.e-10 && point[0] <= 1. + 1.e-10 &&
+                               point[1] >= -1.e-10 && point[1] <= 1. + 1.e-10;
+            EXPECT_EQ(
+              inclusions.source_point_membership()[source.index_within_set(
+                inclusion * 32 + q)],
+              found);
+            found_count += found;
+            const double              theta = 2. * numbers::PI * q / 32.;
+            const std::vector<double> basis{1.,
+                                            1.,
+                                            std::cos(theta),
+                                            std::cos(theta),
+                                            std::sin(theta),
+                                            std::sin(theta)};
+            const double              weight = 2. * numbers::PI * 0.25 / 32.;
+            auto &expected = found ? expected_overlap : expected_outside;
+            for (unsigned int i = 0; i < 6; ++i)
+              for (unsigned int j = 0; j < 6; ++j)
+                if (i % 2 == j % 2)
+                  expected.add(indices[i],
+                               indices[j],
+                               weight * basis[i] * basis[j]);
+          }
+      }
+    expected_overlap.compress(VectorOperation::add);
+    expected_outside.compress(VectorOperation::add);
+    overlap.add(-1., expected_overlap);
+    outside.add(-1., expected_outside);
+    total.add(-1., expected_overlap);
+    total.add(-1., expected_outside);
+    EXPECT_LT(overlap.frobenius_norm(), 1.e-12);
+    EXPECT_LT(outside.frobenius_norm(), 1.e-12);
+    EXPECT_LT(total.frobenius_norm(), 1.e-12);
+    EXPECT_EQ(Utilities::MPI::sum(found_count, MPI_COMM_WORLD),
+              inclusions.inclusions_as_particles.n_global_particles());
+    EXPECT_EQ(Utilities::MPI::sum(source.n_elements(), MPI_COMM_WORLD), 128u);
+  }
+} // namespace
+
+TEST(InclusionsBasis2, BOTH_OverlapGramRetainsExteriorSourcePoints)
+{
+  check_inclusion_overlap(false);
+}
+
+TEST(InclusionsBasis2, BOTH_ExteriorCenterSegmentsHaveOwners)
+{
+  check_inclusion_overlap(true);
+}
+
 #endif

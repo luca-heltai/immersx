@@ -170,12 +170,16 @@ background_tria.get_mpi_communicator()
                                       mode_values[q].begin(),
                                       mode_values[q].end());
       }
-    Utilities::MPI::RemotePointEvaluation<spacedim> evaluation;
-    evaluation.reinit(qpoints, *background_tria, mapping);
-    located_source_points.resize(qpoints.size());
-    for (unsigned int q = 0; q < qpoints.size(); ++q)
-      located_source_points[q] = evaluation.point_found(q);
-    auto q_index = this->insert_points(qpoints, particle_properties);
+    auto       q_index = this->insert_points(qpoints, particle_properties);
+    const auto destinations =
+      Utilities::MPI::some_to_some(mpi_communicator, q_index);
+    located_source_points.assign(qpoints.size(), false);
+    for (const auto &[rank, indices] : destinations)
+      {
+        (void)rank;
+        for (const auto q : indices)
+          located_source_points[q] = true;
+      }
     // ParticleHandler assigns ids globally by source-rank prefix when ids
     // are omitted. Build the explicit id-to-entity map from that documented
     // assignment before any assembly uses particle ids.

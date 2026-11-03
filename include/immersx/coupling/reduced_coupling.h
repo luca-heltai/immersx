@@ -248,6 +248,15 @@ namespace ImmersX
       return located_source_points;
     }
 
+    /** Prescribed source coefficients, indexed by cell/entity, quadrature
+     * point, and selected mode. These values are not projected onto overlap.
+     */
+    auto
+    source_modal_data_values() const
+    {
+      return modal_data_values();
+    }
+
     /**
      * @brief Assemble the right-hand side vector for the reduced space.
      *
@@ -261,6 +270,11 @@ namespace ImmersX
     template <typename VectorType>
     void
     assemble_reduced_rhs(VectorType &reduced_rhs) const;
+
+    /** Integrate prescribed modal data on the complete nominal support. */
+    template <typename VectorType>
+    void
+    assemble_prescribed_rhs(VectorType &rhs) const;
 
     /**
      * @brief Get the affine constraints associated with the coupling.
@@ -282,6 +296,10 @@ namespace ImmersX
 
     std::map<types::global_cell_index, std::vector<std::vector<double>>>
     modal_data_values() const;
+
+    template <typename VectorType>
+    void
+    assemble_sampled_rhs(VectorType &rhs, const bool restrict_to_overlap) const;
 
     std::vector<bool> located_source_points;
 
@@ -619,7 +637,7 @@ namespace ImmersX
   template <typename VectorType>
   void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-    assemble_reduced_rhs(VectorType &rhs) const
+    assemble_sampled_rhs(VectorType &rhs, const bool restrict_to_overlap) const
   {
     const auto  data  = modal_data_values();
     const auto &modes = this->get_locally_owned_mode_values();
@@ -630,7 +648,7 @@ namespace ImmersX
                                const auto  &indices,
                                const auto  &basis,
                                const double weight) {
-      if (!located_source_points[q])
+      if (restrict_to_overlap && !located_source_points[q])
         return;
       const auto &coefficients = data.at(entity).at(representative_q);
       Tensor<1, n_components> imposed;
@@ -644,6 +662,24 @@ namespace ImmersX
     });
     rhs.compress(VectorOperation::add);
   }
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  template <typename VectorType>
+  void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+    assemble_reduced_rhs(VectorType &rhs) const
+  {
+    assemble_sampled_rhs(rhs, true);
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  template <typename VectorType>
+  void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+    assemble_prescribed_rhs(VectorType &rhs) const
+  {
+    assemble_sampled_rhs(rhs, false);
+  }
+
 #endif
 
 } // namespace ImmersX
