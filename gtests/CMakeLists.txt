@@ -42,6 +42,7 @@ set(_public_headers
     immersx/core/contributor.h
     immersx/core/domain.h
     immersx/grid/local_co_refinement.h
+    immersx/grid/overlap_classification.h
     immersx/grid/local_co_refinement_parameters.h
     immersx/core/fe_space.h
     immersx/core/field.h

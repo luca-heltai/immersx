@@ -118,6 +118,65 @@ The mesh, mapping, constrained DoFs, and master coefficients must remain fixed
 while reusing the matrix. A change to the constraint structure is rejected
 collectively; rebuild the term after such a change.
 
+## Classify cells against a background mesh
+
+`set_overlap_material_ids()` assigns source-cell material ids from quadrature
+points located in a background mesh. The search is collective and supports
+independent source and background partitions. Source owners classify their
+cells; deal.II exchanges the resulting ids with source ghost cells.
+
+```cpp
+#include <immersx/grid/overlap_classification.h>
+
+// line and tissue are already initialized Domains; mappings match their meshes.
+dealii::GridTools::Cache<3> background(tissue.triangulation(), tissue_mapping);
+ImmersX::OverlapMaterialIds ids{10, 20, 30}; // outside, partial, inside
+ImmersX::set_overlap_material_ids(line.triangulation(),
+                                  line_mapping,
+                                  dealii::QGauss<1>(3),
+                                  background,
+                                  ids);
+auto inside_cells = line.support(ids.inside);
+```
+
+A cell is outside if no quadrature point is found, inside if all points are
+found, and partial otherwise. These labels describe the supplied samples;
+they do not certify an exact geometric intersection. The operation overwrites
+existing source material ids. It leaves background material ids unchanged.
+Source and background communicators must be identical or congruent.
+
+To select every cell with at least one located sample through one support,
+use the same id for `partial` and `inside`, for example `{10, 20, 20}`, then
+select `line.support(20)`. The `outside` id must remain distinct. A material
+support selects entire cells: this does not clip quadrature or permit exterior
+points in existing nonmatching assemblers on partially covered cells.
+
+The overload taking a point generator accepts physical wall samples or other
+cell-associated points instead of mapped reference-cell quadrature:
+
+```cpp
+ImmersX::set_overlap_material_ids(
+  line.triangulation(), background,
+  [&](const auto &cell) {
+    return physical_wall_points.at(cell->global_active_cell_index());
+  }, ids);
+```
+
+The generator is called once per locally owned active source cell and must
+return a nonempty vector of finite `dealii::Point<3>` values. Group existing
+lifted-support points by their `source_entity_id`, which is the representative
+cell's `global_active_cell_index()`. Classify the lifted wall when the coupling
+uses that wall; centreline containment alone does not imply wall containment.
+
+All ranks participate, including ranks without source cells. Serial meshes,
+`parallel::distributed` and `parallel::fullydistributed` source meshes are
+supported. Other parallel source types must support deal.II's
+`GridTools::exchange_cell_data_to_ghosts()`; in particular,
+`parallel::shared` requires artificial cells to be enabled. Search tolerance
+is given in background reference-cell coordinates and defaults to `1e-10`.
+Reclassify after changing a mesh, mapping or sampling geometry. Classification
+does not add multiplier constraints or change the coupled equations.
+
 ## Integrate bulk fields on an independent mesh
 
 An immersed domain can supply integration geometry for trial and test fields
