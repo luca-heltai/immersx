@@ -423,6 +423,31 @@ TEST(LiftedIntegrationSupport, BOTH_SourceBulkLiftSamplesPhysicalPoints)
     Utilities::MPI::sum(local_representative_integral, MPI_COMM_WORLD);
   EXPECT_GT(physical_integral, representative_integral + 1.e-6);
   EXPECT_NEAR(coupled_integral, physical_integral, 1.e-10);
+  Model                               supported_model;
+  SemidiscreteBuilder<Vector, Matrix> supported_builder(layout,
+                                                        supported_model);
+  weak_term(value(bulk), test(lifted_line))
+    .on(representative_domain.support(0))
+    .add(supported_builder);
+  const auto supported_matrix =
+    supported_model.state_matrix_operator(line.id(), bulk.id(), context);
+  ASSERT_TRUE(supported_matrix.has_value());
+  supported_matrix->view.vmult(coupled_values, bulk_values);
+  EXPECT_NEAR(line_ones * coupled_values, physical_integral, 1.e-10);
+
+  Triangulation<1, 3> unrelated_mesh;
+  GridGenerator::hyper_cube(unrelated_mesh, -1., 1.);
+  Model                               unrelated_model;
+  SemidiscreteBuilder<Vector, Matrix> unrelated_builder(layout,
+                                                        unrelated_model);
+  weak_term(value(bulk), test(lifted_line))
+    .on(IntegrationSupport<1, 3>(unrelated_mesh))
+    .add(unrelated_builder);
+  const auto unrelated_matrix =
+    unrelated_model.state_matrix_operator(line.id(), bulk.id(), context);
+  ASSERT_TRUE(unrelated_matrix.has_value());
+  EXPECT_THROW(unrelated_matrix->view.vmult(coupled_values, bulk_values),
+               ExceptionBase);
 }
 
 TEST(LiftedIntegrationSupport,

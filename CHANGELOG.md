@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Integrate nonmatching continuity constraints on overlapping quadrature samples and impose a homogeneous multiplier mass equation on all exterior samples, preserving physical material IDs.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Integrate nonmatching multiplier couplings on overlapping quadrature samples and impose a homogeneous multiplier mass equation on all exterior samples, including partially covered cells. Support fixed reference geometry in continuity constraints, lifted and modal interactions, fiber dynamics, legacy point couplings, and MetricFlowX coupling while preserving physical material ids.
 
 - [PR #327](https://github.com/luca-heltai/immersx/pull/327) Classify source cells against a distributed background using quadrature or supplied physical points, assign material ids for outside, partial and inside coverage, and synchronize ghost-cell labels.
 
@@ -244,6 +244,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Retain affine boundary contributions, full sampled modal Gram matrices, and nominal pressure data when coupling support is partial. Account for the exterior multiplier block in Schur and augmented-Lagrangian solves, and honor the configured inner-solver tolerance in the immersed Laplacian solver.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Retain materializable IDA Jacobian contributions per evaluation point and share composed operator callbacks, so iterative global and Schur actions and direct factorization reuse owned matrices without duplicating callback trees or rebuilding contributions during capability checks. Preserve matrix-free actions and fresh residual evaluation.
 

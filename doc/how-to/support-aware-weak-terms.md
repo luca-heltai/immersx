@@ -181,7 +181,9 @@ does not add multiplier constraints or change the coupled equations.
 
 `make_continuity_constraint(bulk, embedded, lambda)` partitions the multiplier
 quadrature against the full-dimensional participant. The multiplier mesh must
-also carry the embedded participant. The partition is fixed when the constraint
+also carry an embedded participant when one is present. Between two bulk
+fields it can have an independent mesh; the overlap then contains only samples
+located in both bulk domains. The partition is fixed when the constraint
 is constructed, before the solve. It preserves both meshes' physical material
 ids.
 
@@ -222,9 +224,10 @@ ImmersX::weak_term(-1. * ImmersX::value(registered_lambda),
 A material filter supplied through `line.support(id)` still selects the source
 cells. The quadrature partition keeps that filter and does not replace material
 ids. Use the full multiplier mesh as the source support when the exterior
-mass must cover every multiplier DoF. Unlike the cell classification alone, these supports select individual
-quadrature samples and retain their original weights. They use the same fixed
-quadrature in both pairings and the exterior mass. Rebuild the supports and the
+mass must cover every multiplier DoF. Unlike the cell classification alone,
+these supports select individual quadrature samples and retain their original
+weights. They use the same fixed quadrature in both pairings and the exterior
+mass. Rebuild the supports and the
 associated operators after changing a mesh, mapping, partition, or sampling
 geometry.
 
@@ -240,9 +243,24 @@ entries. Do not rescale the original orthogonal diagonal by a coverage fraction
 or renormalize the remaining wall weights.
 
 The search and ghost exchange are collective. Empty source ranks participate.
+Use the default search tolerance for the existing particle assembly backends.
+An explicit lifted cell support must use the representative field mesh.
 The partition approximates overlap through the supplied samples; it does not
 clip cells at the geometric intersection. Raw nonmatching weak terms retain
 their existing search behavior when no overlap support is supplied.
+
+Prescribed pressure loads retain their nominal, full-support coefficients and
+restrict only the applied load to the covered samples. A pressure reconstructed
+from multiplier traction uses the same covered wall samples and nominal
+normalization. Tensor-product pressure output retains its centerline mean;
+the interior pressure closure uses the full-support projected datum and the
+existing cell-averaged material coefficients.
+
+Legacy point and modal saddle systems use the same exterior mass block and the
+full sampled Gram matrices. The `Assemble full AL system` option in Reduced
+Poisson assembles a diagonal-Gram approximation for the preconditioner; the
+augmented operator retains the full Gram matrix. The augmented row transform
+also acts on the exterior multiplier block and the constraint right-hand side.
 
 ## Integrate bulk fields on an independent mesh
 

@@ -445,8 +445,9 @@ namespace ImmersX
   /** Equality on located samples, with a homogeneous multiplier equation
    * outside.
    *
-   * The partition is fixed on construction. The multiplier and one participant
-   * share the integration mesh. Physical material ids remain unchanged.
+   * The partition is fixed on construction. A reduced participant shares the
+   * multiplier mesh; two bulk participants can use an independent multiplier
+   * mesh. Physical material ids remain unchanged.
    */
   template <typename LhsField, typename RhsField, typename MultiplierField>
   class OverlapContinuityConstraint
@@ -454,6 +455,12 @@ namespace ImmersX
   public:
     static constexpr int dim      = MultiplierField::dimension();
     static constexpr int spacedim = MultiplierField::spacedimension();
+    static_assert(LhsField::spacedimension() == spacedim &&
+                    RhsField::spacedimension() == spacedim,
+                  "Continuity fields must share an embedding dimension.");
+    static_assert(LhsField::dimension() == spacedim ||
+                    RhsField::dimension() == spacedim,
+                  "An overlap constraint needs a full-dimensional background.");
 
     OverlapContinuityConstraint(const LhsField        &lhs,
                                 const RhsField        &rhs,
@@ -500,10 +507,6 @@ namespace ImmersX
       const bool matches_rhs =
         static_cast<const void *>(&mesh) ==
         static_cast<const void *>(&rhs.dof_handler().get_triangulation());
-      AssertThrow(
-        matches_lhs || matches_rhs,
-        dealii::ExcMessage(
-          "A continuity multiplier must share one participant's mesh."));
       const auto degree =
         std::max({lhs.space().finite_element().degree,
                   rhs.space().finite_element().degree,
@@ -523,7 +526,33 @@ namespace ImmersX
         {
           if (matches_lhs && !matches_rhs)
             return against(rhs);
-          return against(lhs);
+          if (matches_rhs)
+            return against(lhs);
+          // An independent multiplier mesh must sample both participants.
+          const auto first  = against(lhs);
+          const auto second = against(rhs);
+          auto       partition =
+            std::make_shared<detail::OverlapQuadraturePartition>();
+          for (const auto &cell : mesh.active_cell_iterators())
+            if (!cell->is_artificial())
+              {
+                auto &data = (*partition)[cell->global_active_cell_index()];
+                data.inside.resize(quadrature.size());
+                data.overlap_weights.resize(quadrature.size());
+                data.total_weights.assign(quadrature.size(), 1.);
+                for (unsigned int q = 0; q < quadrature.size(); ++q)
+                  {
+                    const bool inside =
+                      first.overlap.point_weight(cell, q) != 0. &&
+                      second.overlap.point_weight(cell, q) != 0.;
+                    data.inside[q] = {static_cast<unsigned char>(inside)};
+                    data.overlap_weights[q] = inside ? 1. : 0.;
+                  }
+              }
+          const IntegrationSupport<dim, spacedim> source(mesh);
+          return {
+            source.with_quadrature_partition(quadrature, partition, false),
+            source.with_quadrature_partition(quadrature, partition, true)};
         }
       else if constexpr (LhsField::dimension() == spacedim)
         {

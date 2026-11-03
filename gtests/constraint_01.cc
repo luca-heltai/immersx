@@ -940,10 +940,13 @@ namespace
 {
   template <typename VectorType, typename MatrixType, typename Mesh>
   void
-  check_background_on_either_side(Mesh &first, Mesh &second)
+  check_background_on_either_side(Mesh &first,
+                                  Mesh &second,
+                                  Mesh *multiplier_mesh = nullptr)
   {
     const FE_Q<2> element(1);
-    DoFHandler<2> first_dofs(first), second_dofs(second), lambda_dofs(first);
+    DoFHandler<2> first_dofs(first), second_dofs(second),
+      lambda_dofs(multiplier_mesh ? *multiplier_mesh : first);
     first_dofs.distribute_dofs(element);
     second_dofs.distribute_dofs(element);
     lambda_dofs.distribute_dofs(element);
@@ -1002,7 +1005,8 @@ namespace
               for (unsigned int q = 0; q < quadrature.size(); ++q)
                 {
                   const auto point  = values.quadrature_point(q);
-                  const bool inside = point[0] >= .5 && point[1] >= .5;
+                  const bool inside = point[0] >= .5 && point[0] <= 1. &&
+                                      point[1] >= .5 && point[1] <= 1.;
                   for (unsigned int i = 0; i < indices.size(); ++i)
                     expected[indices[i]] +=
                       (inside ? (reversed ? 2. : -2.) : -3.) *
@@ -1033,4 +1037,17 @@ TEST(Constraint, SerialContinuityFindsBackgroundOnEitherSide)
   GridGenerator::hyper_cube(second, .5, 1.5);
   check_background_on_either_side<Vector<double>, SparseMatrix<double>>(first,
                                                                         second);
+}
+
+TEST(Constraint, BOTH_IndependentMultiplierSamplesBothBackgrounds)
+{
+  parallel::distributed::Triangulation<2> first(MPI_COMM_WORLD),
+    second(MPI_COMM_WORLD), multiplier(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(first, 0., 1.);
+  GridGenerator::hyper_cube(second, .5, 1.5);
+  GridGenerator::subdivided_hyper_cube(multiplier, 3, -.25, 1.25);
+  check_background_on_either_side<ImmersXLA::MPI::Vector,
+                                  ImmersXLA::MPI::SparseMatrix>(first,
+                                                                second,
+                                                                &multiplier);
 }

@@ -80,6 +80,19 @@ namespace ImmersX
       return 1.;
     }
 
+    template <typename Support, typename Field>
+    void
+    assert_lifted_support_matches(const Support &support, const Field &field)
+    {
+      if constexpr (is_integration_support<Support>::value)
+        support.assert_matches(field.dof_handler().get_triangulation());
+      else
+        AssertThrow(
+          (std::is_same_v<Support, InferredIntegrationSupport>),
+          dealii::ExcMessage(
+            "A lifted weak term requires its representative cell support."));
+    }
+
     template <typename Support, typename Point>
     bool
     support_lifted_point(const Support &support, const Point &point)
@@ -3760,6 +3773,7 @@ namespace ImmersX
       {
         const auto &source       = observable.source();
         const auto  target_field = target.source();
+        assert_lifted_support_matches(support, target_field);
         AssertThrow(
           &source.dof_handler().get_triangulation() ==
             &target_field.dof_handler().get_triangulation(),
@@ -3816,6 +3830,7 @@ namespace ImmersX
         const auto &source        = observable.source();
         const auto &column_source = observable.source_for(field);
         const auto  target_field  = target.source();
+        assert_lifted_support_matches(support, target_field);
         AssertThrow(
           &source.dof_handler().get_triangulation() ==
               &target_field.dof_handler().get_triangulation() &&
@@ -4042,7 +4057,8 @@ namespace ImmersX
                       "A lifted test needs a full-dimensional trial field.");
         const auto &source       = observable.source();
         const auto &target_field = target.source();
-        const auto *source_tria  = &source.dof_handler().get_triangulation();
+        assert_lifted_support_matches(support, target_field);
+        const auto *source_tria = &source.dof_handler().get_triangulation();
 
         const auto         points = target.lifted_points();
         const unsigned int local_target_dofs =
@@ -5287,6 +5303,9 @@ namespace ImmersX
       auto *affine_rhs_output  = include_affine ? &result.affine_rhs : nullptr;
       if constexpr (detail::is_lifted_observable<std::decay_t<Target>>::value)
         {
+          AssertThrow(region.kind == WeakTermRegion::Kind::volume,
+                      dealii::ExcMessage(
+                        "Lifted weak terms use physical sample integrals."));
           using Assembly =
             detail::LiftedTargetWeakAssembly<TrialExpression, Target>;
           const auto storage =

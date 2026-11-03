@@ -16,6 +16,7 @@
 #include <immersx/core/domain.h>
 #include <immersx/core/overlap_integration_support.h>
 #include <immersx/coupling/detail/coupling_point.h>
+#include <immersx/coupling/particle_coupling.h>
 #include <immersx/grid/overlap_classification.h>
 
 #include <algorithm>
@@ -676,4 +677,64 @@ TEST(OverlapClassification, BOTH_RejectIncompleteOrDuplicateQuadraturePartition)
       EXPECT_ANY_THROW(make_overlap_supports(
         IntegrationSupport<1, 3>(source), mapping, quadrature, samples, cache));
     }
+}
+
+TEST(OverlapClassification,
+     BOTH_SampledMaskMatchesParticleOwnershipNearBoundary)
+{
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background);
+  background.refine_global(1);
+  Triangulation<1, 3> coarse;
+  make_line(coarse);
+  parallel::fullydistributed::Triangulation<1, 3> source(MPI_COMM_WORLD);
+  distribute(coarse, source);
+  MappingQ1<1, 3>             mapping;
+  MappingQ1<3>                background_mapping;
+  GridTools::Cache<3>         cache(background, background_mapping);
+  const QGauss<1>             quadrature(1);
+  const std::array<double, 9> coordinates{{-1.e-7,
+                                           -1.e-11,
+                                           -1.e-13,
+                                           0.,
+                                           .5,
+                                           1.,
+                                           1. + 1.e-13,
+                                           1. + 1.e-11,
+                                           1. + 1.e-7}};
+  std::vector<ImmersX::detail::CouplingPoint<3>> samples;
+  std::vector<Point<3>>                          positions;
+  std::vector<types::particle_index>             ids;
+  for (const auto &cell : source.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int section = 0; section < coordinates.size(); ++section)
+        {
+          ImmersX::detail::CouplingPoint<3> sample;
+          sample.point                 = Point<3>(coordinates[section], .5, .5);
+          sample.weight                = 1.;
+          sample.source_entity_id      = cell->global_active_cell_index();
+          sample.representative_qpoint = 0;
+          sample.section_qpoint        = section;
+          sample.stable_id =
+            sample.source_entity_id * coordinates.size() + section;
+          positions.push_back(sample.point);
+          ids.push_back(sample.stable_id);
+          samples.push_back(sample);
+        }
+  const auto supports = make_overlap_supports(
+    IntegrationSupport<1, 3>(source), mapping, quadrature, samples, cache);
+  ParticleCouplingParameters<3> parameters("/Boundary ownership consistency/");
+  ParticleCoupling<3>           particles(parameters);
+  particles.initialize_particle_handler(background, background_mapping, 0);
+  particles.insert_points(positions, {}, ids);
+  std::vector<types::particle_index> local_ids;
+  for (const auto &particle : particles.get_particles())
+    local_ids.push_back(particle.get_id());
+  std::set<types::particle_index> located_ids;
+  for (const auto &rank_ids :
+       Utilities::MPI::all_gather(MPI_COMM_WORLD, local_ids))
+    located_ids.insert(rank_ids.begin(), rank_ids.end());
+  for (const auto &sample : samples)
+    EXPECT_EQ(supports.overlap.includes_lifted_point(sample),
+              located_ids.count(sample.stable_id) != 0);
 }
