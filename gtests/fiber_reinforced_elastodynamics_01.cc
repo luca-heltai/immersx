@@ -827,3 +827,56 @@ TEST(FiberReinforcedElastodynamicsValidation, ThreeDimensionalMultiplierSetup)
   EXPECT_EQ(driver.multiplier().size(), 9u);
   EXPECT_EQ(driver.time_step_number(), 0u);
 }
+
+
+namespace
+{
+  void
+  check_exterior_fiber(const bool partial)
+  {
+    ParameterAcceptor::clear();
+    FiberReinforcedElastodynamicsParameters<2> parameters;
+    configure_problem(parameters, true);
+    ParameterAcceptor::prm.parse_input_from_string(R"(
+      subsection Fiber Reinforced Elastodynamics
+        subsection Fiber Elastodynamics
+          subsection Functions
+            subsection Body force
+              set Function expression = 1; 0
+            end
+          end
+        end
+      end
+    )");
+    ParameterAcceptor::parse_all_parameters();
+    parameters.fiber_parameters.domain_parameters.arguments_for_grid =
+      partial ? "-1.5:0.5:false" : "2:3:false";
+    FiberReinforcedElastodynamics<2> driver(parameters);
+    driver.setup();
+    driver.set_initial_conditions();
+    driver.advance_one_timestep();
+    EXPECT_GT(driver.matrix_problem().velocity().l2_norm(), 1.e-6);
+    EXPECT_GT(driver.fiber_problem().velocity().l2_norm(), 1.e-6);
+    EXPECT_LT(driver.residuals().matrix_velocity, 1.e-8);
+    EXPECT_LT(driver.residuals().fiber_velocity, 1.e-8);
+    EXPECT_LT(driver.residuals().velocity_constraint, 1.e-8);
+    if (partial)
+      {
+        EXPECT_GT(driver.multiplier().l2_norm(), 1.e-8);
+      }
+    else
+      {
+        EXPECT_LT(driver.multiplier().l2_norm(), 1.e-10);
+      }
+  }
+} // namespace
+
+TEST(FiberReinforcedElastodynamicsValidation, BOTH_ExteriorFiberBackwardEuler)
+{
+  check_exterior_fiber(false);
+}
+
+TEST(FiberReinforcedElastodynamicsValidation, BOTH_PartialFiberBackwardEuler)
+{
+  check_exterior_fiber(true);
+}

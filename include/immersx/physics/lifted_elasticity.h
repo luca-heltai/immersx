@@ -16,6 +16,7 @@
 #include <immersx/core/field_contributor.h>
 #include <immersx/core/input_field_selector.h>
 #include <immersx/core/linear_adapter.h>
+#include <immersx/core/overlap_integration_support.h>
 #include <immersx/core/symbolic_field_evaluator.h>
 #include <immersx/coupling/lifted_modal_load.h>
 #include <immersx/grid/local_co_refinement.h>
@@ -401,8 +402,6 @@ namespace ImmersX
           using Lifted =
             decltype(lift(value(multiplier_view_->field("multiplier")),
                           parameters_.geometry));
-          using Weak = decltype(weak_term(value(*displacement_),
-                                          test(std::declval<Lifted>())));
           std::map<std::pair<CellId, unsigned int>, std::vector<double>>
                      data_cache;
           const auto data_at = [&](const typename Lifted::Point &point,
@@ -450,10 +449,7 @@ namespace ImmersX
               }
             return found->second.at(component);
           };
-          ConstraintSum<Weak>                           terms;
-          std::vector<Lifted>                           lifts;
-          std::shared_ptr<ImmersXLA::MPI::SparseMatrix> metric;
-          std::shared_ptr<Vector>                       rhs;
+          std::vector<Lifted> lifts;
           for (unsigned int slot = 0; slot < n_modes; ++slot)
             {
               const auto field =
@@ -468,31 +464,44 @@ namespace ImmersX
                             frozen(radius.field(), imported_values))
                   .mode(slot);
               };
-              auto lifted = make_lift();
-              const auto [mass, load] =
-                lifted_modal_load(lifted, data_at, slot);
-              if (!metric)
-                {
-                  metric = mass;
-                  rhs    = load;
-                }
-              else
-                {
-                  metric->add(1., *mass);
-                  *rhs += *load;
-                }
-              terms.add(weak_term(value(*displacement_), test(lifted)));
-              lifts.push_back(std::move(lifted));
+              lifts.push_back(make_lift());
             }
+          dealii::GridTools::Cache<3> background(
+            displacement_->dof_handler().get_triangulation(),
+            displacement_->mapping());
+          const auto supports =
+            make_overlap_supports(IntegrationSupport<1, 3>(
+                                    immersed_.triangulation()),
+                                  multiplier_view_->mapping(),
+                                  lifts.front().representative_quadrature(),
+                                  lifts.front().lifted_points(),
+                                  background);
+          // A prescribed pressure keeps its nominal modal amplitude. Only
+          // its force on the background is restricted to the overlap.
+          const auto load_support =
+            parameters_.coupling == "pressure" ?
+              IntegrationSupport<1, 3>(immersed_.triangulation()) :
+              supports.overlap;
+          const auto [metric, outside, rhs] =
+            lifted_modal_load(lifts, data_at, load_support);
+          using Weak = decltype(weak_term(value(*displacement_),
+                                          test(std::declval<Lifted>()))
+                                  .on(supports.overlap));
+          ConstraintSum<Weak> terms;
+          for (const auto &lifted : lifts)
+            terms.add(weak_term(value(*displacement_), test(lifted))
+                        .on(supports.overlap));
           FieldId multiplier_id;
           if (parameters_.coupling == "multiplier")
             {
-              multiplier_id =
-                adapter_
-                  ->add(lifted_modal_constraint(std::move(terms), metric, *rhs),
-                        "immersed modal constraint")
-                  .fields()
-                  .multiplier.id();
+              multiplier_id = adapter_
+                                ->add(lifted_modal_constraint(std::move(terms),
+                                                              metric,
+                                                              *rhs,
+                                                              outside),
+                                      "immersed modal constraint")
+                                .fields()
+                                .multiplier.id();
             }
           else if (parameters_.coupling == "pressure")
             {
@@ -510,7 +519,8 @@ namespace ImmersX
                 });
               for (const auto &lifted : lifts)
                 adapter_->add(weak_term(lifted.with_id(multiplier_id),
-                                        test(*displacement_).scaled(-1.)),
+                                        test(*displacement_).scaled(-1.))
+                                .on(supports.overlap),
                               "pressure load");
             }
           for (unsigned int slot = 0; slot < n_modes; ++slot)

@@ -224,6 +224,7 @@ namespace ImmersX
     std::shared_ptr<MatrixType>              matrix_to_multiplier_storage;
     std::shared_ptr<MatrixType>              fiber_to_multiplier_storage;
     std::shared_ptr<MatrixType>              matrix_coupling_storage;
+    std::shared_ptr<MatrixType>              outside_mass_storage;
     std::unique_ptr<SchurSolver>             schur_solver;
 
 

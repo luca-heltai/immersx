@@ -358,3 +358,93 @@ TEST(FiberReinforcedElasticityFreq, BOTH_SharedDynamicMassAndPhasedForcing)
   check_shared_dynamic_response<2, 3>();
   check_shared_dynamic_response<3, 3>();
 }
+
+namespace
+{
+  void
+  check_harmonic_overlap(const bool partial)
+  {
+    ParameterAcceptor::clear();
+    FiberReinforcedElasticityFreqParameters<1, 3> parameters;
+    parameters.output_directory = TestPaths::output_directory(
+      partial ? "harmonic-fiber-partial" : "harmonic-fiber-exterior");
+    parameters.geometry->thickness          = "0.5";
+    parameters.geometry->section.n_q_points = 2;
+    auto &matrix                            = parameters.matrix_parameters;
+    auto &fiber                             = parameters.fiber_parameters;
+    matrix.initial_refinement               = 0;
+    fiber.initial_refinement                = 1;
+    matrix.dirichlet_ids.clear();
+    fiber.dirichlet_ids.clear();
+    if (partial)
+      {
+        matrix.name_of_grid       = "subdivided_hyper_rectangle";
+        matrix.arguments_for_grid = "1, 1, 1: -1, 0, -1: 1, 1, 1: false";
+      }
+    fiber.arguments_for_grid = partial ? "-0.75:0.75:false" : "2:3:false";
+    matrix.default_material_properties.rho            = 2.;
+    matrix.default_material_properties.rayleigh_alpha = .4;
+    fiber.default_material_properties.rho             = 3.;
+    fiber.default_material_properties.rayleigh_alpha  = .7;
+    initialize_parameters_from_string(R"(
+subsection Fiber Reinforced Elasticity Frequency
+ subsection Matrix
+  subsection Functions
+   subsection Right hand side
+    set Function expression = 1; 2; 3
+   end
+  end
+ end
+ subsection Fiber
+  subsection Functions
+   subsection Right hand side
+    set Function expression = 2; 4; 6
+   end
+  end
+ end
+end
+)");
+    FiberReinforcedElasticityFreq<1, 3> driver(parameters);
+    driver.setup();
+    const double frequency = .25;
+    driver.solve_frequency(frequency);
+    EXPECT_LT(driver.residual_norm(), 1.e-8);
+    EXPECT_LT(driver.continuity_norm(), 1.e-8);
+    const double multiplier =
+      std::hypot(driver.real_multiplier().l2_norm(),
+                 driver.imaginary_multiplier().l2_norm());
+    if (partial)
+      {
+        EXPECT_GT(multiplier, 1.e-5);
+        EXPECT_GT(driver.matrix_problem().real_displacement().l2_norm(), 1.e-5);
+        EXPECT_GT(driver.fiber_problem().real_displacement().l2_norm(), 1.e-5);
+      }
+    else
+      {
+        EXPECT_LT(multiplier, 1.e-10);
+        const double omega = 2. * std::acos(-1.) * frequency;
+        const auto   matrix_amplitude =
+          1. / std::complex<double>(-2. * omega * omega, .8 * omega);
+        const auto fiber_amplitude =
+          2. / std::complex<double>(-3. * omega * omega, 2.1 * omega);
+        check_coefficients(driver.matrix_problem(),
+                           [matrix_amplitude](const auto &, unsigned int c) {
+                             return (c + 1.) * matrix_amplitude;
+                           });
+        check_coefficients(driver.fiber_problem(),
+                           [fiber_amplitude](const auto &, unsigned int c) {
+                             return (c + 1.) * fiber_amplitude;
+                           });
+      }
+  }
+} // namespace
+
+TEST(FiberReinforcedElasticityFreq, BOTH_PartialLiftUsesExteriorMass)
+{
+  check_harmonic_overlap(true);
+}
+
+TEST(FiberReinforcedElasticityFreq, BOTH_ExteriorLiftPreservesUncoupledDynamics)
+{
+  check_harmonic_overlap(false);
+}

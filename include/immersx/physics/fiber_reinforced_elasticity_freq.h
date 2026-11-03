@@ -268,8 +268,7 @@ namespace ImmersX
                       matrix_field,
                       fiber_field,
                       multiplier,
-                      *parameters.geometry,
-                      section_measure);
+                      *parameters.geometry);
                   },
                   name)
                 .fields();

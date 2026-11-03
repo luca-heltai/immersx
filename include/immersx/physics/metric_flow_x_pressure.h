@@ -13,6 +13,16 @@
 #include <immersx/config.h>
 
 #ifdef IMMERSX_WITH_METRIC_FLOW_X
+#  include <deal.II/dofs/dof_tools.h>
+
+#  include <deal.II/fe/fe_values.h>
+
+#  include <deal.II/lac/dynamic_sparsity_pattern.h>
+#  include <deal.II/lac/full_matrix.h>
+#  include <deal.II/lac/sparsity_tools.h>
+
+#  include <immersx/compatibility/reference_cell.h>
+#  include <immersx/core/integration_support.h>
 #  include <immersx/core/matrix_operator.h>
 #  include <immersx/core/observable.h>
 #  include <immersx/physics/metric_flow_x.h>
@@ -42,21 +52,116 @@ namespace ImmersX
     {};
   } // namespace detail
 
+  /** Project the covered wall reaction onto the native discontinuous basis.
+   * The full nominal section is the denominator. A fully exterior section
+   * contributes zero pressure, and full coverage gives the identity map.
+   */
+  template <typename Field>
+  auto
+  make_metric_flow_x_pressure_projection(
+    const Field                    &field,
+    const IntegrationSupport<1, 3> &overlap)
+  {
+    using Matrix    = MetricFlowX::MatrixType;
+    auto projection = std::make_shared<Matrix>();
+    auto metric     = std::make_shared<Matrix>();
+    overlap.assert_matches(field.dof_handler().get_triangulation());
+    const bool valid = field.finite_element().n_components() == 1 &&
+                       field.finite_element().n_dofs_per_vertex() == 0 &&
+                       field.constraints().n_constraints() == 0 &&
+                       !field.is_reindexed() && !overlap.has_material_filter();
+    AssertThrow(
+      dealii::Utilities::MPI::min(static_cast<unsigned int>(valid),
+                                  field.space().mpi_communicator()) != 0,
+      dealii::ExcMessage(
+        "Native wall-pressure projection requires the full unconstrained discontinuous scalar field."));
+    const auto fallback = compatibility::gauss_quadrature<1>(
+      field.finite_element().reference_cell(),
+      field.finite_element().degree + 1);
+    const auto                    &quadrature = overlap.quadrature(fallback);
+    dealii::DynamicSparsityPattern sparsity(field.locally_relevant_dofs());
+    dealii::DoFTools::make_sparsity_pattern(field.dof_handler(),
+                                            sparsity,
+                                            field.constraints(),
+                                            true);
+    dealii::SparsityTools::distribute_sparsity_pattern(
+      sparsity,
+      field.locally_owned_dofs(),
+      field.space().mpi_communicator(),
+      field.locally_relevant_dofs());
+    projection->reinit(field.locally_owned_dofs(),
+                       field.locally_owned_dofs(),
+                       sparsity,
+                       field.space().mpi_communicator(),
+                       false);
+    metric->reinit(field.locally_owned_dofs(),
+                   field.locally_owned_dofs(),
+                   sparsity,
+                   field.space().mpi_communicator(),
+                   false);
+    dealii::FEValues<1, 3> values(field.mapping(),
+                                  field.finite_element(),
+                                  quadrature,
+                                  dealii::update_values |
+                                    dealii::update_JxW_values);
+    const auto             n = field.finite_element().n_dofs_per_cell();
+    std::vector<dealii::types::global_dof_index> indices(n);
+    for (const auto &cell : field.dof_handler().active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          values.reinit(cell);
+          cell->get_dof_indices(indices);
+          dealii::FullMatrix<double> total(n, n), covered(n, n), local(n, n);
+          for (const auto q : values.quadrature_point_indices())
+            for (unsigned int i = 0; i < n; ++i)
+              for (unsigned int j = 0; j < n; ++j)
+                {
+                  const double product = values.shape_value(i, q) *
+                                         values.shape_value(j, q) *
+                                         values.JxW(q);
+                  total(i, j) += product * overlap.full_point_weight(cell, q);
+                  covered(i, j) += product * overlap.point_weight(cell, q);
+                }
+          field.constraints().distribute_local_to_global(total,
+                                                         indices,
+                                                         *metric);
+          total.gauss_jordan();
+          total.mmult(local, covered);
+          field.constraints().distribute_local_to_global(local,
+                                                         indices,
+                                                         *projection);
+        }
+    metric->compress(dealii::VectorOperation::add);
+    projection->compress(dealii::VectorOperation::add);
+    return std::make_pair(projection, metric);
+  }
+
   /** Evaluate a scalar value observable at native pressure evaluation points.
    * CellId selects the DG trace at faces and junctions. Referenced spaces must
    * outlive the provider; coefficients are copied into a relevant vector.
    */
   template <typename Pressure>
   auto
-  metric_flow_x_pressure_provider(const Pressure                &pressure,
-                                  const MetricFlowX::VectorType &coefficients)
+  metric_flow_x_pressure_provider(
+    const Pressure                                &pressure,
+    const MetricFlowX::VectorType                 &coefficients,
+    std::shared_ptr<const MetricFlowX::MatrixType> projection = {})
   {
     const auto field   = pressure.source();
     auto       ghosted = std::make_shared<MetricFlowX::VectorType>();
     ghosted->reinit(field.locally_owned_dofs(),
                     field.locally_relevant_dofs(),
                     field.space().mpi_communicator());
-    *ghosted = coefficients;
+    if (projection)
+      {
+        MetricFlowX::VectorType projected;
+        projected.reinit(field.locally_owned_dofs(),
+                         field.space().mpi_communicator());
+        projection->vmult(projected, coefficients);
+        *ghosted = projected;
+      }
+    else
+      *ghosted = coefficients;
     ghosted->update_ghost_values();
     using Cell = dealii::DoFHandler<1, 3>::active_cell_iterator;
     auto cells = std::make_shared<std::map<dealii::CellId, Cell>>();
@@ -94,11 +199,12 @@ namespace ImmersX
   template <typename Flow, typename Pressure>
   MaterializedOperator<MetricFlowX::VectorType, MetricFlowX::MatrixType>
   metric_flow_x_pressure_state_operator(
-    Flow                          &problem,
-    const Pressure                &pressure,
-    const MetricFlowX::VectorType &pressure_coefficients,
-    const MetricFlowX::VectorType &flow_state,
-    const double                   time)
+    Flow                                          &problem,
+    const Pressure                                &pressure,
+    const MetricFlowX::VectorType                 &pressure_coefficients,
+    const MetricFlowX::VectorType                 &flow_state,
+    const double                                   time,
+    std::shared_ptr<const MetricFlowX::MatrixType> projection = {})
   {
     using Vector      = MetricFlowX::VectorType;
     using Matrix      = MetricFlowX::MatrixType;
@@ -108,7 +214,9 @@ namespace ImmersX
       problem.add_external_pressure_state_jacobian(
         time,
         flow_state,
-        metric_flow_x_pressure_provider(pressure, pressure_coefficients),
+        metric_flow_x_pressure_provider(pressure,
+                                        pressure_coefficients,
+                                        projection),
         *matrix);
     else
       AssertThrow(
@@ -147,10 +255,12 @@ namespace ImmersX
    */
   template <typename Pressure>
   MaterializedOperator<MetricFlowX::VectorType, MetricFlowX::MatrixType>
-  metric_flow_x_pressure_operator(MetricFlowX::BloodFlowSystem<1, 3> &problem,
-                                  const Pressure                     &pressure,
-                                  const MetricFlowX::VectorType &flow_state,
-                                  const double                   time)
+  metric_flow_x_pressure_operator(
+    MetricFlowX::BloodFlowSystem<1, 3>            &problem,
+    const Pressure                                &pressure,
+    const MetricFlowX::VectorType                 &flow_state,
+    const double                                   time,
+    std::shared_ptr<const MetricFlowX::MatrixType> projection = {})
   {
     using Vector            = MetricFlowX::VectorType;
     using Matrix            = MetricFlowX::MatrixType;
@@ -167,12 +277,16 @@ namespace ImmersX
                                                                const bool) {
       dst.reinit(columns, communicator);
     };
-    result.view.vmult = [&problem, pressure, state, time](Vector       &dst,
-                                                          const Vector &src) {
-      dst = 0.;
-      problem.add_external_pressure_residual(
-        time, *state, metric_flow_x_pressure_provider(pressure, src), dst);
-    };
+    result.view.vmult =
+      [&problem, pressure, state, time, projection](Vector       &dst,
+                                                    const Vector &src) {
+        dst = 0.;
+        problem.add_external_pressure_residual(
+          time,
+          *state,
+          metric_flow_x_pressure_provider(pressure, src, projection),
+          dst);
+      };
     const auto action  = result.view;
     auto       cached  = std::make_shared<std::shared_ptr<Matrix>>();
     result.materialize = [action, cached, rows, columns, communicator]() {
