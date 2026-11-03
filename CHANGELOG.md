@@ -401,10 +401,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Avoid implicit floating-point-to-index conversions in vessel-profile interpolation and its regression oracle, preserving endpoint clamping and interpolation values in Debug and Release. Apply the existing SDK preprocessor-warning policy to optional 1D client compilation probes as well. Fix a null-pointer return and remove an unused counter in the legacy 1D clients for Clang compatibility. Add explicit scopes around conditional GoogleTest macros to avoid dangling-else warnings in vascular and MetricFlowX regressions.
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Avoid implicit floating-point-to-index conversions in vessel-profile interpolation and its regression oracle, preserving endpoint clamping and interpolation values in Debug and Release. Apply the existing SDK preprocessor-warning policy to optional 1D client compilation probes as well. Fix a null-pointer return and remove an unused counter in the legacy 1D clients for Clang compatibility. Add explicit scopes around conditional GoogleTest macros to avoid dangling-else warnings in vascular and MetricFlowX regressions.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Link coupled applications with dimension-typed deal.II reference cells.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Link shared libraries on macOS when the optional vascular MPI profiler is absent.
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Link coupled applications with dimension-typed deal.II reference cells.
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Link shared libraries on macOS when the optional vascular MPI profiler is absent.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Include the Boost segment equality definition explicitly so persistent 3D vascular indices build with deal.II 9.7 headers.
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Include Boost point and box equality for incremental tissue-territory indices when building with deal.II 9.7 headers.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Fix compilation of venous network generation with deal.II 9.7.1 and its Boost.Geometry headers.
@@ -422,7 +422,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow four-rank MPI regressions to launch on hosted runners with two CPU slots, supporting Open MPI 4 and 5 within the Debug and Release CTest steps.
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Allow four-rank MPI regressions to launch on hosted runners with two CPU slots, supporting Open MPI 4 and 5 within the Debug and Release CTest steps.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Keep complete vascular figure campaigns as manual publication runs, use a two-terminal coupled fixture with free solid displacement DoFs, enforce a 115-second watchdog and vascular CLI limit, remove the Debug-only coupled timeout extension, and retain the independent full-forest oracle only in test support.
 
