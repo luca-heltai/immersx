@@ -20,6 +20,8 @@
 #include <immersx/core/reduced_field_values.h>
 #include <immersx/physics/coupled_elasticity.h>
 
+#include <cstddef>
+
 namespace ImmersX
 {
   template <int dim, int spacedim>
@@ -858,9 +860,9 @@ namespace ImmersX
                   {
                     const double X =
                       static_cast<double>(cell) * (N1 - 1) / (N2 - 1);
-                    const unsigned int j =
-                      std::min<unsigned int>(std::floor(X), N1 - 2);
-                    const double w = X - j;
+                    const auto j =
+                      std::min(static_cast<std::size_t>(std::floor(X)), N1 - 2);
+                    const double w = X - static_cast<double>(j);
                     new_vector[cell] =
                       (1 - w) * pressure_by_inclusion[current_inclusions[j]] +
                       w * pressure_by_inclusion[current_inclusions[j + 1]];

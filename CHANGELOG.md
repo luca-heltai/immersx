@@ -401,6 +401,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Avoid implicit floating-point-to-index conversions in vessel-profile interpolation and its regression oracle, preserving endpoint clamping and interpolation values in Debug and Release.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Link coupled applications with dimension-typed deal.II reference cells.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Link shared libraries on macOS when the optional vascular MPI profiler is absent.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Include the Boost segment equality definition explicitly so persistent 3D vascular indices build with deal.II 9.7 headers.

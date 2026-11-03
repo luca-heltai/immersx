@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <immersx/physics/coupled_elasticity.h>
 
+#include <cstddef>
+
 using namespace ImmersX;
 #include <immersx/io/utils.h>
 #include <immersx/physics/elasticity_problem_parameters.h>
@@ -291,10 +293,10 @@ namespace
   {
     if (samples.size() == 1)
       return samples[0];
-    const double       x = k * (samples.size() - 1.) / (n - 1.);
-    const unsigned int j =
-      std::min<unsigned int>(std::floor(x), samples.size() - 2);
-    const double w = x - j;
+    const double x = k * (samples.size() - 1.) / (n - 1.);
+    const auto   j =
+      std::min(static_cast<std::size_t>(std::floor(x)), samples.size() - 2);
+    const double w = x - static_cast<double>(j);
     return (1 - w) * samples[j] + w * samples[j + 1];
   }
 
