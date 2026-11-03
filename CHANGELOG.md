@@ -422,6 +422,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Retain the accepted growth snapshot while traversing its obstacle index in the vascular regression, avoiding GCC 13 lifetime diagnostics.
+
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Read the retained finite-element space directly in the lifted elasticity modal-metric regression, avoiding a temporary Field and GCC 13 lifetime diagnostics while preserving its independent quadrature check.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Allow four-rank MPI regressions to launch on hosted runners with two CPU slots, supporting Open MPI 4 and 5 within the Debug and Release CTest steps.

@@ -3661,9 +3661,10 @@ TEST(VascularForest, BOTH_ExecutionReusesAncestorCapsAndAdvancesShrinkEvents)
                               Point<3>(.04, .05, .08),
                               Point<3>(.08, -.02, -.05)};
   const auto     width     = [&]() {
-    double       result = 0.;
-    unsigned int count  = 0;
-    for (const auto &[box, id] : execution.accepted_snapshot().obstacles())
+    double       result   = 0.;
+    unsigned int count    = 0;
+    const auto   snapshot = execution.accepted_snapshot();
+    for (const auto &[box, id] : snapshot.obstacles())
       if (id == base + 13)
         {
           result = box.get_boundary_points().second[2] -
