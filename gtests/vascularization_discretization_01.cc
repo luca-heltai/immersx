@@ -22,6 +22,7 @@
 #include <cmath>
 #include <limits>
 #include <set>
+#include <utility>
 
 #include "../source/vascularization/background_intersections.h"
 
@@ -235,6 +236,76 @@ TEST(VascularDiscretization, WarpedBilinearBoundaryClipsAtAnalyticalCrossing)
   ASSERT_TRUE(twice.validation.valid());
   EXPECT_NEAR(twice.inside_volume / (numbers::PI * .01 * .01), 1., 1.e-12);
   EXPECT_GE(twice.exterior_cells, 2u);
+}
+
+TEST(VascularDiscretization, BOTH_SphericalAxisProfilesStayInside)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_ball(background, Point<3>(), 1.);
+  background.refine_global(1);
+  MappingQ1<3> mapping;
+  const auto   scale = mesh_length_scale(background, "local mesh size", comm);
+  for (unsigned int axis = 0; axis < 3; ++axis)
+    for (bool reverse : {false, true})
+      {
+        // This seed lies on internal faces where inverse mapping can return
+        // reference coordinates about 4e-12 outside the unit cell.
+        Point<3> a, b;
+        a[axis] = -.7;
+        b[axis] = -.26058871789368545;
+        if (reverse)
+          std::swap(a, b);
+        NetworkData network;
+        if (rank == 0)
+          network = line(a, b);
+        const auto measures =
+          measure_scaled_vessels(background, mapping, network, scale, comm);
+        if (rank == 0)
+          {
+            EXPECT_EQ(measures.size(), 1u);
+            if (measures.count(100))
+              {
+                const auto &measure = measures.at(100);
+                EXPECT_TRUE(measure.complete);
+                EXPECT_NEAR(measure.inside_length, a.distance(b), 1.e-13);
+                EXPECT_DOUBLE_EQ(measure.exterior_length, 0.);
+                EXPECT_GT(measure.normalized_length, 0.);
+              }
+          }
+        const auto result = discretize(background, mapping, network, {}, comm);
+        EXPECT_TRUE(result.validation.valid());
+        EXPECT_EQ(result.exterior_cells, 0u);
+        const double expected = numbers::PI * a.distance(b) *
+                                (.01 * .01 + .01 * .02 + .02 * .02) / 3.;
+        EXPECT_NEAR(result.inside_volume / expected, 1., 1.e-12);
+      }
+}
+
+TEST(VascularDiscretization, WarpedBoundaryKeepsExteriorSegmentsOutside)
+{
+  Triangulation<3> background;
+  GridGenerator::hyper_cube(background);
+  background.begin_active()->vertex(7)[2] = 1.4;
+  // At y=0.5 the upper face is z=1+0.2*x. The complete segment is
+  // outside by more than the boundary tolerance, within the inverse tolerance.
+  const auto network =
+    line(Point<3>(.4, .5, 1.08 + 5.e-12), Point<3>(.6, .5, 1.12 + 5.e-12));
+  const auto   comm = MPI_COMM_WORLD;
+  MappingQ1<3> mapping;
+  const auto   scale = mesh_length_scale(background, "local mesh size", comm);
+  const auto   measures =
+    measure_scaled_vessels(background, mapping, network, scale, comm);
+  ASSERT_EQ(measures.size(), 1u);
+  const auto &measure = measures.at(100);
+  EXPECT_FALSE(measure.complete);
+  EXPECT_DOUBLE_EQ(measure.inside_length, 0.);
+  EXPECT_NEAR(measure.exterior_length, length(network, 100), 1.e-13);
+  const auto result = discretize(background, mapping, network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_DOUBLE_EQ(result.inside_volume, 0.);
+  EXPECT_GT(result.exterior_cells, 0u);
 }
 
 TEST(VascularDiscretization, NonconvexDomainHasDisjointInteriorIntervals)

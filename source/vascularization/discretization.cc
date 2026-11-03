@@ -246,8 +246,9 @@ namespace ImmersX::Vascularization
                 {
                   const auto unit =
                     mapping.transform_real_to_unit_cell(cell, p);
-                  if (cell->reference_cell().contains_point(
-                        unit, reference_tolerance) &&
+                  if (internal::reference_contains(cell,
+                                                   unit,
+                                                   reference_tolerance) &&
                       (!found || cell->diameter() < (*found)->diameter() ||
                        (cell->diameter() == (*found)->diameter() &&
                         cell->id() < (*found)->id())))
