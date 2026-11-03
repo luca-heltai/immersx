@@ -201,6 +201,8 @@ namespace ImmersX
     else
       tensor_product_coupling->assemble_reduced_rhs(force_rhs.block(1));
     system_rhs.block(1) = force_rhs.block(1);
+    // Finish the copy on every rank before adding affine constraint loads.
+    system_rhs.block(1).compress(VectorOperation::insert);
     if (par.pressure_coupling || par.time_mode != TimeMode::Static)
       tensor_product_coupling->assemble_coupling_matrix(coupling_matrix,
                                                         dh,

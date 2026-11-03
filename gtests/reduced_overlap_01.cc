@@ -1,12 +1,17 @@
+#include <deal.II/base/function_lib.h>
 #include <deal.II/base/mpi.h>
 
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_q.h>
+
 #include <deal.II/grid/grid_generator.h>
 
 #include <deal.II/lac/sparsity_tools.h>
+
+#include <deal.II/numerics/vector_tools.h>
 
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
@@ -359,6 +364,101 @@ TEST(InclusionsBasis2, BOTH_OverlapGramRetainsExteriorSourcePoints)
 TEST(InclusionsBasis2, BOTH_ExteriorCenterSegmentsHaveOwners)
 {
   check_inclusion_overlap(true);
+}
+
+namespace
+{
+  void
+  check_affine_append_with_empty_ranks(const bool insert_input)
+  {
+    ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+    ParameterAcceptor::clear();
+    const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+    GridGenerator::subdivided_hyper_rectangle(background,
+                                              std::vector<unsigned int>{2, 1},
+                                              Point<2>(),
+                                              Point<2>(1., 1.));
+    Point<2> center;
+    if (rank == 1)
+      for (const auto &cell : background.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            center = cell->center();
+            break;
+          }
+    center = Utilities::MPI::broadcast(MPI_COMM_WORLD, center, 1);
+    ReducedCouplingParameters<0, 2, 2, 1> parameters;
+    auto &space                    = parameters.tensor_product_space_parameters;
+    space.thickness                = "0.05";
+    space.section.inclusion_degree = 1;
+    space.section.selected_coefficients                   = {0, 1, 2};
+    space.point_cloud.points                              = {center};
+    parameters.coupling_rhs_expressions                   = {"0", "0", "0"};
+    parameters.refinement_parameters.max_refinement_level = 0;
+    ReducedCoupling<0, 2, 2, 1> coupling(background, parameters);
+    coupling.initialize();
+    const auto owned_lambda = coupling.locally_owned_representative_dofs();
+    EXPECT_EQ(owned_lambda.n_elements(), rank == 0 ? 3u : 0u);
+    EXPECT_EQ(coupling.get_particles().n_locally_owned_particles() == 0,
+              rank == 0);
+    FE_Q<2>       fe(1);
+    DoFHandler<2> dh(background);
+    dh.distribute_dofs(fe);
+    AffineConstraints<double> constraints(
+      dh.locally_owned_dofs(), DoFTools::extract_locally_relevant_dofs(dh));
+    VectorTools::interpolate_boundary_values(dh,
+                                             0,
+                                             Functions::ConstantFunction<2>(1.),
+                                             constraints);
+    constraints.close();
+    DynamicSparsityPattern graph(dh.n_dofs(),
+                                 coupling.n_representative_dofs(),
+                                 DoFTools::extract_locally_relevant_dofs(dh));
+    coupling.assemble_coupling_sparsity(graph, dh, constraints);
+    SparsityTools::distribute_sparsity_pattern(
+      graph,
+      dh.locally_owned_dofs(),
+      MPI_COMM_WORLD,
+      DoFTools::extract_locally_relevant_dofs(dh));
+    ImmersXLA::MPI::SparseMatrix matrix;
+    matrix.reinit(dh.locally_owned_dofs(), owned_lambda, graph, MPI_COMM_WORLD);
+    ImmersXLA::MPI::Vector rhs(owned_lambda, MPI_COMM_WORLD);
+    for (const auto i : owned_lambda)
+      if (insert_input)
+        rhs[i] = 3. + i;
+      else
+        {
+          const double value = 3. + i;
+          rhs.add(1, &i, &value);
+        }
+    if (insert_input)
+      rhs.compress(VectorOperation::insert);
+    // Pending additions remain valid on the rank without particles.
+    std::vector<double> integrals(3);
+    const auto         &weights = coupling.get_locally_owned_weights();
+    const auto         &modes   = coupling.get_locally_owned_mode_values();
+    for (unsigned int q = 0; q < weights.size(); ++q)
+      for (unsigned int i = 0; i < 3; ++i)
+        integrals[i] += weights[q][0] * modes[q][i];
+    for (auto &integral : integrals)
+      integral = Utilities::MPI::sum(integral, MPI_COMM_WORLD);
+    coupling.assemble_coupling_matrix(matrix, dh, constraints, rhs);
+    EXPECT_LT(matrix.frobenius_norm(), 1.e-13);
+    for (const auto i : owned_lambda)
+      EXPECT_NEAR(rhs[i], 3. + i - integrals[i], 1.e-12);
+  }
+
+} // namespace
+
+TEST(ReducedCoupling0D, MPI_AffineAppendPreservesInsertRhsWithEmptyRanks)
+{
+  check_affine_append_with_empty_ranks(true);
+}
+
+TEST(ReducedCoupling0D, MPI_AffineAppendPreservesAddRhsWithEmptyRanks)
+{
+  check_affine_append_with_empty_ranks(false);
 }
 
 #endif

@@ -206,6 +206,7 @@ namespace ImmersX
 
     /** Assemble the matrix and add the load from prescribed background values.
      * reduced_rhs must already be initialized on the representative DoFs.
+     * Finish insert writes collectively before calling this additive assembly.
      * Its prescribed data are retained; the affine background action is
      * subtracted before the distributed vector is compressed.
      */
