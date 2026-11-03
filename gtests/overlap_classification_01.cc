@@ -415,3 +415,84 @@ TEST(OverlapClassification, BOTH_EmptyBackground)
         EXPECT_EQ(cell->material_id(), labels.outside);
       }
 }
+
+
+TEST(OverlapClassification, BOTH_TranslatedHyperBallsWithVertexQuadrature)
+{
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  parallel::distributed::Triangulation<2> source(MPI_COMM_WORLD);
+  GridGenerator::hyper_ball(background);
+  GridGenerator::hyper_ball(source);
+  background.refine_global(2);
+  source.refine_global(2);
+  const Tensor<1, 2> translation({.5, .25});
+  GridTools::shift(translation, source);
+  EXPECT_EQ(source.n_global_active_cells(), background.n_global_active_cells());
+
+  // The inward half-planes describe the convex, discrete MappingQ1 boundary.
+  std::vector<std::array<double, 4>> local_planes;
+  for (const auto &cell : background.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (const auto face : cell->face_indices())
+        if (cell->face(face)->at_boundary())
+          {
+            const auto   a       = cell->face(face)->vertex(0);
+            const auto   b       = cell->face(face)->vertex(1);
+            const auto   tangent = b - a;
+            Tensor<1, 2> inward({-tangent[1], tangent[0]});
+            if (inward * (cell->center() - a) < 0.)
+              inward *= -1.;
+            inward /= inward.norm();
+            local_planes.push_back({{a[0], a[1], inward[0], inward[1]}});
+          }
+  std::vector<std::array<double, 4>> planes;
+  for (const auto &batch :
+       Utilities::MPI::all_gather(MPI_COMM_WORLD, local_planes))
+    planes.insert(planes.end(), batch.begin(), batch.end());
+  ASSERT_FALSE(planes.empty());
+  const auto inside_background = [&](const Point<2> &point) {
+    return std::all_of(planes.begin(), planes.end(), [&](const auto &plane) {
+      return plane[2] * (point[0] - plane[0]) +
+               plane[3] * (point[1] - plane[1]) >=
+             -1.e-12;
+    });
+  };
+
+  MappingQ1<2>        mapping;
+  GridTools::Cache<2> cache(background, mapping);
+  // This rule classifies sampled vertices; it does not certify cell
+  // intersection.
+  const QTrapezoid<2> quadrature;
+  set_overlap_material_ids(source, mapping, quadrature, cache, labels);
+  std::array<unsigned int, 3> counts{};
+  unsigned int                ghosts = 0;
+  for (const auto &cell : source.active_cell_iterators())
+    if (!cell->is_artificial())
+      {
+        unsigned int inside_vertices = 0;
+        for (const auto vertex : cell->vertex_indices())
+          inside_vertices += inside_background(cell->vertex(vertex));
+        const auto expected =
+          inside_vertices == 0 ?
+            labels.outside :
+            (inside_vertices == quadrature.size() ? labels.inside :
+                                                    labels.partial);
+        EXPECT_EQ(cell->material_id(), expected)
+          << "Cell " << cell->id().to_string() << " has " << inside_vertices
+          << " vertices in the background";
+        ghosts += cell->is_ghost();
+        if (cell->is_locally_owned())
+          {
+            counts[0] += inside_vertices == 0;
+            counts[1] +=
+              inside_vertices > 0 && inside_vertices < quadrature.size();
+            counts[2] += inside_vertices == quadrature.size();
+          }
+      }
+  for (const auto count : counts)
+    EXPECT_GT(Utilities::MPI::sum(count, MPI_COMM_WORLD), 0u);
+  if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) > 1)
+    {
+      EXPECT_GT(Utilities::MPI::sum(ghosts, MPI_COMM_WORLD), 0u);
+    }
+}
