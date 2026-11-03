@@ -9,6 +9,7 @@
 
 #include <deal.II/base/quadrature_lib.h>
 
+#include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_tools.h>
@@ -18,6 +19,7 @@
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/tria_description.h>
 
 #include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/vector.h>
@@ -27,6 +29,8 @@
 #include <immersx/core/contributor.h>
 #include <immersx/core/fe_space.h>
 #include <immersx/core/state.h>
+
+#include <cmath>
 
 using namespace dealii;
 using namespace ImmersX;
@@ -46,6 +50,24 @@ namespace
     {
       AssertDimension(values.size(), 1);
       return {values[0] * values[0], {2. * values[0]}};
+    }
+  };
+
+  struct PositiveRootConstraint
+  {
+    struct Evaluation
+    {
+      double              value;
+      std::vector<double> derivatives;
+    };
+    Evaluation
+    evaluate(const std::vector<double> &values) const
+    {
+      AssertThrow(values[0] > 0.,
+                  ExcMessage(
+                    "The root kernel is undefined outside its support."));
+      const double root = std::sqrt(values[0]);
+      return {root, {.5 / root}};
     }
   };
 
@@ -718,4 +740,297 @@ TEST(Constraint, MPI_MixedDimensionalReverseNonmatching)
   pairing->view.Tvmult(expected_reaction, lambda_state);
   reaction -= expected_reaction;
   EXPECT_LT(reaction.l2_norm(), 1.e-12);
+}
+
+TEST(Constraint, BOTH_ContinuityUsesOverlapAndExteriorMass)
+{
+  using VectorType = ImmersXLA::MPI::Vector;
+  using MatrixType = ImmersXLA::MPI::SparseMatrix;
+  for (const bool essential : {false, true})
+    for (const double left : {-.25, 2., .2})
+      {
+        parallel::distributed::Triangulation<2> bulk(MPI_COMM_WORLD);
+        GridGenerator::hyper_cube(bulk);
+        bulk.refine_global(1);
+        Triangulation<1, 2>      coarse;
+        std::vector<Point<2>>    vertices;
+        std::vector<CellData<1>> cells(3);
+        for (unsigned int i = 0; i < 4; ++i)
+          vertices.emplace_back(left + (left == .2 ? .2 : .5) * i, .5);
+        for (unsigned int c = 0; c < cells.size(); ++c)
+          {
+            cells[c].vertices    = {{c, c + 1}};
+            cells[c].material_id = 47;
+          }
+        coarse.create_triangulation(vertices, cells, SubCellData());
+        const auto   ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+        unsigned int c     = 0;
+        for (const auto &cell : coarse.active_cell_iterators())
+          cell->set_subdomain_id(c++ % ranks);
+        parallel::fullydistributed::Triangulation<1, 2> embedded(
+          MPI_COMM_WORLD);
+        embedded.create_triangulation(
+          TriangulationDescription::Utilities::
+            create_description_from_triangulation(coarse, MPI_COMM_WORLD));
+        const FE_Q<2>    bulk_fe(1);
+        const FE_Q<1, 2> embedded_fe(1);
+        DoFHandler<2>    bulk_dofs(bulk);
+        DoFHandler<1, 2> embedded_dofs(embedded), lambda_dofs(embedded);
+        bulk_dofs.distribute_dofs(bulk_fe);
+        embedded_dofs.distribute_dofs(embedded_fe);
+        lambda_dofs.distribute_dofs(embedded_fe);
+        AffineConstraints<double> bulk_constraints, embedded_constraints,
+          lambda_constraints;
+        if (essential)
+          for (const auto i :
+               DoFTools::extract_locally_relevant_dofs(bulk_dofs))
+            {
+              bulk_constraints.add_line(i);
+              bulk_constraints.set_inhomogeneity(i, 2.);
+            }
+        bulk_constraints.close();
+        embedded_constraints.close();
+        lambda_constraints.close();
+        const auto bulk_space =
+          fe_space(bulk_dofs, StaticMappingQ1<2>::mapping, bulk_constraints);
+        const auto  embedded_space = fe_space(embedded_dofs,
+                                             StaticMappingQ1<1, 2>::mapping,
+                                             embedded_constraints);
+        const auto  lambda_space   = fe_space(lambda_dofs,
+                                           StaticMappingQ1<1, 2>::mapping,
+                                           lambda_constraints);
+        StateLayout layout;
+        const auto  u = bulk_space.field(layout, "bulk");
+        const auto  v = embedded_space.field(layout, "embedded");
+        const auto  lambda_unregistered = lambda_space.field("lambda");
+        SemiDiscreteModel<VectorType, MatrixType>   model;
+        SemidiscreteBuilder<VectorType, MatrixType> builder(layout, model);
+        const auto                                  lambda =
+          make_continuity_constraint(u, v, lambda_unregistered)
+            .add(builder)
+            .multiplier;
+        VectorType u_values, v_values, lambda_values;
+        u_values.reinit(u.locally_owned_dofs(), MPI_COMM_WORLD);
+        v_values.reinit(v.locally_owned_dofs(), MPI_COMM_WORLD);
+        lambda_values.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+        u_values      = essential ? 0. : 2.;
+        v_values      = 4.;
+        lambda_values = 3.;
+        StateView<VectorType> state(layout, 0.);
+        state.bind(u.id(), u_values);
+        state.bind(v.id(), v_values);
+        state.bind(lambda.id(), lambda_values);
+        EvaluationContext<VectorType> context(0., state);
+        VectorType                    residual;
+        residual.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+        model.evaluate_row(lambda.id(), context, residual);
+        VectorType expected;
+        expected.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+        const QGauss<1> quadrature(2);
+        FEValues<1, 2>  values(StaticMappingQ1<1, 2>::mapping,
+                              embedded_fe,
+                              quadrature,
+                              update_values | update_quadrature_points |
+                                update_JxW_values);
+        std::vector<types::global_dof_index> indices(2);
+        VectorType                           exterior_action;
+        exterior_action.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+        for (const auto &cell : lambda_dofs.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              EXPECT_EQ(cell->material_id(), 47);
+              values.reinit(cell);
+              cell->get_dof_indices(indices);
+              for (unsigned int q = 0; q < quadrature.size(); ++q)
+                {
+                  const bool inside = values.quadrature_point(q)[0] >= 0. &&
+                                      values.quadrature_point(q)[0] <= 1.;
+                  for (unsigned int i = 0; i < indices.size(); ++i)
+                    {
+                      expected[indices[i]] += (inside ? -2. : -3.) *
+                                              values.shape_value(i, q) *
+                                              values.JxW(q);
+                      if (!inside)
+                        exterior_action[indices[i]] -=
+                          3. * values.shape_value(i, q) * values.JxW(q);
+                    }
+                }
+            }
+        expected.compress(VectorOperation::add);
+        exterior_action.compress(VectorOperation::add);
+        residual -= expected;
+        EXPECT_LT(residual.l2_norm(), 1.e-12);
+        const auto diagonal =
+          model.state_matrix_operator(lambda.id(), lambda.id(), context);
+        ASSERT_TRUE(diagonal.has_value());
+        VectorType action;
+        action.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+        diagonal->view.vmult(action, lambda_values);
+        action -= exterior_action;
+        EXPECT_LT(action.l2_norm(), 1.e-12);
+        const auto b =
+          model.state_matrix_operator(lambda.id(), u.id(), context);
+        ASSERT_TRUE(b.has_value());
+        if (left > 1.)
+          {
+            EXPECT_LT(b->matrix()->frobenius_norm(), 1.e-12);
+          }
+        const auto reaction =
+          model.state_matrix_operator(u.id(), lambda.id(), context);
+        ASSERT_TRUE(reaction.has_value());
+        VectorType row_action, transpose_action;
+        row_action.reinit(lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+        transpose_action.reinit(u.locally_owned_dofs(), MPI_COMM_WORLD);
+        b->view.vmult(row_action, u_values);
+        reaction->view.vmult(transpose_action, lambda_values);
+        EXPECT_NEAR(row_action * lambda_values,
+                    transpose_action * u_values,
+                    1.e-12);
+        if (!essential && left < 0.)
+          {
+            const auto points = DoFTools::map_dofs_to_support_points(
+              StaticMappingQ1<1, 2>::mapping, embedded_dofs);
+            for (const auto i : v.locally_owned_dofs())
+              v_values[i] = points.at(i)[0];
+            v_values.compress(VectorOperation::insert);
+            GridTools::Cache<2> background(bulk, StaticMappingQ1<2>::mapping);
+            const auto          supports =
+              make_overlap_supports(IntegrationSupport<1, 2>(embedded),
+                                    StaticMappingQ1<1, 2>::mapping,
+                                    QGauss<1>(2),
+                                    background);
+            SemiDiscreteModel<VectorType, MatrixType>   nonlinear_model;
+            SemidiscreteBuilder<VectorType, MatrixType> nonlinear_builder(
+              layout, nonlinear_model);
+            const auto root_lambda =
+              make_constraint(
+                weak_term(transform(value(v), PositiveRootConstraint{}),
+                          test(lambda_space.field("root_lambda")))
+                  .on(supports.overlap))
+                .add(nonlinear_builder)
+                .multiplier;
+            VectorType zero;
+            zero.reinit(root_lambda.locally_owned_dofs(), MPI_COMM_WORLD);
+            StateView<VectorType> root_state(layout, 0.);
+            root_state.bind(v.id(), v_values);
+            root_state.bind(root_lambda.id(), zero);
+            EvaluationContext<VectorType> root_context(0., root_state);
+            VectorType                    root_residual, derivative_action;
+            root_residual.reinit(root_lambda.locally_owned_dofs(),
+                                 MPI_COMM_WORLD);
+            derivative_action.reinit(root_lambda.locally_owned_dofs(),
+                                     MPI_COMM_WORLD);
+            nonlinear_model.evaluate_row(root_lambda.id(),
+                                         root_context,
+                                         root_residual);
+            const auto derivative =
+              nonlinear_model.state_operator(root_lambda.id(),
+                                             v.id(),
+                                             root_context);
+            derivative.vmult(derivative_action, v_values);
+            derivative_action *= 2.;
+            derivative_action -= root_residual;
+            EXPECT_GT(root_residual.l2_norm(), 1.e-3);
+            EXPECT_LT(derivative_action.l2_norm(), 1.e-12);
+          }
+      }
+}
+
+namespace
+{
+  template <typename VectorType, typename MatrixType, typename Mesh>
+  void
+  check_background_on_either_side(Mesh &first, Mesh &second)
+  {
+    const FE_Q<2> element(1);
+    DoFHandler<2> first_dofs(first), second_dofs(second), lambda_dofs(first);
+    first_dofs.distribute_dofs(element);
+    second_dofs.distribute_dofs(element);
+    lambda_dofs.distribute_dofs(element);
+    AffineConstraints<double> constraints;
+    constraints.close();
+    const auto first_space =
+      fe_space(first_dofs, StaticMappingQ1<2>::mapping, constraints);
+    const auto second_space =
+      fe_space(second_dofs, StaticMappingQ1<2>::mapping, constraints);
+    const auto lambda_space =
+      fe_space(lambda_dofs, StaticMappingQ1<2>::mapping, constraints);
+    for (const bool reversed : {false, true})
+      {
+        StateLayout layout;
+        const auto  u                   = first_space.field(layout, "first");
+        const auto  v                   = second_space.field(layout, "second");
+        const auto  unregistered_lambda = lambda_space.field("lambda");
+        SemiDiscreteModel<VectorType, MatrixType>   model;
+        SemidiscreteBuilder<VectorType, MatrixType> builder(layout, model);
+        const auto                                  lambda =
+          (reversed ? make_continuity_constraint(v, u, unregistered_lambda) :
+                      make_continuity_constraint(u, v, unregistered_lambda))
+            .add(builder)
+            .multiplier;
+        const auto vector_for = [&](const auto &field, const double value) {
+          VectorType vector;
+          detail::initialize_weak_vector(vector,
+                                         field.locally_owned_dofs(),
+                                         field.space().mpi_communicator());
+          vector = value;
+          return vector;
+        };
+        auto                  u_values      = vector_for(u, 2.);
+        auto                  v_values      = vector_for(v, 4.);
+        auto                  lambda_values = vector_for(lambda, 3.);
+        StateView<VectorType> state(layout, 0.);
+        state.bind(u.id(), u_values);
+        state.bind(v.id(), v_values);
+        state.bind(lambda.id(), lambda_values);
+        EvaluationContext<VectorType> context(0., state);
+        auto                          residual = vector_for(lambda, 0.);
+        model.evaluate_row(lambda.id(), context, residual);
+        auto                                 expected = vector_for(lambda, 0.);
+        const QGauss<2>                      quadrature(2);
+        FEValues<2>                          values(StaticMappingQ1<2>::mapping,
+                           element,
+                           quadrature,
+                           update_values | update_quadrature_points |
+                             update_JxW_values);
+        std::vector<types::global_dof_index> indices(4);
+        for (const auto &cell : lambda_dofs.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              values.reinit(cell);
+              cell->get_dof_indices(indices);
+              for (unsigned int q = 0; q < quadrature.size(); ++q)
+                {
+                  const auto point  = values.quadrature_point(q);
+                  const bool inside = point[0] >= .5 && point[1] >= .5;
+                  for (unsigned int i = 0; i < indices.size(); ++i)
+                    expected[indices[i]] +=
+                      (inside ? (reversed ? 2. : -2.) : -3.) *
+                      values.shape_value(i, q) * values.JxW(q);
+                }
+            }
+        detail::compress_weak_vector(expected);
+        residual -= expected;
+        EXPECT_LT(residual.l2_norm(), 1.e-12);
+      }
+  }
+} // namespace
+
+TEST(Constraint, BOTH_ContinuityFindsBackgroundOnEitherSide)
+{
+  parallel::distributed::Triangulation<2> first(MPI_COMM_WORLD),
+    second(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(first, 0., 1.);
+  GridGenerator::hyper_cube(second, .5, 1.5);
+  check_background_on_either_side<ImmersXLA::MPI::Vector,
+                                  ImmersXLA::MPI::SparseMatrix>(first, second);
+}
+
+TEST(Constraint, SerialContinuityFindsBackgroundOnEitherSide)
+{
+  Triangulation<2> first, second;
+  GridGenerator::hyper_cube(first, 0., 1.);
+  GridGenerator::hyper_cube(second, .5, 1.5);
+  check_background_on_either_side<Vector<double>, SparseMatrix<double>>(first,
+                                                                        second);
 }

@@ -47,6 +47,10 @@ namespace ImmersX
                   "Overlap supports require congruent communicators."));
     bool valid =
       std::isfinite(tolerance) && tolerance >= 0. && quadrature.size() > 0;
+    AssertThrow(
+      dealii::Utilities::MPI::min(valid ? 1u : 0u, communicator) != 0,
+      dealii::ExcMessage(
+        "Overlap supports need a nonempty quadrature and finite nonnegative tolerance."));
     auto partition = std::make_shared<detail::OverlapQuadraturePartition>();
     const auto reference_cell = detail::uniform_reference_cell(tria);
     if (!reference_cell)
@@ -76,29 +80,41 @@ namespace ImmersX
     for (std::size_t i = 0; i < samples.size(); ++i)
       {
         const auto &point = samples[i];
+        const auto  entry = partition->find(point.source_entity_id);
+        valid             = valid && entry != partition->end();
         if (!selected_cells.count(point.source_entity_id))
           continue;
-        const auto entry = partition->find(point.source_entity_id);
-        valid            = valid && entry != partition->end() &&
-                point.representative_qpoint < quadrature.size();
+        valid = valid && point.representative_qpoint < quadrature.size() &&
+                point.section_qpoint < samples.size();
         valid = valid && std::isfinite(point.weight) && point.weight > 0.;
         for (unsigned int d = 0; d < spacedim; ++d)
           valid = valid && std::isfinite(point.point[d]);
         if (entry != partition->end() &&
-            point.representative_qpoint < quadrature.size())
+            point.representative_qpoint < quadrature.size() &&
+            point.section_qpoint < samples.size())
           {
             auto &flags = entry->second.inside[point.representative_qpoint];
             flags.resize(std::max<std::size_t>(flags.size(),
                                                point.section_qpoint + 1),
                          0);
+            valid = valid && flags[point.section_qpoint] == 0;
+            flags[point.section_qpoint] = 2;
             positions.push_back(point.point);
             indices.push_back(i);
           }
       }
+    valid =
+      valid && positions.size() <= std::numeric_limits<unsigned int>::max();
+    for (const auto id : selected_cells)
+      for (const auto &flags : partition->at(id).inside)
+        valid = valid && !flags.empty() &&
+                std::all_of(flags.begin(), flags.end(), [](const auto flag) {
+                  return flag == 2;
+                });
     AssertThrow(
       dealii::Utilities::MPI::min(valid ? 1u : 0u, communicator) != 0,
       dealii::ExcMessage(
-        "Overlap supports require finite positive source-owned quadrature samples."));
+        "Overlap supports require finite positive source-owned samples covering every representative quadrature point exactly once per section point."));
     using Search =
       dealii::Utilities::MPI::RemotePointEvaluation<spacedim, spacedim>;
     Search     search(typename Search::AdditionalData(tolerance, false));

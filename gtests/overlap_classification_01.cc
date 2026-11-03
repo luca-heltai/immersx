@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 #include <immersx/core/domain.h>
 #include <immersx/core/overlap_integration_support.h>
+#include <immersx/coupling/detail/coupling_point.h>
 #include <immersx/grid/overlap_classification.h>
 
 #include <algorithm>
@@ -525,6 +526,12 @@ TEST(OverlapClassification, BOTH_ComplementaryQuadratureSupports)
     if (!cell->is_artificial())
       {
         EXPECT_EQ(cell->material_id(), 99);
+        ImmersX::detail::CouplingPoint<3> material_point;
+        material_point.source_cell_id = cell->id();
+        EXPECT_TRUE((IntegrationSupport<1, 3>(source, 99)
+                       .includes_lifted_point(material_point)));
+        EXPECT_FALSE((IntegrationSupport<1, 3>(source, 7).includes_lifted_point(
+          material_point)));
         values.reinit(cell);
         unsigned int inside = 0;
         for (unsigned int q = 0; q < quadrature.size(); ++q)
@@ -613,4 +620,60 @@ TEST(OverlapClassification, BOTH_LiftedQuadratureSupportsKeepPhysicalWeights)
             EXPECT_DOUBLE_EQ(supports.overlap.full_point_weight(cell, q), 3.);
           }
       }
+}
+
+TEST(OverlapClassification, BOTH_RejectIncompleteOrDuplicateQuadraturePartition)
+{
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background);
+  Triangulation<1, 3> coarse;
+  make_line(coarse);
+  parallel::fullydistributed::Triangulation<1, 3> source(MPI_COMM_WORLD);
+  distribute(coarse, source, true);
+  MappingQ1<1, 3>     mapping;
+  MappingQ1<3>        background_mapping;
+  GridTools::Cache<3> cache(background, background_mapping);
+  const QGauss<1>     quadrature(2);
+  struct Sample
+  {
+    Point<3>                 point;
+    double                   weight;
+    types::global_cell_index source_entity_id;
+    unsigned int             representative_qpoint;
+    unsigned int             section_qpoint = 0;
+  };
+  const FE_Nothing<1, 3> geometry;
+  FEValues<1, 3>         values(mapping,
+                        geometry,
+                        quadrature,
+                        update_quadrature_points | update_JxW_values);
+  std::vector<Sample>    full;
+  for (const auto &cell : source.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        values.reinit(cell);
+        for (unsigned int q = 0; q < quadrature.size(); ++q)
+          full.push_back({values.quadrature_point(q),
+                          values.JxW(q),
+                          cell->global_active_cell_index(),
+                          q,
+                          0});
+      }
+  for (unsigned int error = 0; error < 4; ++error)
+    {
+      auto samples = full;
+      if (!samples.empty())
+        {
+          if (error == 0)
+            samples.pop_back();
+          else if (error == 1)
+            samples.push_back(samples.front());
+          else if (error == 2)
+            samples.front().source_entity_id = numbers::invalid_unsigned_int;
+          else if (error == 3)
+            samples.front().section_qpoint = numbers::invalid_unsigned_int;
+        }
+      EXPECT_ANY_THROW(make_overlap_supports(
+        IntegrationSupport<1, 3>(source), mapping, quadrature, samples, cache));
+    }
 }

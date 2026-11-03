@@ -177,6 +177,73 @@ is given in background reference-cell coordinates and defaults to `1e-10`.
 Reclassify after changing a mesh, mapping or sampling geometry. Classification
 does not add multiplier constraints or change the coupled equations.
 
+## Couple partially overlapping domains
+
+`make_continuity_constraint(bulk, embedded, lambda)` partitions the multiplier
+quadrature against the full-dimensional participant. The multiplier mesh must
+also carry the embedded participant. The partition is fixed when the constraint
+is constructed, before the solve. It preserves both meshes' physical material
+ids.
+
+Both participant pairings and their transposed reactions use the located
+samples. The multiplier row is
+
+```text
+integral_overlap (bulk - embedded) * test(lambda)
+  - integral_outside lambda * test(lambda) = 0.
+```
+
+The exterior integral includes missing quadrature points in partially covered
+cells. Its mass matrix enters the physical multiplier block with a minus sign,
+so the positive Schur complement gains the positive exterior mass. A completely
+exterior multiplier space therefore has the homogeneous mass equation and
+produces no coupling force. On a continuous basis spanning both regions, the
+row is one combined weak equation; it does not impose independent pointwise
+conditions on the two regions.
+
+Custom Interactions can construct the same complementary supports explicitly:
+
+```cpp
+#include <immersx/core/overlap_integration_support.h>
+
+auto supports = ImmersX::make_overlap_supports(
+  line.support(), line_mapping, dealii::QGauss<1>(3), background);
+auto fields = ImmersX::make_constraint(
+  ImmersX::weak_term(ImmersX::value(bulk), ImmersX::test(lambda))
+    .on(supports.overlap) -
+  ImmersX::weak_term(ImmersX::value(embedded), ImmersX::test(lambda))
+    .on(supports.overlap)).add(builder);
+const auto registered_lambda = fields.multiplier;
+ImmersX::weak_term(-1. * ImmersX::value(registered_lambda),
+                  ImmersX::test(registered_lambda))
+  .on(supports.outside).add(builder);
+```
+
+A material filter supplied through `line.support(id)` still selects the source
+cells. The quadrature partition keeps that filter and does not replace material
+ids. Use the full multiplier mesh as the source support when the exterior
+mass must cover every multiplier DoF. Unlike the cell classification alone, these supports select individual
+quadrature samples and retain their original weights. They use the same fixed
+quadrature in both pairings and the exterior mass. Rebuild the supports and the
+associated operators after changing a mesh, mapping, partition, or sampling
+geometry.
+
+For a lifted interaction, pass its complete source-owned physical sample vector
+between the representative quadrature and the background cache. Records contain
+`point`, `weight`, `source_entity_id`, `representative_qpoint`, and
+`section_qpoint`. Use one geometry cloud, shared by all modes. Section indices
+start at zero and cover each representative quadrature point exactly once.
+Lifted assembly selects physical samples with their original wall weights;
+representative assembly sums those weights over the selected section. A cut
+modal section requires the full sampled Gram matrix, including cross-mode
+entries. Do not rescale the original orthogonal diagonal by a coverage fraction
+or renormalize the remaining wall weights.
+
+The search and ghost exchange are collective. Empty source ranks participate.
+The partition approximates overlap through the supplied samples; it does not
+clip cells at the geometric intersection. Raw nonmatching weak terms retain
+their existing search behavior when no overlap support is supplied.
+
 ## Integrate bulk fields on an independent mesh
 
 An immersed domain can supply integration geometry for trial and test fields

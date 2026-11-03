@@ -56,6 +56,39 @@ namespace ImmersX
 {
   namespace detail
   {
+    template <int dim, typename Support>
+    dealii::Quadrature<dim>
+    support_quadrature(const Support                 &support,
+                       const dealii::Quadrature<dim> &fallback)
+    {
+      if constexpr (is_integration_support<Support>::value)
+        {
+          if constexpr (Support::dimension() == dim)
+            return support.quadrature(fallback);
+        }
+      return fallback;
+    }
+
+    template <typename Support, typename Cell>
+    double
+    support_point_weight(const Support     &support,
+                         const Cell        &cell,
+                         const unsigned int q)
+    {
+      if constexpr (is_integration_support<Support>::value)
+        return support.point_weight(cell, q);
+      return 1.;
+    }
+
+    template <typename Support, typename Point>
+    bool
+    support_lifted_point(const Support &support, const Point &point)
+    {
+      if constexpr (is_integration_support<Support>::value)
+        return support.includes_lifted_point(point);
+      return true;
+    }
+
 #ifdef IMMERSX_WEAK_TERM_TESTING
     inline std::atomic<unsigned int> weak_term_nonmatching_preparations = 0;
     inline std::atomic<unsigned int> weak_term_matrix_initializations   = 0;
@@ -491,10 +524,13 @@ namespace ImmersX
             boundary     = true;
             boundary_ids = support.boundary_ids();
           }
-        const auto degree     = std::max(source.space().finite_element().degree,
+        const auto degree = std::max(source.space().finite_element().degree,
                                      row.space().finite_element().degree);
-        const auto quadrature = compatibility::gauss_quadrature<dim>(
-          row.space().finite_element().reference_cell(), degree + 1);
+        const auto quadrature =
+          support_quadrature(support,
+                             compatibility::gauss_quadrature<dim>(
+                               row.space().finite_element().reference_cell(),
+                               degree + 1));
         const auto face_quadrature = compatibility::gauss_quadrature<dim - 1>(
           row.space().finite_element().reference_cell().face_reference_cell(0),
           degree + 1);
@@ -583,7 +619,9 @@ namespace ImmersX
                                           target_cell,
                                           quadrature,
                                           static_cast<MatrixType *>(nullptr),
-                                          &data);
+                                          &data,
+                                          nullptr,
+                                          support);
               }
           }
         auto rhs = std::make_shared<VectorType>();
@@ -818,10 +856,10 @@ namespace ImmersX
             AssertThrow(physical_reference.has_value(),
                         dealii::ExcMessage(
                           "The integration support mesh has no cells."));
-            const auto reference_cell = *physical_reference;
-            const auto support_quadrature =
+            const auto reference_cell     = *physical_reference;
+            const auto support_quadrature = support.quadrature(
               compatibility::gauss_quadrature<support_dim>(reference_cell,
-                                                           degree + 2);
+                                                           degree + 2));
             const dealii::FE_Nothing<support_dim, spacedim> geometry_element(
               reference_cell);
             dealii::FEValues<support_dim, spacedim> support_values(
@@ -848,8 +886,12 @@ namespace ImmersX
                   support_values.reinit(support_cell);
                   for (const auto q : support_values.quadrature_point_indices())
                     {
+                      const double selection =
+                        support.point_weight(support_cell, q);
+                      if (selection == 0.)
+                        continue;
                       positions.push_back(support_values.quadrature_point(q));
-                      properties.push_back({support_values.JxW(q)});
+                      properties.push_back({support_values.JxW(q) * selection});
                     }
                 }
           }
@@ -1239,9 +1281,11 @@ namespace ImmersX
             const auto degree =
               std::max(source.space().finite_element().degree,
                        target_field.space().finite_element().degree);
-            const auto quadrature = compatibility::gauss_quadrature<dim>(
-              target_field.space().finite_element().reference_cell(),
-              degree + 1);
+            const auto quadrature = support_quadrature(
+              support,
+              compatibility::gauss_quadrature<dim>(
+                target_field.space().finite_element().reference_cell(),
+                degree + 1));
             dealii::UpdateFlags update_flags = dealii::update_JxW_values |
                                                observable.update_flags() |
                                                target.update_flags();
@@ -1365,7 +1409,9 @@ namespace ImmersX
                                               affine_data != nullptr &&
                                                   *affine_data != nullptr ?
                                                 affine_data->get() :
-                                                nullptr);
+                                                nullptr,
+                                              nullptr,
+                                              support);
                   }
               }
             else
@@ -1403,7 +1449,9 @@ namespace ImmersX
                                               affine_data != nullptr &&
                                                   *affine_data != nullptr ?
                                                 affine_data->get() :
-                                                nullptr);
+                                                nullptr,
+                                              nullptr,
+                                              support);
                   }
               }
             if (affine_rhs != nullptr && affine_data != nullptr &&
@@ -1651,7 +1699,8 @@ namespace ImmersX
           {
             bool use_native_nonmatching = true;
             if constexpr (!std::is_same_v<Support, InferredIntegrationSupport>)
-              use_native_nonmatching = !support.has_material_filter();
+              use_native_nonmatching = !support.has_material_filter() &&
+                                       !support.has_quadrature_partition();
 
             if (use_native_nonmatching)
               {
@@ -1754,16 +1803,12 @@ namespace ImmersX
 
         const auto  target_field = target.source();
         const auto *target_tria =
-          dynamic_cast<const dealii::parallel::TriangulationBase<spacedim> *>(
-            &target_field.space().dof_handler().get_triangulation());
-        AssertThrow(target_tria != nullptr,
-                    dealii::ExcMessage(
-                      "A mixed-dimensional weak term needs a distributed "
-                      "target background triangulation."));
+          &target_field.space().dof_handler().get_triangulation();
 
-        const auto quadrature =
+        const auto quadrature = support_quadrature(
+          support,
           compatibility::gauss_quadrature<SourceField::dimension()>(
-            source.space().finite_element().reference_cell(), degree + 1);
+            source.space().finite_element().reference_cell(), degree + 1));
         const unsigned int n_source_dofs =
           source.space().finite_element().n_dofs_per_cell();
         const unsigned int source_components =
@@ -1806,7 +1851,11 @@ namespace ImmersX
                 {
                   std::vector<double> point_properties;
                   point_properties.reserve(n_properties);
-                  point_properties.push_back(source_values.JxW(q));
+                  const double selection =
+                    support_point_weight(support, source_cell, q);
+                  if (selection == 0.)
+                    continue;
+                  point_properties.push_back(source_values.JxW(q) * selection);
                   for (const auto index : source_indices)
                     {
                       const auto encoded = static_cast<double>(index);
@@ -1958,15 +2007,13 @@ namespace ImmersX
                       "source background.");
 
         const auto target_field = target.source();
-        const auto quadrature   = compatibility::gauss_quadrature<dim>(
-          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto quadrature   = support_quadrature(
+          support,
+          compatibility::gauss_quadrature<dim>(
+            target_field.space().finite_element().reference_cell(),
+            degree + 1));
         const auto *source_tria =
-          dynamic_cast<const dealii::parallel::TriangulationBase<spacedim> *>(
-            &source.space().dof_handler().get_triangulation());
-        AssertThrow(source_tria != nullptr,
-                    dealii::ExcMessage(
-                      "Mixed-dimensional weak terms require a distributed "
-                      "source background triangulation."));
+          &source.space().dof_handler().get_triangulation();
 
         using Point = detail::CouplingPoint<spacedim, double>;
         const unsigned int local_target_dofs = [&target_field] {
@@ -2017,10 +2064,14 @@ namespace ImmersX
               cell->get_dof_indices(target_indices);
               for (const auto q : target_values.quadrature_point_indices())
                 {
+                  const double selection =
+                    support_point_weight(support, cell, q);
+                  if (selection == 0.)
+                    continue;
                   Point point;
                   point.point = target_values.quadrature_point(q);
                   point.representative_point = point.point;
-                  point.weight               = target_values.JxW(q);
+                  point.weight               = target_values.JxW(q) * selection;
                   point.source_entity_id     = cell->global_active_cell_index();
                   point.representative_qpoint = q;
                   point.stable_id             = static_cast<std::uint64_t>(
@@ -2174,7 +2225,8 @@ namespace ImmersX
                 typename TargetValues,
                 typename SourceCell,
                 typename TargetCell,
-                typename MatrixType>
+                typename MatrixType,
+                typename Support = InferredIntegrationSupport>
       static void
       assemble_cell(const ObservableType               &observable,
                     const SourceField                  &source,
@@ -2186,7 +2238,8 @@ namespace ImmersX
                     const dealii::Quadrature<dim>      &quadrature,
                     MatrixType                         *matrix,
                     AffineData<VectorType, MatrixType> *affine_data,
-                    const std::vector<double> *physical_weights = nullptr)
+                    const std::vector<double> *physical_weights = nullptr,
+                    const Support             &support          = {})
       {
         const auto &target_field = target.source();
         std::vector<dealii::types::global_dof_index> source_indices(
@@ -2238,7 +2291,8 @@ namespace ImmersX
                   scale *
                   detail::natural_pairing(trial_values[j], test_values[i]) *
                   (physical_weights == nullptr ? target_values.JxW(q) :
-                                                 (*physical_weights)[q]);
+                                                 (*physical_weights)[q]) *
+                  support_point_weight(support, target_cell, q);
           }
 
         const bool use_square_constraints =
@@ -2529,9 +2583,10 @@ namespace ImmersX
                             dealii::ExcMessage(
                               "The integration support mesh has no cells."));
                 const auto reference_cell = *physical_reference;
-                const auto quadrature =
+                const auto quadrature     = support_quadrature(
+                  support,
                   compatibility::gauss_quadrature<support_dim>(reference_cell,
-                                                               degree + 2);
+                                                               degree + 2));
                 const dealii::FE_Nothing<support_dim, spacedim> geometry_fe(
                   reference_cell);
                 dealii::FEValues<support_dim, spacedim> support_values(
@@ -2549,9 +2604,14 @@ namespace ImmersX
                       for (const auto q :
                            support_values.quadrature_point_indices())
                         {
+                          const double selection =
+                            support.point_weight(cell, q);
+                          if (selection == 0.)
+                            continue;
                           positions.push_back(
                             support_values.quadrature_point(q));
-                          properties.push_back({support_values.JxW(q)});
+                          properties.push_back(
+                            {support_values.JxW(q) * selection});
                         }
                     }
               }
@@ -3093,8 +3153,11 @@ namespace ImmersX
         const auto degree =
           std::max(observable.polynomial_degree(),
                    target_field.space().finite_element().degree);
-        const auto quadrature = compatibility::gauss_quadrature<dim>(
-          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto quadrature = support_quadrature(
+          support,
+          compatibility::gauss_quadrature<dim>(
+            target_field.space().finite_element().reference_cell(),
+            degree + 1));
         const auto flags = dealii::update_JxW_values |
                            dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
@@ -3156,6 +3219,8 @@ namespace ImmersX
               const auto &target_view = target_values[target_field.extractor()];
               for (unsigned int q = 0; q < quadrature.size(); ++q)
                 {
+                  if (support_point_weight(support, source_cell, q) == 0.)
+                    continue;
                   const auto value = value_at<VectorType>(
                     observable, source_values, *input_cache, q, context.time());
                   for (unsigned int i = 0; i < target_indices.size(); ++i)
@@ -3164,7 +3229,8 @@ namespace ImmersX
                         target.scale() *
                         natural_pairing(value,
                                         target.operation()(target_view, i, q)) *
-                        target_values.JxW(q);
+                        target_values.JxW(q) *
+                        support_point_weight(support, source_cell, q);
                 }
               distribute_cell_residual(target_field,
                                        target_indices,
@@ -3366,8 +3432,11 @@ namespace ImmersX
         const auto degree =
           std::max(observable.polynomial_degree(),
                    target_field.space().finite_element().degree);
-        const auto quadrature = compatibility::gauss_quadrature<dim>(
-          target_field.space().finite_element().reference_cell(), degree + 1);
+        const auto quadrature = support_quadrature(
+          support,
+          compatibility::gauss_quadrature<dim>(
+            target_field.space().finite_element().reference_cell(),
+            degree + 1));
         const auto flags = dealii::update_JxW_values |
                            dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
@@ -3510,25 +3579,31 @@ namespace ImmersX
               dealii::FullMatrix<double> local(target_positions.size(),
                                                column_positions.size());
               for (unsigned int q = 0; q < quadrature.size(); ++q)
-                for (unsigned int j = 0; j < column_positions.size(); ++j)
-                  {
-                    const auto derivative =
-                      derivative_at<VectorType>(observable,
-                                                field,
-                                                source_values,
-                                                *input_cache,
-                                                q,
-                                                column_positions[j],
-                                                context.time());
-                    for (unsigned int i = 0; i < target_positions.size(); ++i)
-                      local(i, j) +=
-                        target.scale() *
-                        natural_pairing(derivative,
-                                        target.operation()(target_view,
-                                                           target_positions[i],
-                                                           q)) *
-                        target_values.JxW(q);
-                  }
+                {
+                  if (support_point_weight(support, source_cell, q) == 0.)
+                    continue;
+                  for (unsigned int j = 0; j < column_positions.size(); ++j)
+                    {
+                      const auto derivative =
+                        derivative_at<VectorType>(observable,
+                                                  field,
+                                                  source_values,
+                                                  *input_cache,
+                                                  q,
+                                                  column_positions[j],
+                                                  context.time());
+                      for (unsigned int i = 0; i < target_positions.size(); ++i)
+                        local(i, j) +=
+                          target.scale() *
+                          natural_pairing(
+                            derivative,
+                            target.operation()(target_view,
+                                               target_positions[i],
+                                               q)) *
+                          target_values.JxW(q) *
+                          support_point_weight(support, source_cell, q);
+                    }
+                }
               target_field.constraints().distribute_local_to_global(
                 local,
                 target_execution_indices,
@@ -3593,17 +3668,19 @@ namespace ImmersX
         return result;
       }
 
-      template <typename VectorType, typename MatrixType, typename Context>
+      template <typename VectorType,
+                typename MatrixType,
+                typename Context,
+                typename Support = InferredIntegrationSupport>
       static dealii::LinearOperator<VectorType, VectorType>
       linearize(const ObservableType   &observable,
                 const TargetExpression &target,
                 const FieldId           field,
-                const Context          &context)
+                const Context          &context,
+                const Support          &support = {})
       {
-        return linearize_matrix<VectorType, MatrixType>(observable,
-                                                        target,
-                                                        field,
-                                                        context)
+        return linearize_matrix<VectorType, MatrixType>(
+                 observable, target, field, context, support)
           .view;
       }
     };
@@ -3671,11 +3748,15 @@ namespace ImmersX
         return result;
       }
 
-      template <typename VectorType, typename MatrixType, typename Context>
+      template <typename VectorType,
+                typename MatrixType,
+                typename Context,
+                typename Support = InferredIntegrationSupport>
       static std::shared_ptr<VectorType>
       residual(const ObservableType   &observable,
                const TargetExpression &target,
-               const Context          &context)
+               const Context          &context,
+               const Support          &support = {})
       {
         const auto &source       = observable.source();
         const auto  target_field = target.source();
@@ -3699,7 +3780,8 @@ namespace ImmersX
               cell->get_dof_indices(indices);
               for (std::size_t q = 0; q < points.size(); ++q)
                 if (points[q].source_entity_id ==
-                    cell->global_active_cell_index())
+                      cell->global_active_cell_index() &&
+                    support_lifted_point(support, points[q]))
                   {
                     const auto   basis = target_basis(target, cell, points[q]);
                     const double value =
@@ -3720,12 +3802,16 @@ namespace ImmersX
         return result;
       }
 
-      template <typename VectorType, typename MatrixType, typename Context>
+      template <typename VectorType,
+                typename MatrixType,
+                typename Context,
+                typename Support = InferredIntegrationSupport>
       static MatrixStorage<MatrixType>
       jacobian(const ObservableType   &observable,
                const TargetExpression &target,
                const FieldId           field,
-               const Context          &context)
+               const Context          &context,
+               const Support          &support = {})
       {
         const auto &source        = observable.source();
         const auto &column_source = observable.source_for(field);
@@ -3829,7 +3915,8 @@ namespace ImmersX
                                                active_columns.size());
               for (std::size_t q = 0; q < points.size(); ++q)
                 if (points[q].source_entity_id ==
-                    cell->global_active_cell_index())
+                      cell->global_active_cell_index() &&
+                    support_lifted_point(support, points[q]))
                   {
                     const auto basis = target_basis(target, cell, points[q]);
                     for (unsigned int row = 0; row < active_rows.size(); ++row)
@@ -3852,15 +3939,19 @@ namespace ImmersX
         return result;
       }
 
-      template <typename VectorType, typename MatrixType, typename Context>
+      template <typename VectorType,
+                typename MatrixType,
+                typename Context,
+                typename Support = InferredIntegrationSupport>
       static MaterializedOperator<VectorType, MatrixType>
       linearize_matrix(const ObservableType   &observable,
                        const TargetExpression &target,
                        const FieldId           field,
-                       const Context          &context)
+                       const Context          &context,
+                       const Support          &support = {})
       {
-        const auto storage =
-          jacobian<VectorType, MatrixType>(observable, target, field, context);
+        const auto storage = jacobian<VectorType, MatrixType>(
+          observable, target, field, context, support);
         const auto matrix   = storage.matrix;
         const auto sparsity = storage.sparsity;
         const auto matrix_view =
@@ -3901,17 +3992,19 @@ namespace ImmersX
         return result;
       }
 
-      template <typename VectorType, typename MatrixType, typename Context>
+      template <typename VectorType,
+                typename MatrixType,
+                typename Context,
+                typename Support = InferredIntegrationSupport>
       static dealii::LinearOperator<VectorType, VectorType>
       linearize(const ObservableType   &observable,
                 const TargetExpression &target,
                 const FieldId           field,
-                const Context          &context)
+                const Context          &context,
+                const Support          &support = {})
       {
-        return linearize_matrix<VectorType, MatrixType>(observable,
-                                                        target,
-                                                        field,
-                                                        context)
+        return linearize_matrix<VectorType, MatrixType>(
+                 observable, target, field, context, support)
           .view;
       }
     };
@@ -3933,26 +4026,23 @@ namespace ImmersX
         std::shared_ptr<dealii::SparsityPattern> sparsity;
       };
 
-      template <typename VectorType, typename MatrixType>
+      template <typename VectorType,
+                typename MatrixType,
+                typename Support = InferredIntegrationSupport>
       static MatrixStorage<MatrixType>
       assemble(const ObservableType        &observable,
                const TargetLift            &target,
                std::shared_ptr<VectorType> *affine_rhs = nullptr,
                std::shared_ptr<AffineData<VectorType, MatrixType>>
-                 *affine_data = nullptr)
+                             *affine_data = nullptr,
+               const Support &support     = {})
       {
         using SourceField = typename ObservableType::source_field_type;
         static_assert(SourceField::dimension() == SourceField::spacedimension(),
                       "A lifted test needs a full-dimensional trial field.");
         const auto &source       = observable.source();
         const auto &target_field = target.source();
-        const auto *source_tria =
-          dynamic_cast<const dealii::parallel::TriangulationBase<
-            SourceField::spacedimension()> *>(
-            &source.dof_handler().get_triangulation());
-        AssertThrow(source_tria != nullptr,
-                    dealii::ExcMessage(
-                      "A lifted weak term needs a distributed source mesh."));
+        const auto *source_tria  = &source.dof_handler().get_triangulation();
 
         const auto         points = target.lifted_points();
         const unsigned int local_target_dofs =
@@ -3987,6 +4077,8 @@ namespace ImmersX
         properties.reserve(points.size());
         for (const auto &point : points)
           {
+            if (!support_lifted_point(support, point))
+              continue;
             physical_points.push_back(point.point);
             std::vector<double> data;
             data.reserve(n_properties);
@@ -4634,9 +4726,9 @@ namespace ImmersX
             std::is_same_v<TestExpression, decltype(test(target_.source()))>,
             "A lifted reaction currently pairs with a value test.");
           const auto bulk = value(target_.source());
-          const WeakTerm<decltype(bulk), TrialExpression> reverse(bulk,
-                                                                  observable_);
-          const auto                                      pairing =
+          const WeakTerm<decltype(bulk), TrialExpression, Support> reverse(
+            bulk, observable_, support_);
+          const auto pairing =
             reverse.make_pairing(builder, observable_, region_);
           const auto reaction =
             observable_.scale() * target_.scale() *
@@ -4650,32 +4742,26 @@ namespace ImmersX
         }
       else if constexpr (!detail::is_linear_observable<TrialExpression>::value)
         {
-          if constexpr (detail::is_lifted_observable<TrialExpression>::value)
-            AssertThrow((std::is_same_v<Support, InferredIntegrationSupport>),
-                        dealii::ExcMessage(
-                          "Explicit integration support for lifted nonlinear "
-                          "weak terms is not implemented yet."));
-          else
-            {
-              AssertThrow(
-                (std::is_same_v<Support, InferredIntegrationSupport> ||
-                 is_integration_support<Support>::value ||
-                 is_physical_quadrature_support<Support>::value),
-                dealii::ExcMessage(
-                  "Nonlinear weak terms require cell or physical quadrature "
-                  "support."));
-              if constexpr (is_integration_support<Support>::value)
-                {
-                  if constexpr (Support::dimension() ==
-                                trial_field_type::dimension())
-                    {
-                      support_.assert_matches(
-                        observable_.source().dof_handler().get_triangulation());
-                      support_.assert_matches(
-                        target_.source().dof_handler().get_triangulation());
-                    }
-                }
-            }
+          {
+            AssertThrow(
+              (std::is_same_v<Support, InferredIntegrationSupport> ||
+               is_integration_support<Support>::value ||
+               is_physical_quadrature_support<Support>::value),
+              dealii::ExcMessage(
+                "Nonlinear weak terms require cell or physical quadrature "
+                "support."));
+            if constexpr (is_integration_support<Support>::value)
+              {
+                if constexpr (Support::dimension() ==
+                              trial_field_type::dimension())
+                  {
+                    support_.assert_matches(
+                      observable_.source().dof_handler().get_triangulation());
+                    support_.assert_matches(
+                      target_.source().dof_handler().get_triangulation());
+                  }
+              }
+          }
           AssertThrow(region_.kind == WeakTermRegion::Kind::volume,
                       dealii::ExcMessage(
                         "Boundary regions currently require linear weak "
@@ -4691,9 +4777,8 @@ namespace ImmersX
               if constexpr (detail::is_lifted_observable<
                               TrialExpression>::value)
                 {
-                  (void)support;
                   return Assembly::template residual<VectorType, MatrixType>(
-                    observable, target, context);
+                    observable, target, context, support);
                 }
               else
                 return Assembly::template residual<VectorType, MatrixType>(
@@ -4723,10 +4808,9 @@ namespace ImmersX
                 if constexpr (detail::is_lifted_observable<
                                 TrialExpression>::value)
                   {
-                    (void)support;
                     return Assembly::template linearize_matrix<VectorType,
                                                                MatrixType>(
-                      observable, target, field, context);
+                      observable, target, field, context, support);
                   }
                 else
                   return Assembly::template linearize_matrix<VectorType,
@@ -4830,10 +4914,11 @@ namespace ImmersX
             builder.term(multiplier, suffix + ".multiplier");
           multiplier_term.residual([observable = observable_,
                                     multiplier_expression,
-                                    sign](const auto &context) {
+                                    sign,
+                                    support = support_](const auto &context) {
             const auto values =
               Assembly::template residual<VectorType, MatrixType>(
-                observable, multiplier_expression, context);
+                observable, multiplier_expression, context, support);
             typename Model::Operation result;
             result.reinit_vector = [values](VectorType &vector,
                                             const bool  omit) {
@@ -4852,13 +4937,19 @@ namespace ImmersX
           for (const auto field : observable_.dependencies())
             multiplier_term.state(
               field,
-              OperatorFactory(
-                [observable = observable_, multiplier_expression, field, sign](
-                  const auto &context) {
-                  return sign *
-                         Assembly::template linearize<VectorType, MatrixType>(
-                           observable, multiplier_expression, field, context);
-                }));
+              OperatorFactory([observable = observable_,
+                               multiplier_expression,
+                               field,
+                               sign,
+                               support = support_](const auto &context) {
+                return sign *
+                       Assembly::template linearize<VectorType, MatrixType>(
+                         observable,
+                         multiplier_expression,
+                         field,
+                         context,
+                         support);
+              }));
 
           for (const auto field : observable_.dependencies())
             {
@@ -4870,11 +4961,12 @@ namespace ImmersX
                                          field,
                                          multiplier,
                                          sign,
-                                         participant_field](
-                                          const auto &context) {
+                                         participant_field,
+                                         support =
+                                           support_](const auto &context) {
                 const auto jacobian =
                   Assembly::template linearize<VectorType, MatrixType>(
-                    observable, multiplier_expression, field, context);
+                    observable, multiplier_expression, field, context, support);
                 const auto  reaction = dealii::transpose_operator(jacobian);
                 const auto *multiplier_state = &context.state(multiplier);
                 typename Model::Operation result;
@@ -4924,10 +5016,15 @@ namespace ImmersX
                 OperatorFactory([observable = observable_,
                                  multiplier_expression,
                                  field,
-                                 sign](const auto &context) {
+                                 sign,
+                                 support = support_](const auto &context) {
                   const auto jacobian =
                     Assembly::template linearize<VectorType, MatrixType>(
-                      observable, multiplier_expression, field, context);
+                      observable,
+                      multiplier_expression,
+                      field,
+                      context,
+                      support);
                   return sign * dealii::transpose_operator(jacobian);
                 }));
             }
@@ -5194,7 +5291,11 @@ namespace ImmersX
             detail::LiftedTargetWeakAssembly<TrialExpression, Target>;
           const auto storage =
             Assembly::template assemble<VectorType, MatrixType>(
-              observable_, target, affine_rhs_output, affine_data_output);
+              observable_,
+              target,
+              affine_rhs_output,
+              affine_data_output,
+              support_);
           result.matrix   = storage.matrix;
           result.sparsity = storage.sparsity;
           result.operator_with_matrix =
@@ -5266,6 +5367,51 @@ namespace ImmersX
               result.sparsity = storage.sparsity;
               result.operator_with_matrix =
                 ImmersX::matrix_operator<VectorType>(*result.matrix);
+              if constexpr (is_integration_support<Support>::value &&
+                            std::is_constructible_v<TrialExpression,
+                                                    trial_field_type>)
+                {
+                  const auto source      = observable_.source();
+                  const auto constrained = dealii::Utilities::MPI::max(
+                    source.constraints().n_constraints() != 0 ? 1u : 0u,
+                    source.space().mpi_communicator());
+                  if (include_affine && nonmatching_geometry &&
+                      !source.is_reindexed() && constrained != 0)
+                    {
+                      auto empty =
+                        std::make_shared<dealii::AffineConstraints<double>>();
+                      empty->reinit(source.locally_owned_dofs(),
+                                    source.locally_relevant_dofs());
+                      empty->close();
+                      const auto unconstrained =
+                        TrialExpression(source.with_constraints(empty))
+                          .scaled(observable_.scale());
+                      const auto storage =
+                        Assembly::template assemble_on_support<VectorType,
+                                                               MatrixType>(
+                          unconstrained, target, support_);
+                      const auto affine_operator =
+                        ImmersX::matrix_operator<VectorType>(*storage.matrix);
+                      // Source offsets change in time; geometry and the
+                      // selected samples stay fixed.
+                      result.affine_rhs_factory =
+                        [source, storage, affine_operator] {
+                          VectorType offset;
+                          affine_operator.view.reinit_domain_vector(offset,
+                                                                    false);
+                          offset = 0.;
+                          for (const auto i : source.locally_owned_dofs())
+                            offset[i] +=
+                              source.constraints().get_inhomogeneity(i);
+                          detail::compress_weak_vector(offset);
+                          auto rhs = std::make_shared<VectorType>();
+                          affine_operator.view.reinit_range_vector(*rhs, false);
+                          affine_operator.view.vmult(*rhs, offset);
+                          *rhs *= -1.;
+                          return rhs;
+                        };
+                    }
+                }
             }
           else
             {

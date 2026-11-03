@@ -92,6 +92,16 @@ namespace ImmersX
 
   namespace detail
   {
+    template <typename Point, typename = void>
+    struct has_support_source_cell_id : std::false_type
+    {};
+    template <typename Point>
+    struct has_support_source_cell_id<
+      Point,
+      std::void_t<decltype(std::declval<Point>().source_cell_id)>>
+      : std::true_type
+    {};
+
     /** A fixed quadrature partition shared by the two parts of an integral. */
     struct OverlapCellQuadrature
     {
@@ -175,6 +185,12 @@ namespace ImmersX
       return false;
     }
 
+    bool
+    has_quadrature_partition() const
+    {
+      return partition_ != nullptr;
+    }
+
     /** Keep this quadrature fixed for all terms using the sampled partition. */
     const dealii::Quadrature<dim> &
     quadrature(const dealii::Quadrature<dim> &fallback) const
@@ -201,15 +217,29 @@ namespace ImmersX
     includes_lifted_point(const PointRecord &point) const
     {
       if (!partition_)
-        return true;
+        {
+          if (material_id_)
+            {
+              if constexpr (detail::has_support_source_cell_id<
+                              PointRecord>::value)
+                return includes_cell(
+                  triangulation_->create_cell_iterator(point.source_cell_id));
+              else
+                AssertThrow(
+                  false,
+                  dealii::ExcMessage(
+                    "A lifted material support requires source cell ids."));
+            }
+          return true;
+        }
       const auto entry = partition_->find(point.source_entity_id);
       if (entry == partition_->end())
-        return false;
-      if (entry->second.total_weights.at(point.representative_qpoint) == 0.)
         return false;
       const auto &flags = entry->second.inside;
       if (point.representative_qpoint >= flags.size() ||
           point.section_qpoint >= flags[point.representative_qpoint].size())
+        return false;
+      if (entry->second.total_weights[point.representative_qpoint] == 0.)
         return false;
       return (flags[point.representative_qpoint][point.section_qpoint] != 0) !=
              outside_;

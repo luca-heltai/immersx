@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Partition coupling quadrature into overlap and exterior supports without changing physical material IDs.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Integrate nonmatching continuity constraints on overlapping quadrature samples and impose a homogeneous multiplier mass equation on all exterior samples, preserving physical material IDs.
 
 - [PR #327](https://github.com/luca-heltai/immersx/pull/327) Classify source cells against a distributed background using quadrature or supplied physical points, assign material ids for outside, partial and inside coverage, and synchronize ghost-cell labels.
 
