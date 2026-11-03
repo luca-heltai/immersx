@@ -422,6 +422,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow four-rank MPI regressions to launch on hosted runners with two CPU slots, supporting Open MPI 4 and 5 within the Debug and Release CTest steps.
+
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Keep complete vascular figure campaigns as manual publication runs, use a two-terminal coupled fixture with free solid displacement DoFs, enforce a 115-second watchdog and vascular CLI limit, remove the Debug-only coupled timeout extension, and retain the independent full-forest oracle only in test support.
 
 - [PR #323](https://github.com/luca-heltai/immersx/pull/323) Limit numerical CI builds to two compiler jobs. Allow 120 minutes for Debug and 90 for Release, and skip incompatible optional 1D solver downloads while retaining client compilation checks.
