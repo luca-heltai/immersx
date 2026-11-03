@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #327](https://github.com/luca-heltai/immersx/pull/327) Classify source cells against a distributed background using quadrature or supplied physical points, assign material ids for outside, partial and inside coverage, and synchronize ghost-cell labels.
+
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Build flow-oriented vascular meshes directly from immutable physical data, transferring endpoint boundary identifiers only with the numerical cells that need them.
 
 - [PR #314](https://github.com/luca-heltai/immersx/pull/314) Solve arterial, portal and venous networks through a common microvascular pressure in each tissue territory. Report each supply, venous drainage and compartment pressure, and prescribe demand-weighted reference flows separately for each system. Grow all three geometric networks toward the same territories with a configurable supply fraction, retain common compartments in physical archives, and import optional portal trees through the liver application.

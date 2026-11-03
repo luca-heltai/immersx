@@ -72,6 +72,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ImportedFiniteElementFields
     Domain
     LocalCoRefinement
+    OverlapClassification
     LiftedElasticity
     LegacyInclusions
     LiftedIntegrationSupport
