@@ -870,9 +870,8 @@ TEST(VascularDiscretization, BOTH_CrossingWorkTracksIntersectedCells)
   for (unsigned int count : {8u, 32u, 128u, 512u})
     {
       parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
-      std::vector<std::vector<double>>        widths(3);
-      widths[1] = widths[2] = {1.};
-      std::vector<double> endpoints{0.};
+      std::vector<std::vector<double>>        widths{{}, {1.}, {1.}};
+      std::vector<double>                     endpoints{0.};
       for (unsigned int i = 0; i < count; ++i)
         {
           widths[0].push_back(i % 2 == 0 ? .5 : 1.);

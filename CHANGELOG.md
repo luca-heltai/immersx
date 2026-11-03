@@ -422,6 +422,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Initialize the vascular crossing-work fixture widths directly, preserving its nonuniform cells while avoiding GCC 13 array-bounds diagnostics from chained vector assignment.
+
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Retain the accepted growth snapshot while traversing its obstacle index in the vascular regression, avoiding GCC 13 lifetime diagnostics.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Read the retained finite-element space directly in the lifted elasticity modal-metric regression, avoiding a temporary Field and GCC 13 lifetime diagnostics while preserving its independent quadrature check.
