@@ -1,0 +1,756 @@
+// Copyright (C) 2026 by Luca Heltai
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#include <deal.II/boost_adaptors/segment.h>
+
+#include <deal.II/fe/mapping_fe.h>
+#include <deal.II/fe/mapping_q.h>
+
+#include <deal.II/grid/grid_tools_cache.h>
+
+#include <deal.II/numerics/rtree.h>
+
+#include <boost/serialization/array.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/vector.hpp>
+
+#include <immersx/vascularization/discretization.h>
+
+#include <algorithm>
+#include <cmath>
+#include <iterator>
+#include <limits>
+#include <list>
+#include <optional>
+#include <set>
+#include <tuple>
+
+#include "background_intersections.h"
+
+namespace ImmersX::Vascularization
+{
+  namespace
+  {
+    using namespace dealii;
+    namespace bgi                        = boost::geometry::index;
+    constexpr double reference_tolerance = 1.e-12;
+
+    using Interval = internal::BackgroundInterval;
+
+    Point<3>
+    point(const Segment<3> &s, double t)
+    {
+      return s.first + t * (s.second - s.first);
+    }
+
+    void
+    append_intersection(const Segment<3>    &s,
+                        const Point<3>      &p,
+                        std::vector<double> &cuts)
+    {
+      const auto   d = s.second - s.first;
+      const double t = (p - s.first) * d / d.norm_square();
+      const double tolerance =
+        128. * std::numeric_limits<double>::epsilon() *
+        std::max({1., p.norm(), s.first.norm(), s.second.norm()});
+      if (t >= -reference_tolerance && t <= 1. + reference_tolerance &&
+          point(s, t).distance(p) <= tolerance)
+        cuts.push_back(std::clamp(t, 0., 1.));
+    }
+
+    // Eliminate the line parameter by projecting along its dominant axis.
+    // The two remaining face equations are bilinear in u,v; eliminating v
+    // gives a quadratic in u. This handles warped Q1 faces without planar
+    // triangulation of their interiors.
+    void
+    face_intersections(const Segment<3>            &s,
+                       const std::vector<Point<3>> &p,
+                       std::vector<double>         &cuts)
+    {
+      const auto   direction = s.second - s.first;
+      unsigned int axis      = 0;
+      for (unsigned int d = 1; d < 3; ++d)
+        if (std::abs(direction[d]) > std::abs(direction[axis]))
+          axis = d;
+      const unsigned int i = (axis + 1) % 3, j = (axis + 2) % 3;
+      const auto         project = [&](const Tensor<1, 3> &x) {
+        return std::array<long double, 2>{
+          {static_cast<long double>(x[i]) -
+             static_cast<long double>(direction[i]) / direction[axis] * x[axis],
+           static_cast<long double>(x[j]) -
+             static_cast<long double>(direction[j]) / direction[axis] *
+               x[axis]}};
+      };
+      const auto e = project(p[0] - s.first), u = project(p[1] - p[0]),
+                 v = project(p[2] - p[0]);
+      const Point<3> cross =
+        p.size() == 4 ? Point<3>(p[3] - p[1] - p[2] + p[0]) : Point<3>();
+      const auto w = project(cross);
+      // A line lying in a face/ruling has a continuum of face intersections.
+      // Its entry/exit parameters are supplied by the face's boundary edges.
+      const std::vector<std::array<unsigned int, 2>> edges =
+        p.size() == 3 ? std::vector<std::array<unsigned int, 2>>{{{0, 1}},
+                                                                 {{1, 2}},
+                                                                 {{2, 0}}} :
+                        std::vector<std::array<unsigned int, 2>>{{{0, 1}},
+                                                                 {{1, 3}},
+                                                                 {{3, 2}},
+                                                                 {{2, 0}}};
+      for (const auto &edge : edges)
+        {
+          const auto a = project(p[edge[0]] - s.first),
+                     d = project(p[edge[1]] - p[edge[0]]);
+          const unsigned int component =
+            std::abs(d[0]) >= std::abs(d[1]) ? 0 : 1;
+          if (d[component] != 0.)
+            {
+              const long double t = -a[component] / d[component];
+              if (t >= -reference_tolerance && t <= 1. + reference_tolerance)
+                append_intersection(s,
+                                    p[edge[0]] + static_cast<double>(
+                                                   std::clamp(t, 0.L, 1.L)) *
+                                                   (p[edge[1]] - p[edge[0]]),
+                                    cuts);
+            }
+          else
+            {
+              append_intersection(s, p[edge[0]], cuts);
+              append_intersection(s, p[edge[1]], cuts);
+            }
+        }
+      const long double a = u[0] * w[1] - u[1] * w[0];
+      const long double b =
+        e[0] * w[1] + u[0] * v[1] - e[1] * w[0] - u[1] * v[0];
+      const long double        c = e[0] * v[1] - e[1] * v[0];
+      std::vector<long double> roots;
+      if (a == 0.)
+        {
+          if (b != 0.)
+            roots.push_back(-c / b);
+        }
+      else
+        {
+          long double       discriminant = b * b - 4. * a * c;
+          const long double guard =
+            64. * std::numeric_limits<long double>::epsilon() *
+            (b * b + std::abs(4. * a * c));
+          if (discriminant >= -guard)
+            {
+              discriminant = std::max(0.L, discriminant);
+              const long double q =
+                -.5L * (b + std::copysign(std::sqrt(discriminant), b));
+              if (q == 0.)
+                roots.push_back(-b / (2. * a));
+              else
+                {
+                  roots.push_back(q / a);
+                  roots.push_back(c / q);
+                }
+            }
+        }
+      for (long double x : roots)
+        if (x >= -reference_tolerance && x <= 1. + reference_tolerance)
+          {
+            const std::array<long double, 2> den{
+              {v[0] + w[0] * x, v[1] + w[1] * x}};
+            const unsigned int component =
+              std::abs(den[0]) >= std::abs(den[1]) ? 0 : 1;
+            if (den[component] == 0.)
+              continue;
+            const long double y =
+              -(e[component] + u[component] * x) / den[component];
+            if (y >= -reference_tolerance && y <= 1. + reference_tolerance &&
+                (p.size() == 4 || x + y <= 1. + reference_tolerance))
+              {
+                const double xx = std::clamp(static_cast<double>(x), 0., 1.),
+                             yy = std::clamp(static_cast<double>(y), 0., 1.);
+                append_intersection(s,
+                                    p[0] + xx * (p[1] - p[0]) +
+                                      yy * (p[2] - p[0]) + xx * yy * cross,
+                                    cuts);
+              }
+          }
+    }
+
+    void
+    sort_cuts(std::vector<double> &cuts, GrowthWork *work = nullptr)
+    {
+      const auto original_size = cuts.size();
+      std::sort(cuts.begin(), cuts.end());
+      cuts.erase(std::unique(cuts.begin(),
+                             cuts.end(),
+                             [](double a, double b) {
+                               return std::abs(a - b) < reference_tolerance;
+                             }),
+                 cuts.end());
+      count_work(work,
+                 GrowthOperation::interval_cut_edits,
+                 original_size - cuts.size());
+      cuts.front() = 0.;
+      cuts.back()  = 1.;
+    }
+
+    std::vector<Interval>
+    traversed(const GridTools::Cache<3> &cache,
+              const Mapping<3>          &mapping,
+              const Segment<3>          &s,
+              types::subdomain_id        exterior_owner,
+              GrowthWork                *work)
+    {
+      std::vector<double> cuts{0., 1.};
+      double              maximum_diameter = 0.;
+      for (const auto &[box, cell] :
+           cache.get_locally_owned_cell_bounding_boxes_rtree() |
+             bgi::adaptors::queried(bgi::intersects(s)))
+        {
+          maximum_diameter = std::max(maximum_diameter, cell->diameter());
+          for (const auto f : cell->face_indices())
+            {
+              std::vector<Point<3>> vertices;
+              for (const auto v : cell->face(f)->vertex_indices())
+                vertices.push_back(cell->face(f)->vertex(v));
+              const auto before = cuts.size();
+              face_intersections(s, vertices, cuts);
+              count_work(work,
+                         GrowthOperation::interval_cut_edits,
+                         cuts.size() - before);
+            }
+        }
+      sort_cuts(cuts, work);
+      // Q1 and affine simplex maps bound the physical displacement allowed by
+      // the reference-cell tolerance by a constant times the cell diameter.
+      const double padding =
+        8. * reference_tolerance *
+        std::max({1., maximum_diameter, s.first.norm(), s.second.norm()});
+      std::vector<Interval> result;
+      for (std::size_t i = 1; i < cuts.size(); ++i)
+        {
+          const Point<3> p = point(s, .5 * (cuts[i - 1] + cuts[i]));
+          std::optional<Triangulation<3>::active_cell_iterator> found;
+          Point<3> lower = p, upper = p;
+          for (unsigned int d = 0; d < 3; ++d)
+            {
+              lower[d] -= padding;
+              upper[d] += padding;
+            }
+          const BoundingBox<3> query_box(std::make_pair(lower, upper));
+          count_work(work, GrowthOperation::point_cell_queries);
+          for (const auto &[box, cell] :
+               cache.get_locally_owned_cell_bounding_boxes_rtree() |
+                 bgi::adaptors::queried(bgi::intersects(query_box)))
+            {
+              count_work(work, GrowthOperation::point_cell_hits);
+              if (!boost::geometry::intersects(box, s))
+                continue;
+              count_work(work, GrowthOperation::interval_cell_tests);
+              try
+                {
+                  const auto unit =
+                    mapping.transform_real_to_unit_cell(cell, p);
+                  if (cell->reference_cell().contains_point(
+                        unit, reference_tolerance) &&
+                      (!found || cell->diameter() < (*found)->diameter() ||
+                       (cell->diameter() == (*found)->diameter() &&
+                        cell->id() < (*found)->id())))
+                    found = cell;
+                }
+              catch (const Mapping<3>::ExcTransformationFailed &)
+                {}
+            }
+          const double h   = found ? (*found)->diameter() : 0.;
+          const auto owner = found ? (*found)->subdomain_id() : exterior_owner;
+          if (!result.empty() && result.back().h == h &&
+              result.back().owner == owner)
+            result.back().end = cuts[i];
+          else
+            result.push_back({cuts[i - 1], cuts[i], h, owner});
+        }
+      return result;
+    }
+
+    // Only coarse background boxes are replicated. Physical owners obtain
+    // exact positive-arclength intersections from the relevant cell owners.
+    std::map<Id, std::vector<Interval>>
+    distributed_intervals(const GridTools::Cache<3>      &cache,
+                          const Mapping<3>               &mapping,
+                          const std::map<Id, Segment<3>> &segments,
+                          MPI_Comm                        comm,
+                          GrowthWork                     *work)
+    {
+      const auto  rank = Utilities::MPI::this_mpi_process(comm);
+      const auto  size = Utilities::MPI::n_mpi_processes(comm);
+      const auto &tree = cache.get_locally_owned_cell_bounding_boxes_rtree();
+      std::vector<BoundingBox<3>> local_boxes;
+      if (!tree.empty())
+        local_boxes = extract_rtree_level(tree, 1);
+      const auto boxes = Utilities::MPI::all_gather(comm, local_boxes);
+      std::vector<std::pair<BoundingBox<3>, unsigned int>> covering;
+      for (unsigned int r = 0; r < size; ++r)
+        for (const auto &box : boxes[r])
+          covering.emplace_back(box, r);
+      const auto covering_tree = pack_rtree(covering);
+      using Query              = std::pair<Id, std::array<Point<3>, 2>>;
+      std::map<unsigned int, std::vector<Query>> queries;
+      std::map<Id, std::vector<Interval>>        result;
+      for (const auto &[id, segment] : segments)
+        {
+          const std::array<Point<3>, 2> endpoints{
+            {segment.first, segment.second}};
+          result[id];
+          std::set<unsigned int> recipients;
+          for (const auto &[box, source] :
+               covering_tree | bgi::adaptors::queried(bgi::intersects(segment)))
+            recipients.insert(source);
+          for (const auto source : recipients)
+            queries[source].push_back({id, endpoints});
+        }
+      const auto incoming = Utilities::MPI::some_to_some(comm, queries);
+      std::map<unsigned int, std::map<Id, std::vector<Interval>>> replies;
+      for (const auto &[source, requests] : incoming)
+        for (const auto &[id, endpoints] : requests)
+          for (const auto &interval :
+               traversed(cache,
+                         mapping,
+                         Segment<3>(endpoints[0], endpoints[1]),
+                         rank,
+                         work))
+            if (interval.h > 0.)
+              replies[source][id].push_back(interval);
+      const auto received = Utilities::MPI::some_to_some(comm, replies);
+      for (const auto &[source, vessels] : received)
+        for (const auto &[id, intervals] : vessels)
+          result.at(id).insert(result.at(id).end(),
+                               intervals.begin(),
+                               intervals.end());
+      for (auto &[id, intervals] : result)
+        {
+          std::vector<double> cuts{0., 1.};
+          for (const auto &interval : intervals)
+            {
+              cuts.push_back(interval.begin);
+              cuts.push_back(interval.end);
+            }
+          sort_cuts(cuts, work);
+          struct Event
+          {
+            double      coordinate;
+            std::size_t index;
+            bool        enter;
+          };
+          std::vector<Event> events;
+          events.reserve(2 * intervals.size());
+          for (std::size_t i = 0; i < intervals.size(); ++i)
+            {
+              events.push_back({intervals[i].begin, i, true});
+              events.push_back({intervals[i].end, i, false});
+              count_work(work, GrowthOperation::interval_record_visits);
+            }
+          std::sort(events.begin(),
+                    events.end(),
+                    [](const auto &a, const auto &b) {
+                      return std::tie(a.coordinate, a.enter, a.index) <
+                             std::tie(b.coordinate, b.enter, b.index);
+                    });
+          std::set<std::pair<double, std::size_t>>              diameters;
+          std::set<std::pair<types::subdomain_id, std::size_t>> owners;
+          std::size_t                                           event = 0;
+          std::vector<Interval>                                 combined;
+          for (std::size_t i = 1; i < cuts.size(); ++i)
+            {
+              const double middle = .5 * (cuts[i - 1] + cuts[i]);
+              // Remove exits at the midpoint before admitting entries there:
+              // the original containment predicate is strict at both ends.
+              while (
+                event < events.size() &&
+                (events[event].coordinate < middle ||
+                 (events[event].coordinate == middle && !events[event].enter)))
+                {
+                  const auto &entry    = events[event++];
+                  const auto &interval = intervals[entry.index];
+                  const auto  h = std::make_pair(interval.h, entry.index);
+                  const auto  owner =
+                    std::make_pair(interval.owner, entry.index);
+                  if (entry.enter)
+                    {
+                      diameters.insert(h);
+                      owners.insert(owner);
+                    }
+                  else
+                    {
+                      diameters.erase(h);
+                      owners.erase(owner);
+                    }
+                  count_work(work, GrowthOperation::interval_record_visits);
+                }
+              Interval selected{cuts[i - 1], cuts[i], 0., rank};
+              // Mesh scale and execution ownership have distinct tie rules.
+              if (!diameters.empty())
+                {
+                  selected.h     = diameters.begin()->first;
+                  selected.owner = owners.begin()->first;
+                }
+              count_work(work, GrowthOperation::interval_record_visits);
+              if (!combined.empty() && combined.back().h == selected.h &&
+                  combined.back().owner == selected.owner)
+                combined.back().end = selected.end;
+              else
+                combined.push_back(selected);
+            }
+          intervals = std::move(combined);
+        }
+      return result;
+    }
+
+    DiscretizationCell
+    cell_resolution(Id                           vessel,
+                    double                       begin,
+                    double                       end,
+                    const std::vector<Interval> &intervals,
+                    GrowthWork                  *work)
+    {
+      DiscretizationCell result;
+      result.reference            = {vessel, begin, end};
+      result.h_min                = std::numeric_limits<double>::infinity();
+      const double middle         = .5 * (begin + end);
+      bool         midpoint_found = false;
+      const auto   first =
+        std::lower_bound(intervals.begin(),
+                         intervals.end(),
+                         begin,
+                         [work](const auto &interval, double coordinate) {
+                           count_work(work,
+                                      GrowthOperation::interval_record_visits);
+                           return interval.end <= coordinate;
+                         });
+      for (auto it = first; it != intervals.end() && it->begin < end; ++it)
+        {
+          const auto &interval = *it;
+          count_work(work, GrowthOperation::interval_record_visits);
+          if (interval.begin < end && interval.end > begin)
+            {
+              if (interval.h > 0.)
+                {
+                  result.inside = true;
+                  result.h_min  = std::min(result.h_min, interval.h);
+                  result.h_max  = std::max(result.h_max, interval.h);
+                }
+              if (interval.begin <= middle && middle <= interval.end)
+                {
+                  result.owner   = midpoint_found ?
+                                     std::min(result.owner, interval.owner) :
+                                     interval.owner;
+                  midpoint_found = true;
+                }
+            }
+        }
+      if (!result.inside)
+        result.h_min = 0.;
+      return result;
+    }
+  } // namespace
+
+  std::map<Id, std::vector<internal::BackgroundInterval>>
+  internal::intersect_background(
+    const dealii::GridTools::Cache<3>      &cache,
+    const dealii::Mapping<3>               &mapping,
+    const std::map<Id, dealii::Segment<3>> &segments,
+    MPI_Comm                                communicator,
+    GrowthWork                             *work)
+  {
+    return distributed_intervals(cache, mapping, segments, communicator, work);
+  }
+
+  void
+  DiscretizationParameters::validate() const
+  {
+    using namespace dealii;
+    AssertThrow(
+      std::isfinite(lower_factor) && lower_factor > 0. &&
+        std::isfinite(target_factor) && target_factor >= lower_factor &&
+        std::isfinite(upper_factor) && upper_factor >= target_factor &&
+        std::isfinite(exterior_length) && exterior_length >= 0. &&
+        cell_budget > 0,
+      ExcMessage("Invalid vascular discretization bounds or budget."));
+  }
+
+  DiscretizationResult
+  discretize(const dealii::Triangulation<3> &background,
+             const dealii::Mapping<3>       &mapping,
+             const NetworkData              &network,
+             const DiscretizationParameters &parameters,
+             MPI_Comm                        communicator)
+  {
+    using namespace dealii;
+    const auto rank        = Utilities::MPI::this_mpi_process(communicator);
+    const auto size        = Utilities::MPI::n_mpi_processes(communicator);
+    const auto require_all = [&](bool valid, const std::string &message) {
+      AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(valid),
+                                      communicator) == 1,
+                  ExcMessage(message));
+    };
+    const std::array<double, 5> controls{
+      {parameters.target_factor,
+       parameters.lower_factor,
+       parameters.upper_factor,
+       parameters.exterior_length,
+       static_cast<double>(parameters.cell_budget)}};
+    const auto all_controls =
+      Utilities::MPI::all_gather(communicator, controls);
+    require_all(std::all_of(all_controls.begin(),
+                            all_controls.end(),
+                            [&](const auto &other) {
+                              return other == controls;
+                            }),
+                "Vascular discretization parameters must agree across ranks.");
+    parameters.validate();
+    const auto *q          = dynamic_cast<const MappingQ<3> *>(&mapping);
+    const auto *fe         = dynamic_cast<const MappingFE<3> *>(&mapping);
+    int         comparison = MPI_UNEQUAL;
+    MPI_Comm_compare(background.get_mpi_communicator(),
+                     communicator,
+                     &comparison);
+    require_all(
+      ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1)) &&
+        (comparison == MPI_IDENT || comparison == MPI_CONGRUENT),
+      "Vascular discretization requires a first-order mapping and congruent communicators.");
+    DiscretizationResult result;
+    auto                *work = &result.work;
+    result.validation         = validate_data(network, size);
+    if (Utilities::MPI::min(static_cast<unsigned int>(
+                              result.validation.valid()),
+                            communicator) == 0)
+      {
+        if (result.validation.valid())
+          result.validation.issues.push_back(
+            {"discretization",
+             invalid_id,
+             "Invalid vascular data on another rank."});
+        return result;
+      }
+    std::map<unsigned int, std::vector<Id>> owned_ids;
+    for (const auto &[id, vessel] : network.vessels)
+      if (vessel.owner == rank)
+        owned_ids[id % size].push_back(id);
+    std::set<Id> seen;
+    bool         unique = true;
+    for (const auto &[source, ids] :
+         Utilities::MPI::some_to_some(communicator, owned_ids))
+      for (const auto id : ids)
+        unique = seen.insert(id).second && unique;
+    require_all(unique,
+                "Physical vessels must have unique authoritative owners.");
+    count_work(work, GrowthOperation::background_cache_constructions);
+    GridTools::Cache<3> cache(background, mapping);
+    double              exterior_h      = parameters.exterior_length;
+    bool                supported_cells = true;
+    for (const auto &cell : background.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          supported_cells = (cell->reference_cell().is_simplex() ||
+                             cell->reference_cell().is_hyper_cube()) &&
+                            supported_cells;
+          if (parameters.exterior_length == 0.)
+            exterior_h = std::max(exterior_h, cell->diameter());
+        }
+    require_all(supported_cells,
+                "Vascular discretization requires tetrahedra or hexahedra.");
+    exterior_h = Utilities::MPI::max(exterior_h, communicator);
+    AssertThrow(
+      exterior_h > 0.,
+      ExcMessage(
+        "A nonempty background or an explicit exterior target length is required."));
+    std::map<Id, Segment<3>> owned_segments;
+    for (const auto &[id, vessel] : network.vessels)
+      if (vessel.owner == rank)
+        owned_segments.emplace(
+          id,
+          Segment<3>(network.nodes.at(vessel.nodes[0]).position,
+                     network.nodes.at(vessel.nodes[1]).position));
+    const auto crossings = internal::intersect_background(
+      cache, mapping, owned_segments, communicator, work);
+    const auto subdivide_owned = [&]() {
+      for (const auto &[id, e] : network.vessels)
+        {
+          if (e.owner != rank)
+            continue;
+          const double l         = length(network, id);
+          const auto  &intervals = crossings.at(id);
+          double       metric    = 0.;
+          for (const auto &interval : intervals)
+            {
+              count_work(work, GrowthOperation::interval_record_visits);
+              metric += (interval.end - interval.begin) * l /
+                        (interval.h > 0. ? interval.h : exterior_h);
+              if (interval.h > 0.)
+                result.inside_volume +=
+                  volume(network, id, interval.begin, interval.end);
+            }
+          const double wanted =
+            std::max(1., std::round(metric / parameters.target_factor));
+          if (wanted > parameters.cell_budget ||
+              result.cells.size() + wanted > parameters.cell_budget)
+            {
+              result.validation.issues.push_back(
+                {"discretization", id, "Numerical cell budget exhausted."});
+              return;
+            }
+          const unsigned int  count = static_cast<unsigned int>(wanted);
+          std::vector<double> cuts{0., 1.};
+          std::size_t         current_interval = 0;
+          double              accumulated      = 0.;
+          for (unsigned int i = 1; i < count; ++i)
+            {
+              const double target = metric * i / count;
+              while (current_interval < intervals.size())
+                {
+                  const auto &interval = intervals[current_interval];
+                  count_work(work, GrowthOperation::interval_record_visits);
+                  const double h = interval.h > 0. ? interval.h : exterior_h;
+                  const double piece = (interval.end - interval.begin) * l / h;
+                  if (target <= accumulated + piece)
+                    {
+                      cuts.push_back(interval.begin +
+                                     (target - accumulated) * h / l);
+                      break;
+                    }
+                  accumulated += piece;
+                  ++current_interval;
+                }
+            }
+          // An exterior part is preserved, but never merged across the physical
+          // boundary into an interior numerical cell.
+          for (std::size_t i = 1; i < intervals.size(); ++i)
+            if ((intervals[i - 1].h > 0.) != (intervals[i].h > 0.))
+              cuts.push_back(intervals[i].begin);
+          sort_cuts(cuts, work);
+          if (result.cells.size() + cuts.size() - 1 > parameters.cell_budget)
+            {
+              result.validation.issues.push_back(
+                {"discretization",
+                 id,
+                 "Boundary-conforming numerical cell budget exhausted."});
+              return;
+            }
+          // Stable cut iterators avoid shifting all later cells on each edit.
+          std::list<double> partition(cuts.begin(), cuts.end());
+          for (auto right = std::next(partition.begin());
+               right != partition.end();)
+            {
+              const double begin = *std::prev(right), end = *right;
+              const auto   cell =
+                cell_resolution(id, begin, end, intervals, work);
+              const double h = cell.inside ? cell.h_min : exterior_h;
+              if ((end - begin) * l >
+                  parameters.upper_factor * h * (1. + 1.e-12))
+                {
+                  const double middle = .5 * (begin + end);
+                  if (result.cells.size() + partition.size() >
+                        parameters.cell_budget ||
+                      middle == begin)
+                    {
+                      result.validation.issues.push_back(
+                        {"discretization",
+                         id,
+                         "Cannot meet the upper length bound within the numerical cell budget."});
+                      return;
+                    }
+                  right = partition.insert(right, middle);
+                  count_work(work, GrowthOperation::interval_cut_edits);
+                }
+              else
+                ++right;
+            }
+          // Merge avoidable short pieces without violating any crossed cell's
+          // upper bound or joining interior and exterior pieces.
+          for (auto right = std::next(partition.begin());
+               right != partition.end();)
+            {
+              const auto left = std::prev(right);
+              const auto cell =
+                cell_resolution(id, *left, *right, intervals, work);
+              if (cell.inside &&
+                  (*right - *left) * l < parameters.lower_factor * cell.h_max)
+                {
+                  bool merged = false;
+                  for (int offset : {-1, 1})
+                    {
+                      if ((offset == -1 && left == partition.begin()) ||
+                          (offset == 1 && std::next(right) == partition.end()))
+                        continue;
+                      const auto neighbor_begin =
+                        offset == -1 ? std::prev(left) : right;
+                      const auto neighbor_end =
+                        offset == -1 ? left : std::next(right);
+                      const auto neighbor = cell_resolution(
+                        id, *neighbor_begin, *neighbor_end, intervals, work);
+                      const double begin =
+                        offset == -1 ? *neighbor_begin : *left;
+                      const double end = offset == -1 ? *right : *neighbor_end;
+                      const auto   combined =
+                        cell_resolution(id, begin, end, intervals, work);
+                      if (neighbor.inside == cell.inside &&
+                          (end - begin) * l <=
+                            parameters.upper_factor * combined.h_min &&
+                          (end - begin) * l >=
+                            parameters.lower_factor * combined.h_max)
+                        {
+                          if (offset == -1)
+                            partition.erase(left);
+                          else if (offset == 1)
+                            {
+                              const auto next = partition.erase(right);
+                              // Revisit the previous cell to preserve the
+                              // existing left-first merge order.
+                              right = left == partition.begin() ?
+                                        next :
+                                        std::prev(next);
+                            }
+                          count_work(work, GrowthOperation::interval_cut_edits);
+                          merged = true;
+                          break;
+                        }
+                    }
+                  if (merged)
+                    continue;
+                }
+              ++right;
+            }
+          for (auto right = std::next(partition.begin());
+               right != partition.end();
+               ++right)
+            {
+              const double begin = *std::prev(right), end = *right;
+              auto cell = cell_resolution(id, begin, end, intervals, work);
+              cell.short_cell =
+                cell.inside && (end - begin) * l < parameters.lower_factor *
+                                                     cell.h_max * (1. - 1.e-12);
+              result.short_cells += cell.short_cell;
+              result.exterior_cells += !cell.inside;
+              result.cells.push_back(cell);
+            }
+        }
+    };
+    subdivide_owned();
+    const auto count =
+      Utilities::MPI::sum(static_cast<std::uint64_t>(result.cells.size()),
+                          communicator);
+    if (count > parameters.cell_budget)
+      result.validation.issues.push_back(
+        {"discretization",
+         invalid_id,
+         "Global numerical cell budget exhausted."});
+    if (Utilities::MPI::min(static_cast<unsigned int>(
+                              result.validation.valid()),
+                            communicator) == 0 &&
+        result.validation.valid())
+      result.validation.issues.push_back(
+        {"discretization",
+         invalid_id,
+         "Numerical subdivision failed on another rank."});
+    result.inside_volume =
+      Utilities::MPI::sum(result.inside_volume, communicator);
+    result.short_cells = Utilities::MPI::sum(result.short_cells, communicator);
+    result.exterior_cells =
+      Utilities::MPI::sum(result.exterior_cells, communicator);
+    return result;
+  }
+} // namespace ImmersX::Vascularization

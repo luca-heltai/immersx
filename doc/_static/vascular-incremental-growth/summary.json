@@ -1,0 +1,210 @@
+{
+  "1000": {
+    "generation_seconds": {
+      "maximum": 27.53743287,
+      "median": 25.473493057,
+      "minimum": 24.743066475
+    },
+    "maximum_leaf_depth": {
+      "maximum": 43,
+      "median": 40,
+      "minimum": 34
+    },
+    "mean_leaf_depth": {
+      "maximum": 22.165,
+      "median": 20.334,
+      "minimum": 20.138
+    },
+    "ordinary_candidate_path_visits": {
+      "maximum": 11924446,
+      "median": 11123257,
+      "minimum": 10835594
+    },
+    "ordinary_certified_vessels": {
+      "maximum": 6057,
+      "median": 6042,
+      "minimum": 6022
+    },
+    "ordinary_pair_checks": {
+      "maximum": 944244,
+      "median": 929880,
+      "minimum": 919114
+    },
+    "ordinary_physical_copy_attempts": {
+      "maximum": 2997,
+      "median": 2997,
+      "minimum": 2997
+    },
+    "ordinary_physiology_branch_visits": {
+      "maximum": 18747,
+      "median": 17772,
+      "minimum": 17675
+    },
+    "ordinary_vessel_midpoint_localizations": {
+      "maximum": 2997,
+      "median": 2997,
+      "minimum": 2997
+    },
+    "peak_rank_rss_kib": {
+      "maximum": 290676,
+      "median": 290560,
+      "minimum": 290268
+    }
+  },
+  "2000": {
+    "generation_seconds": {
+      "maximum": 64.662051834,
+      "median": 61.941714377000004,
+      "minimum": 60.133157844
+    },
+    "maximum_leaf_depth": {
+      "maximum": 55,
+      "median": 48,
+      "minimum": 46
+    },
+    "mean_leaf_depth": {
+      "maximum": 27.6735,
+      "median": 25.8685,
+      "minimum": 25.459
+    },
+    "ordinary_candidate_path_visits": {
+      "maximum": 30102081,
+      "median": 28067948,
+      "minimum": 26874854
+    },
+    "ordinary_certified_vessels": {
+      "maximum": 12272,
+      "median": 12194,
+      "minimum": 12066
+    },
+    "ordinary_pair_checks": {
+      "maximum": 1971598,
+      "median": 1927573,
+      "minimum": 1849062
+    },
+    "ordinary_physical_copy_attempts": {
+      "maximum": 5997,
+      "median": 5997,
+      "minimum": 5997
+    },
+    "ordinary_physiology_branch_visits": {
+      "maximum": 45910,
+      "median": 43286,
+      "minimum": 42667
+    },
+    "ordinary_vessel_midpoint_localizations": {
+      "maximum": 5997,
+      "median": 5997,
+      "minimum": 5997
+    },
+    "peak_rank_rss_kib": {
+      "maximum": 306788,
+      "median": 306476,
+      "minimum": 306016
+    }
+  },
+  "5000": {
+    "generation_seconds": {
+      "maximum": 220.211633142,
+      "median": 213.114693727,
+      "minimum": 210.74851210800003
+    },
+    "maximum_leaf_depth": {
+      "maximum": 69,
+      "median": 68,
+      "minimum": 66
+    },
+    "mean_leaf_depth": {
+      "maximum": 36.9268,
+      "median": 36.4954,
+      "minimum": 34.7446
+    },
+    "ordinary_candidate_path_visits": {
+      "maximum": 100827008,
+      "median": 96462250,
+      "minimum": 93074006
+    },
+    "ordinary_certified_vessels": {
+      "maximum": 30799,
+      "median": 30730,
+      "minimum": 30546
+    },
+    "ordinary_pair_checks": {
+      "maximum": 5036168,
+      "median": 4964623,
+      "minimum": 4849808
+    },
+    "ordinary_physical_copy_attempts": {
+      "maximum": 14997,
+      "median": 14997,
+      "minimum": 14997
+    },
+    "ordinary_physiology_branch_visits": {
+      "maximum": 150138,
+      "median": 144152,
+      "minimum": 141985
+    },
+    "ordinary_vessel_midpoint_localizations": {
+      "maximum": 14997,
+      "median": 14997,
+      "minimum": 14997
+    },
+    "peak_rank_rss_kib": {
+      "maximum": 355836,
+      "median": 355684,
+      "minimum": 355656
+    }
+  },
+  "10000": {
+    "generation_seconds": {
+      "maximum": 514.87309502,
+      "median": 514.571363479,
+      "minimum": 506.17548247
+    },
+    "maximum_leaf_depth": {
+      "maximum": 91,
+      "median": 90,
+      "minimum": 82
+    },
+    "mean_leaf_depth": {
+      "maximum": 46.8201,
+      "median": 44.3178,
+      "minimum": 44.2102
+    },
+    "ordinary_candidate_path_visits": {
+      "maximum": 248977055,
+      "median": 245689769,
+      "minimum": 235307637
+    },
+    "ordinary_certified_vessels": {
+      "maximum": 62386,
+      "median": 62185,
+      "minimum": 61405
+    },
+    "ordinary_pair_checks": {
+      "maximum": 10520248,
+      "median": 10471737,
+      "minimum": 9903802
+    },
+    "ordinary_physical_copy_attempts": {
+      "maximum": 29997,
+      "median": 29997,
+      "minimum": 29997
+    },
+    "ordinary_physiology_branch_visits": {
+      "maximum": 364804,
+      "median": 360789,
+      "minimum": 350534
+    },
+    "ordinary_vessel_midpoint_localizations": {
+      "maximum": 29997,
+      "median": 29997,
+      "minimum": 29997
+    },
+    "peak_rank_rss_kib": {
+      "maximum": 439172,
+      "median": 438360,
+      "minimum": 438344
+    }
+  }
+}

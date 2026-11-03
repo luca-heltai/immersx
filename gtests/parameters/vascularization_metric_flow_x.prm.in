@@ -1,0 +1,15 @@
+# Synthetic SI data for the distributed physical-to-native transfer gate.
+subsection Functions
+  set Inflow function = 2e-9*(1+t)
+end
+subsection MetricFlowSystem<1, 3>
+  set Vtk file path for mesh input = @IMMERSX_BINARY_DIR@/unused-in-memory-input.vtk
+  set Wall model = Square root
+  set Outlet boundary condition type = RCR
+  set Initial state source = rest
+  set Initial consistency tolerance = 1e-5
+  set Number of global refinement = 0
+  set Finite element degree = 1
+  set Verbosity (console depth) = 0
+  set Output directory = @TEST_OUTPUT_DIR@/vascular-metric-flow-x
+end

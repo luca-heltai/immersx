@@ -595,8 +595,13 @@ ENDIF()
 # Register CTest before adding test subdirectories so their add_test() calls
 # are included in the top-level test manifest.
 ENABLE_TESTING()
+# MPI rank counts describe the CPU budget of the numerical smoke tests.
+set(IMMERSX_NUMERICAL_TEST_ENVIRONMENT
+  "DEAL_II_NUM_THREADS=1;OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1")
 include(cmake/container_tests.cmake)
 include(cmake/lifted_elasticity_tests.cmake)
+include(cmake/vascular_network_tests.cmake)
+include(cmake/liver_vascular_tests.cmake)
 include(cmake/harmonic_fiber_tests.cmake)
 if(IMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS)
   include(cmake/metric_flow_x_package_tests.cmake)

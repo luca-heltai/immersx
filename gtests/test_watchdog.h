@@ -40,8 +40,8 @@ namespace ImmersX::TestWatchdog
     {
       std::lock_guard<std::mutex> lock(mutex);
       message = "GoogleTest " + test +
-                " exceeded the 120 second correctness-test budget.\n";
-      deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+                " exceeded the 115 second correctness-test budget.\n";
+      deadline = std::chrono::steady_clock::now() + std::chrono::seconds(115);
       armed    = true;
       ++generation;
       changed.notify_one();

@@ -1,0 +1,7 @@
+case,processes,background_cells,vessels,arterial_terminals,venous_terminals,pairs,numerical_cells,volume_fraction,target_volume_fraction,arterial_coverage,dual_coverage,minimum_coverage,calibration_status,calibration_attempts
+cube_uniform,1,8,15,8,0,0,15,3.68374033e-05,0,1,0,0,not_requested,0
+cube_edge,1,106,211,106,0,0,211,4.73806216e-05,0,1,0,0,not_requested,0
+sphere_uniform,1,56,111,56,0,0,111,7.30071147e-05,0,1,0,0,not_requested,0
+sphere_center,1,1064,2127,1064,0,0,2127,8.42591025e-05,0,1,0,0,not_requested,0
+arteriovenous,1,64,255,64,64,64,255,0.000139935093,0,1,1,0,not_requested,0
+rediscretized,1,4096,15,8,0,0,34,3.68374033e-05,0,0.0374145508,0,0,not_requested,0

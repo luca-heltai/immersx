@@ -2,6 +2,7 @@
 # applied to the unit and integration category tests below; MPI is orthogonal
 # and is selected by the process-count-specific test command.
 set(IMMERSX_UNIT_TEST_SUITES
+    VascularNetworkData
     TestCategoryTyped/*
     ContributorCore
     DimensionParameters
@@ -28,6 +29,22 @@ set(IMMERSX_UNIT_TEST_SUITES
     ReducedPoisson0D)
 
 set(IMMERSX_INTEGRATION_TEST_SUITES
+    VascularTissueDemand
+    VascularCompletion
+    VascularIO
+    VascularGeneration
+    VascularCCO
+    VascularImported
+    VascularDiscretization
+    VascularMetrics
+    VascularCalibration
+    VascularSurfacePorts
+    VascularReferenceFlow
+    VascularDemand
+    VascularAV
+    VascularDistribution
+    VascularGrowthBatch
+    VascularForest
     BoundaryConditions
     CoupledPoisson
     CoupledPoissonElasticity

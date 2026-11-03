@@ -75,6 +75,18 @@ namespace ImmersX
     unsigned int initial_refinement = 0;
     std::string  triangulation_type = "distributed";
 
+    /** For Domain<3,3>: auto detects volume versus closed surface input. */
+    std::string mesh_input = "auto";
+
+    /** Gmsh target edge length in input coordinates, before Grid scale. */
+    double surface_mesh_size = 1.;
+
+    /** Angle in degrees separating patches when parametrizing a surface. */
+    double surface_feature_angle = 40.;
+
+    /** Tetrahedra, or four conforming hexahedra per generated tetrahedron. */
+    std::string surface_volume_cells = "tetrahedra";
+
     /** Read and retain named data arrays from a VTK input mesh. */
     bool read_vtk_fields = false;
 

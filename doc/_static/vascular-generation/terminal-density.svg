@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="480" viewBox="0 0 1120 480">
+<rect width="100%" height="100%" fill="white"/>
+<title>Physical terminal density per tissue volume</title>
+<style>text{font-family:DejaVu Sans,sans-serif;fill:#24303b}line,path,polygon{stroke-linejoin:round}</style>
+<text x="25.00" y="28.00" font-size="21" text-anchor="start">Physical arterial terminal density</text>
+<text x="25.00" y="51.00" font-size="13" text-anchor="start">Shell volumes estimated with native background quadrature; these are physical terminals, not line cells.</text>
+<line x1="75.000" y1="365.000" x2="525.000" y2="365.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="369.00" font-size="11" text-anchor="end">0</text>
+<line x1="75.000" y1="302.500" x2="525.000" y2="302.500" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="306.50" font-size="11" text-anchor="end">1</text>
+<line x1="75.000" y1="240.000" x2="525.000" y2="240.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="244.00" font-size="11" text-anchor="end">2</text>
+<line x1="75.000" y1="177.500" x2="525.000" y2="177.500" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="181.50" font-size="11" text-anchor="end">3</text>
+<line x1="75.000" y1="115.000" x2="525.000" y2="115.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="67.00" y="119.00" font-size="11" text-anchor="end">4</text>
+<line x1="75.000" y1="365.000" x2="525.000" y2="365.000" stroke="#67727c" stroke-width="1.0000" />
+<line x1="75.000" y1="365.000" x2="75.000" y2="115.000" stroke="#67727c" stroke-width="1.0000" />
+<circle cx="187.500" cy="288.097" r="3" fill="#b62737"/>
+<line x1="187.500" y1="288.097" x2="262.500" y2="365.000" stroke="#b62737" stroke-width="2.0000" />
+<circle cx="262.500" cy="365.000" r="3" fill="#b62737"/>
+<line x1="262.500" y1="365.000" x2="337.500" y2="293.758" stroke="#b62737" stroke-width="2.0000" />
+<circle cx="337.500" cy="293.758" r="3" fill="#b62737"/>
+<line x1="337.500" y1="293.758" x2="412.500" y2="326.047" stroke="#b62737" stroke-width="2.0000" />
+<circle cx="412.500" cy="326.047" r="3" fill="#b62737"/>
+<line x1="412.500" y1="326.047" x2="487.500" y2="314.898" stroke="#b62737" stroke-width="2.0000" />
+<circle cx="487.500" cy="314.898" r="3" fill="#b62737"/>
+<text x="75.00" y="441.00" font-size="12" text-anchor="start">Uniform cube</text>
+<line x1="75.000" y1="418.000" x2="110.000" y2="418.000" stroke="#b62737" stroke-width="3.0000" />
+<circle cx="112.500" cy="139.748" r="3" fill="#2166ac"/>
+<line x1="112.500" y1="139.748" x2="187.500" y2="188.885" stroke="#2166ac" stroke-width="2.0000" />
+<circle cx="187.500" cy="188.885" r="3" fill="#2166ac"/>
+<line x1="187.500" y1="188.885" x2="262.500" y2="235.243" stroke="#2166ac" stroke-width="2.0000" />
+<circle cx="262.500" cy="235.243" r="3" fill="#2166ac"/>
+<line x1="262.500" y1="235.243" x2="337.500" y2="282.091" stroke="#2166ac" stroke-width="2.0000" />
+<circle cx="337.500" cy="282.091" r="3" fill="#2166ac"/>
+<line x1="337.500" y1="282.091" x2="412.500" y2="326.047" stroke="#2166ac" stroke-width="2.0000" />
+<circle cx="412.500" cy="326.047" r="3" fill="#2166ac"/>
+<line x1="412.500" y1="326.047" x2="487.500" y2="274.878" stroke="#2166ac" stroke-width="2.0000" />
+<circle cx="487.500" cy="274.878" r="3" fill="#2166ac"/>
+<text x="305.00" y="441.00" font-size="12" text-anchor="start">Cube: edge refinement</text>
+<line x1="305.000" y1="418.000" x2="340.000" y2="418.000" stroke="#2166ac" stroke-width="3.0000" />
+<text x="112.50" y="387.00" font-size="11" text-anchor="middle">0–0.125</text>
+<text x="187.50" y="387.00" font-size="11" text-anchor="middle">0.125–0.25</text>
+<text x="262.50" y="387.00" font-size="11" text-anchor="middle">0.25–0.5</text>
+<text x="337.50" y="387.00" font-size="11" text-anchor="middle">0.5–0.75</text>
+<text x="412.50" y="387.00" font-size="11" text-anchor="middle">0.75–1</text>
+<text x="487.50" y="387.00" font-size="11" text-anchor="middle">1–1.41</text>
+<text x="300.00" y="463.00" font-size="12" text-anchor="middle">Distance to chosen x edge / cube side</text>
+<line x1="630.000" y1="365.000" x2="1080.000" y2="365.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="369.00" font-size="11" text-anchor="end">0</text>
+<line x1="630.000" y1="323.333" x2="1080.000" y2="323.333" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="327.33" font-size="11" text-anchor="end">1</text>
+<line x1="630.000" y1="281.667" x2="1080.000" y2="281.667" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="285.67" font-size="11" text-anchor="end">2</text>
+<line x1="630.000" y1="240.000" x2="1080.000" y2="240.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="244.00" font-size="11" text-anchor="end">3</text>
+<line x1="630.000" y1="198.333" x2="1080.000" y2="198.333" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="202.33" font-size="11" text-anchor="end">4</text>
+<line x1="630.000" y1="156.667" x2="1080.000" y2="156.667" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="160.67" font-size="11" text-anchor="end">5</text>
+<line x1="630.000" y1="115.000" x2="1080.000" y2="115.000" stroke="#e1e5e9" stroke-width="0.6000" />
+<text x="622.00" y="119.00" font-size="11" text-anchor="end">6</text>
+<line x1="630.000" y1="365.000" x2="1080.000" y2="365.000" stroke="#67727c" stroke-width="1.0000" />
+<line x1="630.000" y1="365.000" x2="630.000" y2="115.000" stroke="#67727c" stroke-width="1.0000" />
+<circle cx="675.000" cy="230.436" r="3" fill="#b05b16"/>
+<line x1="675.000" y1="230.436" x2="765.000" y2="227.649" stroke="#b05b16" stroke-width="2.0000" />
+<circle cx="765.000" cy="227.649" r="3" fill="#b05b16"/>
+<line x1="765.000" y1="227.649" x2="855.000" y2="263.331" stroke="#b05b16" stroke-width="2.0000" />
+<circle cx="855.000" cy="263.331" r="3" fill="#b05b16"/>
+<line x1="855.000" y1="263.331" x2="945.000" y2="278.316" stroke="#b05b16" stroke-width="2.0000" />
+<circle cx="945.000" cy="278.316" r="3" fill="#b05b16"/>
+<line x1="945.000" y1="278.316" x2="1035.000" y2="298.572" stroke="#b05b16" stroke-width="2.0000" />
+<circle cx="1035.000" cy="298.572" r="3" fill="#b05b16"/>
+<text x="630.00" y="441.00" font-size="12" text-anchor="start">Uniform sphere</text>
+<line x1="630.000" y1="418.000" x2="665.000" y2="418.000" stroke="#b05b16" stroke-width="3.0000" />
+<circle cx="675.000" cy="129.230" r="3" fill="#277b55"/>
+<line x1="675.000" y1="129.230" x2="765.000" y2="166.625" stroke="#277b55" stroke-width="2.0000" />
+<circle cx="765.000" cy="166.625" r="3" fill="#277b55"/>
+<line x1="765.000" y1="166.625" x2="855.000" y2="223.896" stroke="#277b55" stroke-width="2.0000" />
+<circle cx="855.000" cy="223.896" r="3" fill="#277b55"/>
+<line x1="855.000" y1="223.896" x2="945.000" y2="255.014" stroke="#277b55" stroke-width="2.0000" />
+<circle cx="945.000" cy="255.014" r="3" fill="#277b55"/>
+<line x1="945.000" y1="255.014" x2="1035.000" y2="294.127" stroke="#277b55" stroke-width="2.0000" />
+<circle cx="1035.000" cy="294.127" r="3" fill="#277b55"/>
+<text x="860.00" y="441.00" font-size="12" text-anchor="start">Sphere: central zoom</text>
+<line x1="860.000" y1="418.000" x2="895.000" y2="418.000" stroke="#277b55" stroke-width="3.0000" />
+<text x="675.00" y="387.00" font-size="11" text-anchor="middle">0–0.125</text>
+<text x="765.00" y="387.00" font-size="11" text-anchor="middle">0.125–0.25</text>
+<text x="855.00" y="387.00" font-size="11" text-anchor="middle">0.25–0.5</text>
+<text x="945.00" y="387.00" font-size="11" text-anchor="middle">0.5–0.75</text>
+<text x="1035.00" y="387.00" font-size="11" text-anchor="middle">0.75–1</text>
+<text x="855.00" y="463.00" font-size="12" text-anchor="middle">Distance to sphere center / radius</text>
+<text x="25.00" y="78.00" font-size="12" text-anchor="start">Vertical axis: log10(1 + terminals / m³). Gaps denote shells without quadrature volume.</text>
+</svg>

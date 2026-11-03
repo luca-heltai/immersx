@@ -11,8 +11,44 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
+- [PR #325](https://github.com/luca-heltai/immersx/pull/325) Build flow-oriented vascular meshes directly from immutable physical data, transferring endpoint boundary identifiers only with the numerical cells that need them.
 
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Solve arterial, portal and venous networks through a common microvascular pressure in each tissue territory. Report each supply, venous drainage and compartment pressure, and prescribe demand-weighted reference flows separately for each system. Grow all three geometric networks toward the same territories with a configurable supply fraction, retain common compartments in physical archives, and import optional portal trees through the liver application.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Generate three-dimensional Domain meshes from closed surface files using the Gmsh API, with configurable edge length and optional conforming hexahedra.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Keep vascular candidate and obstacle centerline indices across growth batches, reuse boundary geometry during commit certification, report per-rank growth and final discretization operation counts, and resolve equal-distance vascular and venous-territory candidates by physical identifier. Reuse native nearest cursors while venous outlets reject or claim candidate territories.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Prepare native MetricFlowX meshes and physics from validated vascular results without collecting the complete graph. Keep physical identifiers separate from compact execution ids, preserve tapered geometry, orient venous cells along flow and reuse native terminal resistors. Generate internal networks on the final solid mesh before setting up the existing elastodynamics coupling and IDA.
+- [PR #308](https://github.com/luca-heltai/immersx/pull/308) Support adaptive refinement (`fixed_number`, `fixed_fraction` and `global`) in elasticity with tensor-product coupling. When the co-refinement of the coupling has space pre- or post-refinement cycles, the co-refinement prevails and the remaining adaptive refinement cycles are skipped.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Report local vascular growth activity and wall times across leaf-count ranges, including startup ownership, proposal selection, redistribution, physiological updates and joint geometry certification. Preserve measurements from unsuccessful calibration trials without collecting graph data.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Generate, complete and reload vascular networks through a parameter-driven MPI application. Prepare uniform or locally refined cube and sphere backgrounds, write owned physical and numerical tables with parallel meshes, and report reference flow, calibration and per-rank timings and memory.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Complete vascular networks with their input territory and microvascular-bed metadata. Preserve untouched beds in both reference solves, size new beds against their actual pressure effects, and reject extension of only one endpoint of an existing pair.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Save physical vascular networks, common territories and positive terminal beds in distributed archives, preserving stable integer ids and all physical attributes. Reload with a different process count through native background ownership, without gathering the graph, and reject incomplete files or inconsistent authority collectively.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Start arterio-venous generation collectively from real outlets and selected imported venous leaves, preserving fixed input properties and stable port ids. Assign common territories exclusively, certify concurrent initial branches, and calibrate against global volume and dual coverage.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Build common-territory terminal pairs through sparse MPI exchanges, derive positive beds from remote endpoint pressures, and verify actual paired flow at each territory owner while preserving boundary data on unpaired input terminals.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Construct demand-based terminal loads collectively from owned arterial and venous records, with independent global flow normalization, remote port pressures and consistent explicit selections. Preserve representable flows across extreme demand scales without clipping.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Solve physical vascular Poiseuille networks and positive 0D beds collectively with native distributed algebra. Resolve remote bed endpoints, preserve small pressure drops with resistive-distance offsets, and report actual flow, shear, perfusion and independent global conservation checks without gathering the graph.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Calibrate arterial terminal counts across MPI partitions using global volume and coverage, preserving nonmonotone bounded search, immutable imported geometry and failed-trial diagnostics. Reject inconsistent controls and remote input failures collectively.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Complete imported arterial networks collectively from selected native MPI endpoints, preserving input geometry and properties. Discover missing leaf records, reserve stable integer identifiers by batch and retain incident vessel ghosts at exterior endpoint owners.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Start arterial generation from one real seed at its native background owner and grow it through the public API across MPI partitions. Certify the first branch collectively, preserve its fixed radius, and reject inconsistent controls without adopting a trial.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Measure global vascular volume fraction and arterial, venous and joint tissue coverage across MPI partitions. Exchange terminal service centres independently of vessel ghost halos, integrate owned background cells once, and retain mapping-aware domain volume independently of coverage quadrature.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Build native fully distributed vascular line meshes with background-aligned cell owners and vertex-adjacent ghosts. Preserve shared junction DoFs and physical-vessel references without gathering the complete graph or narrowing physical identifiers into mesh indices.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Subdivide owned physical vessels using exact background-cell crossings exchanged across MPI partitions. Retain exterior portions, assign numerical interval owners by midpoint containment, count interface volume once, and enforce a global numerical cell budget.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Grow prepared arterial forests through concurrent background-owned sampling and sparse global physical-vessel searches. Preserve one real root across MPI partitions, batch independent insertions, and report finite sampling failure without adopting incomplete results.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Optimize vascular bifurcations from physical ancestor paths retrieved from their MPI owners. Reuse the serial CCO objective and local search, including weighted demand, branch viscosities and the global flow shares of other roots.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Stage concurrent vascular bifurcations at their physical owners, carry root controls through ownership changes, and certify geometry after joint Murray normalization. Discard the entire batch when an ownership, radius or geometry check fails.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Normalize generated vascular forests by weighted terminal demand through distributed owner exchanges, preserving attachment radii and frozen input vessels. Check flow conservation across partitions and keep arterial and venous normalization separate.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Validate vascular growth proposals in sparse MPI batches with physical-owner consent, global endpoint and wall checks, deterministic collision/write-conflict selection and consistent decisions for every participant. Reuse these checks before accepting serial CCO insertions.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Redistribute physical vascular data using native background point ownership and sparse MPI exchanges. Preserve crossing vessels and integer identifiers, refresh authoritative endpoint and terminal data, and exchange geometric ghosts across as many partitions as vessel radius and search reach require.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Grow arterial and venous forests toward common weighted tissue territories with distinct paired endpoints, independent Murray exponents, cross-system collision checks and multiple imported outlets. Validate positive supplied or pressure/flow-derived microvascular beds against the complete paired reference problem.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Grow Murray trees using configurable positive tissue demand independently of terminal density. Distribute an explicit new-tissue reference flow by demand, include that distribution in the blended generated-vessel objective, and retain desired terminal and attachment flows for reference validation.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Solve the steady vascular Poiseuille reference problem with tapered vessels and positive microvascular terminal resistances. Validate pressure/flow boundary data and paired territories, and report conservation, signed flow, pressure, territory supply, dissipation and endpoint wall shear independently of numerical subdivision.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Declare planar vascular inlet and outlet sections with inward normals. Permit seeds on those sections while checking the retained vessel envelope, sidewall clearance and interior junctions throughout CCO growth. Preserve port geometry independently of physical node identifiers.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Calibrate new vascular terminal counts against independent volume and tissue coverage targets with finite bounds, recorded trials and explicit convergence or budget failure. Detect when fixed imported volume already exceeds the target, and keep domain volume independent of coverage quadrature order.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Measure vascular volume fraction and geometric tissue coverage independently. Evaluate arterial, venous and joint service-distance coverage by physical background quadrature, excluding final ports from tissue service centres.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Discretize vascular networks using actual tetrahedral and bilinear hexahedral cell crossings, retaining exterior input portions and reporting short-cell exceptions. Build native line meshes with physical-vessel references that survive numerical refinement, and integrate the vessel volume inside the background.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Extend selected arterial endpoints of existing networks with fixed-radius CCO subtrees, including multiple inlets and partially exterior input networks. Preserve all input nodes, vessels, radii and physical properties, and inherit new subtree properties from each attachment. Respect declared arterial and venous outlets when discovering endpoints.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Grow vascular trees with deterministic CCO bifurcations, fixed-root Murray radii, spatial terminal weights and mesh-dependent terminal density. Select physical vessels independently of their numerical subdivision and check walls, junction angles and collisions after radius updates.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Generate an initial vascular seed from explicit SI parameters, checking the complete vessel wall against linear tetrahedral and bilinear hexahedral background boundaries.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Represent physical vascular networks with stable identifiers, explicit arterial and venous roles, ownership and provenance. Integrate tapered-vessel volume and Poiseuille resistance independently of numerical subdivision.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Exercise vesselwise displacement and pressure exchange on tetrahedral tissue meshes in pseudocoupling1D, including repeated solves with updated coupling data.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Use simplex meshes in the tissue component of the legacy 1D coupling drivers. Build this component independently of the optional hemodynamics library and check pointwise displacement and pressure exchange in serial and MPI.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Run the coupled MetricFlowX wall model on a quadratic tetrahedral solid, including RCR outlets and default or immersed vessel ownership.
@@ -127,12 +163,30 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #325](https://github.com/luca-heltai/immersx/pull/325) Release vascular bootstrap and generated-input data after native preparation, retain only live topology in incremental branch records, and construct selected tissue flow conditions without copying the physical graph.
+
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Avoid spatial assembly for zero harmonic material coefficients while retaining essential boundary equations, including zero and purely viscous materials.
 
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Solve native and IDA elastodynamics with FGMRES and a physical Schur block factorization using CG/AMG inner solves, retaining the mass hierarchy and reusing unchanged Schur combinations.
-
 - [PR #320](https://github.com/luca-heltai/immersx/pull/320) Register linear weak terms as replayable assembly actions without retaining per-term matrices or cell matrices. Reassemble affine boundary contributions separately, avoid building matrices for zero-vector actions, follow the current constraint structure on each build, and materialize sums with one temporary contribution at a time. The standard iterative LinearAdapter solve owns and reuses one assembled system matrix.
-
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Separate optional MPI communication measurements by growth run, system, terminal range and phase without adding communication to production growth.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Share immutable background geometry and native routing across startup, arterial and venous growth, and calibration attempts while keeping each attempt's tissue state independent.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Apply joint integrated territory demands throughout ordinary growth. Update native rows, physiology and geometric certificates together; retain persistent spatial indices and validate the full physical result once at output.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Stage topology and integrated demand changes through a sparse physiology journal, retaining branch mesh constraints and root normalizations across native ownership changes.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Reuse prepared background routing for cell queries and retain ancestor port metadata during candidate optimization instead of rebuilding or rescanning it for each trial.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Certify walls and physical endpoint containment through shared native background searches for edited or enlarged vessels, with physical padding and reusable domains for unchanged geometry.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Stage native vascular rows with sparse before-images and endpoint reference counts. Restore original map nodes on rejection and remove endpoint ghosts when no owned vessel or terminal needs them.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Select pending venous territories by sorted identifier rank in logarithmic time, preserving the proposal order after served territories are removed.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Subdivide vascular profiles with monotone metric-cut traversal and bounded interval queries. Split and merge numerical cuts through stable iterators while preserving the existing length bounds, ownership and budget failures.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Prepare vascular ownership changes from sparse split patches, localizing only new nodes and edited vessel midpoints through the native distributed search. Preserve endpoint authorities, physical properties and the accepted snapshot on failure.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Query the native cached cell index for vascular crossing containment and sweep overlapping MPI interval replies instead of rescanning all cells and intervals for every cut. Preserve finest-cell length scales and lowest-rank execution ownership.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Reuse the latest isolated tissue-demand journal when a growth batch selects only that proposal. Retain one journal at most and recompute joint territories for multiple selected proposals.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Prepare vascular seeds and imported attachment branches without physiological evaluation, then assign all initial territorial integrals before the first Murray normalization and flow calculation, including single-terminal requests.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Default vascular generation to one territory per active cell, volume-based density exponent three and local length coefficients. Derive an automatic calibration maximum from the scaled request instead of imposing a fixed terminal cap. Start veins with a fixed-length stem and a continuation that preserves series flow and Murray radii.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Base terminal proposal density on physical background cell volume so exponent three assigns equal proposal weight per cell, including cells with different aspect ratios.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Limit concurrent vascular proposal comparisons to overlapping vessel envelopes and shared physical identifiers. Preserve exact collision and junction checks, owner votes and deterministic conflict decisions during joint radius validation.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Use one batched growth engine for arteries and veins. Assign venous proposals to common-territory owners, preserve the arterial demand at offset endpoints, and reject duplicate or inconsistent territory claims across MPI owners.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Use batched CCO execution for public arterial generation and calibration. Check local-search trials against owner-provided vessel geometry with their proposed Murray radii, retaining the best feasible trial.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Interpret the harmonic reinforcement root dimension as the reinforcement mesh dimension and the space dimension as the matrix dimension. Use dimension one for a line reinforcement in 2D or 3D.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Share one frequency list between the harmonic matrix and fiber, and preserve the actual initial refinement when saving and reloading either supported parameter alias.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Support harmonic elasticity on embedded domains with `1 <= dim <= spacedim <= 3` and independent parameter subsections. Grid settings use `Domain`, while existing grid and refinement entries remain accepted.
@@ -187,27 +241,31 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #325](https://github.com/luca-heltai/immersx/pull/325) Retain materializable IDA Jacobian contributions per evaluation point and share composed operator callbacks, so iterative global and Schur actions and direct factorization reuse owned matrices without duplicating callback trees or rebuilding contributions during capability checks. Preserve matrix-free actions and fresh residual evaluation.
+
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Reuse elastodynamics spatial operators, static loads and boundary constraints until spatial setup changes; build native time systems from cached matrices with affine boundary lifting.
-
 - [PR #320](https://github.com/luca-heltai/immersx/pull/320) Keep caller-owned matrices unchanged when replaying scaled matrix contributions.
-
 - [PR #316](https://github.com/luca-heltai/immersx/pull/316) Open performance charts on the compatible series with the most measurements and show CPU, kernel, point count, and commit range in the series selector.
-
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Preserve integrated tissue demand, native startup ownership, cached geometry and mesh-scaled separation and coverage across arterial, portal and venous growth.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep liver input lengths in metres and tissue counts absolute when layered on mesh-adaptive generation; retain the independently counted full-commit geometry oracle.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Build surface volume generation and retained vascular centerline and obstacle indices with the deal.II 9.7 and Boost toolchain used by CI, preserving conforming hexahedral output and physical vessel identities during index updates.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Keep new tissue territory identifiers unique when imported leaves have no territory assignment, including arterial growth beside an existing venous tree.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Retain positive tissue demands below the precision of their parent sum when their physical radii and flows remain representable; do not require a strict floating-point increase to accept a new branch.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Keep native parameter snapshots in the selected output directory when MetricFlowX provides an explicit snapshot path, including tests started from the source root. Preserve compatibility with older native initialization APIs.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Preserve native trace couplings in local flow preconditioning across MPI partitions, so generated vascular networks advance with the iterative coupled solver and unchanged error tolerances.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Check the actual linear residual before IDA accepts an FGMRES solve. Correct residual drift within the existing total iteration budget so small coupled vascular loads advance without changing solver tolerances.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Keep newly generated untapered networks at exactly zero initial wall displacement by matching the native area basis. Retain quadratic reference areas when the physical geometry tapers.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Assign a generated vessel's reference pressure once in native MetricFlowX data and balance the coupled example against a nonzero outlet reference pressure.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Include the flow-state derivative of prescribed-pressure HLL fluxes in MetricFlowX wall coupling when the native package provides it, keeping it separate from the derivative with respect to pressure coefficients.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Accept vascular endpoints across warped interior faces at native inverse-map accuracy while keeping strict physical-boundary tests, including nearly exterior thin vessels.
 - [PR #301](https://github.com/luca-heltai/immersx/pull/301) Write the HDF5 vessel pressure on every rank, so parallel coupled elasticity runs where some rank owns no vessel no longer hang.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Refresh tissue coupling data through the cached bulk assembly, group pressures by retained multiplier modes, and interpolate gathered pressures without an MPI collective inside the rank-zero callback.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include prescribed bulk values in the Reduced Poisson coupling right-hand side. Nonzero Dirichlet data now satisfy the same immersed constraint as the complete physical solution.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Condense nonlinear weak residuals through the target constraints and import candidate field states before distributed cell evaluation. Preserve essential rows and evaluate ghost coefficients when the supplied state owns only its local entries.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Retain all prescribed displacement components in the legacy elasticity weak Dirichlet stress terms. This restores consistency on simplex and hypercube meshes.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Identify the physical mesh reference cell collectively when MPI ranks own no cells. Ignore fully distributed artificial placeholders when selecting elements, quadrature, and search mappings; keep field views and geometry accessors local, and reject mixed physical meshes.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Import point and cell fields on simplex meshes with matching finite elements. Preserve those fields during initial refinement and use reference-cell mappings and smoothing rules during Domain co-refinement. Boundary recipes use the target field mapping; point-cloud refinement accepts serial preparation meshes and uses each cell's actual bounding box.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Preserve multiplier mass contributions whose matrix rows belong to other MPI ranks.
-
 - [PR #294](https://github.com/luca-heltai/immersx/pull/294) Avoid division by zero in small fiber multiplier Schur solves with deal.II 9.7, including configurable discontinuous multiplier spaces in serial and MPI.
 - [PR #292](https://github.com/luca-heltai/immersx/pull/292) Evaluate lifted observables and nonlinear weak terms with each cell's active finite element and local DoF count, including hp terminal pressure fields. Preserve differentiated fields' execution numbering for compact and permuted layouts and check coupled Jacobians per residual block.
 - [PR #292](https://github.com/luca-heltai/immersx/pull/292) Use MetricFlowX's native hp DoFHandler numbering and ghost indices for coupled area and velocity fields, including RCR capacitor pressures represented as a fifth FE component. Remove the conversion for the previous manually numbered capacitor layout.
@@ -231,7 +289,6 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #262](https://github.com/luca-heltai/immersx/pull/262) Fix vector lifted coupling on locally refined meshes, including nonzero affine boundary data.
 - [PR #262](https://github.com/luca-heltai/immersx/pull/262) Retain static inhomogeneous Dirichlet shifts in lifted weak constraints, update Observable dependencies on semantic registration, and assemble known loads into writable MPI vectors.
 - [PR #259](https://github.com/luca-heltai/immersx/pull/259) Use compiler-independent Coral report-operation keys so co-refinement graphs load on Linux and macOS.
-- [PR #259](https://github.com/luca-heltai/immersx/pull/259) Retain the reduced Poisson augmented-Lagrangian solution in the accepted solution vector as well as the output vector, so solution diagnostics reflect the nonzero solve.
 - [PR #259](https://github.com/luca-heltai/immersx/pull/259) Retain the reduced Poisson augmented-Lagrangian solution in the accepted solution vector as well as the output vector, so solution diagnostics reflect the nonzero solve.
 - [PR #254](https://github.com/luca-heltai/immersx/pull/254) Register MetricFlowX time parameters before reading input and provide a mixed-flow preconditioner for coupled IDA solves. Exercise standalone and nonzero-inflow coupled applications in serial and MPI.
 - [PR #253](https://github.com/luca-heltai/immersx/pull/253) Preserve every ambient vector component in native nonmatching assembly and give the fiber driver's matrix-only reference independent history.
@@ -281,7 +338,6 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Removed
 
 - [PR #276](https://github.com/luca-heltai/immersx/pull/276) Remove the fiber driver's `matrix_only_displacement_difference()` diagnostic; validation evolves an independent dense reference instead.
-
 - [PR #192](https://github.com/luca-heltai/immersx/pull/192) Purged the transitional representation architecture.
 - [PR #186](https://github.com/luca-heltai/immersx/pull/186) Removed the obsolete representation load interaction.
 - [PR #96](https://github.com/luca-heltai/immersx/pull/96) Removed the semidiscrete compatibility layers.
@@ -289,26 +345,31 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #325](https://github.com/luca-heltai/immersx/pull/325) Register vascular pages in the current documentation sections and distinguish the linear PR stack from archived point-demand measurements.
+
+- [PR #323](https://github.com/luca-heltai/immersx/pull/323) Generate coupled elasticity API documentation without unmatched group warnings.
+
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Document the two-minute correctness-test budget, retain the complete source and cost audit, and keep the Navier–Stokes manufactured-solution input as a manual accuracy-study example.
 
 - [PR #323](https://github.com/luca-heltai/immersx/pull/323) Generate coupled elasticity API documentation without unmatched group warnings.
 
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Retain the native and IDA elastodynamics performance baseline with revision and artifact checksums, and provide a reproducible comparison driver.
-
 - [PR #316](https://github.com/luca-heltai/immersx/pull/316) Organize site navigation into consistent sections and tutorial groups, fix README documentation URLs, and document page ownership and heading rules.
-
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Document the complete vascular cost inventory, invalidation and rollback rules, reproducible four-size performance measurements, memory and communication counts, and inherited arterial/venous convergence limits.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Resolve the refinement-study and measurement-workflow links with explicit documentation labels.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Publish integrated-demand cost checks at 1,000 and 10,000 terminals, with quadrature sizes, memory, operation counts and frozen experiment identities.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Fix the generated-network tutorial link to the native MetricFlowX transfer example.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Explain terminal sampling weights, cell-interface conventions and count normalization separately from numerical vessel resolution.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Describe the completed connection between distributed vascular sampling, candidate optimization, forest normalization and batch adoption in the generation guide. Link the OpenCCO and svVascularize algorithmic references.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Regenerate measured vascular MPI figures and per-seed summaries from independently rechecked native experiments. Show observed variability in timing, memory, communication, physiological updates, startup ownership and tree quality. Distinguish rank-local sampling, proposal and insertion work from physical ownership, scale fractional quantities to their measured values, and reject incomplete inputs or stale published assets.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Complete the application reference with both lifted applications and document uniform simplex selection, refinement limits, and optional coupling dependencies.
-
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Document simplex meshes in the elastodynamics tutorial and reading the solid mesh from a file in the MetricFlowX–elastodynamics tutorial.
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Document Field-local IDA tolerances, startup ramps, progress statistics, and restart behavior.
-
 - [PR #275](https://github.com/luca-heltai/immersx/pull/275) Profile the one-vessel elastodynamics MMS, explain Jacobian materialization and nested solver costs, and compare iterative and serial UMFPACK timings, memory, and numerical results.
-
 - [PR #273](https://github.com/luca-heltai/immersx/pull/273) Render the MetricFlowX coupling equations and elastodynamics state variables correctly, and check all generated pages for math rendering errors in CI.
 - [PR #272](https://github.com/luca-heltai/immersx/pull/272) Add an English onboarding guide for elastostatic–MetricFlowX coupling, from independent applications and file exchange to a monolithic IDAAdapter solve.
 - [PR #263](https://github.com/luca-heltai/immersx/pull/263) Document lifted Poisson composition, modal coefficient ordering and measure, solver policy, adaptive output, Coral execution, and the tested scope of legacy parity.
 - [PR #262](https://github.com/luca-heltai/immersx/pull/262) Document composable static elasticity, its equations and extension points, generated application/Coral inputs, and unsupported legacy capabilities.
-
 - [PR #259](https://github.com/luca-heltai/immersx/pull/259) Document application-level `both` configuration, migration from the old refinement factor, and executable elasticity and reduced Poisson examples.
 - [PR #259](https://github.com/luca-heltai/immersx/pull/259) Explain the local co-refinement lifecycle and publish random-tree mesh comparisons generated by a GoogleTest, with commands to reproduce the figures.
 - [PR #250](https://github.com/luca-heltai/immersx/pull/250) Explain support-refinement error control, ghosted frozen inputs, and geometry snapshots for independent supports.
@@ -322,16 +383,18 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Add optional portal-tree preparation and growth to the liver workflow, with a common-compartment diagram, independent checks and rendering for three networks. Preserve the published 1,000-pair arterial–venous reference.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Use project-relative examples in the liver tutorial without machine names or installation-specific paths.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Illustrate the liver tutorial with native before-and-after vascular trees and a tissue-volume section; provide a renderer and a manifest of the checked source data.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Request 1,000 tissue territories with paired arterial and venous terminals in the liver tutorial, with 16 candidate vessels per insertion and a verified 32-rank run; keep a 32-pair option for short trials.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Prepare an IRCAD liver surface and rooted vessel meshes, generate the tissue volume with Gmsh, and grow paired arterial and venous extensions through a runnable tutorial with physical-data checks and ParaView output.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Publish three-seed MPI generation benchmarks at 1,000 and 10,000 terminals, with measured runtime, memory, communication, producer work and geometric quality.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Run native vascular cube and sphere examples with local refinement, common-territory arterial and venous networks, and a fixed-graph rediscretization control. Publish reproducible SVG views and measured density, length, volume and coverage plots from owned C++ output.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Add a frequency-sweep tutorial for a 1D fiber in a 3D matrix, with a 2D section lift and runnable independent and shared displacement inputs.
-
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Explain independent and shared harmonic displacements, normal volume lifts, material units, and full-dimensional reinforcement, with runnable examples of both formulations.
-
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Document harmonic fiber reinforcement, its phase convention and extension API, and add a runnable frequency-sweep tutorial checked in serial and MPI by CTest.
-
 - [PR #275](https://github.com/luca-heltai/immersx/pull/275) Use a single coarse vessel VTK for the cube MMS cases, with parameter-controlled refinement and reference area retained by Domain during flow-mesh refinement.
-
 - [PR #275](https://github.com/luca-heltai/immersx/pull/275) Add a one-vessel manufactured-solution tutorial with piecewise displacement, nonzero pressure jump, native pressure feedback, and volume supplied by the inlet. Keep centerline cells within a factor of two of the solid axial cell lengths and integrate the lift with four points per solid axial cell.
-
 - [PR #234](https://github.com/luca-heltai/immersx/pull/234) Run the tutorial platform through noVNC with remote Slurm execution and selectable Debug or Release packages.
 - [PR #233](https://github.com/luca-heltai/immersx/pull/233) Build multi-architecture Coral, visualizer, and platform images for the dealiiX tutorial stack.
 - [PR #127](https://github.com/luca-heltai/immersx/pull/127) Updated the tutorial documentation.
@@ -340,15 +403,14 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Include the Boost segment equality definition explicitly so persistent 3D vascular indices build with deal.II 9.7 headers.
+- [PR #311](https://github.com/luca-heltai/immersx/pull/311) Include Boost point and box equality for incremental tissue-territory indices when building with deal.II 9.7 headers.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Fix compilation of venous network generation with deal.II 9.7.1 and its Boost.Geometry headers.
 - [PR #303](https://github.com/luca-heltai/immersx/pull/303) Distribute precompiled Release applications in AMD64 and ARM64 OCI images for Docker, Podman, and Apptainer, with default help, application selection, a standalone MPI launcher, and tested GHCR publication.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Generate valid C++ for the optional 1dsolver link probe, include deal.II dependencies, and report incompatible libraries without claiming that RTTI is missing. Compile both driver bodies during Linux OpenMP test builds even when the external archive cannot link.
-
 - [PR #288](https://github.com/luca-heltai/immersx/pull/288) Use the unified solution-transfer header so legacy applications build with deal.II 9.9.
-
 - [PR #269](https://github.com/luca-heltai/immersx/pull/269) Link each ImmersX variant to the matching MetricFlowX and deal.II libraries in DebugRelease builds, retain compatible legacy single-variant packages, and check generated linkage in CTest.
 - [PR #262](https://github.com/luca-heltai/immersx/pull/262) Include set serialization explicitly for distributed static-elasticity material IDs so the application builds with deal.II 9.7.1 and Boost on Linux.
-
 - [PR #219](https://github.com/luca-heltai/immersx/pull/219) Added the Coral Debug and Release CI jobs.
 - [PR #211](https://github.com/luca-heltai/immersx/pull/211) Configured the shared ccache and VS Code path mapping.
 - [PR #201](https://github.com/luca-heltai/immersx/pull/201) Restored DebugRelease single-config builds.
@@ -358,56 +420,45 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #325](https://github.com/luca-heltai/immersx/pull/325) Keep complete vascular figure campaigns as manual publication runs, use a two-terminal coupled fixture with free solid displacement DoFs, enforce a 115-second watchdog and vascular CLI limit, remove the Debug-only coupled timeout extension, and retain the independent full-forest oracle only in test support.
+- [PR #324](https://github.com/luca-heltai/immersx/pull/324) Limit numerical CI to two concurrent compiler jobs and reserve separate workflow deadlines for cold Debug and Release builds.
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Reduce harmonic, simplex, and lifted-coupling fixtures, consolidate repeated solver-policy checks, and give the stationary Navier–Stokes simplex smoke test an explicit initial timestep and output assertions.
-
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Replace oversized physics and application fixtures with small analytic and native-solver regressions, remove obsolete smoke and convergence studies, and retain nonzero loads, boundary traces, and published error bounds.
-
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Replace network and trace convergence demonstrations with small analytic regressions, consolidate duplicate core assertions, and verify all products of the modal basis.
-
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Enforce a 120-second wall-time budget on every GoogleTest rank, retain timeout and partial build diagnostics, record Ninja command costs, enlarge the Debug compiler cache.
-
 - [PR #323](https://github.com/luca-heltai/immersx/pull/323) Limit numerical CI builds to two compiler jobs. Allow 120 minutes for Debug and 90 for Release, and skip incompatible optional 1D solver downloads while retaining client compilation checks.
-
 - [PR #323](https://github.com/luca-heltai/immersx/pull/323) Compile applications and tests without GCC 13 warnings.
-
 - [PR #322](https://github.com/luca-heltai/immersx/pull/322) Cover elastodynamics cache invalidation, time-dependent loads, affine boundary lifting, and Schur factorization in serial and MPI.
-
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Skip numerical and Coral builds for documentation-only pull requests. Record C++ component selection in observation mode, retain every quick test for other changes, and keep full coverage on master with an explicit manual override.
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Validate documentation previews independently of performance measurements, using two Sphinx workers by default. Keep benchmark correctness smoke tests on numerical pull requests and complete measurements on master, with shared compiler caching.
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Fix Coral compiler-cache restoration and reuse across checkouts. Run the complete MetricFlowX package configuration matrix once in a dedicated CI job.
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Split integration GoogleTests into suite groups while checking the complete serial/MPI inventory, retaining shared-output locks, and publishing individual case timings.
-
 - [PR #321](https://github.com/luca-heltai/immersx/pull/321) Build and test container images on master and release tags, while keeping launcher and fingerprint checks on pull requests. Preserve CTest manifests, timings, and logs as CI artifacts.
-
 - [PR #320](https://github.com/luca-heltai/immersx/pull/320) Check deferred vector-constraint and transient fiber assembly, with explicit matrix reuse in the distributed regression tests.
-
 - [PR #318](https://github.com/luca-heltai/immersx/pull/318) Restore serial and MPI coverage for segment-clustered point and tensor-product elasticity coupling. Check the inclusion mass matrix and recovery of nonzero imposed Fourier data instead of printing debug output.
-
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Check exact liver vessel counts with the fixed-length portal and venous startup stems and continuations, preserving the independent pairing, perfusion and imported-geometry checks.
+- [PR #314](https://github.com/luca-heltai/immersx/pull/314) Check three-network perfusion balance, archive completion and canonical portal-demand updates in serial and MPI, and exercise the liver CLI with two and three input trees.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Count the fixed-length venous startup stem and its continuation separately in the liver smoke checks, while preserving exact terminal counts and imported physical properties.
+- [PR #313](https://github.com/luca-heltai/immersx/pull/313) Allow ninety minutes for the complete Debug and Release CI jobs, including cold-cache builds, all quick tests and cache upload. Keep the test selection and individual test timeouts unchanged.
+- [PR #312](https://github.com/luca-heltai/immersx/pull/312) Compare sparse vascular terminal-demand updates, candidate costs, obstacle radii, journal rollback and atomic seed initialization with independent full-forest evaluation in serial and distributed tests. Check native ownership and physical aggregation after concurrent branch edits and terminal remapping. Check that a single-root update stays limited to changed dependencies as the number of real roots grows. Cover internal-branch radius constraints on locally refined meshes and physical power when its objective weight is zero. Check cached branch resistance extrema and minimum leaf demand after staged edits. Compare owning execution rejection, retry, native owner migration and SI ghost output with immutable full commits. Check candidate envelope queries against full-forest trial collisions after demand transfers between roots. Keep per-batch physical-bound checks limited to changed roots while retaining the flow minimum on untouched distant leaves. Compare retained venous nearest cursors with exhaustive searches through successive exclusions, concurrent claims and exact-distance ties.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Allow thirty minutes for Debug MetricFlowX coupled application tests, including manufactured solutions, while preserving their physical inputs, solver tolerances and output checks.
+- [PR #310](https://github.com/luca-heltai/immersx/pull/310) Exercise native vascular transfer and nonzero coupled IDA evolution in Debug and Release, including two- and four-rank MPI runs. Keep independent geometry and output checks and allow the generated Debug application time for Jacobian materialization.
 - [PR #309](https://github.com/luca-heltai/immersx/pull/309) Update simplex elastodynamics and fiber-reinforcement test inputs to the named-material schema so native, IDA, and application tests parse their material coefficients.
-
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Run reproducible strong and weak vascular scaling experiments across seeds with frozen binaries, native per-rank profiles and independent physical-tree checks. Preserve exact parameters, completed measurements and failed-run diagnostics in the build tree.
+- [PR #304](https://github.com/luca-heltai/immersx/pull/304) Measure vascular MPI calls, posted payloads and time with optional benchmark-only PMPI profiling. Check native payload accounting and in-place forwarding in Debug and Release.
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Include the new explicit elasticity, Laplacian, and reduced Poisson correctness suites in CTest validation runs and keep compiled test-category coverage complete.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Check that standalone MetricFlowX evolves on one-dimensional simplex cells and run the application linked to the installed package with its nonzero inflow fixture.
-
 - [PR #299](https://github.com/luca-heltai/immersx/pull/299) Check native elastodynamics with quadratic displacement elements, nonzero forcing, and time-dependent boundary data on tetrahedra and hexahedra in serial and MPI.
-
 - [PR #291](https://github.com/luca-heltai/immersx/pull/291) Test ElastodynamicsSolver on a 48-tetrahedron Gmsh cube and a hexahedral cube with a nonzero linear-in-space, quadratic-in-time exact solution, in serial and on two MPI ranks.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Run harmonic reinforcement sweeps through parameter-file dispatch for all six dimension pairs, both formulations, and serial/two-rank MPI execution, checking the expected displacement and multiplier datasets. Verify owned affine offsets against a separately reconstructed finite-element field.
-
 - [PR #282](https://github.com/luca-heltai/immersx/pull/282) Reduce mesh sizes in the 2D cross-section checks and mixed-boundary time-integrator regression without changing analytic values or tolerances. Keep all eight time steps and run the faster integrator regression in the quick serial/MPI groups. Synchronize MPI application tests before checking files written by rank zero.
-
 - [PR #281](https://github.com/luca-heltai/immersx/pull/281) Keep standalone header and typed category checks while removing unused links and demonstration builds. Skip runtime search paths in configure-only package fixtures and run independent CI tests in two slots with shared output protected.
-
 - [PR #281](https://github.com/luca-heltai/immersx/pull/281) Cancel superseded PR documentation previews while preserving official performance measurements.
-
 - [PR #280](https://github.com/luca-heltai/immersx/pull/280) Preserve compiler cache entries between CI runs by using the restored cache directory and refreshing saved caches.
-
 - [PR #274](https://github.com/luca-heltai/immersx/pull/274) Avoid deal.II deprecation warnings when building the lifted Poisson parity tests.
-
 - [PR #263](https://github.com/luca-heltai/immersx/pull/263) Bound Coral CI builds to two compiler processes to reduce peak memory when both lifted applications are enabled.
 - [PR #263](https://github.com/luca-heltai/immersx/pull/263) Compare lifted Poisson coupling entries, modal loads, and bulk/multiplier coefficients with legacy Schur and AL solves on cylinders, variable radii, and a network; independently check nonzero forcing and Dirichlet data with hanging nodes in serial and MPI. Use feasible primal/multiplier discretizations and check residuals in the prescribed-constraint roadmap examples.
 - [PR #262](https://github.com/luca-heltai/immersx/pull/262) Compare full static elasticity fields, modal loads and operator actions with native oracles in serial and MPI, and check generated parameter examples, output fields, cycle counts, and mesh refinement through CTest. Keep the ordinary category-overlap fixture targeted when new lifted suites are added.
-
 - [PR #259](https://github.com/luca-heltai/immersx/pull/259) Run co-refinement serial/MPI cases through CTest using environment-based filters, and check velocity boundary data collectively when a rank owns no prescribed boundary DoFs.
 - [PR #250](https://github.com/luca-heltai/immersx/pull/250) Retain original review benchmark reports and their immutable measured source provenance without relabelling them as repaired-head measurements.
 - [PR #250](https://github.com/luca-heltai/immersx/pull/250) Check boundary mass against MatrixCreator and piecewise FE trace convergence against a fitted one-dimensional mass matrix, while retaining distributed nonlinear and frozen-input regressions.

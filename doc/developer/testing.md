@@ -55,11 +55,12 @@ GoogleTest targets are enabled only when `GTest` is available at configure time.
 ## Correctness-test budget
 
 Each GoogleTest case must finish within 120 seconds, including fixture setup
-and teardown. The common driver enforces this wall-time limit on every MPI
-rank. A case that exceeds it fails the test process; the timing report also
-rejects completed cases above the limit. Application launchers register a private
-process group so a timeout also stops their subprocesses and closes their output
-pipes. A CTest group can contain several
+and teardown. The common driver stops a case after 115 seconds on every MPI
+rank, leaving five seconds within the budget for launcher shutdown. A watchdog
+timeout fails the test process; the timing report also rejects completed cases
+above the 120-second limit. Application launchers register a private process group
+so a timeout also stops their subprocesses and closes their output pipes.
+A CTest group can contain several
 cases, so its aggregate duration is distinct from an individual case's budget.
 
 Use the smallest fixture that exercises the contract. Keep nonzero loads,
@@ -135,7 +136,7 @@ can overlap and must not be summed as build wall time. The Debug job reserves
 when checking whether that working set is sufficient.
 The numerical jobs use two compiler workers to contain peak memory use. Their
 whole-job deadlines, 120 minutes for Debug and 90 minutes for Release, include
-cold compilation and all selected tests. The 120-second per-case watchdog is
+cold compilation and all selected tests. The per-case watchdog is
 independent of those workflow deadlines.
 `Testing/Temporary/LastTest.log` includes GoogleTest case timings even for
 successful groups. Partial logs are uploaded on failure when the runner can
