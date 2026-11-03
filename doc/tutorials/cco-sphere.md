@@ -6,9 +6,10 @@ MetricFlowX. A separate parameter file prepares a coupled
 MetricFlowX–elastodynamics run on the same spherical geometry.
 
 The standalone inputs produce a valid tree with all 56 requested terminals
-and save its physical archive and visualization meshes. Material, flow and
-pressure data are illustrative SI values. The coupled input remains a draft;
-IDA evolution and ParaView views remain pending.
+and save its physical archive and visualization meshes. An export step adds
+explicit wall material and terminal RCR data for native MetricFlowX input.
+Material, flow and pressure data are illustrative SI values. The coupled
+input reads this exported tree; IDA evolution and ParaView views remain pending.
 
 ## Geometry and initial vessel
 
@@ -91,7 +92,7 @@ and the first-order mapping without creating another tissue domain.
 ## Request one terminal per background cell
 
 {download}`cco.prm.in <../../tutorials/cco_sphere/cco.prm.in>` is shared by
-the Domain fragment, standalone generation and coupled simulation. It contains:
+the Domain fragment and standalone generation. It contains:
 
 ```text
 subsection Vascularization
@@ -186,7 +187,71 @@ reference calculation also completed, and `errors-0.txt` was empty. These
 results establish standalone generation and archive output; the coupled
 transient has not yet been run with this radius.
 
-## Reload the saved network for MetricFlowX
+### Increase the background refinement
+
+For two additional global refinements, change `Uniform refinements` from 1
+to 3 in the standalone generation input. Set `Initial refinement = 3` in
+the Domain input and under `/Elastodynamics/Domain/` in the coupled input
+when using that finer background. Keep the inlet radius at 0.1 m and the
+other shared CCO controls unchanged. Use new generation and export directories.
+
+The cell-based terminal target grows by $8^2=64$:
+
+| Global refinements | Background cells | Arterial terminals | Physical branches | Numerical line cells |
+| --- | --- | --- | --- | --- |
+| 1 | 56 | 56 | 111 | 111 |
+| 3 | 3584 | 3584 | 7167 | 7169 |
+
+Both single-process Debug runs completed with valid networks, empty error
+reports and a completed steady reference calculation. The finer run accepted
+3583 insertions from 17260 sampled points. Each result has its own saved
+physical archive and visualization meshes.
+
+## Export a complete MetricFlowX input
+
+The physical archive and visualization meshes do not contain a complete
+MetricFlowX input. The CCO geometry does not determine wall elasticity,
+wall thickness or terminal impedances. Supply those data explicitly when
+exporting the checked serial arterial tree:
+
+```bash
+IMMERSX_SOURCE=/absolute/path/to/immersx
+python3 "$IMMERSX_SOURCE/tutorials/cco_sphere/export_metric_flow_x.py" \
+  "$IMMERSX_BUILD/tutorial-output/cco-sphere/generation" \
+  "$IMMERSX_BUILD/tutorial-output/cco-sphere/metric-flow-x/network.vtk" \
+  --young-modulus 5e5 \
+  --wall-thickness 0.0003 \
+  --reference-pressure 125 \
+  --terminal-resistance 1e8 \
+  --outlet-pressure 125
+```
+
+The {download}`exporter <../../tutorials/cco_sphere/export_metric_flow_x.py>`
+uses only the Python standard library. It reads the owned physical CSV tables
+from the valid generation result and writes a legacy ASCII VTK file with one
+line cell per physical branch. Shared junctions retain shared point indices;
+coordinates, branch radii, lengths and viscosity come from the generated tree.
+This tutorial exporter requires a single-process arterial result and constant
+radius along each branch, as produced by these inputs. It does not regenerate
+or rescale the network.
+
+| Native VTK arrays | Values |
+| --- | --- |
+| Cell `vessel_id`, `L`, `r_d`, `r_in`, `r_out` | Compact branch identifiers, physical length and radii in m |
+| Cell `a0`, `a_d` | Reference area $\pi r^2$ in m² |
+| Cell `viscosity` | Generated dynamic viscosity in Pa s |
+| Cell `E`, `h_wall` | Supplied Young modulus $5\times10^5$ Pa and wall thickness $0.0003$ m |
+| Cell `p_d`, `p0` | Reference pressure $125$ Pa and offset $0$ Pa |
+| Point `boundary_id` | Inlet 0, distinct terminal identifiers, junctions 255 |
+| Point `R1`, `R2`, `C`, `P_out` | Terminal data $R_1=0$, $R_2=10^8$ Pa s/m³, $C=0$, outlet pressure $125$ Pa |
+
+The VTK file contains the wall and outlet data required by the native
+Square root model. Inflow, initial state and time-integration controls remain
+in the parameter file. A sibling `network.json` records the physical-to-native
+identifier correspondence and the supplied physics. Both output files must be
+new; the original physical archive is preserved.
+
+## Use the physical archive from C++
 
 On the same prepared Domain, load the archive and reconstruct its numerical
 intervals. These collective calls preserve the physical graph and perform no
@@ -253,26 +318,27 @@ for API and ownership details.
 ## Prepare the coupled transient simulation
 
 {download}`coupled.prm.in <../../tutorials/cco_sphere/coupled.prm.in>` sets
-the spherical geometry under `/Elastodynamics/Domain/`, includes the shared
-CCO controls and enables:
+the spherical geometry under `/Elastodynamics/Domain/` and reads the exported
+native input:
 
 ```text
+subsection MetricFlowSystem<1, 3>
+  set Vtk file path for mesh input = /absolute/path/to/metric-flow-x/network.vtk
+  set Wall model = Square root
+  set Terminal parameter source = VTK
+end
 subsection MetricFlowX coupling
-  set Generate vascular network = true
-  set Generated vessel Young modulus = 5e5
-  set Generated vessel wall thickness = 0.0003
-  set Generated vessel reference pressure = 125
-  set Generated terminal resistance = 1e8
-  set Generated outlet pressure = 125
+  set Generate vascular network = false
 end
 ```
 
-The driver generates a new network on the final solid mesh, prepares native
-MetricFlowX data and constructs the vessel-wall coupling before IDA starts.
-This parameter file does not reload `generation/network`: the current coupled
-driver has no archive-input parameter. Reusing that exact saved tree requires
-the load-and-transfer API shown above in the coupled application. The two
-commands are separate workflows, not a file handoff between executables.
+The configured path is
+`<build>/tutorial-output/cco-sphere/metric-flow-x/network.vtk`. Export that file
+before starting the coupled application. The driver reads its saved geometry,
+wall material and outlet data, then constructs the vessel-wall coupling
+before IDA starts. Generation is disabled, so the simulation uses the exact
+exported physical tree. The native mesh refinement count is zero, preserving
+one execution cell per physical branch in this example.
 
 The input uses a clamped outer solid boundary, zero initial displacement and
 velocity, a native `rest` flow state and the Square root wall model. Its
@@ -290,8 +356,7 @@ An eventual run with existing executables is:
 ```
 
 Use the `_debug` executable in a Debug build. Both packages must use the same
-deal.II installation and linear algebra backend. MetricFlowX must provide
-`BloodFlowSystem::NetworkPhysics` and `setup(const NetworkPhysics &)`, and
-deal.II must have SUNDIALS support. The configured output directory is
+deal.II installation and linear algebra backend, and deal.II must have
+SUNDIALS support. The configured output directory is
 `<build>/tutorial-output/cco-sphere/coupled`. ParaView views of the background
 and vessel radii, followed by the coupled run, are the next steps.

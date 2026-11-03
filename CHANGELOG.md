@@ -382,6 +382,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Export the generated spherical tree with explicit wall material and terminal RCR data to a native MetricFlowX VTK input, and reuse that saved tree in the coupled tutorial.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add a spherical CCO tutorial with parameters that generate 56 arterial terminals, physical-network persistence, native MetricFlowX transfer and a draft coupled elastodynamics input.
 - [PR #314](https://github.com/luca-heltai/immersx/pull/314) Add optional portal-tree preparation and growth to the liver workflow, with a common-compartment diagram, independent checks and rendering for three networks. Preserve the published 1,000-pair arterial–venous reference.
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Use project-relative examples in the liver tutorial without machine names or installation-specific paths.

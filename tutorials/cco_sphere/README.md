@@ -9,4 +9,10 @@ radius 0.1 m and local mesh scaling, standalone generation reaches all 56
 requested terminals and produces 111 physical branches. The checked run,
 physical archive and ParaView meshes are under
 `build/cco_sphere/radius-halving-20261103/radius-0.1/generation`.
+With two additional global refinements, the checked run under
+`build/cco_sphere/refinement-3-20261103/radius-0.1/generation` reaches 3584
+terminals and produces 7167 physical branches with the same inlet radius.
+`export_metric_flow_x.py` adds explicit wall material and RCR outlet data to
+the owned CSV tables and writes a native MetricFlowX `network.vtk`. The
+coupled parameter file reads that exported tree with generation disabled.
 The coupled transient and ParaView views remain pending.
