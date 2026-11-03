@@ -422,6 +422,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Read the retained finite-element space directly in the lifted elasticity modal-metric regression, avoiding a temporary Field and GCC 13 lifetime diagnostics while preserving its independent quadrature check.
+
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Allow four-rank MPI regressions to launch on hosted runners with two CPU slots, supporting Open MPI 4 and 5 within the Debug and Release CTest steps.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Keep complete vascular figure campaigns as manual publication runs, use a two-terminal coupled fixture with free solid displacement DoFs, enforce a 115-second watchdog and vascular CLI limit, remove the Debug-only coupled timeout extension, and retain the independent full-forest oracle only in test support.
