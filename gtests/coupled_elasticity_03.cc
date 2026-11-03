@@ -1016,4 +1016,347 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsZeroCellsPoint)
   });
 }
 
+
+TEST(CoupledElasticity, BOTH_PressureZeroExtendsMissingWallSamples)
+{
+  for (const bool point_coupling : {true, false})
+    for (const unsigned int datum : {0u, 1u, 2u})
+      for (const double center_y : {0., .95, 1.05, 2.})
+        {
+          const bool interior_only = datum != 0;
+          const bool rigid_only    = datum == 2;
+          SCOPED_TRACE(point_coupling);
+          SCOPED_TRACE(datum);
+          SCOPED_TRACE(center_y);
+          std::ostringstream grid;
+          grid
+            << "# vtk DataFile Version 3.0\nline\nASCII\nDATASET UNSTRUCTURED_GRID\n"
+            << "POINTS 2 double\n-.5 " << center_y << " 0\n.5 " << center_y
+            << " 0\nCELLS 1 3\n2 0 1\nCELL_TYPES 1\n3\nCELL_DATA 1\n"
+            << "SCALARS vessel_id int\nLOOKUP_TABLE default\n0\n";
+          const auto line = input_file("pressure_overlap.vtk", grid.str());
+          std::ostringstream inclusion;
+          inclusion << "0 " << center_y << " 0 1 0 0 .2 0\n";
+          const auto inclusion_file =
+            input_file("pressure_overlap.txt", inclusion.str());
+          const Overrides overrides = {
+            {"Remove interior stress from pressure",
+             interior_only ? "true" : "false"},
+            {"Inclusions file", inclusion_file},
+            {"Cluster inclusions with segments", "false"},
+            {"Number of fourier coefficients", "3"},
+            {"Selection of Fourier coefficients", "1,3,7"},
+            {"Reference inclusion data",
+             rigid_only ? "0,1,0,0,0,0,0,0,0" : "0,0,0,.1,0,0,0,.1,0"},
+            {"Selected indices", "1,3,7"},
+            {"Reduced right hand side", rigid_only ? "1;0;0" : "0;.1;.1"}};
+          with_problem(
+            parameters(point_coupling, line, "vessel_id", overrides),
+            [&](auto &problem) {
+              problem.run_timestep0();
+              auto &lambda = problem.locally_relevant_solution.block(1);
+              LA::MPI::Vector owned(lambda.locally_owned_elements(),
+                                    MPI_COMM_WORLD);
+              if (point_coupling)
+                {
+                  for (const auto i : owned.locally_owned_elements())
+                    owned[i] = interior_only ?
+                                 0. :
+                                 (i % 3 == 0 ? 1. : (i % 3 == 2 ? .25 : 0.));
+                }
+              else
+                VectorTools::interpolate(
+                  problem.tensor_product_coupling->get_dof_handler(),
+                  Functions::ConstantFunction<3>(std::vector<double>{
+                    interior_only ? 0. : 1., 0., interior_only ? 0. : .25}),
+                  owned);
+              owned.compress(VectorOperation::insert);
+              lambda = owned;
+              problem.compute_pressure_at_immersed_surface();
+              double     local_force = 0., local_area = 0.;
+              const auto located = [](const Point<3> &p) {
+                return p[0] >= -1. && p[0] <= 1. && p[1] >= -1. && p[1] <= 1. &&
+                       p[2] >= -1. && p[2] <= 1.;
+              };
+              if (point_coupling)
+                {
+                  const auto source =
+                    Utilities::MPI::create_evenly_distributed_partitioning(
+                      MPI_COMM_WORLD, 1);
+                  for (const auto i : source)
+                    {
+                      const auto points =
+                        problem.inclusions.get_current_support_points(i);
+                      const auto measure =
+                        problem.inclusions.get_section_measure(i);
+                      for (unsigned int q = 0; q < points.size(); ++q)
+                        {
+                          const auto weight = measure / points.size();
+                          local_area += weight;
+                          if (located(points[q]))
+                            local_force +=
+                              weight *
+                              (interior_only ?
+                                 (rigid_only ? 0. : 2.) :
+                                 ((points[q][1] - center_y) / .2 +
+                                  .25 * std::pow((points[q][1] - center_y) / .2,
+                                                 2)) /
+                                   measure);
+                        }
+                    }
+                }
+              else
+                {
+                  const auto &coupling = *problem.tensor_product_coupling;
+                  const auto &points   = coupling.get_locally_owned_qpoints();
+                  const auto &centers =
+                    coupling.get_locally_owned_reduced_qpoints();
+                  const auto &weights   = coupling.get_locally_owned_weights();
+                  const auto  n_section = coupling.get_reference_cross_section()
+                                           .get_global_quadrature()
+                                           .size();
+                  ASSERT_EQ(points.size(), centers.size() * n_section);
+                  double weighted_radius = 0., nominal_area = 0.;
+                  for (unsigned int q = 0; q < points.size(); ++q)
+                    {
+                      weighted_radius +=
+                        weights[q][0] *
+                        (points[q] - centers[q / n_section]).norm();
+                      nominal_area += weights[q][0];
+                    }
+                  const double interior_stress =
+                    rigid_only ?
+                      0. :
+                      10. *
+                        Utilities::MPI::sum(weighted_radius, MPI_COMM_WORLD) /
+                        Utilities::MPI::sum(nominal_area, MPI_COMM_WORLD);
+                  for (unsigned int q = 0; q < points.size(); ++q)
+                    {
+                      const auto radial = points[q] - centers[q / n_section];
+                      const auto radius = radial.norm();
+                      local_area += weights[q][0];
+                      if (located(points[q]))
+                        local_force +=
+                          weights[q][0] *
+                          (interior_only ?
+                             interior_stress :
+                             (radial[1] / radius +
+                              .25 * radial[1] * radial[1] / (.2 * radius)));
+                    }
+                }
+              const auto force =
+                Utilities::MPI::sum(local_force, MPI_COMM_WORLD);
+              const auto area = Utilities::MPI::sum(local_area, MPI_COMM_WORLD);
+              const auto expected = force / area;
+              if (center_y == .95 && !interior_only)
+                {
+                  EXPECT_LT(expected, -.01);
+                }
+              if (center_y == 2.)
+                {
+                  EXPECT_DOUBLE_EQ(expected, 0.);
+                }
+              for (const auto pressure :
+                   gather(problem.pressure_at_immersed_surface))
+                EXPECT_NEAR(pressure, expected, 1.e-11);
+              for (const auto pressure :
+                   gather(problem.pressure_at_immersed_surface_by_inclusion))
+                EXPECT_NEAR(pressure, expected, 1.e-11);
+            });
+        }
+}
+
+
+TEST(CoupledElasticity,
+     BOTH_TensorPressurePreservesCenterlineMeanWithVariableRadius)
+{
+  for (const double center_y : {0., .95})
+    {
+      SCOPED_TRACE(center_y);
+      std::ostringstream grid;
+      grid
+        << "# vtk DataFile Version 3.0\nline\nASCII\nDATASET UNSTRUCTURED_GRID\n"
+        << "POINTS 2 double\n0 " << center_y << " 0\n1 " << center_y
+        << " 0\nCELLS 1 3\n2 0 1\nCELL_TYPES 1\n3\nCELL_DATA 1\n"
+        << "SCALARS vessel_id int\nLOOKUP_TABLE default\n0\n";
+      const auto line = input_file("variable_radius_pressure.vtk", grid.str());
+      with_problem(
+        parameters(false,
+                   line,
+                   "vessel_id",
+                   {multiplier_only, {"Thickness", ".1*(1+x)"}}),
+        [&](auto &problem) {
+          problem.run_timestep0();
+          const auto &coupling = *problem.tensor_product_coupling;
+          const auto &section  = coupling.get_reference_cross_section();
+          const auto &section_quadrature = section.get_global_quadrature();
+          double      moment             = 0.;
+          for (unsigned int q = 0; q < section_quadrature.size(); ++q)
+            {
+              const auto xi = section_quadrature.point(q);
+              moment +=
+                xi[0] * xi[0] / xi.norm() * section_quadrature.weight(q);
+            }
+          moment /= section.measure();
+          ASSERT_GT(moment, 0.);
+          auto           &lambda = problem.locally_relevant_solution.block(1);
+          LA::MPI::Vector owned(lambda.locally_owned_elements(),
+                                MPI_COMM_WORLD);
+          VectorTools::interpolate(
+            coupling.get_dof_handler(),
+            FunctionFromFunctionObjects<3>(
+              {[moment](const Point<3> &p) { return p[0] / (2. * moment); },
+               [moment](const Point<3> &p) { return p[0] / (2. * moment); }}),
+            owned);
+          lambda = owned;
+          problem.compute_pressure_at_immersed_surface();
+
+          const auto &points  = coupling.get_locally_owned_qpoints();
+          const auto &centers = coupling.get_locally_owned_reduced_qpoints();
+          const auto &weights = coupling.get_locally_owned_weights();
+          const auto &representative_weights =
+            coupling.get_locally_owned_reduced_weights();
+          std::vector<double> denominator(centers.size(), 0.),
+            numerator(centers.size(), 0.);
+          for (unsigned int q = 0; q < points.size(); ++q)
+            {
+              const auto rep    = q / section_quadrature.size();
+              const auto x      = centers[rep][0];
+              const auto radius = (points[q] - centers[rep]).norm();
+              denominator[rep] += weights[q][0];
+              if (points[q][0] >= -1. && points[q][0] <= 1. &&
+                  points[q][1] >= -1. && points[q][1] <= 1. &&
+                  points[q][2] >= -1. && points[q][2] <= 1.)
+                numerator[rep] +=
+                  weights[q][0] * x / (2. * moment) * radius / (.1 * (1. + x));
+            }
+          double b0 = 0., b1 = 0.;
+          for (unsigned int q = 0; q < centers.size(); ++q)
+            {
+              const auto mean   = numerator[q] / denominator[q];
+              const auto weight = representative_weights[q][0];
+              b0 += weight * mean * (1. - centers[q][0]);
+              b1 += weight * mean * centers[q][0];
+            }
+          b0                  = Utilities::MPI::sum(b0, MPI_COMM_WORLD);
+          b1                  = Utilities::MPI::sum(b1, MPI_COMM_WORLD);
+          const auto pressure = gather(problem.pressure_at_immersed_surface);
+          ASSERT_EQ(pressure.size(), 1u);
+          EXPECT_NEAR(pressure[0], b0 + b1, 1.e-11);
+          if (center_y == 0.)
+            {
+              // p(s)=s and r(s)=.1*(1+s): centerline mean 1/2, wall mean 5/9.
+              EXPECT_NEAR(pressure[0], .5, 1.e-12);
+            }
+          // On [0,1], the exact scalar mass inverse is [[4,-2],[-2,4]].
+          std::vector<double> expected = {4. * b0 - 2. * b1,
+                                          -2. * b0 + 4. * b1};
+          auto                coefficients =
+            gather(problem.pressure_at_immersed_surface_by_inclusion);
+          std::sort(expected.begin(), expected.end());
+          std::sort(coefficients.begin(), coefficients.end());
+          ASSERT_EQ(coefficients.size(), expected.size());
+          for (unsigned int i = 0; i < expected.size(); ++i)
+            EXPECT_NEAR(coefficients[i], expected[i], 1.e-11);
+        });
+    }
+}
+
+
+TEST(CoupledElasticity,
+     BOTH_TensorInteriorPreservesNominalProjectionAndCellMaterialMean)
+{
+  for (const bool correlated_material : {true, false})
+    {
+      SCOPED_TRACE(correlated_material);
+      const auto line =
+        reduced_grid("interior_nominal_projection", {0., 1.}, {0});
+      auto text = parameters(false,
+                             line,
+                             "vessel_id",
+                             {{"Remove interior stress from pressure", "true"},
+                              {"Thickness", ".1*(1+x)"},
+                              {"Reduced right hand side",
+                               correlated_material ? "1;1" : "x*x;x*x"}});
+      text += R"(
+subsection Immersed Problem
+  subsection Material properties
+    subsection low
+      set Density = 0
+      set Lame lambda = .5
+      set Lame mu = .5
+    end
+    subsection high
+      set Density = 0
+      set Lame lambda = 1
+      set Lame mu = 1
+    end
+  end
+end
+)";
+      ParameterAcceptor::clear();
+      ElasticityProblemParameters<3> par;
+      par.material_properties_by_id[7] =
+        std::make_unique<MaterialProperties>("low");
+      par.material_properties_by_id[8] =
+        std::make_unique<MaterialProperties>("high");
+      CoupledElasticityProblem<3> problem(par);
+      initialize_parameters();
+      ParameterAcceptor::prm.parse_input_from_string(text);
+      ParameterAcceptor::parse_all_parameters();
+      problem.run_timestep0();
+      for (const auto &cell : problem.dh.active_cell_iterators())
+        if (cell->is_locally_owned())
+          cell->set_material_id(
+            correlated_material && cell->center()[0] < .5 ? 7 : 8);
+      auto &lambda = problem.locally_relevant_solution.block(1);
+      lambda       = 0.;
+      problem.compute_pressure_at_immersed_surface();
+      for (const auto i : lambda.locally_owned_elements())
+        EXPECT_DOUBLE_EQ(lambda[i], 0.);
+      const auto &coupling   = *problem.tensor_product_coupling;
+      const auto &section    = coupling.get_reference_cross_section();
+      const auto &quadrature = section.get_global_quadrature();
+      double      moment     = 0.;
+      for (unsigned int q = 0; q < quadrature.size(); ++q)
+        {
+          const auto xi = quadrature.point(q);
+          moment += xi[0] * xi[0] / xi.norm() * quadrature.weight(q);
+        }
+      moment /= section.measure();
+      const auto &points   = coupling.get_locally_owned_reduced_qpoints();
+      const auto &weights  = coupling.get_locally_owned_reduced_weights();
+      double      integral = 0., b0 = 0., b1 = 0.;
+      for (unsigned int q = 0; q < points.size(); ++q)
+        {
+          const double x = points[q][0];
+          // Projection of x^2 into P1 with weight (1+x): endpoints -5/26,
+          // 111/130.
+          const double datum =
+            correlated_material ? 1. : -5. / 26. + (68. / 65.) * x;
+          // Equal numbers of samples see K=2 and K=4 in the correlated case.
+          const double stiffness = correlated_material ? 3. : 4.;
+          const double pressure =
+            stiffness * 2. * moment * datum / (.1 * (1. + x));
+          integral += weights[q][0] * pressure;
+          b0 += weights[q][0] * pressure * (1. - x);
+          b1 += weights[q][0] * pressure * x;
+        }
+      integral            = Utilities::MPI::sum(integral, MPI_COMM_WORLD);
+      b0                  = Utilities::MPI::sum(b0, MPI_COMM_WORLD);
+      b1                  = Utilities::MPI::sum(b1, MPI_COMM_WORLD);
+      const auto pressure = gather(problem.pressure_at_immersed_surface);
+      ASSERT_EQ(pressure.size(), 1u);
+      EXPECT_NEAR(pressure[0], integral, 1.e-10);
+      auto coefficients =
+        gather(problem.pressure_at_immersed_surface_by_inclusion);
+      std::vector<double> expected = {4. * b0 - 2. * b1, -2. * b0 + 4. * b1};
+      std::sort(coefficients.begin(), coefficients.end());
+      std::sort(expected.begin(), expected.end());
+      ASSERT_EQ(coefficients.size(), expected.size());
+      for (unsigned int i = 0; i < expected.size(); ++i)
+        EXPECT_NEAR(coefficients[i], expected[i], 1.e-10);
+    }
+}
+
 #endif
