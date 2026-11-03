@@ -401,7 +401,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Avoid implicit floating-point-to-index conversions in vessel-profile interpolation and its regression oracle, preserving endpoint clamping and interpolation values in Debug and Release. Apply the existing SDK preprocessor-warning policy to optional 1D client compilation probes as well. Fix a null-pointer return and remove an unused counter in the legacy 1D clients for Clang compatibility.
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Avoid implicit floating-point-to-index conversions in vessel-profile interpolation and its regression oracle, preserving endpoint clamping and interpolation values in Debug and Release. Apply the existing SDK preprocessor-warning policy to optional 1D client compilation probes as well. Fix a null-pointer return and remove an unused counter in the legacy 1D clients for Clang compatibility. Add explicit scopes around conditional GoogleTest macros to avoid dangling-else warnings in vascular and MetricFlowX regressions.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Link coupled applications with dimension-typed deal.II reference cells.
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Link shared libraries on macOS when the optional vascular MPI profiler is absent.

@@ -153,8 +153,10 @@ TEST(VascularForest, BOTH_SparseOwnershipMatchesNativeFullRedistribution)
             EXPECT_EQ(delta.changed_owned.count(id), v.owner == rank ? 1u : 0u);
             EXPECT_EQ(delta.owned.vessels.count(id), v.owner == rank ? 1u : 0u);
             if (delta.owned.vessels.count(id))
-              EXPECT_EQ(Utilities::pack(delta.owned.vessels.at(id), false),
-                        Utilities::pack(v, false));
+              {
+                EXPECT_EQ(Utilities::pack(delta.owned.vessels.at(id), false),
+                          Utilities::pack(v, false));
+              }
           }
         EXPECT_EQ(delta.released_owned.count(split.vessel),
                   rank == split.owner &&
@@ -166,16 +168,20 @@ TEST(VascularForest, BOTH_SparseOwnershipMatchesNativeFullRedistribution)
             const auto found = expected.nodes.find(id);
             EXPECT_NE(found, expected.nodes.end());
             if (found != expected.nodes.end())
-              EXPECT_EQ(Utilities::pack(n, false),
-                        Utilities::pack(found->second, false));
+              {
+                EXPECT_EQ(Utilities::pack(n, false),
+                          Utilities::pack(found->second, false));
+              }
           }
         const auto &terminal = expected.terminals.at(split.terminal);
         EXPECT_EQ(delta.owned.terminals.count(split.terminal),
                   terminal.owner == rank ? 1u : 0u);
         if (delta.owned.terminals.count(split.terminal))
-          EXPECT_EQ(Utilities::pack(delta.owned.terminals.at(split.terminal),
-                                    false),
-                    Utilities::pack(terminal, false));
+          {
+            EXPECT_EQ(Utilities::pack(delta.owned.terminals.at(split.terminal),
+                                      false),
+                      Utilities::pack(terminal, false));
+          }
         EXPECT_EQ(Utilities::MPI::sum(work[GrowthOperation::node_localizations],
                                       MPI_COMM_WORLD),
                   2u);
@@ -306,8 +312,10 @@ TEST(VascularForest, BOTH_SparseOwnershipRoutesConcurrentAdjacentSplits)
       const auto found = expected.vessels.find(id);
       EXPECT_NE(found, expected.vessels.end());
       if (found != expected.vessels.end())
-        EXPECT_EQ(Utilities::pack(v, false),
-                  Utilities::pack(found->second, false));
+        {
+          EXPECT_EQ(Utilities::pack(v, false),
+                    Utilities::pack(found->second, false));
+        }
     }
   EXPECT_EQ(Utilities::MPI::sum(delta.owned.vessels.size(), MPI_COMM_WORLD),
             6u);

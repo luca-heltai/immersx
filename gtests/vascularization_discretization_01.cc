@@ -224,7 +224,9 @@ TEST(VascularDiscretization, WarpedBilinearBoundaryClipsAtAnalyticalCrossing)
   EXPECT_GT(result.exterior_cells, 0u);
   for (const auto &cell : result.cells)
     if (cell.inside)
-      EXPECT_GE(cell.reference.begin, .5 - 1.e-12);
+      {
+        EXPECT_GE(cell.reference.begin, .5 - 1.e-12);
+      }
 
   // Along y=1-x the same warped face has two intersections, at
   // x=(1+-sqrt(1/2))/2. Their physical separation is exactly one metre.
@@ -418,7 +420,9 @@ TEST(VascularDiscretization,
     }
   EXPECT_EQ(Utilities::MPI::sum(owner_mismatches, comm), 0u);
   if (size > 1)
-    EXPECT_GT(Utilities::MPI::sum(remote_numerical_cells, comm), 0u);
+    {
+      EXPECT_GT(Utilities::MPI::sum(remote_numerical_cells, comm), 0u);
+    }
   EXPECT_NEAR(Utilities::MPI::sum(l, comm), 10., 1.e-12);
   const double expected_v = numbers::PI * 10. * (.0001 + .0002 + .0004) / 3.;
   const double expected_r = 8. * .004 / numbers::PI * 10. / .03 *

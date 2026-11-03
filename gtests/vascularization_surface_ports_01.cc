@@ -147,7 +147,9 @@ TEST(VascularSurfacePorts, CCORechecksInteriorJunctionsAndKeepsTheFixedPort)
       const double radius = e.radii[0] + p.clearance;
       EXPECT_GT(b[0], radius);
       if (e.nodes[0] != 0)
-        EXPECT_GT(a[0], radius);
+        {
+          EXPECT_GT(a[0], radius);
+        }
       EXPECT_LT(std::max(a[0], b[0]) + radius, 1.);
       for (unsigned int d = 1; d < 3; ++d)
         {

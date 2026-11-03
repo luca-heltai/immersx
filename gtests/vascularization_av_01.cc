@@ -103,18 +103,26 @@ namespace
           r.reference.pressures.at(a.node) - r.reference.pressures.at(v.node);
         EXPECT_NEAR(drop / (q * pair.resistance), 1., 1.e-10);
         if (p.reference_flow > 0.)
-          EXPECT_NEAR(q / (p.reference_flow * t.demand / demand), 1., 1.e-8);
+          {
+            EXPECT_NEAR(q / (p.reference_flow * t.demand / demand), 1., 1.e-8);
+          }
       }
     EXPECT_EQ(paired_territories.size(), territories.size());
     if (p.reference_flow > 0.)
-      EXPECT_NEAR(total / p.reference_flow, 1., 1.e-8);
+      {
+        EXPECT_NEAR(total / p.reference_flow, 1., 1.e-8);
+      }
     for (const auto &[id, e] : r.network.vessels)
       {
         const double q = r.reference.vessels.at(id).flow;
         if (e.system == System::arterial)
-          EXPECT_GE(q, 0.);
+          {
+            EXPECT_GE(q, 0.);
+          }
         else if (e.system == System::venous)
-          EXPECT_LE(q, 0.);
+          {
+            EXPECT_LE(q, 0.);
+          }
       }
     // Independent rooted traversal of new physical vessels, separate from CCO
     // caches.

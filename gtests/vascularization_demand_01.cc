@@ -122,10 +122,12 @@ namespace
     EXPECT_EQ(result.target_attachment_flows.size(), root_ids.size());
     for (const auto &[id, t] : n.terminals)
       if (territories.count(t.territory))
-        EXPECT_NEAR(result.target_terminal_flows.at(id) /
-                      (p.reference_flow * t.demand / total),
-                    1.,
-                    1.e-12);
+        {
+          EXPECT_NEAR(result.target_terminal_flows.at(id) /
+                        (p.reference_flow * t.demand / total),
+                      1.,
+                      1.e-12);
+        }
     for (Id id : root_ids)
       EXPECT_NEAR(result.target_attachment_flows.at(id) /
                     (p.reference_flow * demands.at(id) / total),

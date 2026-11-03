@@ -327,10 +327,12 @@ TEST(VascularGeneration, BOTH_PublicSeedFeedsTheSameBatchedGrowthEngine)
   EXPECT_NEAR(integrated_demand, 12., 1.e-13);
   for (const auto &[id, terminal] : a.network.terminals)
     if (terminal.owner == rank)
-      EXPECT_NEAR(a.target_terminal_flows.at(id) /
-                    (p.reference_flow * terminal.demand / integrated_demand),
-                  1.,
-                  2.e-13);
+      {
+        EXPECT_NEAR(a.target_terminal_flows.at(id) /
+                      (p.reference_flow * terminal.demand / integrated_demand),
+                    1.,
+                    2.e-13);
+      }
   EXPECT_EQ(a.accepted_insertions, p.terminal_count - 1);
   EXPECT_GT(a.sampled_points, 0u);
   EXPECT_EQ(a.sampled_points, b.sampled_points);

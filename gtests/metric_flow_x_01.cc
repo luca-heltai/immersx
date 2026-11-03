@@ -420,7 +420,9 @@ namespace
       adapter.field(forced, flow_fields.fields().state);
     for (const auto index : flow.component_dofs(Problem::Component::area))
       if (flow.locally_owned_dofs().is_element(index))
-        EXPECT_NEAR(flow_increment[index], 0., 1.e-14);
+        {
+          EXPECT_NEAR(flow_increment[index], 0., 1.e-14);
+        }
 
     // Check the complete state/derivative linearization at a nonzero multiplier
     // and an expanded area, so the nonlinear radius derivative is exercised.
@@ -591,10 +593,12 @@ TEST(MetricFlowX, BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal)
                                 MPI_COMM_WORLD),
             std::min(2u, ranks));
   if (ranks > 2)
-    EXPECT_EQ(
-      Utilities::MPI::min(flow.triangulation().n_locally_owned_active_cells(),
-                          MPI_COMM_WORLD),
-      0u);
+    {
+      EXPECT_EQ(
+        Utilities::MPI::min(flow.triangulation().n_locally_owned_active_cells(),
+                            MPI_COMM_WORLD),
+        0u);
+    }
 
   StateLayout                      layout;
   SemiDiscreteModel<FieldVector>   model;
@@ -794,7 +798,9 @@ TEST(MetricFlowX, BOTH_PressureProviderPreservesDGTracesAndGhostValues)
           }
       }
   if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) > 1)
-    EXPECT_GT(Utilities::MPI::sum(local_ghosts, MPI_COMM_WORLD), 0u);
+    {
+      EXPECT_GT(Utilities::MPI::sum(local_ghosts, MPI_COMM_WORLD), 0u);
+    }
 
   auto state = problem.make_state();
   auto dot   = problem.make_state();
@@ -816,7 +822,9 @@ TEST(MetricFlowX, BOTH_PressureProviderPreservesDGTracesAndGhostValues)
   EXPECT_GT(contribution.l2_norm(), 1.e-12);
   for (const auto index : problem.component_dofs(Problem::Component::area))
     if (contribution.locally_owned_elements().is_element(index))
-      EXPECT_NEAR(contribution[index], 0., 1.e-14);
+      {
+        EXPECT_NEAR(contribution[index], 0., 1.e-14);
+      }
 
   const auto op =
     metric_flow_x_pressure_operator(problem, -1. * value(field), state, 0.);
