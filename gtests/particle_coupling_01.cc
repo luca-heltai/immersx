@@ -21,7 +21,9 @@
 #include <deal.II/grid/tria.h>
 
 #include <gtest/gtest.h>
+#include <immersx/coupling/particle_coupling.h>
 
+#include <algorithm>
 #include <filesystem>
 
 #include "test_paths.h"
@@ -31,7 +33,6 @@
 #  include <immersx/coupling/immersed_repartitioner.h>
 
 using namespace ImmersX;
-#  include <immersx/coupling/particle_coupling.h>
 #  include <immersx/coupling/tensor_product_space.h>
 
 TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
@@ -109,3 +110,63 @@ TEST(ParticleCoupling, MPI_OutputParticles) // NOLINT
 
 
 #endif // DEAL_II_WITH_VTK
+
+TEST(ParticleCoupling, BOTH_SerialBackgroundKeepsPointProperties)
+{
+  using namespace dealii;
+  using namespace ImmersX;
+  Triangulation<2> background;
+  GridGenerator::hyper_cube(background);
+  background.refine_global(1);
+  const MappingQ1<2>                       mapping;
+  const std::vector<Point<2>>              points     = {Point<2>(0.125, 0.125),
+                                                         Point<2>(0.75, 0.25),
+                                                         Point<2>(0.4, 0.8)};
+  const std::vector<std::vector<double>>   properties = {{0.125, -3.},
+                                                         {0.75, 7.},
+                                                         {0.5, 11.}};
+  const std::vector<types::particle_index> ids        = {13, 27, 41};
+  for (const bool explicit_mapping : {false, true})
+    {
+      SCOPED_TRACE(explicit_mapping);
+      ParticleCouplingParameters<2> parameters("/Serial particle coupling/");
+      ParticleCoupling<2>           coupling(parameters);
+      if (explicit_mapping)
+        coupling.initialize_particle_handler(background, mapping, 2);
+      else
+        coupling.initialize_particle_handler(background, 2);
+      const auto bounding_boxes = coupling.get_global_bounding_boxes();
+      ASSERT_EQ(bounding_boxes.size(), 1u);
+      EXPECT_FALSE(bounding_boxes.front().empty());
+      const auto &particles  = coupling.get_particles();
+      int         comparison = MPI_UNEQUAL;
+      ASSERT_EQ(
+        MPI_Comm_compare(particles.get_triangulation().get_mpi_communicator(),
+                         MPI_COMM_SELF,
+                         &comparison),
+        MPI_SUCCESS);
+      EXPECT_TRUE(comparison == MPI_IDENT || comparison == MPI_CONGRUENT);
+      const auto located = coupling.insert_points(points, properties, ids);
+      ASSERT_EQ(located.size(), 1u);
+      EXPECT_EQ(located.at(0).n_elements(), points.size());
+      EXPECT_EQ(particles.n_global_particles(), points.size());
+      for (const auto &particle : particles)
+        {
+          const auto id = std::find(ids.begin(), ids.end(), particle.get_id());
+          ASSERT_NE(id, ids.end());
+          const auto index = static_cast<std::size_t>(id - ids.begin());
+          EXPECT_LT(particle.get_location().distance(points[index]), 1.e-14);
+          ASSERT_EQ(particle.get_properties().size(), 2u);
+          EXPECT_DOUBLE_EQ(particle.get_properties()[0], properties[index][0]);
+          EXPECT_DOUBLE_EQ(particle.get_properties()[1], properties[index][1]);
+          EXPECT_TRUE(located.at(0).is_element(index));
+        }
+      const auto empty = coupling.insert_points({});
+      for (const auto &[owner, indices] : empty)
+        {
+          (void)owner;
+          EXPECT_EQ(indices.n_elements(), 0u);
+        }
+      EXPECT_EQ(particles.n_global_particles(), points.size());
+    }
+}

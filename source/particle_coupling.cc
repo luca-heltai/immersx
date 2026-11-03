@@ -50,8 +50,8 @@ namespace ImmersX
   template <int dim>
   void
   ParticleCoupling<dim>::initialize_particle_handler(
-    const parallel::TriangulationBase<dim> &tria,
-    const unsigned int                      n_properties)
+    const Triangulation<dim> &tria,
+    const unsigned int        n_properties)
   {
     const auto reference_cell = detail::uniform_reference_cell(tria);
     AssertThrow(reference_cell.has_value(),
@@ -63,9 +63,9 @@ namespace ImmersX
   template <int dim>
   void
   ParticleCoupling<dim>::initialize_particle_handler(
-    const parallel::TriangulationBase<dim> &tria,
-    const Mapping<dim>                     &mapp,
-    const unsigned int                      n_properties)
+    const Triangulation<dim> &tria,
+    const Mapping<dim>       &mapp,
+    const unsigned int        n_properties)
   {
     tria_background = &tria;
     mapping         = &mapp;
@@ -74,7 +74,7 @@ namespace ImmersX
 
     {
       std::vector<BoundingBox<dim>> all_boxes;
-      all_boxes.reserve(tria.n_locally_owned_active_cells());
+      all_boxes.reserve(tria.n_active_cells());
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
           all_boxes.emplace_back(cell->bounding_box());
