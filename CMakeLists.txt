@@ -485,6 +485,14 @@ FOREACH(_build_type ${_d2_build_types})
         SET(_immersx_library_type SHARED)
       ENDIF()
       ADD_LIBRARY(${_lib} ${_immersx_library_type} ${_files})
+      IF(APPLE AND NOT IMMERSX_BUILD_STATIC)
+        # The optional profiler defines these weak imports in its executable.
+        # Darwin requires each unresolved hook to be allowed explicitly.
+        TARGET_LINK_OPTIONS(${_lib} PRIVATE
+          "LINKER:-U,_immersx_vascular_mpi_new_run"
+          "LINKER:-U,_immersx_vascular_mpi_begin"
+          "LINKER:-U,_immersx_vascular_mpi_end")
+      ENDIF()
       IF(IMMERSX_BUILD_BOTH_VARIANTS)
         SET_TARGET_PROPERTIES(${_lib} PROPERTIES
           EXPORT_NAME immersx_${_build_type})
