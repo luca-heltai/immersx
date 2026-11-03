@@ -197,6 +197,52 @@ TEST(ReducedCoupling0D, BOTH_ExteriorCentersRetainSourceSamples)
             3u);
   check_sampled_gram(coupling, Point<2>(), Point<2>(1., 1.));
 }
+TEST(ReducedCoupling0D, BOTH_BoundaryMembershipMatchesLocatedParticles)
+{
+  ParameterAcceptor::clear();
+  parallel::distributed::Triangulation<2> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background, 0., 1.);
+  ReducedCouplingParameters<0, 1, 2, 1> parameters;
+  auto &space                    = parameters.tensor_product_space_parameters;
+  space.thickness                = "0.25";
+  space.section.inclusion_degree = 0;
+  space.section.refinement_level = 0;
+  space.section.quadrature_type  = "gauss_lobatto";
+  space.section.n_q_points       = 2;
+  const ReferenceCrossSection<1, 2, 1> section(space.section);
+  Tensor<1, 2>                         vertical;
+  vertical[1] = 1.;
+  const auto offset =
+    section.get_transformed_quadrature(Point<2>(), vertical, 0.25).point(0);
+  for (const double shift : {-1.e-7, -1.e-11, -1.e-13, 1.e-13, 1.e-7})
+    space.point_cloud.points.emplace_back(shift - offset[0], 0.5 - offset[1]);
+  parameters.coupling_rhs_expressions                   = {"1"};
+  parameters.refinement_parameters.max_refinement_level = 0;
+  ReducedCoupling<0, 1, 2, 1> coupling(background, parameters);
+  coupling.initialize();
+  const auto source = coupling.locally_owned_qpoints();
+  IndexSet   located(source.size());
+  for (const auto &particle : coupling.get_particles())
+    {
+      const auto [entity, representative_q, section_q] =
+        coupling.particle_id_to_representative_indices(particle.get_id());
+      (void)representative_q;
+      located.add_index(
+        entity * coupling.get_reference_cross_section().n_quadrature_points() +
+        section_q);
+    }
+  for (const auto &on_rank :
+       Utilities::MPI::all_gather(MPI_COMM_WORLD, located))
+    located.add_indices(on_rank);
+  unsigned int near_boundary = 0;
+  for (const auto &point : coupling.get_locally_owned_qpoints())
+    near_boundary += std::abs(point[0]) < 2.e-7;
+  EXPECT_GE(Utilities::MPI::sum(near_boundary, MPI_COMM_WORLD), 5u);
+  unsigned int local_q = 0;
+  for (const auto q : source)
+    EXPECT_EQ(coupling.source_point_membership()[local_q++],
+              located.is_element(q));
+}
 
 namespace
 {
