@@ -1,0 +1,61 @@
+# Shared CCO controls for a synthetic sphere of radius 1 m.
+subsection Vascularization
+  # Geometric length coefficients use the local background-cell diameter.
+  set Length scale = local mesh size
+
+  subsection Input and ports
+    set Seed position = 0,0,-0.7
+    set Seed direction = 0,0,1
+    set Seed radius = 0.1
+    # The inlet is inside the sphere, so it has a closed vessel envelope.
+    set Seed inward port normal = 0,0,0
+  end
+
+  subsection Growth
+    set Seed length = 0.5
+    set Minimum vessel length = 0.1
+    set Clearance = 0
+    set Minimum junction angle = 15
+    set Candidate vessels = 12
+    set Local optimization steps = 10
+    set Dissipation weight = 0
+  end
+
+  subsection Sampling
+    # One requested tissue terminal per global active background cell.
+    set Terminal count = 1
+    set Terminal count multiplier factor = background cell count
+    set Random seed = 23
+    set Density mesh exponent = 3
+    set Spatial weight = 1
+    set Spatial weight bound = 1
+  end
+
+  subsection Objectives
+    # Keep the cell-based count; do not calibrate it against another target.
+    set Target volume fraction = 0
+    set Minimum tissue coverage = 0
+    set Maximum service distance = 0
+  end
+
+  subsection Discretization
+    set Target length factor = 1
+    set Lower length factor = 0.5
+    set Upper length factor = 2
+  end
+
+  subsection Physiology
+    set Dynamic viscosity = 0.004
+    set Arterial Murray exponent = 3
+    set Tissue demand = 1
+    set Total new-tissue reference flow = 2e-9
+    set Reference pressures = 0:12000
+  end
+
+  subsection Venous network
+    set Enabled = false
+  end
+  subsection Portal network
+    set Enabled = false
+  end
+end

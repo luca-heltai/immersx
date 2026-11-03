@@ -1,0 +1,11 @@
+# Parameter input for the Domain-based C++ fragment in the tutorial.
+include @IMMERSX_BINARY_DIR@/tutorials/cco_sphere/cco.prm
+
+subsection Domain
+  set Grid generator = hyper_ball
+  # Center, radius, attach spherical manifold also to boundary cells.
+  set Grid generator arguments = 0,0,0:1:false
+  set Grid scale = 1
+  set Initial refinement = 1
+  set Triangulation type = distributed
+end

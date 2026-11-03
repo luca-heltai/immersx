@@ -1,0 +1,23 @@
+# Standalone vascular_network input; no transient simulation is started.
+include @IMMERSX_BINARY_DIR@/tutorials/cco_sphere/cco.prm
+
+subsection Vascularization
+  subsection Input and ports
+    set Mode = generate
+    set Evaluate reference = true
+  end
+  subsection Domain
+    set Shape = sphere
+    set Sphere center = 0,0,0
+    set Sphere radius = 1
+    set Uniform refinements = 1
+    set Refinement focus = none
+  end
+  subsection Output
+    # Use a new directory for each generation run.
+    set Directory = @IMMERSX_BINARY_DIR@/tutorial-output/cco-sphere/generation
+    set Save physical archive = true
+    set Write tables = true
+    set Write meshes = true
+  end
+end

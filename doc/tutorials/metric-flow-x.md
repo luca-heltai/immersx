@@ -9,6 +9,7 @@ coupling and its manufactured solution. See the
 :titlesonly:
 
 Elastostatic coupling walkthrough <metric-flow-x-elastostatic-onboarding>
+CCO growth in a sphere <cco-sphere>
 metric-flow-x-elastodynamics
 metric-flow-x-elastodynamics-mms
 ```
