@@ -402,7 +402,7 @@ end
         squared_norms[2] /= max_y * max_y;
         const double radius_integral = (0.25 + 0.125) / 2.;
         auto         constant_mode = *load, metric_action = *load;
-        const auto  &dofs = view.field("multiplier").dof_handler();
+        const auto  &dofs = view.dof_handler();
         for (unsigned int slot = 0; slot < 3; ++slot)
           {
             const auto component =

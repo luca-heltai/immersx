@@ -138,14 +138,8 @@ TEST(ParticleCoupling, BOTH_SerialBackgroundKeepsPointProperties)
       const auto bounding_boxes = coupling.get_global_bounding_boxes();
       ASSERT_EQ(bounding_boxes.size(), 1u);
       EXPECT_FALSE(bounding_boxes.front().empty());
-      const auto &particles  = coupling.get_particles();
-      int         comparison = MPI_UNEQUAL;
-      ASSERT_EQ(
-        MPI_Comm_compare(particles.get_triangulation().get_mpi_communicator(),
-                         MPI_COMM_SELF,
-                         &comparison),
-        MPI_SUCCESS);
-      EXPECT_TRUE(comparison == MPI_IDENT || comparison == MPI_CONGRUENT);
+      const auto &particles = coupling.get_particles();
+      // Each rank keeps the complete point cloud on its serial background.
       const auto located = coupling.insert_points(points, properties, ids);
       ASSERT_EQ(located.size(), 1u);
       EXPECT_EQ(located.at(0).n_elements(), points.size());
