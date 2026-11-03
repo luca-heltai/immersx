@@ -198,6 +198,10 @@ FOREACH(_build_type ${_d2_build_types})
         "${CMAKE_SOURCE_DIR}/apps/app_coupled_elasticity.cc"
         "${CMAKE_SOURCE_DIR}/apps/app_pseudocoupling1D.cc")
       target_compile_definitions(${_optional_1d_clients} PRIVATE ENABLE_COUPLED_PROBLEMS)
+      target_compile_options(${_optional_1d_clients} PRIVATE
+        $<$<CXX_COMPILER_ID:AppleClang>:-Wno-cpp>
+        $<$<CXX_COMPILER_ID:Clang>:-Wno-cpp>
+        $<$<CXX_COMPILER_ID:GNU>:-Wno-cpp>)
       target_link_libraries(${_optional_1d_clients} ${TEST_LIBRARIES_${_BUILD_TYPE}})
       DEAL_II_SETUP_TARGET(${_optional_1d_clients} ${_BUILD_TYPE})
       add_dependencies(${_exe} ${_optional_1d_clients})
