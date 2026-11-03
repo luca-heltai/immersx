@@ -1341,185 +1341,98 @@ namespace ImmersX
   ElasticityProblem<dim, spacedim>::assemble_point_coupling(
     const bool rebuild_matrices)
   {
+    if (n_multiplier_dofs() == 0)
+      return;
     TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
-
-    // The coupling operators depend only on the current mesh and inclusion
-    // geometry. The multiplier right-hand side, however, can change with
-    // time, so rebuild only that vector after the first assembly.
+    const bool         constraint_coupling =
+      par.time_mode == TimeMode::Static && !par.pressure_coupling;
     if (rebuild_matrices)
-      {
-        coupling_matrix  = 0;
-        inclusion_matrix = 0;
-      }
-
-    force_rhs.block(1)  = 0;
-    system_rhs.block(1) = 0;
-
-    // const FEValuesExtractors::Scalar     scalar(0);
-    std::vector<types::global_dof_index> fe_dof_indices(fe->n_dofs_per_cell());
-    std::vector<types::global_dof_index> inclusion_dof_indices(
-      inclusions.n_dofs_per_inclusion());
-
-    FullMatrix<double> local_coupling_matrix(fe->n_dofs_per_cell(),
-                                             inclusions.n_dofs_per_inclusion());
-
-    FullMatrix<double> local_inclusion_matrix(
-      inclusions.n_dofs_per_inclusion(), inclusions.n_dofs_per_inclusion());
-
-    Vector<double> local_rhs(inclusions.n_dofs_per_inclusion());
-
+      coupling_matrix = 0.;
+    LA::MPI::Vector affine_rhs(owned_dofs[1], mpi_communicator);
+    std::vector<types::global_dof_index> native_indices(fe->n_dofs_per_cell());
     auto particle = inclusions.inclusions_as_particles.begin();
-
     while (particle != inclusions.inclusions_as_particles.end())
       {
         const auto &cell = particle->get_surrounding_cell();
         const auto  dh_cell =
           typename DoFHandler<spacedim>::cell_iterator(*cell, &dh);
-        dh_cell->get_dof_indices(fe_dof_indices);
-        const auto pic =
+        dh_cell->get_dof_indices(native_indices);
+        const auto range =
           inclusions.inclusions_as_particles.particles_in_cell(cell);
-        Assert(pic.begin() == particle, ExcInternalError());
-
-        auto p      = pic.begin();
-        auto next_p = pic.begin();
-        while (p != pic.end())
+        auto point = range.begin();
+        while (point != range.end())
           {
-            const auto inclusion_id = inclusions.get_inclusion_id(p->get_id());
-            inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
-            local_coupling_matrix   = 0;
-            local_inclusion_matrix  = 0;
-            local_rhs               = 0;
-
-            const auto section_measure =
-              inclusions.get_section_measure(inclusion_id);
-
-            auto Rotation = inclusions.get_rotation(inclusion_id);
-
-            // Extract all points that refer to the same inclusion
-            std::vector<Point<spacedim>> ref_q_points;
-            for (; next_p != pic.end() && inclusions.get_inclusion_id(
-                                            next_p->get_id()) == inclusion_id;
-                 ++next_p)
-              ref_q_points.push_back(next_p->get_reference_location());
-            FEValues<spacedim, spacedim> fev(geometry_mapping(),
-                                             *fe,
-                                             ref_q_points,
-                                             update_values | update_gradients);
-            fev.reinit(dh_cell);
-
-            for (unsigned int q = 0; q < ref_q_points.size(); ++q)
+            const auto inclusion = inclusions.get_inclusion_id(point->get_id());
+            const auto indices   = inclusions.get_dof_indices(point->get_id());
+            const auto rotation  = inclusions.get_rotation(inclusion);
+            const auto measure   = inclusions.get_section_measure(inclusion);
+            std::vector<Point<spacedim>> reference_points;
+            auto                         end = point;
+            while (end != range.end() &&
+                   inclusions.get_inclusion_id(end->get_id()) == inclusion)
               {
-                const auto  id                  = p->get_id();
-                const auto &inclusion_fe_values = inclusions.get_fe_values(id);
-                const auto &real_q              = p->get_location();
-                const auto  ds                  = inclusions.get_JxW(id);
-
-
-                // Coupling and inclusions matrix
-                for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
-                     ++j)
-                  {
-                    if (rebuild_matrices)
-                      {
-                        for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
-                          {
-                            const auto comp_i =
-                              fe->system_to_component_index(i).first;
-                            //  if (comp_i == inclusions.get_component(j))
-                            {
-                              local_coupling_matrix(i, j) +=
-                                ((fev.shape_value(i, q)) *
-                                 inclusion_fe_values[j] / section_measure *
-                                 ds) *
-                                (Rotation[comp_i][inclusions.get_component(j)]);
-                            }
-                          }
-                      }
-                    if (inclusions.inclusions_data[inclusion_id].size() > 0)
-                      {
-                        if (inclusions.inclusions_data[inclusion_id].size() >
-                            inclusions.get_fourier_component(j))
-                          {
-                            auto temp =
-                              inclusion_fe_values[j] * ds * // /
-                              // inclusions.get_section_measure(inclusion_id) *
-                              // phi_i ds
-                              // now we need to build g from the data.
-                              // this is sum E^i g_i where g_i are coefficients
-                              // of the modes, but only the j one survives
-                              inclusion_fe_values[j] *
-                              inclusions.get_inclusion_data(inclusion_id, j);
-
-                            if (par.time_parameters.initial_time !=
-                                par.time_parameters.final_time)
-                              {
-                                temp *= inclusions.inclusions_rhs.value(
-                                  real_q, inclusions.get_component(j));
-                              }
-                            temp /= section_measure;
-                            local_rhs(j) += temp;
-                          }
-                      }
-                    else
-                      {
-                        local_rhs(j) +=
-                          inclusion_fe_values[j] * // /
-                          // inclusions.get_section_measure(inclusion_id) *
-                          inclusions.inclusions_rhs.value(
-                            real_q, inclusions.get_component(j)) // /
-                          // inclusions.get_radius(inclusion_id)
-                          * ds / section_measure;
-                      }
-                    if (rebuild_matrices)
-                      {
-                        local_inclusion_matrix(j, j) +=
-                          (inclusion_fe_values[j] * inclusion_fe_values[j] *
-                           ds); // /
-                        //  inclusions.get_section_measure(inclusion_id));
-                      }
-                  }
-                ++p;
+                reference_points.push_back(end->get_reference_location());
+                ++end;
               }
-            // I expect p and next_p to be the same now.
-            Assert(p == next_p, ExcInternalError());
-            // Add local matrices to global ones
+            FEValues<spacedim> values(geometry_mapping(),
+                                      *fe,
+                                      reference_points,
+                                      update_values);
+            values.reinit(dh_cell);
+            FullMatrix<double> local(native_indices.size(), indices.size());
+            for (unsigned int q = 0; point != end; ++point, ++q)
+              {
+                const auto  id     = point->get_id();
+                const auto &basis  = inclusions.get_fe_values(id);
+                const auto  weight = inclusions.get_JxW(id) / measure;
+                for (unsigned int i = 0; i < native_indices.size(); ++i)
+                  for (unsigned int j = 0; j < indices.size(); ++j)
+                    local(i, j) +=
+                      values.shape_value(i, q) * basis[j] * weight *
+                      rotation[fe->system_to_component_index(i).first]
+                              [inclusions.get_component(j)];
+              }
             if (rebuild_matrices)
-              constraints.distribute_local_to_global(local_coupling_matrix,
-                                                     fe_dof_indices,
+              constraints.distribute_local_to_global(local,
+                                                     native_indices,
                                                      inclusion_constraints,
-                                                     inclusion_dof_indices,
+                                                     indices,
                                                      coupling_matrix);
-            inclusion_constraints.distribute_local_to_global(
-              local_rhs, inclusion_dof_indices, force_rhs.block(1));
-            inclusion_constraints.distribute_local_to_global(
-              local_rhs, inclusion_dof_indices, system_rhs.block(1));
-
-            if (rebuild_matrices)
-              inclusion_constraints.distribute_local_to_global(
-                local_inclusion_matrix,
-                inclusion_dof_indices,
-                inclusion_matrix);
+            if (constraint_coupling)
+              {
+                Vector<double> local_affine(indices.size());
+                for (unsigned int i = 0; i < native_indices.size(); ++i)
+                  for (unsigned int j = 0; j < indices.size(); ++j)
+                    local_affine[j] -=
+                      local(i, j) *
+                      constraints.get_inhomogeneity(native_indices[i]);
+                inclusion_constraints.distribute_local_to_global(local_affine,
+                                                                 indices,
+                                                                 affine_rhs);
+              }
           }
-        particle = pic.end();
+        particle = range.end();
       }
     if (rebuild_matrices)
       {
         coupling_matrix.compress(VectorOperation::add);
-        inclusion_matrix.compress(VectorOperation::add);
+        inclusions.assemble_coupling_mass_matrix(inclusion_matrix);
+        inclusions.assemble_outside_mass_matrix(outside_mass_matrix);
       }
-    force_rhs.compress(VectorOperation::add);
+    assemble_point_coupling_rhs(force_rhs.block(1), constraint_coupling);
+    affine_rhs.compress(VectorOperation::add);
     system_rhs.block(1) = force_rhs.block(1);
-
+    system_rhs.block(1) += affine_rhs;
     if (rebuild_matrices && n_multiplier_dofs() > 0)
       {
-        Teuchos::ParameterList amg_parameter_list;
-        amg_parameter_list.set("smoother: type", "Chebyshev");
-        amg_parameter_list.set("smoother: sweeps", 2);
-        amg_parameter_list.set("smoother: pre or post", "both");
-        amg_parameter_list.set("coarse: type", "Amesos-KLU");
-        amg_parameter_list.set("coarse: max size", 2000);
-        amg_parameter_list.set("aggregation: threshold", 0.02);
-        prec_M.initialize(inclusion_matrix, amg_parameter_list);
+        Teuchos::ParameterList parameters;
+        parameters.set("smoother: type", "Chebyshev");
+        parameters.set("smoother: sweeps", 2);
+        parameters.set("smoother: pre or post", "both");
+        parameters.set("coarse: type", "Amesos-KLU");
+        parameters.set("coarse: max size", 2000);
+        parameters.set("aggregation: threshold", 0.02);
+        prec_M.initialize(inclusion_matrix, parameters);
       }
   }
 
@@ -1691,9 +1604,12 @@ namespace ImmersX
               auto         Aug   = A + gamma * Bt * invW * B;
 
 
-              auto Zero = M * 0.0;
-              auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
-                {{{{Aug, Bt}}, {{B, Zero}}}}); //! Augmented the (1,1) block
+              const auto outside =
+                linear_operator<LA::MPI::Vector>(outside_mass_matrix);
+              const auto reaction         = Bt - gamma * Bt * invW * outside;
+              const auto negative_outside = -1. * outside;
+              auto       AA = block_operator<2, 2, LA::MPI::BlockVector>(
+                {{{{Aug, reaction}}, {{B, negative_outside}}}});
 
               LA::MPI::BlockVector solution_block;
               LA::MPI::BlockVector system_rhs_block;
@@ -1721,7 +1637,7 @@ namespace ImmersX
 
               BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
                 augmented_lagrangian_preconditioner{
-                  Aug_inv, B, Bt, invW, gamma};
+                  Aug_inv, B, reaction, invW, gamma};
 
               solver_fgmres.solve(AA,
                                   solution_block,

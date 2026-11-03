@@ -739,6 +739,7 @@ namespace ImmersX
      * Coupling mass matrix and block vectors for state and rhs quantities.
      */
     /// @{
+    LA::MPI::SparseMatrix outside_mass_matrix;
     LA::MPI::SparseMatrix inclusion_matrix;          ///< Coupling mass matrix.
     LA::MPI::BlockVector  solution;                  ///< Current solution.
     LA::MPI::BlockVector  velocity;                  ///< Current velocity.
@@ -799,6 +800,10 @@ namespace ImmersX
     // Coupling-specific setup and assembly helpers.
     void
     setup_point_coupling_dofs();
+
+    void
+    assemble_point_coupling_rhs(LA::MPI::Vector &rhs,
+                                const bool       restrict_to_overlap) const;
     void
     setup_tensor_product_coupling_dofs();
 

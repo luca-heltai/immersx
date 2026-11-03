@@ -197,12 +197,24 @@ namespace ImmersX
 
     if (inclusions.n_dofs() > 0)
       {
-        auto inclusions_set =
-          Utilities::MPI::create_evenly_distributed_partitioning(
-            mpi_communicator, inclusions.n_inclusions());
-
-        owned_dofs[1] = inclusions_set.tensor_product(
-          complete_index_set(inclusions.get_n_coefficients()));
+        if (inclusions.cluster_with_segments)
+          {
+            const auto partitioning =
+              Utilities::MPI::create_ascending_partitioning(
+                mpi_communicator, inclusions.n_local_segments());
+            owned_dofs[1] =
+              partitioning[Utilities::MPI::this_mpi_process(mpi_communicator)]
+                .tensor_product(
+                  complete_index_set(inclusions.n_dofs_per_inclusion()));
+          }
+        else
+          {
+            const auto source =
+              Utilities::MPI::create_evenly_distributed_partitioning(
+                mpi_communicator, inclusions.n_inclusions());
+            owned_dofs[1] = source.tensor_product(
+              complete_index_set(inclusions.n_dofs_per_inclusion()));
+          }
 
         coupling_matrix.clear();
         DynamicSparsityPattern dsp(dh.n_dofs(),
@@ -210,6 +222,17 @@ namespace ImmersX
                                    relevant_dofs[0]);
 
         relevant_dofs[1] = assemble_coupling_sparsity(dsp);
+        relevant_dofs[1].add_indices(owned_dofs[1]);
+        const auto points_per_inclusion =
+          inclusions.n_particles() / inclusions.n_inclusions();
+        for (const auto inclusion :
+             inclusions.locally_owned_source_inclusions())
+          {
+            const auto indices =
+              inclusions.get_dof_indices(inclusion * points_per_inclusion);
+            relevant_dofs[1].add_indices(indices.begin(), indices.end());
+          }
+        relevant_dofs[1].compress();
         SparsityTools::distribute_sparsity_pattern(dsp,
                                                    owned_dofs[0],
                                                    mpi_communicator,
@@ -222,8 +245,15 @@ namespace ImmersX
         DynamicSparsityPattern idsp(inclusions.n_dofs(),
                                     inclusions.n_dofs(),
                                     relevant_dofs[1]);
-        for (const auto i : relevant_dofs[1])
-          idsp.add(i, i);
+        for (const auto inclusion :
+             inclusions.locally_owned_source_inclusions())
+          {
+            const auto indices =
+              inclusions.get_dof_indices(inclusion * points_per_inclusion);
+            for (const auto i : indices)
+              for (const auto j : indices)
+                idsp.add(i, j);
+          }
         SparsityTools::distribute_sparsity_pattern(idsp,
                                                    owned_dofs[1],
                                                    mpi_communicator,
@@ -237,6 +267,7 @@ namespace ImmersX
                            owned_dofs[1],
                            idsp,
                            mpi_communicator);
+        outside_mass_matrix.reinit(inclusion_matrix);
       }
 
     locally_relevant_solution.reinit(owned_dofs,
@@ -366,6 +397,8 @@ namespace ImmersX
   void
   PoissonProblem<dim, spacedim>::assemble_coupling()
   {
+    if (inclusions.n_dofs() == 0)
+      return;
     TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
     pcout << "Assemble coupling matrix. " << std::endl;
 
@@ -379,14 +412,10 @@ namespace ImmersX
     [[maybe_unused]] FullMatrix<double> local_bulk_matrix(
       fe->n_dofs_per_cell(), fe->n_dofs_per_cell());
 
-    FullMatrix<double> local_inclusion_matrix(inclusions.get_n_coefficients(),
-                                              inclusions.get_n_coefficients());
-    FullMatrix<double> local_mass_matrix(inclusions.get_n_coefficients(),
-                                         inclusions.get_n_coefficients());
 
-    Vector<double> local_rhs(inclusions.get_n_coefficients());
 
-    auto particle = inclusions.inclusions_as_particles.begin();
+    system_rhs.block(1) = 0.;
+    auto particle       = inclusions.inclusions_as_particles.begin();
     while (particle != inclusions.inclusions_as_particles.end())
       {
         const auto &cell = particle->get_surrounding_cell();
@@ -404,9 +433,7 @@ namespace ImmersX
             const auto inclusion_id = inclusions.get_inclusion_id(p->get_id());
             inclusion_dof_indices   = inclusions.get_dof_indices(p->get_id());
             local_coupling_matrix   = 0;
-            local_inclusion_matrix  = 0;
-            local_mass_matrix       = 0;
-            local_rhs               = 0;
+
 
             // Extract all points that refer to the same inclusion
             std::vector<Point<spacedim>> ref_q_points;
@@ -423,7 +450,7 @@ namespace ImmersX
               {
                 const auto  id                  = p->get_id();
                 const auto &inclusion_fe_values = inclusions.get_fe_values(id);
-                const auto &real_q              = p->get_location();
+
 
                 // Coupling and inclusions matrix
                 for (unsigned int j = 0; j < inclusions.n_dofs_per_inclusion();
@@ -432,47 +459,74 @@ namespace ImmersX
                     for (unsigned int i = 0; i < fe->n_dofs_per_cell(); ++i)
                       local_coupling_matrix(i, j) +=
                         (fev.shape_value(i, q)) * inclusion_fe_values[j];
-
-                    local_rhs(j) +=
-                      inclusion_fe_values[j] *
-                      inclusions.get_inclusion_data(inclusion_id, j, real_q);
-
-                    local_inclusion_matrix(j, j) +=
-                      (inclusion_fe_values[j] * inclusion_fe_values[j] /
-                       inclusion_fe_values[0]);
-
-                    local_mass_matrix(j, j) += inclusion_fe_values[j] *
-                                               inclusion_fe_values[j] /
-                                               inclusion_fe_values[0];
                   }
                 ++p;
               }
             // I expect p and next_p to be the same now.
             Assert(p == next_p, ExcInternalError());
 
+            Vector<double> affine_rhs(inclusion_dof_indices.size());
+            for (unsigned int i = 0; i < fe_dof_indices.size(); ++i)
+              for (unsigned int j = 0; j < inclusion_dof_indices.size(); ++j)
+                affine_rhs[j] -=
+                  local_coupling_matrix(i, j) *
+                  constraints.get_inhomogeneity(fe_dof_indices[i]);
+            inclusion_constraints.distribute_local_to_global(
+              affine_rhs, inclusion_dof_indices, system_rhs.block(1));
             // Add local matrices to global ones
             constraints.distribute_local_to_global(local_coupling_matrix,
                                                    fe_dof_indices,
                                                    inclusion_constraints,
                                                    inclusion_dof_indices,
                                                    coupling_matrix);
-            inclusion_constraints.distribute_local_to_global(
-              local_rhs, inclusion_dof_indices, system_rhs.block(1));
-
-            inclusion_constraints.distribute_local_to_global(
-              local_inclusion_matrix, inclusion_dof_indices, inclusion_matrix);
-
-            inclusion_constraints.distribute_local_to_global(
-              local_mass_matrix, inclusion_dof_indices, mass_matrix);
           }
         particle = pic.end();
       }
     coupling_matrix.compress(VectorOperation::add);
+    mass_matrix         = 0.;
+    outside_mass_matrix = 0.;
+    inclusions.for_each_source_point(
+      [&](const auto id, const auto &point, const bool inside) {
+        const auto         inclusion = inclusions.get_inclusion_id(id);
+        const auto         indices   = inclusions.get_dof_indices(id);
+        const auto        &basis     = inclusions.get_fe_values(id);
+        FullMatrix<double> local_mass(indices.size(), indices.size());
+        Vector<double>     local_rhs(indices.size());
+        double             data = 0.;
+        if (!inclusions.inclusions_data[inclusion].empty())
+          {
+            for (unsigned int j = 0; j < indices.size(); ++j)
+              if (inclusions.get_fourier_component(j) <
+                  inclusions.inclusions_data[inclusion].size())
+                data += basis[j] * inclusions.get_inclusion_data(inclusion, j);
+          }
+        else
+          data = inclusions.inclusions_rhs.value(point);
+        // This legacy point formulation uses uniform sample weights in B.
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          {
+            if (inside)
+              local_rhs[i] = basis[i] * data;
+            for (unsigned int j = 0; j < indices.size(); ++j)
+              local_mass(i, j) = basis[i] * basis[j];
+          }
+        inclusion_constraints.distribute_local_to_global(local_mass,
+                                                         indices,
+                                                         mass_matrix);
+        if (!inside)
+          inclusion_constraints.distribute_local_to_global(local_mass,
+                                                           indices,
+                                                           outside_mass_matrix);
+        inclusion_constraints.distribute_local_to_global(local_rhs,
+                                                         indices,
+                                                         system_rhs.block(1));
+      });
+    outside_mass_matrix.compress(VectorOperation::add);
     mass_matrix.compress(VectorOperation::add);
 #ifndef MATRIX_FREE_PATH
     stiffness_matrix.compress(VectorOperation::add);
 #endif
-    inclusion_matrix.compress(VectorOperation::add);
+    inclusion_matrix.copy_from(mass_matrix);
     system_rhs.compress(VectorOperation::add);
     pcout << "System rhs: " << system_rhs.l2_norm() << std::endl;
   }
@@ -731,9 +785,12 @@ namespace ImmersX
           auto         Aug   = A + gamma * Bt * invW * B;
 
 
-          auto Zero = M * 0.0;
-          auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
-            {{{{Aug, Bt}}, {{B, Zero}}}}); //! Augmented the (1,1) block
+          const auto outside =
+            linear_operator<LA::MPI::Vector>(outside_mass_matrix);
+          const auto reaction         = Bt - gamma * Bt * invW * outside;
+          const auto negative_outside = -1. * outside;
+          auto       AA = block_operator<2, 2, LA::MPI::BlockVector>(
+            {{{{Aug, reaction}}, {{B, negative_outside}}}});
 
           LA::MPI::BlockVector solution_block;
           LA::MPI::BlockVector system_rhs_block;
@@ -749,15 +806,16 @@ namespace ImmersX
           system_rhs_block.block(0).add(1., tmp); // ! augmented
           system_rhs_block.block(1) = system_rhs.block(1);
 
-          CumulativeSolverControl control_lagrangian(100000, 1e-2, false, true);
-          SolverCG<LA::MPI::Vector> solver_lagrangian(control_lagrangian);
+          CumulativeReductionControl control_lagrangian(par.inner_control);
+          SolverCG<LA::MPI::Vector>  solver_lagrangian(control_lagrangian);
 
           auto Aug_inv =
             inverse_operator(Aug, solver_lagrangian, amgA); //! augmented
           SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
 
           BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
-            augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
+            augmented_lagrangian_preconditioner{
+              Aug_inv, B, reaction, invW, gamma};
 
           solver_fgmres.solve(AA,
                               solution_block,
@@ -770,6 +828,7 @@ namespace ImmersX
                                                         solver_control);
 
           solution.block(0) = solution_block.block(0);
+          solution.block(1) = solution_block.block(1);
 
           constraints.distribute(solution_block.block(0));
         }
