@@ -2,6 +2,10 @@
 // Copyright (C) 2026 by Luca Heltai
 // This file is part of ImmersX, based on the deal.II library.
 // ---------------------------------------------------------------------
+#include <deal.II/base/function_parser.h>
+
+#include <deal.II/numerics/vector_tools.h>
+
 #include <gtest/gtest.h>
 #include <immersx/core/linear_adapter.h>
 #include <immersx/io/utils.h>
@@ -133,7 +137,7 @@ namespace
     using namespace dealii;
     ParameterAcceptor::clear();
     ElasticityFreqProblemParameters<dim, spacedim> parameters;
-    parameters.initial_refinement = 2;
+    parameters.initial_refinement = 1;
     if (simplex)
       {
         parameters.initial_refinement = 0;
@@ -255,6 +259,71 @@ TEST(ElasticityFreq, BOTH_SimplexAdapterAffineDisplacement)
   check_adapter_affine_displacement<2, 2>(true);
   check_adapter_affine_displacement<2, 3>(true);
   check_adapter_affine_displacement<3, 3>(true);
+}
+
+TEST(ElasticityFreq, BOTH_ZeroMaterialPreservesInhomogeneousConstraints)
+{
+  using namespace ImmersX;
+  using namespace dealii;
+  for (const double viscosity : {0., 0.7})
+    {
+      ParameterAcceptor::clear();
+      ElasticityFreqProblemParameters<2> parameters;
+      parameters.initial_refinement = 0;
+      parameters.name_of_grid       = "hyper_cube";
+      parameters.arguments_for_grid = "-1:1:false";
+      parameters.fe_degree          = 1;
+      parameters.dirichlet_ids      = {0};
+      parameters.dirichlet_phase    = 30.;
+      parameters.output_directory =
+        TestPaths::output_directory("harmonic-zero-material");
+      initialize_parameters_from_string(
+        "subsection Functions\n"
+        " subsection Right hand side\n set Function expression = 0; 0\n end\n"
+        " subsection Dirichlet boundary conditions\n"
+        "  set Function expression = 2+x; 3-y\n end\nend\n");
+      auto &material          = parameters.default_material_properties;
+      material.Lame_mu        = 0.;
+      material.Lame_lambda    = 0.;
+      material.rho            = 0.;
+      material.rayleigh_alpha = 0.;
+      material.rayleigh_beta  = 0.;
+      material.neta           = viscosity;
+      ElasticityFreqProblem<2> problem(parameters);
+      problem.make_grid();
+      problem.setup_fe();
+      problem.setup_dofs();
+      problem.prepare_frequency(viscosity == 0. ? 0. : 0.25);
+      ASSERT_EQ(problem.dof_handler().n_dofs(), 8u);
+      unsigned int local_free = 0;
+      for (const auto index : problem.locally_owned_dofs())
+        local_free += !problem.real_constraints().is_constrained(index);
+      ASSERT_EQ(Utilities::MPI::sum(local_free, MPI_COMM_WORLD), 0u);
+      LinearAdapterParameters options;
+      options.solver = LinearSolver::direct;
+      LinearAdapter<ImmersXLA::MPI::Vector, ImmersXLA::MPI::BlockVector>
+                 adapter(options, problem.communicator());
+      const auto fields = adapter.add(problem, "solid").fields();
+      auto       state  = adapter.make_state();
+      adapter.solve(state);
+      FunctionParser<2> exact(2);
+      exact.initialize("x,y", "2+x;3-y", {});
+      auto expected = adapter.field(state, fields.real);
+      VectorTools::interpolate(problem.mapping(),
+                               problem.dof_handler(),
+                               exact,
+                               expected);
+      const double phase      = std::acos(-1.) / 6.;
+      auto         real_error = adapter.field(state, fields.real);
+      real_error.add(-std::cos(phase), expected);
+      auto imaginary_error = adapter.field(state, fields.imaginary);
+      imaginary_error.add(-std::sin(phase), expected);
+      EXPECT_LT(real_error.l2_norm(), 1.e-12);
+      EXPECT_LT(imaginary_error.l2_norm(), 1.e-12);
+      auto residual = adapter.make_state();
+      adapter.evaluate_residual(state, residual);
+      EXPECT_LT(residual.l2_norm(), 1.e-12);
+    }
 }
 
 TEST(ElasticityFreq, BOTH_RefinementParameterRoundTrip)

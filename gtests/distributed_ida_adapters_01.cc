@@ -725,7 +725,317 @@ TEST(DistributedIDA, BOTH_SchurRetainsDisplacementVelocityPath)
   EXPECT_NEAR(composition.field(solution, fields[2])[rank], -7., 1.e-12);
 }
 
+TEST(DistributedIDA, BOTH_LinearizationRetainsEachMatrixAtItsEvaluationPoint)
+{
+  using namespace dealii;
+  using namespace ImmersX;
+  const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto size = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  IndexSet   owned(size);
+  owned.add_index(rank);
+  DynamicSparsityPattern sparsity(size, size, owned);
+  sparsity.add(rank, rank);
+  auto mass = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  mass->reinit(owned, owned, sparsity, MPI_COMM_WORLD);
+  mass->set(rank, rank, 1.);
+  mass->compress(VectorOperation::insert);
+  unsigned int         factories = 0, materializations = 0;
+  Adapter::Composition composition(MPI_COMM_WORLD);
+  const auto           fields = composition.add(
+    [owned, mass, rank, &factories, &materializations](auto &builder) {
+      const auto u = builder.field("u", owned, owned);
+      const auto v = builder.field("v", owned, owned);
+      const auto lambda = builder.algebraic_field("lambda", owned, owned);
+      using Model = typename std::decay_t<decltype(builder)>::Model;
+      const auto factory = [&](const double sign) {
+        return typename Model::MatrixOperatorFactory(
+          [mass, rank, u, sign, &factories, &materializations](
+            const auto &context) {
+            ++factories;
+            const double scale =
+              sign * (1. + context.time() + context.state(u)[rank]);
+            auto op = matrix_operator<FieldVector>(*mass);
+            op.materialize = [mass, rank, scale, &materializations]() {
+              ++materializations;
+              mass->set(rank, rank, scale);
+              mass->compress(VectorOperation::insert);
+              return mass;
+            };
+            return op;
+          });
+      };
+      auto identity = builder.matrix_operator(*mass);
+      builder.term(u, "kinematic")
+        .derivative(u, factory(1.))
+        .state(v, factory(-1.));
+      builder.term(v, "momentum")
+        .derivative(v, factory(1.))
+        .state(lambda, factory(1.));
+      builder.term(lambda, "position").state(u, factory(1.));
+      const auto inverse = [](const auto &matrix, const auto &prototype) {
+        return make_local_preconditioner<FieldVector,
+                                         ImmersXLA::MPI::SparseMatrix,
+                                         ImmersXLA::MPI::PreconditionJacobi>(
+          matrix, prototype);
+      };
+      builder.preconditioner(u, inverse);
+      builder.preconditioner(v, inverse);
+      builder.saddle_point(lambda, {u, v}, identity);
+      return std::array<FieldId, 3>{{u, v, lambda}};
+    },
+    "solid");
+  auto state    = composition.make_state();
+  auto dot      = composition.make_state();
+  auto snapshot = composition.make_snapshot(0., state, dot, true);
+  EXPECT_EQ(factories, 5u);
+  EXPECT_EQ(materializations, 5u);
+  auto input        = composition.field(state, fields[2]);
+  input             = 1.;
+  auto       action = input;
+  const auto schur  = composition.schur_operator(
+    fields[2], state, &dot, 2., false, snapshot.get());
+  schur.vmult(action, input);
+  EXPECT_NEAR(action[rank], 0., 1.e-14);
+  const auto coupled = composition.schur_operator(
+    fields[2], state, &dot, 2., true, snapshot.get());
+  coupled.vmult(action, input);
+  // For 2u-v=f_u, 2v+lambda=f_v, u=0, elimination gives S=1/4.
+  EXPECT_NEAR(action[rank], 0.25, 1.e-14);
+  coupled.Tvmult(action, input);
+  EXPECT_NEAR(action[rank], 0.25, 1.e-14);
+
+  auto rhs                          = composition.make_state();
+  composition.field(rhs, fields[0]) = 1.;
+  composition.field(rhs, fields[1]) = 2.;
+  composition.field(rhs, fields[2]) = 3.;
+  auto       solution               = composition.make_state();
+  const auto inverse                = composition.schur_preconditioner(
+    fields[2], state, &dot, 2., 100, 1.e-12, true, snapshot.get());
+  inverse.vmult(solution, rhs);
+  EXPECT_NEAR(composition.field(solution, fields[0])[rank], 3., 1.e-12);
+  EXPECT_NEAR(composition.field(solution, fields[1])[rank], 5., 1.e-12);
+  EXPECT_NEAR(composition.field(solution, fields[2])[rank], -8., 1.e-12);
+  inverse.Tvmult(solution, rhs);
+  EXPECT_NEAR(composition.field(solution, fields[0])[rank], 4., 1.e-12);
+  EXPECT_NEAR(composition.field(solution, fields[1])[rank], 3., 1.e-12);
+  EXPECT_NEAR(composition.field(solution, fields[2])[rank], -7., 1.e-12);
+  auto global =
+    composition.jacobian(snapshot->context, 2., &snapshot->linearization);
+  auto vector = composition.make_state();
+  vector      = 1.;
+  global.vmult(solution, vector);
+  EXPECT_NEAR(solution.block(0)[rank], 1., 1.e-12);
+  const auto monolithic = composition.monolithic_matrix(
+    composition.block_matrix(snapshot->state_storage,
+                             &snapshot->derivative_storage,
+                             2.,
+                             0.,
+                             &snapshot->linearization));
+  const auto flat_input  = composition.pack(vector);
+  auto       flat_action = flat_input;
+  monolithic.vmult(flat_action, flat_input);
+  flat_action -= composition.pack(solution);
+  EXPECT_LT(flat_action.l2_norm(), 1.e-12);
+  global.Tvmult(solution, vector);
+  EXPECT_EQ(factories, 5u);
+  EXPECT_EQ(materializations, 5u);
+
+  composition.field(state, fields[0]) = 1.;
+  auto next = composition.make_snapshot(1., state, dot, true);
+  EXPECT_EQ(factories, 10u);
+  EXPECT_EQ(materializations, 10u);
+  const auto next_global =
+    composition.jacobian(next->context, 4., &next->linearization);
+  next_global.vmult(solution, vector);
+  EXPECT_NEAR(solution.block(0)[rank], 9., 1.e-12);
+  // Neither native matrix mutation nor a later setup changes the older point.
+  global.vmult(solution, vector);
+  EXPECT_NEAR(solution.block(0)[rank], 1., 1.e-12);
+  coupled.vmult(action, input);
+  EXPECT_NEAR(action[rank], 0.25, 1.e-14);
+  coupled.Tvmult(action, input);
+  EXPECT_NEAR(action[rank], 0.25, 1.e-14);
+  EXPECT_EQ(factories, 10u);
+  EXPECT_EQ(materializations, 10u);
+}
+
+TEST(DistributedIDA, BOTH_LinearizationRetainsMixedMatrixAndMatrixFreeTerms)
+{
+  using namespace dealii;
+  const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto size = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  IndexSet   owned(size);
+  owned.add_index(rank);
+  DynamicSparsityPattern sparsity(size, size, owned);
+  sparsity.add(rank, rank);
+  auto native = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  native->reinit(owned, owned, sparsity, MPI_COMM_WORLD);
+  unsigned int           factories = 0, materializations = 0, actions = 0;
+  TimeIntervalParameters time_parameters;
+  IDAParameters          ida_parameters;
+  Adapter    adapter(time_parameters, ida_parameters, MPI_COMM_WORLD);
+  const auto field = adapter.add(
+    [&](auto &builder) {
+      using Model  = typename std::decay_t<decltype(builder)>::Model;
+      const auto u = builder.field("u", owned, owned);
+      typename Model::MatrixOperatorFactory matrix_factory =
+        [native, rank, u, &factories, &materializations](const auto &context) {
+          ++factories;
+          native->set(rank, rank, 1. + context.time() + context.state(u)[rank]);
+          native->compress(VectorOperation::insert);
+          auto       op          = matrix_operator<FieldVector>(*native);
+          const auto materialize = op.materialize;
+          op.materialize         = [materialize, &materializations]() {
+            ++materializations;
+            return materialize();
+          };
+          return op;
+        };
+      typename Model::OperatorFactory matrix_free =
+        [u, rank, &factories, &actions](const auto &context) {
+          ++factories;
+          const double scale = 2. + context.time() + context.state(u)[rank];
+          auto         op    = identity_operator<FieldVector>(
+            [reference = context.state(u)](FieldVector &v, const bool) {
+              v.reinit(reference);
+            });
+          op.vmult = [scale, &actions](FieldVector       &dst,
+                                       const FieldVector &src) {
+            ++actions;
+            dst = src;
+            dst *= scale;
+          };
+          op.Tvmult    = op.vmult;
+          op.vmult_add = [scale, &actions](FieldVector       &dst,
+                                           const FieldVector &src) {
+            ++actions;
+            dst.add(scale, src);
+          };
+          op.Tvmult_add = op.vmult_add;
+          return op;
+        };
+      builder.term(u, "explicit").state(u, matrix_factory);
+      builder.term(u, "matrix-free").state(u, matrix_free);
+      builder.term(u, "mass").derivative(u, matrix_factory);
+      return u;
+    },
+    "mixed");
+  auto state = adapter.make_state();
+  auto dot   = adapter.make_state();
+  adapter.solver().setup_jacobian(0., state, dot, 2.);
+  EXPECT_EQ(factories, 3u);
+  EXPECT_EQ(materializations, 2u);
+  const auto op     = adapter.current_jacobian();
+  auto       input  = adapter.make_state();
+  auto       output = adapter.make_state();
+  input             = 1.;
+  op.vmult(output, input);
+  EXPECT_NEAR(output.block(0)[rank], 5., 1.e-12);
+  op.Tvmult(output, input);
+  EXPECT_NEAR(output.block(0)[rank], 5., 1.e-12);
+  EXPECT_EQ(actions, 2u);
+  EXPECT_EQ(materializations, 2u);
+  adapter.field(state, field.fields()) = 3.;
+  adapter.solver().setup_jacobian(2., state, dot, 4.);
+  const auto next = adapter.current_jacobian();
+  next.vmult(output, input);
+  EXPECT_NEAR(output.block(0)[rank], 37., 1.e-12);
+  op.vmult(output, input);
+  EXPECT_NEAR(output.block(0)[rank], 5., 1.e-12);
+  EXPECT_EQ(factories, 6u);
+  EXPECT_EQ(materializations, 4u);
+  EXPECT_EQ(actions, 4u);
+}
+
 #  ifdef DEAL_II_WITH_UMFPACK
+TEST(DistributedIDA, SerialUMFPACKRetainsFactoriesAtEachLinearization)
+{
+  using namespace dealii;
+  TimeIntervalParameters time_parameters;
+  IDAParameters          ida_parameters;
+  Adapter adapter(time_parameters, ida_parameters, MPI_COMM_SELF);
+  adapter.set_serial_direct_solver();
+  IndexSet owned(1);
+  owned.add_index(0);
+  DynamicSparsityPattern sparsity(1, 1);
+  sparsity.add(0, 0);
+  auto native = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  native->reinit(owned, owned, sparsity, MPI_COMM_SELF);
+  unsigned int factories = 0, materializations = 0;
+  const auto   field    = adapter.add([&](auto &builder) {
+    using Model        = typename std::decay_t<decltype(builder)>::Model;
+    const auto u       = builder.differential_field("u", owned);
+    const auto factory = [&](const bool derivative) {
+      return typename Model::MatrixOperatorFactory(
+        [native, u, derivative, &factories, &materializations](
+          const auto &context) {
+          ++factories;
+          const double coefficient =
+            derivative ? 2. + context.derivative(u)[0] :
+                              1. + context.time() + context.state(u)[0];
+          native->set(0, 0, coefficient);
+          native->compress(VectorOperation::insert);
+          auto op        = matrix_operator<FieldVector>(*native);
+          op.materialize = [native, &materializations]() {
+            ++materializations;
+            return native;
+          };
+          return op;
+        });
+    };
+    builder.term(u, "state-and-rate")
+      .state(u, factory(false))
+      .derivative(u, factory(true));
+    return u;
+  });
+  auto         state    = adapter.make_state();
+  auto         dot      = adapter.make_state();
+  auto         rhs      = adapter.make_state();
+  auto         solution = adapter.make_state();
+  auto         action   = adapter.make_state();
+  state                 = 3.;
+  dot                   = 2.;
+  rhs                   = 26.;
+  adapter.solver().setup_jacobian(1., state, dot, 2.);
+  EXPECT_EQ(factories, 2u);
+  EXPECT_EQ(materializations, 2u);
+  const auto first_jacobian = adapter.current_jacobian();
+  adapter.solver().solve_with_jacobian(rhs, solution, 1.e-12);
+  EXPECT_NEAR(adapter.field(solution, field.fields())[0], 2., 1.e-12);
+  adapter.current_jacobian().vmult(action, solution);
+  action -= rhs;
+  EXPECT_LT(action.l2_norm(), 1.e-12);
+  EXPECT_EQ(factories, 2u);
+  EXPECT_EQ(materializations, 2u);
+  state = -1.;
+  dot   = 1.;
+  rhs   = 22.;
+  adapter.solver().setup_jacobian(2., state, dot, 3.);
+  EXPECT_EQ(factories, 4u);
+  EXPECT_EQ(materializations, 4u);
+  adapter.solver().solve_with_jacobian(rhs, solution, 1.e-12);
+  EXPECT_NEAR(adapter.field(solution, field.fields())[0], 2., 1.e-12);
+  adapter.current_jacobian().vmult(action, solution);
+  action -= rhs;
+  EXPECT_LT(action.l2_norm(), 1.e-12);
+  solution = 1.;
+  first_jacobian.vmult(action, solution);
+  EXPECT_NEAR(adapter.field(action, field.fields())[0], 13., 1.e-12);
+}
+
+TEST(DistributedIDA, SerialUMFPACKRejectsMatrixFreeJacobian)
+{
+  TimeIntervalParameters time_parameters;
+  IDAParameters          ida_parameters;
+  Adapter adapter(time_parameters, ida_parameters, MPI_COMM_SELF);
+  adapter.set_serial_direct_solver();
+  add_identity_field(adapter, 1);
+  auto state = adapter.make_state();
+  auto dot   = adapter.make_state();
+  EXPECT_THROW(adapter.solver().setup_jacobian(0., state, dot, 1.),
+               dealii::ExceptionBase);
+}
+
 TEST(DistributedIDA, SerialUMFPACKSolvesCurrentDAEJacobian)
 {
   using namespace dealii;

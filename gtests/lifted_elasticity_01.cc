@@ -2,6 +2,8 @@
 // Copyright (C) 2026 by Luca Heltai
 // This file is part of the ImmersX application, based on deal.II.
 // ---------------------------------------------------------------------
+#include <deal.II/lac/lapack_full_matrix.h>
+
 #include <gtest/gtest.h>
 #include <immersx/physics/elasticity.h>
 #include <immersx/physics/lifted_elasticity.h>
@@ -33,7 +35,7 @@ namespace
       "subsection Lifted elasticity\n subsection Functions\n subsection Right hand side\n set Function expression = " +
       force + "\n end\n end\n end\n");
     ParameterAcceptor::parse_all_parameters();
-    native.initial_refinement = 2;
+    native.initial_refinement = modern.domain_parameters.initial_refinement = 1;
     native.arguments_for_grid = "-1: 1: false";
     native.default_material_properties.Lame_mu =
       modern.default_material_properties.Lame_mu = 1.;
@@ -191,8 +193,16 @@ subsection Lifted elasticity
 end
 )");
     ParameterAcceptor::parse_all_parameters();
-    native.initial_refinement = modern.domain_parameters.initial_refinement = 2;
-    native.arguments_for_grid = "-1: 1: false";
+    native.initial_refinement = modern.domain_parameters.initial_refinement = 0;
+    native.name_of_grid = modern.domain_parameters.name_of_grid =
+      pressure ? "hyper_cube" : "subdivided_hyper_rectangle";
+    native.arguments_for_grid = modern.domain_parameters.arguments_for_grid =
+      pressure     ? "-1: 1: false" :
+      higher_modes ? "4, 4, 3: -1, -1, -1: 1, 1, 1: false" :
+                     "3, 3, 3: -1, -1, -1: 1, 1, 1: false";
+    if (pressure)
+      native.initial_refinement = modern.domain_parameters.initial_refinement =
+        1;
     native.default_material_properties.Lame_mu =
       modern.default_material_properties.Lame_mu = 1.;
     native.default_material_properties.Lame_lambda =
@@ -201,8 +211,11 @@ end
     native.pressure_coupling = pressure;
     auto &space =
       native.tensor_product_coupling_parameters.tensor_product_space_parameters;
+    // Higher angular modes need a resolved cross-section, rather than a thin
+    // cylinder conditioning stress, for the native/modern parity oracle.
     space.reduced_grid_name = TestPaths::data_filename(
       oblique         ? "tests/elasticity_modal_curve.vtk" :
+      higher_modes    ? "tests/elasticity_modal_wide_cylinder.vtk" :
       variable_radius ? "tests/one_cylinder_properties.vtk" :
                         "tests/one_cylinder.vtk");
     space.thickness                     = "0.1";
@@ -237,6 +250,12 @@ end
       }
     if (higher_modes)
       {
+        // The modal-selection regression needs one affine polygon, not
+        // geometric convergence. Gauss2 integrates its Q1 mode products exactly
+        // and avoids a zero mode sum at segment midpoints.
+        space.section.refinement_level =
+          modern.geometry.section.refinement_level = 0;
+        space.section.n_q_points = modern.geometry.section.n_q_points = 2;
         space.section.inclusion_degree =
           modern.geometry.section.inclusion_degree    = 1;
         space.section.selected_coefficients           = {1, 4, 7};
@@ -247,6 +266,27 @@ end
     reference.setup_dofs();
     reference.assemble_elasticity_system();
     reference.assemble_coupling();
+    if (!pressure)
+      {
+        // The regression needs independent modal rows, not a mesh-size study.
+        // Check the free-row coupling rank before solving the saddle system.
+        const auto         &coupling = reference.coupling_matrix;
+        std::vector<double> local(coupling.m() * coupling.n(), 0.);
+        for (const auto row : reference.owned_dofs[0])
+          if (!reference.constraints.is_constrained(row))
+            for (auto entry = coupling.begin(row); entry != coupling.end(row);
+                 ++entry)
+              local[row * coupling.n() + entry->column()] = entry->value();
+        std::vector<double> global(local.size());
+        Utilities::MPI::sum(local, MPI_COMM_WORLD, global);
+        LAPACKFullMatrix<double> singular_values(coupling.m(), coupling.n());
+        for (unsigned int i = 0; i < coupling.m(); ++i)
+          for (unsigned int j = 0; j < coupling.n(); ++j)
+            singular_values(i, j) = global[i * coupling.n() + j];
+        singular_values.compute_svd();
+        ASSERT_GT(singular_values.singular_value(coupling.n() - 1),
+                  1.e-10 * singular_values.singular_value(0));
+      }
     reference.solve_static();
     LiftedElasticity<3> problem(modern);
     problem.setup();
@@ -264,6 +304,12 @@ end
     modal_difference -= reference.solution.block(1);
     EXPECT_LT(modal_difference.l2_norm(), 2.e-6);
 
+    // The default modal case checks these solver-independent operators.
+    // Explicit solver-policy variants retain the solution and residual oracle.
+    if (preconditioner == LinearPreconditioner::augmented_lagrangian ||
+        solver == LinearSolver::direct)
+      return;
+
     // Independent production oracles for the physical metric, modal RHS, and
     // coupling action. This checks ordering and frames, not just solution
     // norms.
@@ -280,7 +326,8 @@ end
         const std::string r =
           oblique ?
             "(z<0.1 ? 0.08+(0.04/0.3)*(z+0.2) : 0.12-(0.03/0.2)*(z-0.1))" :
-            "(0.1-0.05*z)";
+          higher_modes ? "(0.25-0.125*z)" :
+                         "(0.1-0.05*z)";
         diagnostic_data = {"0.1*" + r, "-0.2*" + r, "0.05*" + r};
       }
     data.initialize(FunctionParser<3>::default_variable_names(),
@@ -327,6 +374,50 @@ end
             *load += *rhs;
           }
         terms.add(weak_term(value(u), test(lifted)));
+      }
+    if (higher_modes)
+      {
+        // MappingQ1 makes each coarse circle segment affine. Integrate the
+        // squared constant/x/y modes analytically on its line segments,
+        // independently of the configured section quadrature.
+        Triangulation<1, 2> polygon;
+        GridGenerator::hyper_sphere(polygon);
+        std::array<double, 3> squared_norms{};
+        double                max_x = 0., max_y = 0.;
+        for (const auto &point : polygon.get_vertices())
+          {
+            max_x = std::max(max_x, std::abs(point[0]));
+            max_y = std::max(max_y, std::abs(point[1]));
+          }
+        for (const auto &cell : polygon.active_cell_iterators())
+          {
+            const auto  &a = cell->vertex(0), &b = cell->vertex(1);
+            const double length = a.distance(b);
+            squared_norms[0] += length;
+            for (unsigned int d = 0; d < 2; ++d)
+              squared_norms[d + 1] +=
+                length * (a[d] * a[d] + a[d] * b[d] + b[d] * b[d]) / 3.;
+          }
+        squared_norms[1] /= max_x * max_x;
+        squared_norms[2] /= max_y * max_y;
+        const double radius_integral = (0.25 + 0.125) / 2.;
+        auto         constant_mode = *load, metric_action = *load;
+        const auto  &dofs = view.field("multiplier").dof_handler();
+        for (unsigned int slot = 0; slot < 3; ++slot)
+          {
+            const auto component =
+              DoFTools::extract_dofs(dofs,
+                                     dofs.get_fe().component_mask(
+                                       FEValuesExtractors::Scalar(slot)));
+            constant_mode = 0.;
+            for (const auto index : constant_mode.locally_owned_elements())
+              if (component.is_element(index))
+                constant_mode[index] = 1.;
+            metric->vmult(metric_action, constant_mode);
+            EXPECT_NEAR(constant_mode * metric_action,
+                        squared_norms[slot] * radius_integral,
+                        1.e-12);
+          }
       }
     auto rhs_difference = *load;
     rhs_difference -= reference.system_rhs.block(1);

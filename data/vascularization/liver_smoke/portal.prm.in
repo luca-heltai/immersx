@@ -1,0 +1,46 @@
+# Synthetic regression fixture for the liver input workflow.
+subsection Liver
+  set Arterial grid = @TEST_DATA_DIR@/vascularization/liver_smoke/arterial.vtk
+  set Venous grid = @TEST_DATA_DIR@/vascularization/liver_smoke/venous.vtk
+  set Portal grid = @TEST_DATA_DIR@/vascularization/liver_smoke/portal.vtk
+  set Output directory = @TEST_OUTPUT_DIR@/liver-smoke
+  subsection Domain
+    set Grid generator = @TEST_DATA_DIR@/vascularization/liver_smoke/surface.vtk
+    set Triangulation type = fullydistributed
+    subsection Surface mesh
+      set Target edge length = 0.3
+      set Feature angle = 40
+      set Volume cells = tetrahedra
+    end
+  end
+  subsection Vascularization
+    set Length scale = meter
+    subsection Growth
+      set Seed length = .1
+      set Minimum vessel length = .0002
+      set Candidate vessels = 8
+      set Local optimization steps = 5
+    end
+    subsection Sampling
+      set Terminal count multiplier factor = none
+      set Terminal count = 8
+      set Random seed = 23
+      set Sample budget per insertion = 2000
+    end
+    subsection Physiology
+      set Dynamic viscosity = .004
+      set Total new-tissue reference flow = 2e-9
+      set Reference pressures = 0:12000,2:1000,4:5000
+      set Minimum radius = .00005
+    end
+    subsection Portal network
+      set Enabled = true
+      set Terminal separation = .06
+      set Flow fraction = .7
+    end
+    subsection Venous network
+      set Enabled = true
+      set Terminal separation = .04
+    end
+  end
+end

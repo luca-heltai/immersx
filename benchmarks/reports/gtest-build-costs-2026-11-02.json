@@ -1,0 +1,5134 @@
+{
+  "schema_version": 1,
+  "purpose": "Reviewer-facing build and compiler-cache cost audit; no further compilation was performed for this report.",
+  "baseline_revision": "c7c125672972509310ee0db79242553f8e9c62c5",
+  "reviewed_optimized_revision": "0d3488db26a6fd0665f10f64db9ece0822616c8c",
+  "original_github_ci": {
+    "run_id": 41448053317,
+    "debug_job_id": 125405142113,
+    "debug_job_url": "https://github.com/luca-heltai/immersx/actions/runs/41448053317/job/125405142113",
+    "debug_seconds": {
+      "job_total": 3407.236,
+      "configure_and_build": 1744.842,
+      "ctest": 1514.93,
+      "other": 147.464
+    },
+    "debug_compile_link_seconds": 1649.108,
+    "release_compile_link_seconds": 1626.362,
+    "measurement": "Ninja first completed compile at16:38:01.090725 to last link17:05:30.199121 Debug; Release12:54:23.547245 to13:21:29.909060. CI did not archive Ninja command-start timings, so individual original-CI TU durations cannot be recovered accurately from completion timestamps.",
+    "compiler": {
+      "name": "GNU",
+      "version": "13.3.0",
+      "debug_options": [
+        "-DDEBUG",
+        "-g",
+        "-O0",
+        "-ggdb"
+      ]
+    },
+    "translation_units": {
+      "library": 31,
+      "applications_including_optional_clients": 22,
+      "deal_ii_regression_tests": 2,
+      "public_header_checks": 54,
+      "google_tests": 115,
+      "benchmarks": 3
+    },
+    "total_translation_units": 227,
+    "cache": {
+      "calls": 227,
+      "hits": 87,
+      "misses": 140,
+      "hit_percent": 38.33,
+      "max_gb": 1,
+      "used_percent": 99.34,
+      "cleanups": 112
+    },
+    "release_cache": {
+      "calls": 227,
+      "hits": 130,
+      "misses": 97,
+      "hit_percent": 57.27,
+      "max_gb": 1,
+      "cache_used_gb": 0.2,
+      "used_percent": 21.45
+    },
+    "cache_interpretation": "Debug cache arrived already at953MB and ended at99.34% with112cleanup passes. Saturation supports increasing its capacity; legitimate header invalidations also cause misses, so112cleanups do not explain every miss.",
+    "other_cost_detail": {
+      "source_job_id": 125405142113,
+      "job_url": "https://github.com/luca-heltai/immersx/actions/runs/41448053317/job/125405142113",
+      "method": "Intervals from original timestamped job log, not full step accounting. Container, ccache installation/restore/save and artifact upload intervals are disjoint; the residual includes checkout and remaining small transitions.",
+      "other_seconds": 147.464,
+      "intervals": [
+        {
+          "phase": "Container image pull and start",
+          "seconds": 89.349,
+          "start": "2026-11-02T16:34:34.6528416Z",
+          "end": "2026-11-02T16:36:04.0018712Z"
+        },
+        {
+          "phase": "Install ccache",
+          "seconds": 7.578,
+          "start": "2026-11-02T16:36:06.0204648Z",
+          "end": "2026-11-02T16:36:13.5986154Z"
+        },
+        {
+          "phase": "Restore cache",
+          "seconds": 10.781,
+          "start": "2026-11-02T16:36:13.5986866Z",
+          "end": "2026-11-02T16:36:24.3795418Z"
+        },
+        {
+          "phase": "Compress and save cache",
+          "seconds": 30.29,
+          "start": "2026-11-02T17:30:49.5441657Z",
+          "end": "2026-11-02T17:31:19.8349418Z"
+        },
+        {
+          "phase": "Upload CTest artifact",
+          "seconds": 2.159,
+          "start": "2026-11-02T17:30:46.9838095Z",
+          "end": "2026-11-02T17:30:49.1421755Z"
+        }
+      ],
+      "cache_uploaded_bytes": 986604894,
+      "ctest_artifact_bytes": 5082203,
+      "remaining_other_seconds": 7.306999999999988
+    }
+  },
+  "local_completed_command_snapshots": [
+    {
+      "path": "baseline-full-gpu02/.ninja_log",
+      "snapshot_utc": "2026-11-02T20:56:06.521758+00:00",
+      "sha256_at_snapshot": "b796ecd94642f076df5572c53e94b3e1816a4ce8a3aec09d11bbfe3067ee7000",
+      "active_build_snapshot": false,
+      "incomplete_final_lines_ignored": [],
+      "distinct_outputs": 493,
+      "distinct_latest_commands": 489,
+      "latest_compile_commands": 444,
+      "top_cpp_compiles": {
+        "Debug": [
+          {
+            "elapsed_seconds": 169.245,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/fiber_reinforced_elasticity_freq_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 160.796,
+            "outputs": [
+              "CMakeFiles/fiber_reinforced_elasticity_freq_debug.dir/apps/app_fiber_reinforced_elasticity_freq.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 147.825,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/elasticity_freq_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 147.152,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/weak_term_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 142.715,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/fiber_harmonic_simplex_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 140.764,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/lifted_elasticity_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 136.931,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/lifted_integration_support_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 133.698,
+            "outputs": [
+              "CMakeFiles/immersx_lib_debug.dir/source/elasticity.cc.o"
+            ]
+          }
+        ],
+        "Release": [
+          {
+            "elapsed_seconds": 222.516,
+            "outputs": [
+              "CMakeFiles/fiber_reinforced_elasticity_freq.dir/apps/app_fiber_reinforced_elasticity_freq.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 198.341,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/fiber_reinforced_elasticity_freq_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 169.451,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/application_roadmap_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 165.264,
+            "outputs": [
+              "CMakeFiles/lifted_elasticity.dir/apps/app_lifted_elasticity.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 163.833,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/fiber_harmonic_simplex_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 160.237,
+            "outputs": [
+              "CMakeFiles/navier_stokes.dir/apps/app_navier_stokes.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 152.159,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/weak_term_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 151.823,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/elasticity_freq_01.cc.o"
+            ]
+          }
+        ]
+      },
+      "top_link_commands": [
+        {
+          "elapsed_seconds": 7.687,
+          "outputs": [
+            "gtests/gtests_debug",
+            "gtests/gtests_debug_test_groups.cmake",
+            "local-artifacts/baseline-full-gpu02/gtests/gtests_debug_test_groups.cmake"
+          ]
+        },
+        {
+          "elapsed_seconds": 2.691,
+          "outputs": [
+            "gtests/gtests",
+            "gtests/gtests_test_groups.cmake",
+            "local-artifacts/baseline-full-gpu02/gtests/gtests_test_groups.cmake"
+          ]
+        },
+        {
+          "elapsed_seconds": 2.552,
+          "outputs": [
+            "fiber_reinforced_elasticity_freq_debug"
+          ]
+        },
+        {
+          "elapsed_seconds": 2.548,
+          "outputs": [
+            "libimmersx_lib_debug.so"
+          ]
+        },
+        {
+          "elapsed_seconds": 2.058,
+          "outputs": [
+            "navier_stokes_debug"
+          ]
+        },
+        {
+          "elapsed_seconds": 2.035,
+          "outputs": [
+            "elastodynamics_debug"
+          ]
+        }
+      ],
+      "interpretation": "Latest completed command for each output across recorded incremental invocations; elapsed commands overlap and include ccache, compiler and filesystem time. This is not a clean-build wall-time comparison.",
+      "completed_google_test_objects_by_variant": {
+        "Debug": 115,
+        "Release": 115
+      }
+    },
+    {
+      "path": "optimized-full-gpu02/.ninja_log",
+      "snapshot_utc": "2026-11-02T20:56:06.529030+00:00",
+      "sha256_at_snapshot": "79cbf92b8e16b359944dd9f0999eaecd564d7059e94845534e93194a901c9964",
+      "active_build_snapshot": true,
+      "incomplete_final_lines_ignored": [],
+      "distinct_outputs": 260,
+      "distinct_latest_commands": 260,
+      "latest_compile_commands": 256,
+      "top_cpp_compiles": {
+        "Debug": [
+          {
+            "elapsed_seconds": 196.411,
+            "outputs": [
+              "CMakeFiles/fiber_reinforced_elasticity_freq_debug.dir/apps/app_fiber_reinforced_elasticity_freq.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 166.41,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/application_roadmap_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 160.54,
+            "outputs": [
+              "CMakeFiles/immersx_lib_debug.dir/source/reduced_poisson.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 155.017,
+            "outputs": [
+              "CMakeFiles/immersx_lib_debug.dir/source/laplacian.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 153.376,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/coupled_poisson_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 150.267,
+            "outputs": [
+              "CMakeFiles/lifted_elasticity_debug.dir/apps/app_lifted_elasticity.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 149.656,
+            "outputs": [
+              "CMakeFiles/immersx_lib_debug.dir/source/fiber_reinforced_elastodynamics.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 149.56,
+            "outputs": [
+              "gtests/CMakeFiles/gtests_debug.dir/contributor_physics_01.cc.o"
+            ]
+          }
+        ],
+        "Release": [
+          {
+            "elapsed_seconds": 233.778,
+            "outputs": [
+              "CMakeFiles/fiber_reinforced_elasticity_freq.dir/apps/app_fiber_reinforced_elasticity_freq.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 232.239,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/fiber_reinforced_elasticity_freq_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 198.771,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/weak_term_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 193.955,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/application_roadmap_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 189.963,
+            "outputs": [
+              "gtests/CMakeFiles/gtests.dir/fiber_harmonic_simplex_01.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 189.789,
+            "outputs": [
+              "CMakeFiles/immersx_lib.dir/source/fiber_reinforced_elastodynamics.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 188.433,
+            "outputs": [
+              "CMakeFiles/immersx_lib.dir/source/elasticity.cc.o"
+            ]
+          },
+          {
+            "elapsed_seconds": 186.341,
+            "outputs": [
+              "CMakeFiles/immersx_lib.dir/source/elastodynamics.cc.o"
+            ]
+          }
+        ]
+      },
+      "top_link_commands": [
+        {
+          "elapsed_seconds": 2.723,
+          "outputs": [
+            "libimmersx_lib_debug.so"
+          ]
+        },
+        {
+          "elapsed_seconds": 0.861,
+          "outputs": [
+            "libimmersx_lib.so"
+          ]
+        }
+      ],
+      "interpretation": "Latest completed command for each output across recorded incremental invocations; elapsed commands overlap and include ccache, compiler and filesystem time. This is not a clean-build wall-time comparison.",
+      "completed_google_test_objects_by_variant": {
+        "Debug": 46,
+        "Release": 113
+      }
+    }
+  ],
+  "local_build_matrix": {
+    "baseline_mode": "DebugRelease",
+    "baseline_google_test_source_translation_units": 115,
+    "compilations_for_all_baseline_google_test_sources_across_both_variants": 230,
+    "original_github_each_job_mode": "One variant only: Debug or Release",
+    "comparison_warning": "Do not compare the dual-variant local command count or walltime with a single-variant GitHub job. Snapshot timings differ in source, compiler, cache state, concurrent node load and build scope."
+  },
+  "compiler_phase_attribution": {
+    "compiler_command_elapsed": "Measured for local Ninja commands.",
+    "link_command_elapsed": "Measured for completed local Ninja executable/shared-library linker rules, deduplicating registry side outputs. GoogleTest commands also include post-link registry discovery; its cost is not separated.",
+    "preprocessing_seconds": null,
+    "template_instantiation_seconds": null,
+    "code_generation_seconds": null,
+    "reason": "No GCC -ftime-report or Clang time traces were collected. The large template headers imply potential work, but no measured stage fraction or speedup is claimed."
+  },
+  "cross_checkout_ccache_proof": {
+    "cache_dir": "shared-ccache",
+    "cache_config": "shared-ccache/ccache.conf",
+    "source": "source/modulated_parsed_function.cc",
+    "proof_scope": "One real production object, separately for Debug and Release, in two distinct source/build trees with equal layouts, toolchain and options. This proves preprocessed-cache reuse, not direct hits or full-project hit rate.",
+    "records": [
+      {
+        "variant": "debug",
+        "a_then_b": {
+          "a": {
+            "source_tree": "local-artifacts/cache-reuse-a/source",
+            "build_tree": "local-artifacts/cache-reuse-a/build",
+            "log": "audit/ccache-real/a-debug/local-artifacts/cache-reuse-a/build/CMakeFiles/immersx_lib_debug.dir/source/modulated_parsed_function.cc.o.20261102_200059_526781.ccache-log",
+            "result_key": "24f04lqg290tj11l49bc2odkiftlumqk8",
+            "cache_result": [
+              "cache_miss",
+              "direct_cache_miss",
+              "local_storage_miss",
+              "local_storage_read_miss",
+              "local_storage_write",
+              "preprocessed_cache_miss"
+            ],
+            "object_sha256": "0dd35fca96573104fb1f1f6d646f91a39349736d1ad2df1c8ed16a39cf94752c",
+            "stats_summary": "logs/cache-real-a-debug-summary.txt"
+          },
+          "b": {
+            "source_tree": "local-artifacts/cache-reuse-b/source",
+            "build_tree": "local-artifacts/cache-reuse-b/build",
+            "log": "audit/ccache-real/b-debug/local-artifacts/cache-reuse-b/build/CMakeFiles/immersx_lib_debug.dir/source/modulated_parsed_function.cc.o.20261102_200120_298178.ccache-log",
+            "result_key": "24f04lqg290tj11l49bc2odkiftlumqk8",
+            "cache_result": [
+              "direct_cache_miss",
+              "local_storage_hit",
+              "local_storage_read_hit",
+              "local_storage_read_miss",
+              "local_storage_write",
+              "preprocessed_cache_hit"
+            ],
+            "object_sha256": "0dd35fca96573104fb1f1f6d646f91a39349736d1ad2df1c8ed16a39cf94752c",
+            "stats_summary": "logs/cache-real-b-debug-summary.txt"
+          }
+        },
+        "matching_result_keys": true,
+        "second_tree_preprocessed_hit": true,
+        "matching_object_bytes": true
+      },
+      {
+        "variant": "release",
+        "a_then_b": {
+          "a": {
+            "source_tree": "local-artifacts/cache-reuse-a/source",
+            "build_tree": "local-artifacts/cache-reuse-a/build",
+            "log": "audit/ccache-real/a-release/local-artifacts/cache-reuse-a/build/CMakeFiles/immersx_lib.dir/source/modulated_parsed_function.cc.o.20261102_200043_375785.ccache-log",
+            "result_key": "f29fikbpc6j3lnlhja49c7dtr8p1aai0k",
+            "cache_result": [
+              "cache_miss",
+              "direct_cache_miss",
+              "local_storage_miss",
+              "local_storage_read_miss",
+              "local_storage_write",
+              "preprocessed_cache_miss"
+            ],
+            "object_sha256": "bd97535a476b6180586ff5e810f6b5f0d52b6004e962c5eb5bd26a4ad68ac689",
+            "stats_summary": "logs/cache-real-a-release-summary.txt"
+          },
+          "b": {
+            "source_tree": "local-artifacts/cache-reuse-b/source",
+            "build_tree": "local-artifacts/cache-reuse-b/build",
+            "log": "audit/ccache-real/b-release/local-artifacts/cache-reuse-b/build/CMakeFiles/immersx_lib.dir/source/modulated_parsed_function.cc.o.20261102_200114_496988.ccache-log",
+            "result_key": "f29fikbpc6j3lnlhja49c7dtr8p1aai0k",
+            "cache_result": [
+              "direct_cache_miss",
+              "local_storage_hit",
+              "local_storage_read_hit",
+              "local_storage_read_miss",
+              "local_storage_write",
+              "preprocessed_cache_hit"
+            ],
+            "object_sha256": "bd97535a476b6180586ff5e810f6b5f0d52b6004e962c5eb5bd26a4ad68ac689",
+            "stats_summary": "logs/cache-real-b-release-summary.txt"
+          }
+        },
+        "matching_result_keys": true,
+        "second_tree_preprocessed_hit": true,
+        "matching_object_bytes": true
+      }
+    ]
+  },
+  "infrastructure_review": {
+    "files_reviewed": [
+      ".github/workflows/tests.yml",
+      "gtests/CMakeLists.txt",
+      "scripts/ci/report_timings.py",
+      "scripts/ci/tests/test_report_timings.py"
+    ],
+    "findings": [
+      {
+        "change": "Debug cache limit1GB\u21924GB",
+        "effect": "Addresses observed saturation without reducing test/build scope.",
+        "limitation": "Larger cache transfer/storage may offset benefits; warm full-run hit rate and net walltime remain to be measured."
+      },
+      {
+        "change": "Remove optional legacy1D archive downloads; configure ENABLE_COUPLED_PROBLEMS=OFF",
+        "effect": "Avoids downloads and known unsuccessful archive link probes. Compile-only client objects remain enabled, preserving interface compilation.",
+        "limitation": "This does not claim runtime validation of a compatible optional1D installation."
+      },
+      {
+        "change": "When optional1D is genuinely enabled, depend on its existing application targets instead of compiling duplicate client objects",
+        "effect": "Avoids duplicate client translation units without omitting ordinary enabled application builds."
+      },
+      {
+        "change": "Preserve.ninja_log and report elapsed commands",
+        "effect": "Provides evidence for later build-cost work; does not change compiler options or omit targets.",
+        "limitation": "Latest-output records across incremental runs are not a clean-build baseline, and command elapsed times overlap."
+      },
+      {
+        "change": "Set OMP/BLAS/MKL threads1",
+        "effect": "Bounds runtime thread pools; does not set Ninja parallelism, change assertions, or alter Debug optimization flags."
+      }
+    ],
+    "build_regressions_found": [],
+    "preserved_contracts": [
+      "Debug and Release remain separate CI jobs.",
+      "Debug retains-DDEBUG and-O0; this patch does not silently replace it with Release.",
+      "All default application targets and public-header self-containment checks remain in the ordinary ALL build.",
+      "GoogleTest aggregation and semantic categories still determine runtime execution; no unvalidated fine-grained C++ selection was enabled."
+    ]
+  },
+  "limitations": [
+    "Original hosted-runner build cannot be split into per-TU or preprocessing/template/optimizer timings from completion-only console logs.",
+    "Local Ninja entries include overlapping work and cache effects; do not sum them as elapsed build walltime.",
+    "Optimized ALL build was still active when the snapshot was read; later outputs and final build outcome are not asserted.",
+    "Successful local cross-checkout reuse does not prove the 4GB hosted-runner working set is sufficient.",
+    "A fresh hosted Debug and Release run is required to measure end-to-end CI improvement."
+  ],
+  "integrated_candidate_build": {
+    "source_revision": "7438d9539d8c34c1d8273d80c534a078bf7bb82f",
+    "completed_utc": "2026-11-02T21:21:09.039596+00:00",
+    "build_result": "All configured application, library, GoogleTest and public-header targets built successfully in DebugRelease. Optional Coral, external FVM drivers and MetricFlowX package configurations disabled.",
+    "initial_build_then_changed_translation_units": 26,
+    "incremental_build_cache": {
+      "calls": 26,
+      "hits": 0,
+      "misses": 26,
+      "interpretation": "These changed translation units missed. This is not a warm-cache speedup measurement. Separate equivalent-checkout source-object proof below establishes reusable cache results."
+    },
+    "ninja_log_sha256": "9c85990032eadab737f90bd8a31e7cd6374361cc9b626522204403b405802361",
+    "latest_command_count": 487,
+    "top_latest_commands": [
+      {
+        "seconds": 245.242,
+        "outputs": [
+          "gtests/CMakeFiles/gtests.dir/fiber_reinforced_elasticity_freq_01.cc.o"
+        ]
+      },
+      {
+        "seconds": 233.778,
+        "outputs": [
+          "CMakeFiles/fiber_reinforced_elasticity_freq.dir/apps/app_fiber_reinforced_elasticity_freq.cc.o"
+        ]
+      },
+      {
+        "seconds": 217.598,
+        "outputs": [
+          "gtests/CMakeFiles/gtests_debug.dir/fiber_reinforced_elasticity_freq_01.cc.o"
+        ]
+      },
+      {
+        "seconds": 210.313,
+        "outputs": [
+          "gtests/CMakeFiles/gtests.dir/fiber_harmonic_simplex_01.cc.o"
+        ]
+      },
+      {
+        "seconds": 198.771,
+        "outputs": [
+          "gtests/CMakeFiles/gtests.dir/weak_term_01.cc.o"
+        ]
+      },
+      {
+        "seconds": 198.743,
+        "outputs": [
+          "gtests/CMakeFiles/gtests.dir/elasticity_freq_01.cc.o"
+        ]
+      },
+      {
+        "seconds": 196.411,
+        "outputs": [
+          "CMakeFiles/fiber_reinforced_elasticity_freq_debug.dir/apps/app_fiber_reinforced_elasticity_freq.cc.o"
+        ]
+      },
+      {
+        "seconds": 193.955,
+        "outputs": [
+          "gtests/CMakeFiles/gtests.dir/application_roadmap_01.cc.o"
+        ]
+      },
+      {
+        "seconds": 190.359,
+        "outputs": [
+          "gtests/CMakeFiles/gtests.dir/lifted_elasticity_01.cc.o"
+        ]
+      },
+      {
+        "seconds": 190.03,
+        "outputs": [
+          "gtests/CMakeFiles/gtests_debug.dir/fiber_harmonic_simplex_01.cc.o"
+        ]
+      },
+      {
+        "seconds": 189.789,
+        "outputs": [
+          "CMakeFiles/immersx_lib.dir/source/fiber_reinforced_elastodynamics.cc.o"
+        ]
+      },
+      {
+        "seconds": 188.433,
+        "outputs": [
+          "CMakeFiles/immersx_lib.dir/source/elasticity.cc.o"
+        ]
+      }
+    ],
+    "timing_scope": "Latest command per output after initial full build and incremental fixture rebuild. Command times include launcher/compiler/linker/I/O and overlap; they are not a clean-build duration or a hosted-CI comparison.",
+    "translation_units_by_configuration": {
+      "Release.library": 31,
+      "Release.applications": 22,
+      "Debug.library": 31,
+      "Debug.applications": 22,
+      "Release.public_headers": 54,
+      "Debug.public_headers": 54,
+      "Release.google_tests": 113,
+      "Debug.google_tests": 113
+    },
+    "not_enabled": [
+      "Coral",
+      "external FVM runtime drivers",
+      "MetricFlowX package matrix",
+      "standalone benchmark targets",
+      "deal.II-style application testing"
+    ]
+  },
+  "representative_compiler_stage_probe": {
+    "schema_version": 1,
+    "status": "complete",
+    "compiler_version": "GNU11.4.0",
+    "execution_host": "gpu02",
+    "created_utc": "2026-11-02T21:54:52.343846+00:00",
+    "source_revision_at_preparation": "7438d9539d8c34c1d8273d80c534a078bf7bb82f",
+    "translation_unit": "gtests/fiber_reinforced_elasticity_freq_01.cc",
+    "execution_policy": "Do not execute until root explicitly authorizes after timed CTest completes. Commands execute sequentially, no configuration or source/build-tree mutation.",
+    "environment": {
+      "CCACHE_DIR": "<shared-ccache>",
+      "CCACHE_CONFIGPATH": "<shared-ccache>/ccache.conf",
+      "CCACHE_RECACHE": "true",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1"
+    },
+    "maximum_simultaneous_compilers": 1,
+    "results": [
+      {
+        "variant": "Release",
+        "source": "<source-root>/gtests/fiber_reinforced_elasticity_freq_01.cc",
+        "source_sha256_at_preparation": "624d7d191917c74bea1e6fe0a22d09c21a30f19af6652c1c4c380aa309a911f8",
+        "source_sha256_after_probe": "624d7d191917c74bea1e6fe0a22d09c21a30f19af6652c1c4c380aa309a911f8",
+        "source_unchanged": true,
+        "compiler_command": [
+          "<build-root>/immersx-ccache-launcher",
+          "/usr/bin/c++",
+          "-DBOOST_IOSTREAMS_DYN_LINK",
+          "-DBOOST_IOSTREAMS_NO_LIB",
+          "-DBOOST_RANDOM_DYN_LINK",
+          "-DBOOST_RANDOM_NO_LIB",
+          "-DBOOST_REGEX_DYN_LINK",
+          "-DBOOST_REGEX_NO_LIB",
+          "-DBOOST_SERIALIZATION_DYN_LINK",
+          "-DBOOST_SERIALIZATION_NO_LIB",
+          "-DCGAL_USE_GMPXX=1",
+          "-DGTEST_LINKED_AS_SHARED_LIBRARY=1",
+          "-DIMMERSX_BINARY_DIR=\"<build-root>\"",
+          "-DIMMERSX_SOURCE_DIR=\"<source-root>\"",
+          "-DIMMERSX_WEAK_TERM_TESTING",
+          "-DKOKKOS_DEPENDENCE",
+          "-DNDEBUG",
+          "-DSOURCE_DIR=\"<source-root>\"",
+          "-DTEST_DATA_DIR=\"<build-root>/data\"",
+          "-DTEST_OUTPUT_DIR=\"<build-root>/test_output\"",
+          "-I<source-root>/gtests",
+          "-I<source-root>/apps",
+          "-I<source-root>/include",
+          "-I<build-root>/include",
+          "-isystem",
+          "/software/spack-v2/var/spack/views/dealii/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/openblas-0.3.33-p2d53vpami3cothphksqwf2thlxrz5yx/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/openmpi-5.0.10-35ecikk47z774md7te6ziav5mvgv7szl/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/taskflow-3.11.0-ysm3x2nzzvfapqjsh5m4w7akaqocvlzn/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/intel-tbb-2023.0.0-epny76jza5emkax3idgruwgwyon47w7p/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/zlib-ng-2.3.3-dajgcygzv4jdgtk4nz3vt6nbafjk5qny/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/boost-1.90.0-i4sgkm7sbc4dthitizb2y3io3x6getxv/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/ginkgo-1.11.0-onfnzvp7s7s7dsixj3dghxvj346spntd/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/metis-5.1.0-zsyzmiu5sq3yieeczbvp2jxthbd6tpav/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/petsc-3.25.2-347oy5wi57yooabclhs2tonehapf2bqm/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/kokkos-4.5.01-2usl3yltj5xs3amayh55r6anz2vsxer2/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/trilinos-16.1.0-3qndqvvj2gc7e37zz5hma3auxdhqobul/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/kokkos-kernels-4.5.01-uw3rlq2iq52ir5v3nnsykz3uclgjlmmf/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/suite-sparse-7.3.1-zqtl2hzxzcvuc6rsecrys2cpglctmajj/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/adol-c-2.7.2-oxgwnublkp7eba5jrhpakcu6kwk7d7xy/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/arborx-1.5-ji5k4n74nex42kcxu2qtm4raqdxdnbty/include/ArborX",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/arborx-1.5-ji5k4n74nex42kcxu2qtm4raqdxdnbty/include/ArborX/details",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/arborx-1.5-ji5k4n74nex42kcxu2qtm4raqdxdnbty/include/ArborX/geometry",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/arborx-1.5-ji5k4n74nex42kcxu2qtm4raqdxdnbty/include/ArborX/kokkos_ext",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/assimp-6.0.2-lj7zr3dprlxkuztaadf3xfz52mfi6qt4/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/cgal-5.6.3-ph6bikgzudg34kprwpoaf3z4bixyd2u2/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/gmp-6.3.0-etrmikslt5a77nlwmnxwzq66yrqsqt4g/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/mpfr-4.2.2-loiz3hw6f3atidhkcnht5lvymcintovw/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/gmsh-4.15.1-egxntvymr7h5g3ztxf6kzhgi732c4q2r/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/gsl-2.8-k5dsd7xplq5tiy6hik6mbvpc2voojnhr/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/hdf5-1.12.3-k67lx3xsuxvvqfqr5u24piamo3eg46ld/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/magic-enum-0.9.7-dzk27udjijmvxvdyh2iybynia6gicl5g/include/magic_enum",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/muparser-2.3.4-vv44srze62oobz3v22fjpuqx35oaavt2/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/opencascade-7.9.3-ekk7wocabn4oixxxt7ryhcfpgbuogvnf/include/opencascade",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/p4est-2.8.7-b7dr4odwusyudnksephmfmjtlxl2rgyu/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/psblas-develop-x3o6ecrh5e3tikadxev2t34ud24byb3s/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/slepc-3.25.1-dccfl65o2qxmykfapswzjubdbkfwyayf/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/sundials-6.7.0-xlkw3smhtlxmx3qzajzndvp56s2ga5is/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/symengine-0.9.0-klnspiquc2lgpflfyy5cqb5jilryxidc/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/mpc-1.4.1-6cvx3l76mjcccsx3x7hmrlqwhl6cnizy/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/cereal-1.3.2-dcdp4xylz4txbftdpjn33mhefhy6id4w/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/vtk-9.5.1-pcvjzv3asmlfkb5k2uav5x3jqonlgmnd/include/vtk-9.5",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/mumps-5.9.0-5h6r3sghf5xqwxx5woyml2mf4aoiww7r/include",
+          "-ffile-prefix-map=<source-root>=/immersx/source",
+          "-fdebug-prefix-map=<source-root>=/immersx/source",
+          "-fmacro-prefix-map=<source-root>=/immersx/source",
+          "-ffile-prefix-map=<build-root>=/immersx/build",
+          "-fdebug-prefix-map=<build-root>=/immersx/build",
+          "-fmacro-prefix-map=<build-root>=/immersx/build",
+          "-Wno-cpp",
+          "-pedantic",
+          "-Wall",
+          "-Wextra",
+          "-Wmissing-braces",
+          "-Woverloaded-virtual",
+          "-Wpointer-arith",
+          "-Wsign-compare",
+          "-Wsuggest-override",
+          "-Wswitch",
+          "-Wsynth",
+          "-Wwrite-strings",
+          "-Wno-placement-new",
+          "-Wno-literal-suffix",
+          "-Wno-psabi",
+          "-Wno-misleading-indentation",
+          "-Wno-unused-local-typedefs",
+          "-fopenmp-simd",
+          "-march=broadwell",
+          "-mtune=broadwell",
+          "-O2",
+          "-funroll-loops",
+          "-funroll-all-loops",
+          "-Wno-unused-parameter",
+          "-march=core-avx2",
+          "-mtune=core-avx2",
+          "-mrtm",
+          "-frounding-math",
+          "-fopenmp",
+          "-c",
+          "<source-root>/gtests/fiber_reinforced_elasticity_freq_01.cc",
+          "-ftime-report",
+          "-MD",
+          "-MF",
+          "<local-artifacts>/audit/compiler-stages/release/fiber_reinforced_elasticity_freq_01.cc.o.d",
+          "-MT",
+          "<local-artifacts>/audit/compiler-stages/release/fiber_reinforced_elasticity_freq_01.cc.o",
+          "-o",
+          "<local-artifacts>/audit/compiler-stages/release/fiber_reinforced_elasticity_freq_01.cc.o"
+        ],
+        "compiler_flags": {
+          "defines": [
+            "-DBOOST_IOSTREAMS_DYN_LINK",
+            "-DBOOST_IOSTREAMS_NO_LIB",
+            "-DBOOST_RANDOM_DYN_LINK",
+            "-DBOOST_RANDOM_NO_LIB",
+            "-DBOOST_REGEX_DYN_LINK",
+            "-DBOOST_REGEX_NO_LIB",
+            "-DBOOST_SERIALIZATION_DYN_LINK",
+            "-DBOOST_SERIALIZATION_NO_LIB",
+            "-DCGAL_USE_GMPXX=1",
+            "-DGTEST_LINKED_AS_SHARED_LIBRARY=1",
+            "-DIMMERSX_BINARY_DIR=\"<build-root>\"",
+            "-DIMMERSX_SOURCE_DIR=\"<source-root>\"",
+            "-DIMMERSX_WEAK_TERM_TESTING",
+            "-DKOKKOS_DEPENDENCE",
+            "-DNDEBUG",
+            "-DSOURCE_DIR=\"<source-root>\"",
+            "-DTEST_DATA_DIR=\"<build-root>/data\"",
+            "-DTEST_OUTPUT_DIR=\"<build-root>/test_output\""
+          ],
+          "optimization_and_debug": [
+            "-O2"
+          ],
+          "diagnostic_addition": "-ftime-report"
+        },
+        "process": {
+          "started_utc": "2026-11-02T21:48:16.839811+00:00",
+          "ended_utc": "2026-11-02T21:54:13.048994+00:00",
+          "wall_seconds": 356.1901521664113,
+          "user_seconds": 124.33,
+          "system_seconds": 51.43,
+          "maximum_resident_set_kib": 4810972.0,
+          "process_exit_code": 0
+        },
+        "gcc_time_reports": [
+          {
+            "rows": [
+              {
+                "name": "phase setup",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "1899k"
+              },
+              {
+                "name": "phase parsing",
+                "user_seconds": 16.74,
+                "system_seconds": 17.5,
+                "wall_seconds": 106.99,
+                "ggc_memory_reported": "2354M"
+              },
+              {
+                "name": "phase lang. deferred",
+                "user_seconds": 16.94,
+                "system_seconds": 8.84,
+                "wall_seconds": 25.78,
+                "ggc_memory_reported": "2145M"
+              },
+              {
+                "name": "phase opt and generate",
+                "user_seconds": 84.96,
+                "system_seconds": 20.47,
+                "wall_seconds": 105.46,
+                "ggc_memory_reported": "3481M"
+              },
+              {
+                "name": "phase finalize",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.13,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "|name lookup",
+                "user_seconds": 5.93,
+                "system_seconds": 4.0,
+                "wall_seconds": 9.06,
+                "ggc_memory_reported": "135M"
+              },
+              {
+                "name": "|overload resolution",
+                "user_seconds": 10.69,
+                "system_seconds": 6.28,
+                "wall_seconds": 16.49,
+                "ggc_memory_reported": "1406M"
+              },
+              {
+                "name": "garbage collection",
+                "user_seconds": 5.71,
+                "system_seconds": 0.07,
+                "wall_seconds": 5.79,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dump files",
+                "user_seconds": 2.29,
+                "system_seconds": 1.61,
+                "wall_seconds": 3.84,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "callgraph construction",
+                "user_seconds": 1.63,
+                "system_seconds": 0.61,
+                "wall_seconds": 2.55,
+                "ggc_memory_reported": "131M"
+              },
+              {
+                "name": "callgraph optimization",
+                "user_seconds": 2.8,
+                "system_seconds": 1.84,
+                "wall_seconds": 3.97,
+                "ggc_memory_reported": "1040k"
+              },
+              {
+                "name": "callgraph functions expansion",
+                "user_seconds": 58.66,
+                "system_seconds": 9.1,
+                "wall_seconds": 67.78,
+                "ggc_memory_reported": "1873M"
+              },
+              {
+                "name": "callgraph ipa passes",
+                "user_seconds": 23.43,
+                "system_seconds": 9.83,
+                "wall_seconds": 33.27,
+                "ggc_memory_reported": "1123M"
+              },
+              {
+                "name": "ipa function summary",
+                "user_seconds": 0.25,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.39,
+                "ggc_memory_reported": "27M"
+              },
+              {
+                "name": "ipa dead code removal",
+                "user_seconds": 0.26,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.29,
+                "ggc_memory_reported": "2464"
+              },
+              {
+                "name": "ipa inheritance graph",
+                "user_seconds": 0.02,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "178k"
+              },
+              {
+                "name": "ipa virtual call target",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "59k"
+              },
+              {
+                "name": "ipa devirtualization",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "116k"
+              },
+              {
+                "name": "ipa cp",
+                "user_seconds": 0.91,
+                "system_seconds": 0.14,
+                "wall_seconds": 1.03,
+                "ggc_memory_reported": "27M"
+              },
+              {
+                "name": "ipa inlining heuristics",
+                "user_seconds": 1.5,
+                "system_seconds": 0.08,
+                "wall_seconds": 1.65,
+                "ggc_memory_reported": "119M"
+              },
+              {
+                "name": "ipa function splitting",
+                "user_seconds": 0.27,
+                "system_seconds": 0.14,
+                "wall_seconds": 0.35,
+                "ggc_memory_reported": "14M"
+              },
+              {
+                "name": "ipa comdats",
+                "user_seconds": 0.02,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa reference",
+                "user_seconds": 0.11,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.11,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa profile",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa pure const",
+                "user_seconds": 0.5,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.59,
+                "ggc_memory_reported": "1278k"
+              },
+              {
+                "name": "ipa icf",
+                "user_seconds": 0.54,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.55,
+                "ggc_memory_reported": "410k"
+              },
+              {
+                "name": "ipa SRA",
+                "user_seconds": 0.62,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.63,
+                "ggc_memory_reported": "29M"
+              },
+              {
+                "name": "ipa free lang data",
+                "user_seconds": 0.07,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa free inline summary",
+                "user_seconds": 0.08,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa modref",
+                "user_seconds": 0.31,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.3,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "cfg construction",
+                "user_seconds": 0.12,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "12M"
+              },
+              {
+                "name": "cfg cleanup",
+                "user_seconds": 1.21,
+                "system_seconds": 0.1,
+                "wall_seconds": 1.32,
+                "ggc_memory_reported": "15M"
+              },
+              {
+                "name": "trivially dead code",
+                "user_seconds": 0.42,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.5,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df scan insns",
+                "user_seconds": 0.43,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.63,
+                "ggc_memory_reported": "328k"
+              },
+              {
+                "name": "df reaching defs",
+                "user_seconds": 1.14,
+                "system_seconds": 0.13,
+                "wall_seconds": 1.4,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df live regs",
+                "user_seconds": 2.86,
+                "system_seconds": 0.19,
+                "wall_seconds": 2.85,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df live&initialized regs",
+                "user_seconds": 1.31,
+                "system_seconds": 0.13,
+                "wall_seconds": 1.5,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df must-initialized regs",
+                "user_seconds": 0.07,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.14,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df use-def / def-use chains",
+                "user_seconds": 0.64,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.64,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df reg dead/unused notes",
+                "user_seconds": 1.22,
+                "system_seconds": 0.11,
+                "wall_seconds": 1.47,
+                "ggc_memory_reported": "31M"
+              },
+              {
+                "name": "register information",
+                "user_seconds": 0.32,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.16,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "alias analysis",
+                "user_seconds": 0.69,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.91,
+                "ggc_memory_reported": "65M"
+              },
+              {
+                "name": "alias stmt walking",
+                "user_seconds": 1.95,
+                "system_seconds": 0.42,
+                "wall_seconds": 2.5,
+                "ggc_memory_reported": "2071k"
+              },
+              {
+                "name": "register scan",
+                "user_seconds": 0.07,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.12,
+                "ggc_memory_reported": "5117k"
+              },
+              {
+                "name": "rebuild jump labels",
+                "user_seconds": 0.16,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.13,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "preprocessing",
+                "user_seconds": 3.77,
+                "system_seconds": 6.17,
+                "wall_seconds": 82.45,
+                "ggc_memory_reported": "414M"
+              },
+              {
+                "name": "parser (global)",
+                "user_seconds": 2.63,
+                "system_seconds": 4.02,
+                "wall_seconds": 6.92,
+                "ggc_memory_reported": "429M"
+              },
+              {
+                "name": "parser struct body",
+                "user_seconds": 1.38,
+                "system_seconds": 0.99,
+                "wall_seconds": 2.18,
+                "ggc_memory_reported": "197M"
+              },
+              {
+                "name": "parser enumerator list",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "1027k"
+              },
+              {
+                "name": "parser function body",
+                "user_seconds": 0.99,
+                "system_seconds": 0.73,
+                "wall_seconds": 1.92,
+                "ggc_memory_reported": "322M"
+              },
+              {
+                "name": "parser inl. func. body",
+                "user_seconds": 0.86,
+                "system_seconds": 0.93,
+                "wall_seconds": 1.83,
+                "ggc_memory_reported": "90M"
+              },
+              {
+                "name": "parser inl. meth. body",
+                "user_seconds": 1.85,
+                "system_seconds": 1.14,
+                "wall_seconds": 2.98,
+                "ggc_memory_reported": "162M"
+              },
+              {
+                "name": "template instantiation",
+                "user_seconds": 18.47,
+                "system_seconds": 11.68,
+                "wall_seconds": 30.2,
+                "ggc_memory_reported": "2861M"
+              },
+              {
+                "name": "constant expression evaluation",
+                "user_seconds": 0.62,
+                "system_seconds": 0.48,
+                "wall_seconds": 0.93,
+                "ggc_memory_reported": "21M"
+              },
+              {
+                "name": "early inlining heuristics",
+                "user_seconds": 0.36,
+                "system_seconds": 0.23,
+                "wall_seconds": 0.61,
+                "ggc_memory_reported": "46M"
+              },
+              {
+                "name": "inline parameters",
+                "user_seconds": 0.6,
+                "system_seconds": 0.28,
+                "wall_seconds": 0.82,
+                "ggc_memory_reported": "99M"
+              },
+              {
+                "name": "integration",
+                "user_seconds": 3.23,
+                "system_seconds": 1.3,
+                "wall_seconds": 4.66,
+                "ggc_memory_reported": "523M"
+              },
+              {
+                "name": "tree gimplify",
+                "user_seconds": 0.58,
+                "system_seconds": 0.45,
+                "wall_seconds": 0.99,
+                "ggc_memory_reported": "235M"
+              },
+              {
+                "name": "tree eh",
+                "user_seconds": 0.35,
+                "system_seconds": 0.17,
+                "wall_seconds": 0.33,
+                "ggc_memory_reported": "49M"
+              },
+              {
+                "name": "tree CFG construction",
+                "user_seconds": 0.15,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.37,
+                "ggc_memory_reported": "103M"
+              },
+              {
+                "name": "tree CFG cleanup",
+                "user_seconds": 1.42,
+                "system_seconds": 0.41,
+                "wall_seconds": 1.67,
+                "ggc_memory_reported": "3506k"
+              },
+              {
+                "name": "tree tail merge",
+                "user_seconds": 0.08,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "6017k"
+              },
+              {
+                "name": "tree VRP",
+                "user_seconds": 1.5,
+                "system_seconds": 0.36,
+                "wall_seconds": 1.79,
+                "ggc_memory_reported": "58M"
+              },
+              {
+                "name": "tree Early VRP",
+                "user_seconds": 0.7,
+                "system_seconds": 0.35,
+                "wall_seconds": 1.13,
+                "ggc_memory_reported": "74M"
+              },
+              {
+                "name": "tree copy propagation",
+                "user_seconds": 0.26,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.31,
+                "ggc_memory_reported": "541k"
+              },
+              {
+                "name": "tree PTA",
+                "user_seconds": 2.29,
+                "system_seconds": 0.68,
+                "wall_seconds": 2.85,
+                "ggc_memory_reported": "27M"
+              },
+              {
+                "name": "tree PHI insertion",
+                "user_seconds": 0.02,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "9680k"
+              },
+              {
+                "name": "tree SSA rewrite",
+                "user_seconds": 0.4,
+                "system_seconds": 0.22,
+                "wall_seconds": 0.63,
+                "ggc_memory_reported": "80M"
+              },
+              {
+                "name": "tree SSA other",
+                "user_seconds": 0.34,
+                "system_seconds": 0.37,
+                "wall_seconds": 0.79,
+                "ggc_memory_reported": "9817k"
+              },
+              {
+                "name": "tree SSA incremental",
+                "user_seconds": 0.58,
+                "system_seconds": 0.23,
+                "wall_seconds": 0.93,
+                "ggc_memory_reported": "10M"
+              },
+              {
+                "name": "tree operand scan",
+                "user_seconds": 1.86,
+                "system_seconds": 0.81,
+                "wall_seconds": 2.86,
+                "ggc_memory_reported": "216M"
+              },
+              {
+                "name": "dominator optimization",
+                "user_seconds": 1.5,
+                "system_seconds": 0.4,
+                "wall_seconds": 1.82,
+                "ggc_memory_reported": "49M"
+              },
+              {
+                "name": "backwards jump threading",
+                "user_seconds": 0.2,
+                "system_seconds": 0.11,
+                "wall_seconds": 0.37,
+                "ggc_memory_reported": "2914k"
+              },
+              {
+                "name": "tree SRA",
+                "user_seconds": 0.18,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "6424k"
+              },
+              {
+                "name": "isolate eroneous paths",
+                "user_seconds": 0.03,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "8608"
+              },
+              {
+                "name": "tree CCP",
+                "user_seconds": 0.96,
+                "system_seconds": 0.36,
+                "wall_seconds": 1.34,
+                "ggc_memory_reported": "12M"
+              },
+              {
+                "name": "tree split crit edges",
+                "user_seconds": 0.06,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "9214k"
+              },
+              {
+                "name": "tree reassociation",
+                "user_seconds": 0.12,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.11,
+                "ggc_memory_reported": "102k"
+              },
+              {
+                "name": "tree PRE",
+                "user_seconds": 1.15,
+                "system_seconds": 0.28,
+                "wall_seconds": 1.56,
+                "ggc_memory_reported": "50M"
+              },
+              {
+                "name": "tree FRE",
+                "user_seconds": 1.82,
+                "system_seconds": 0.55,
+                "wall_seconds": 2.21,
+                "ggc_memory_reported": "28M"
+              },
+              {
+                "name": "tree code sinking",
+                "user_seconds": 0.05,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "6129k"
+              },
+              {
+                "name": "tree linearize phis",
+                "user_seconds": 0.14,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.19,
+                "ggc_memory_reported": "7562k"
+              },
+              {
+                "name": "tree backward propagate",
+                "user_seconds": 0.01,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "tree forward propagate",
+                "user_seconds": 0.52,
+                "system_seconds": 0.16,
+                "wall_seconds": 0.74,
+                "ggc_memory_reported": "7838k"
+              },
+              {
+                "name": "tree phiprop",
+                "user_seconds": 0.02,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.0,
+                "ggc_memory_reported": "97k"
+              },
+              {
+                "name": "tree conservative DCE",
+                "user_seconds": 0.51,
+                "system_seconds": 0.16,
+                "wall_seconds": 0.7,
+                "ggc_memory_reported": "1332k"
+              },
+              {
+                "name": "tree aggressive DCE",
+                "user_seconds": 0.67,
+                "system_seconds": 0.19,
+                "wall_seconds": 0.89,
+                "ggc_memory_reported": "79M"
+              },
+              {
+                "name": "tree buildin call DCE",
+                "user_seconds": 0.0,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "53k"
+              },
+              {
+                "name": "tree DSE",
+                "user_seconds": 0.39,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.4,
+                "ggc_memory_reported": "1654k"
+              },
+              {
+                "name": "PHI merge",
+                "user_seconds": 0.04,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "2047k"
+              },
+              {
+                "name": "tree loop optimization",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.0,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "tree loop invariant motion",
+                "user_seconds": 0.14,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.18,
+                "ggc_memory_reported": "736k"
+              },
+              {
+                "name": "tree canonical iv",
+                "user_seconds": 0.06,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "2596k"
+              },
+              {
+                "name": "scev constant prop",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "1951k"
+              },
+              {
+                "name": "complete unrolling",
+                "user_seconds": 0.18,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.18,
+                "ggc_memory_reported": "15M"
+              },
+              {
+                "name": "tree loop distribution",
+                "user_seconds": 0.02,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "2025k"
+              },
+              {
+                "name": "tree iv optimization",
+                "user_seconds": 0.18,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.2,
+                "ggc_memory_reported": "15M"
+              },
+              {
+                "name": "tree copy headers",
+                "user_seconds": 0.06,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.05,
+                "ggc_memory_reported": "3704k"
+              },
+              {
+                "name": "tree SSA uncprop",
+                "user_seconds": 0.04,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.09,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "tree NRV optimization",
+                "user_seconds": 0.0,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "42k"
+              },
+              {
+                "name": "tree switch conversion",
+                "user_seconds": 0.04,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "15k"
+              },
+              {
+                "name": "tree switch lowering",
+                "user_seconds": 0.03,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "2558k"
+              },
+              {
+                "name": "gimple CSE sin/cos",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "6248"
+              },
+              {
+                "name": "gimple widening/fma detection",
+                "user_seconds": 0.05,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "76k"
+              },
+              {
+                "name": "tree strlen optimization",
+                "user_seconds": 0.24,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.29,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "tree modref",
+                "user_seconds": 0.2,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "27M"
+              },
+              {
+                "name": "dominance frontiers",
+                "user_seconds": 0.08,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.13,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dominance computation",
+                "user_seconds": 1.79,
+                "system_seconds": 0.73,
+                "wall_seconds": 2.72,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "control dependences",
+                "user_seconds": 0.03,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.14,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "out of ssa",
+                "user_seconds": 0.13,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.17,
+                "ggc_memory_reported": "529k"
+              },
+              {
+                "name": "expand vars",
+                "user_seconds": 0.43,
+                "system_seconds": 0.13,
+                "wall_seconds": 0.59,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "expand",
+                "user_seconds": 0.97,
+                "system_seconds": 0.15,
+                "wall_seconds": 1.01,
+                "ggc_memory_reported": "192M"
+              },
+              {
+                "name": "post expand cleanups",
+                "user_seconds": 0.09,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.09,
+                "ggc_memory_reported": "21M"
+              },
+              {
+                "name": "varconst",
+                "user_seconds": 0.13,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "64k"
+              },
+              {
+                "name": "lower subreg",
+                "user_seconds": 0.03,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.05,
+                "ggc_memory_reported": "218k"
+              },
+              {
+                "name": "jump",
+                "user_seconds": 0.04,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "forward prop",
+                "user_seconds": 0.67,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.79,
+                "ggc_memory_reported": "942k"
+              },
+              {
+                "name": "CSE",
+                "user_seconds": 1.31,
+                "system_seconds": 0.16,
+                "wall_seconds": 1.39,
+                "ggc_memory_reported": "6974k"
+              },
+              {
+                "name": "dead code elimination",
+                "user_seconds": 0.31,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dead store elim1",
+                "user_seconds": 0.4,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.5,
+                "ggc_memory_reported": "19M"
+              },
+              {
+                "name": "dead store elim2",
+                "user_seconds": 0.38,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.51,
+                "ggc_memory_reported": "25M"
+              },
+              {
+                "name": "loop analysis",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "loop init",
+                "user_seconds": 0.91,
+                "system_seconds": 0.39,
+                "wall_seconds": 1.19,
+                "ggc_memory_reported": "98M"
+              },
+              {
+                "name": "loop invariant motion",
+                "user_seconds": 0.1,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.05,
+                "ggc_memory_reported": "507k"
+              },
+              {
+                "name": "loop unrolling",
+                "user_seconds": 0.33,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.42,
+                "ggc_memory_reported": "71M"
+              },
+              {
+                "name": "loop fini",
+                "user_seconds": 0.35,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.4,
+                "ggc_memory_reported": "7320"
+              },
+              {
+                "name": "CPROP",
+                "user_seconds": 1.15,
+                "system_seconds": 0.18,
+                "wall_seconds": 1.1,
+                "ggc_memory_reported": "43M"
+              },
+              {
+                "name": "PRE",
+                "user_seconds": 0.57,
+                "system_seconds": 0.11,
+                "wall_seconds": 0.67,
+                "ggc_memory_reported": "6439k"
+              },
+              {
+                "name": "code hoisting",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "448"
+              },
+              {
+                "name": "web",
+                "user_seconds": 0.18,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.17,
+                "ggc_memory_reported": "2631k"
+              },
+              {
+                "name": "CSE 2",
+                "user_seconds": 0.87,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.94,
+                "ggc_memory_reported": "3670k"
+              },
+              {
+                "name": "branch prediction",
+                "user_seconds": 0.44,
+                "system_seconds": 0.18,
+                "wall_seconds": 0.65,
+                "ggc_memory_reported": "11M"
+              },
+              {
+                "name": "combiner",
+                "user_seconds": 1.53,
+                "system_seconds": 0.12,
+                "wall_seconds": 1.72,
+                "ggc_memory_reported": "45M"
+              },
+              {
+                "name": "if-conversion",
+                "user_seconds": 0.21,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.15,
+                "ggc_memory_reported": "3539k"
+              },
+              {
+                "name": "mode switching",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.0,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "integrated RA",
+                "user_seconds": 3.47,
+                "system_seconds": 0.38,
+                "wall_seconds": 4.38,
+                "ggc_memory_reported": "281M"
+              },
+              {
+                "name": "LRA non-specific",
+                "user_seconds": 1.27,
+                "system_seconds": 0.1,
+                "wall_seconds": 1.38,
+                "ggc_memory_reported": "16M"
+              },
+              {
+                "name": "LRA virtuals elimination",
+                "user_seconds": 0.21,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "10M"
+              },
+              {
+                "name": "LRA reload inheritance",
+                "user_seconds": 0.25,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.25,
+                "ggc_memory_reported": "3009k"
+              },
+              {
+                "name": "LRA create live ranges",
+                "user_seconds": 0.87,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.82,
+                "ggc_memory_reported": "2296k"
+              },
+              {
+                "name": "LRA hard reg assignment",
+                "user_seconds": 0.17,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.15,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "LRA rematerialization",
+                "user_seconds": 0.17,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.11,
+                "ggc_memory_reported": "8488"
+              },
+              {
+                "name": "reload",
+                "user_seconds": 0.06,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "198k"
+              },
+              {
+                "name": "reload CSE regs",
+                "user_seconds": 1.31,
+                "system_seconds": 0.14,
+                "wall_seconds": 1.87,
+                "ggc_memory_reported": "30M"
+              },
+              {
+                "name": "ree",
+                "user_seconds": 0.21,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.13,
+                "ggc_memory_reported": "331k"
+              },
+              {
+                "name": "thread pro- & epilogue",
+                "user_seconds": 0.44,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.56,
+                "ggc_memory_reported": "16M"
+              },
+              {
+                "name": "if-conversion 2",
+                "user_seconds": 0.07,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "92k"
+              },
+              {
+                "name": "combine stack adjustments",
+                "user_seconds": 0.06,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "peephole 2",
+                "user_seconds": 0.2,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.2,
+                "ggc_memory_reported": "1772k"
+              },
+              {
+                "name": "rename registers",
+                "user_seconds": 1.01,
+                "system_seconds": 0.05,
+                "wall_seconds": 1.2,
+                "ggc_memory_reported": "3028k"
+              },
+              {
+                "name": "hard reg cprop",
+                "user_seconds": 0.42,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.5,
+                "ggc_memory_reported": "531k"
+              },
+              {
+                "name": "scheduling 2",
+                "user_seconds": 3.37,
+                "system_seconds": 0.23,
+                "wall_seconds": 3.68,
+                "ggc_memory_reported": "15M"
+              },
+              {
+                "name": "machine dep reorg",
+                "user_seconds": 0.62,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.76,
+                "ggc_memory_reported": "8506k"
+              },
+              {
+                "name": "reorder blocks",
+                "user_seconds": 0.27,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.14,
+                "ggc_memory_reported": "14M"
+              },
+              {
+                "name": "shorten branches",
+                "user_seconds": 0.19,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.27,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "reg stack",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "final",
+                "user_seconds": 0.71,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.69,
+                "ggc_memory_reported": "58M"
+              },
+              {
+                "name": "variable output",
+                "user_seconds": 0.03,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "3132k"
+              },
+              {
+                "name": "symout",
+                "user_seconds": 0.09,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.15,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "tree if-combine",
+                "user_seconds": 0.03,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "110k"
+              },
+              {
+                "name": "if to switch conversion",
+                "user_seconds": 0.06,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "13k"
+              },
+              {
+                "name": "uninit var analysis",
+                "user_seconds": 0.06,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "straight-line strength reduction",
+                "user_seconds": 0.08,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "218k"
+              },
+              {
+                "name": "store merging",
+                "user_seconds": 0.12,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.19,
+                "ggc_memory_reported": "3226k"
+              },
+              {
+                "name": "initialize rtl",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "12k"
+              },
+              {
+                "name": "address lowering",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "12k"
+              },
+              {
+                "name": "early local passes",
+                "user_seconds": 0.06,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "unaccounted optimizations",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "rest of compilation",
+                "user_seconds": 2.74,
+                "system_seconds": 0.57,
+                "wall_seconds": 3.14,
+                "ggc_memory_reported": "39M"
+              },
+              {
+                "name": "unaccounted post reload",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "remove unused locals",
+                "user_seconds": 0.49,
+                "system_seconds": 0.32,
+                "wall_seconds": 0.7,
+                "ggc_memory_reported": "82k"
+              },
+              {
+                "name": "address taken",
+                "user_seconds": 0.32,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.33,
+                "ggc_memory_reported": "97k"
+              },
+              {
+                "name": "rebuild frequencies",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.12,
+                "ggc_memory_reported": "357k"
+              },
+              {
+                "name": "repair loop structures",
+                "user_seconds": 0.18,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.22,
+                "ggc_memory_reported": "11k"
+              },
+              {
+                "name": "TOTAL",
+                "user_seconds": 118.64,
+                "system_seconds": 46.81,
+                "wall_seconds": 238.4,
+                "ggc_memory_reported": "7983M"
+              }
+            ],
+            "total": {
+              "name": "TOTAL",
+              "user_seconds": 118.64,
+              "system_seconds": 46.81,
+              "wall_seconds": 238.4,
+              "ggc_memory_reported": "7983M"
+            },
+            "phase_rows": [
+              {
+                "name": "phase setup",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "1899k"
+              },
+              {
+                "name": "phase parsing",
+                "user_seconds": 16.74,
+                "system_seconds": 17.5,
+                "wall_seconds": 106.99,
+                "ggc_memory_reported": "2354M"
+              },
+              {
+                "name": "phase lang. deferred",
+                "user_seconds": 16.94,
+                "system_seconds": 8.84,
+                "wall_seconds": 25.78,
+                "ggc_memory_reported": "2145M"
+              },
+              {
+                "name": "phase opt and generate",
+                "user_seconds": 84.96,
+                "system_seconds": 20.47,
+                "wall_seconds": 105.46,
+                "ggc_memory_reported": "3481M"
+              },
+              {
+                "name": "phase finalize",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.13,
+                "ggc_memory_reported": "0"
+              }
+            ],
+            "subsystem_rows": [
+              {
+                "name": "|name lookup",
+                "user_seconds": 5.93,
+                "system_seconds": 4.0,
+                "wall_seconds": 9.06,
+                "ggc_memory_reported": "135M"
+              },
+              {
+                "name": "|overload resolution",
+                "user_seconds": 10.69,
+                "system_seconds": 6.28,
+                "wall_seconds": 16.49,
+                "ggc_memory_reported": "1406M"
+              },
+              {
+                "name": "garbage collection",
+                "user_seconds": 5.71,
+                "system_seconds": 0.07,
+                "wall_seconds": 5.79,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dump files",
+                "user_seconds": 2.29,
+                "system_seconds": 1.61,
+                "wall_seconds": 3.84,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "callgraph construction",
+                "user_seconds": 1.63,
+                "system_seconds": 0.61,
+                "wall_seconds": 2.55,
+                "ggc_memory_reported": "131M"
+              },
+              {
+                "name": "callgraph optimization",
+                "user_seconds": 2.8,
+                "system_seconds": 1.84,
+                "wall_seconds": 3.97,
+                "ggc_memory_reported": "1040k"
+              },
+              {
+                "name": "callgraph functions expansion",
+                "user_seconds": 58.66,
+                "system_seconds": 9.1,
+                "wall_seconds": 67.78,
+                "ggc_memory_reported": "1873M"
+              },
+              {
+                "name": "callgraph ipa passes",
+                "user_seconds": 23.43,
+                "system_seconds": 9.83,
+                "wall_seconds": 33.27,
+                "ggc_memory_reported": "1123M"
+              },
+              {
+                "name": "ipa function summary",
+                "user_seconds": 0.25,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.39,
+                "ggc_memory_reported": "27M"
+              },
+              {
+                "name": "ipa dead code removal",
+                "user_seconds": 0.26,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.29,
+                "ggc_memory_reported": "2464"
+              },
+              {
+                "name": "ipa inheritance graph",
+                "user_seconds": 0.02,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "178k"
+              },
+              {
+                "name": "ipa virtual call target",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "59k"
+              },
+              {
+                "name": "ipa devirtualization",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "116k"
+              },
+              {
+                "name": "ipa cp",
+                "user_seconds": 0.91,
+                "system_seconds": 0.14,
+                "wall_seconds": 1.03,
+                "ggc_memory_reported": "27M"
+              },
+              {
+                "name": "ipa inlining heuristics",
+                "user_seconds": 1.5,
+                "system_seconds": 0.08,
+                "wall_seconds": 1.65,
+                "ggc_memory_reported": "119M"
+              },
+              {
+                "name": "ipa function splitting",
+                "user_seconds": 0.27,
+                "system_seconds": 0.14,
+                "wall_seconds": 0.35,
+                "ggc_memory_reported": "14M"
+              },
+              {
+                "name": "ipa comdats",
+                "user_seconds": 0.02,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa reference",
+                "user_seconds": 0.11,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.11,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa profile",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa pure const",
+                "user_seconds": 0.5,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.59,
+                "ggc_memory_reported": "1278k"
+              },
+              {
+                "name": "ipa icf",
+                "user_seconds": 0.54,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.55,
+                "ggc_memory_reported": "410k"
+              },
+              {
+                "name": "ipa SRA",
+                "user_seconds": 0.62,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.63,
+                "ggc_memory_reported": "29M"
+              },
+              {
+                "name": "ipa free lang data",
+                "user_seconds": 0.07,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa free inline summary",
+                "user_seconds": 0.08,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa modref",
+                "user_seconds": 0.31,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.3,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "cfg construction",
+                "user_seconds": 0.12,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "12M"
+              },
+              {
+                "name": "cfg cleanup",
+                "user_seconds": 1.21,
+                "system_seconds": 0.1,
+                "wall_seconds": 1.32,
+                "ggc_memory_reported": "15M"
+              },
+              {
+                "name": "trivially dead code",
+                "user_seconds": 0.42,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.5,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df scan insns",
+                "user_seconds": 0.43,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.63,
+                "ggc_memory_reported": "328k"
+              },
+              {
+                "name": "df reaching defs",
+                "user_seconds": 1.14,
+                "system_seconds": 0.13,
+                "wall_seconds": 1.4,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df live regs",
+                "user_seconds": 2.86,
+                "system_seconds": 0.19,
+                "wall_seconds": 2.85,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df live&initialized regs",
+                "user_seconds": 1.31,
+                "system_seconds": 0.13,
+                "wall_seconds": 1.5,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df must-initialized regs",
+                "user_seconds": 0.07,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.14,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df use-def / def-use chains",
+                "user_seconds": 0.64,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.64,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df reg dead/unused notes",
+                "user_seconds": 1.22,
+                "system_seconds": 0.11,
+                "wall_seconds": 1.47,
+                "ggc_memory_reported": "31M"
+              },
+              {
+                "name": "register information",
+                "user_seconds": 0.32,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.16,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "alias analysis",
+                "user_seconds": 0.69,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.91,
+                "ggc_memory_reported": "65M"
+              },
+              {
+                "name": "alias stmt walking",
+                "user_seconds": 1.95,
+                "system_seconds": 0.42,
+                "wall_seconds": 2.5,
+                "ggc_memory_reported": "2071k"
+              },
+              {
+                "name": "register scan",
+                "user_seconds": 0.07,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.12,
+                "ggc_memory_reported": "5117k"
+              },
+              {
+                "name": "rebuild jump labels",
+                "user_seconds": 0.16,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.13,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "preprocessing",
+                "user_seconds": 3.77,
+                "system_seconds": 6.17,
+                "wall_seconds": 82.45,
+                "ggc_memory_reported": "414M"
+              },
+              {
+                "name": "parser (global)",
+                "user_seconds": 2.63,
+                "system_seconds": 4.02,
+                "wall_seconds": 6.92,
+                "ggc_memory_reported": "429M"
+              },
+              {
+                "name": "parser struct body",
+                "user_seconds": 1.38,
+                "system_seconds": 0.99,
+                "wall_seconds": 2.18,
+                "ggc_memory_reported": "197M"
+              },
+              {
+                "name": "parser enumerator list",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "1027k"
+              },
+              {
+                "name": "parser function body",
+                "user_seconds": 0.99,
+                "system_seconds": 0.73,
+                "wall_seconds": 1.92,
+                "ggc_memory_reported": "322M"
+              },
+              {
+                "name": "parser inl. func. body",
+                "user_seconds": 0.86,
+                "system_seconds": 0.93,
+                "wall_seconds": 1.83,
+                "ggc_memory_reported": "90M"
+              },
+              {
+                "name": "parser inl. meth. body",
+                "user_seconds": 1.85,
+                "system_seconds": 1.14,
+                "wall_seconds": 2.98,
+                "ggc_memory_reported": "162M"
+              },
+              {
+                "name": "template instantiation",
+                "user_seconds": 18.47,
+                "system_seconds": 11.68,
+                "wall_seconds": 30.2,
+                "ggc_memory_reported": "2861M"
+              },
+              {
+                "name": "constant expression evaluation",
+                "user_seconds": 0.62,
+                "system_seconds": 0.48,
+                "wall_seconds": 0.93,
+                "ggc_memory_reported": "21M"
+              },
+              {
+                "name": "early inlining heuristics",
+                "user_seconds": 0.36,
+                "system_seconds": 0.23,
+                "wall_seconds": 0.61,
+                "ggc_memory_reported": "46M"
+              },
+              {
+                "name": "inline parameters",
+                "user_seconds": 0.6,
+                "system_seconds": 0.28,
+                "wall_seconds": 0.82,
+                "ggc_memory_reported": "99M"
+              },
+              {
+                "name": "integration",
+                "user_seconds": 3.23,
+                "system_seconds": 1.3,
+                "wall_seconds": 4.66,
+                "ggc_memory_reported": "523M"
+              },
+              {
+                "name": "tree gimplify",
+                "user_seconds": 0.58,
+                "system_seconds": 0.45,
+                "wall_seconds": 0.99,
+                "ggc_memory_reported": "235M"
+              },
+              {
+                "name": "tree eh",
+                "user_seconds": 0.35,
+                "system_seconds": 0.17,
+                "wall_seconds": 0.33,
+                "ggc_memory_reported": "49M"
+              },
+              {
+                "name": "tree CFG construction",
+                "user_seconds": 0.15,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.37,
+                "ggc_memory_reported": "103M"
+              },
+              {
+                "name": "tree CFG cleanup",
+                "user_seconds": 1.42,
+                "system_seconds": 0.41,
+                "wall_seconds": 1.67,
+                "ggc_memory_reported": "3506k"
+              },
+              {
+                "name": "tree tail merge",
+                "user_seconds": 0.08,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "6017k"
+              },
+              {
+                "name": "tree VRP",
+                "user_seconds": 1.5,
+                "system_seconds": 0.36,
+                "wall_seconds": 1.79,
+                "ggc_memory_reported": "58M"
+              },
+              {
+                "name": "tree Early VRP",
+                "user_seconds": 0.7,
+                "system_seconds": 0.35,
+                "wall_seconds": 1.13,
+                "ggc_memory_reported": "74M"
+              },
+              {
+                "name": "tree copy propagation",
+                "user_seconds": 0.26,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.31,
+                "ggc_memory_reported": "541k"
+              },
+              {
+                "name": "tree PTA",
+                "user_seconds": 2.29,
+                "system_seconds": 0.68,
+                "wall_seconds": 2.85,
+                "ggc_memory_reported": "27M"
+              },
+              {
+                "name": "tree PHI insertion",
+                "user_seconds": 0.02,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "9680k"
+              },
+              {
+                "name": "tree SSA rewrite",
+                "user_seconds": 0.4,
+                "system_seconds": 0.22,
+                "wall_seconds": 0.63,
+                "ggc_memory_reported": "80M"
+              },
+              {
+                "name": "tree SSA other",
+                "user_seconds": 0.34,
+                "system_seconds": 0.37,
+                "wall_seconds": 0.79,
+                "ggc_memory_reported": "9817k"
+              },
+              {
+                "name": "tree SSA incremental",
+                "user_seconds": 0.58,
+                "system_seconds": 0.23,
+                "wall_seconds": 0.93,
+                "ggc_memory_reported": "10M"
+              },
+              {
+                "name": "tree operand scan",
+                "user_seconds": 1.86,
+                "system_seconds": 0.81,
+                "wall_seconds": 2.86,
+                "ggc_memory_reported": "216M"
+              },
+              {
+                "name": "dominator optimization",
+                "user_seconds": 1.5,
+                "system_seconds": 0.4,
+                "wall_seconds": 1.82,
+                "ggc_memory_reported": "49M"
+              },
+              {
+                "name": "backwards jump threading",
+                "user_seconds": 0.2,
+                "system_seconds": 0.11,
+                "wall_seconds": 0.37,
+                "ggc_memory_reported": "2914k"
+              },
+              {
+                "name": "tree SRA",
+                "user_seconds": 0.18,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "6424k"
+              },
+              {
+                "name": "isolate eroneous paths",
+                "user_seconds": 0.03,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "8608"
+              },
+              {
+                "name": "tree CCP",
+                "user_seconds": 0.96,
+                "system_seconds": 0.36,
+                "wall_seconds": 1.34,
+                "ggc_memory_reported": "12M"
+              },
+              {
+                "name": "tree split crit edges",
+                "user_seconds": 0.06,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "9214k"
+              },
+              {
+                "name": "tree reassociation",
+                "user_seconds": 0.12,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.11,
+                "ggc_memory_reported": "102k"
+              },
+              {
+                "name": "tree PRE",
+                "user_seconds": 1.15,
+                "system_seconds": 0.28,
+                "wall_seconds": 1.56,
+                "ggc_memory_reported": "50M"
+              },
+              {
+                "name": "tree FRE",
+                "user_seconds": 1.82,
+                "system_seconds": 0.55,
+                "wall_seconds": 2.21,
+                "ggc_memory_reported": "28M"
+              },
+              {
+                "name": "tree code sinking",
+                "user_seconds": 0.05,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "6129k"
+              },
+              {
+                "name": "tree linearize phis",
+                "user_seconds": 0.14,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.19,
+                "ggc_memory_reported": "7562k"
+              },
+              {
+                "name": "tree backward propagate",
+                "user_seconds": 0.01,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "tree forward propagate",
+                "user_seconds": 0.52,
+                "system_seconds": 0.16,
+                "wall_seconds": 0.74,
+                "ggc_memory_reported": "7838k"
+              },
+              {
+                "name": "tree phiprop",
+                "user_seconds": 0.02,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.0,
+                "ggc_memory_reported": "97k"
+              },
+              {
+                "name": "tree conservative DCE",
+                "user_seconds": 0.51,
+                "system_seconds": 0.16,
+                "wall_seconds": 0.7,
+                "ggc_memory_reported": "1332k"
+              },
+              {
+                "name": "tree aggressive DCE",
+                "user_seconds": 0.67,
+                "system_seconds": 0.19,
+                "wall_seconds": 0.89,
+                "ggc_memory_reported": "79M"
+              },
+              {
+                "name": "tree buildin call DCE",
+                "user_seconds": 0.0,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "53k"
+              },
+              {
+                "name": "tree DSE",
+                "user_seconds": 0.39,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.4,
+                "ggc_memory_reported": "1654k"
+              },
+              {
+                "name": "PHI merge",
+                "user_seconds": 0.04,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "2047k"
+              },
+              {
+                "name": "tree loop optimization",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.0,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "tree loop invariant motion",
+                "user_seconds": 0.14,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.18,
+                "ggc_memory_reported": "736k"
+              },
+              {
+                "name": "tree canonical iv",
+                "user_seconds": 0.06,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "2596k"
+              },
+              {
+                "name": "scev constant prop",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "1951k"
+              },
+              {
+                "name": "complete unrolling",
+                "user_seconds": 0.18,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.18,
+                "ggc_memory_reported": "15M"
+              },
+              {
+                "name": "tree loop distribution",
+                "user_seconds": 0.02,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "2025k"
+              },
+              {
+                "name": "tree iv optimization",
+                "user_seconds": 0.18,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.2,
+                "ggc_memory_reported": "15M"
+              },
+              {
+                "name": "tree copy headers",
+                "user_seconds": 0.06,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.05,
+                "ggc_memory_reported": "3704k"
+              },
+              {
+                "name": "tree SSA uncprop",
+                "user_seconds": 0.04,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.09,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "tree NRV optimization",
+                "user_seconds": 0.0,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "42k"
+              },
+              {
+                "name": "tree switch conversion",
+                "user_seconds": 0.04,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "15k"
+              },
+              {
+                "name": "tree switch lowering",
+                "user_seconds": 0.03,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "2558k"
+              },
+              {
+                "name": "gimple CSE sin/cos",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "6248"
+              },
+              {
+                "name": "gimple widening/fma detection",
+                "user_seconds": 0.05,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "76k"
+              },
+              {
+                "name": "tree strlen optimization",
+                "user_seconds": 0.24,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.29,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "tree modref",
+                "user_seconds": 0.2,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "27M"
+              },
+              {
+                "name": "dominance frontiers",
+                "user_seconds": 0.08,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.13,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dominance computation",
+                "user_seconds": 1.79,
+                "system_seconds": 0.73,
+                "wall_seconds": 2.72,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "control dependences",
+                "user_seconds": 0.03,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.14,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "out of ssa",
+                "user_seconds": 0.13,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.17,
+                "ggc_memory_reported": "529k"
+              },
+              {
+                "name": "expand vars",
+                "user_seconds": 0.43,
+                "system_seconds": 0.13,
+                "wall_seconds": 0.59,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "expand",
+                "user_seconds": 0.97,
+                "system_seconds": 0.15,
+                "wall_seconds": 1.01,
+                "ggc_memory_reported": "192M"
+              },
+              {
+                "name": "post expand cleanups",
+                "user_seconds": 0.09,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.09,
+                "ggc_memory_reported": "21M"
+              },
+              {
+                "name": "varconst",
+                "user_seconds": 0.13,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "64k"
+              },
+              {
+                "name": "lower subreg",
+                "user_seconds": 0.03,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.05,
+                "ggc_memory_reported": "218k"
+              },
+              {
+                "name": "jump",
+                "user_seconds": 0.04,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "forward prop",
+                "user_seconds": 0.67,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.79,
+                "ggc_memory_reported": "942k"
+              },
+              {
+                "name": "CSE",
+                "user_seconds": 1.31,
+                "system_seconds": 0.16,
+                "wall_seconds": 1.39,
+                "ggc_memory_reported": "6974k"
+              },
+              {
+                "name": "dead code elimination",
+                "user_seconds": 0.31,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dead store elim1",
+                "user_seconds": 0.4,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.5,
+                "ggc_memory_reported": "19M"
+              },
+              {
+                "name": "dead store elim2",
+                "user_seconds": 0.38,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.51,
+                "ggc_memory_reported": "25M"
+              },
+              {
+                "name": "loop analysis",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "loop init",
+                "user_seconds": 0.91,
+                "system_seconds": 0.39,
+                "wall_seconds": 1.19,
+                "ggc_memory_reported": "98M"
+              },
+              {
+                "name": "loop invariant motion",
+                "user_seconds": 0.1,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.05,
+                "ggc_memory_reported": "507k"
+              },
+              {
+                "name": "loop unrolling",
+                "user_seconds": 0.33,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.42,
+                "ggc_memory_reported": "71M"
+              },
+              {
+                "name": "loop fini",
+                "user_seconds": 0.35,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.4,
+                "ggc_memory_reported": "7320"
+              },
+              {
+                "name": "CPROP",
+                "user_seconds": 1.15,
+                "system_seconds": 0.18,
+                "wall_seconds": 1.1,
+                "ggc_memory_reported": "43M"
+              },
+              {
+                "name": "PRE",
+                "user_seconds": 0.57,
+                "system_seconds": 0.11,
+                "wall_seconds": 0.67,
+                "ggc_memory_reported": "6439k"
+              },
+              {
+                "name": "code hoisting",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "448"
+              },
+              {
+                "name": "web",
+                "user_seconds": 0.18,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.17,
+                "ggc_memory_reported": "2631k"
+              },
+              {
+                "name": "CSE 2",
+                "user_seconds": 0.87,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.94,
+                "ggc_memory_reported": "3670k"
+              },
+              {
+                "name": "branch prediction",
+                "user_seconds": 0.44,
+                "system_seconds": 0.18,
+                "wall_seconds": 0.65,
+                "ggc_memory_reported": "11M"
+              },
+              {
+                "name": "combiner",
+                "user_seconds": 1.53,
+                "system_seconds": 0.12,
+                "wall_seconds": 1.72,
+                "ggc_memory_reported": "45M"
+              },
+              {
+                "name": "if-conversion",
+                "user_seconds": 0.21,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.15,
+                "ggc_memory_reported": "3539k"
+              },
+              {
+                "name": "mode switching",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.0,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "integrated RA",
+                "user_seconds": 3.47,
+                "system_seconds": 0.38,
+                "wall_seconds": 4.38,
+                "ggc_memory_reported": "281M"
+              },
+              {
+                "name": "LRA non-specific",
+                "user_seconds": 1.27,
+                "system_seconds": 0.1,
+                "wall_seconds": 1.38,
+                "ggc_memory_reported": "16M"
+              },
+              {
+                "name": "LRA virtuals elimination",
+                "user_seconds": 0.21,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.26,
+                "ggc_memory_reported": "10M"
+              },
+              {
+                "name": "LRA reload inheritance",
+                "user_seconds": 0.25,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.25,
+                "ggc_memory_reported": "3009k"
+              },
+              {
+                "name": "LRA create live ranges",
+                "user_seconds": 0.87,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.82,
+                "ggc_memory_reported": "2296k"
+              },
+              {
+                "name": "LRA hard reg assignment",
+                "user_seconds": 0.17,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.15,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "LRA rematerialization",
+                "user_seconds": 0.17,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.11,
+                "ggc_memory_reported": "8488"
+              },
+              {
+                "name": "reload",
+                "user_seconds": 0.06,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "198k"
+              },
+              {
+                "name": "reload CSE regs",
+                "user_seconds": 1.31,
+                "system_seconds": 0.14,
+                "wall_seconds": 1.87,
+                "ggc_memory_reported": "30M"
+              },
+              {
+                "name": "ree",
+                "user_seconds": 0.21,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.13,
+                "ggc_memory_reported": "331k"
+              },
+              {
+                "name": "thread pro- & epilogue",
+                "user_seconds": 0.44,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.56,
+                "ggc_memory_reported": "16M"
+              },
+              {
+                "name": "if-conversion 2",
+                "user_seconds": 0.07,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "92k"
+              },
+              {
+                "name": "combine stack adjustments",
+                "user_seconds": 0.06,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "peephole 2",
+                "user_seconds": 0.2,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.2,
+                "ggc_memory_reported": "1772k"
+              },
+              {
+                "name": "rename registers",
+                "user_seconds": 1.01,
+                "system_seconds": 0.05,
+                "wall_seconds": 1.2,
+                "ggc_memory_reported": "3028k"
+              },
+              {
+                "name": "hard reg cprop",
+                "user_seconds": 0.42,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.5,
+                "ggc_memory_reported": "531k"
+              },
+              {
+                "name": "scheduling 2",
+                "user_seconds": 3.37,
+                "system_seconds": 0.23,
+                "wall_seconds": 3.68,
+                "ggc_memory_reported": "15M"
+              },
+              {
+                "name": "machine dep reorg",
+                "user_seconds": 0.62,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.76,
+                "ggc_memory_reported": "8506k"
+              },
+              {
+                "name": "reorder blocks",
+                "user_seconds": 0.27,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.14,
+                "ggc_memory_reported": "14M"
+              },
+              {
+                "name": "shorten branches",
+                "user_seconds": 0.19,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.27,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "reg stack",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "final",
+                "user_seconds": 0.71,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.69,
+                "ggc_memory_reported": "58M"
+              },
+              {
+                "name": "variable output",
+                "user_seconds": 0.03,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "3132k"
+              },
+              {
+                "name": "symout",
+                "user_seconds": 0.09,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.15,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "tree if-combine",
+                "user_seconds": 0.03,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "110k"
+              },
+              {
+                "name": "if to switch conversion",
+                "user_seconds": 0.06,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "13k"
+              },
+              {
+                "name": "uninit var analysis",
+                "user_seconds": 0.06,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "straight-line strength reduction",
+                "user_seconds": 0.08,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "218k"
+              },
+              {
+                "name": "store merging",
+                "user_seconds": 0.12,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.19,
+                "ggc_memory_reported": "3226k"
+              },
+              {
+                "name": "initialize rtl",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "12k"
+              },
+              {
+                "name": "address lowering",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "12k"
+              },
+              {
+                "name": "early local passes",
+                "user_seconds": 0.06,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "unaccounted optimizations",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "rest of compilation",
+                "user_seconds": 2.74,
+                "system_seconds": 0.57,
+                "wall_seconds": 3.14,
+                "ggc_memory_reported": "39M"
+              },
+              {
+                "name": "unaccounted post reload",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "remove unused locals",
+                "user_seconds": 0.49,
+                "system_seconds": 0.32,
+                "wall_seconds": 0.7,
+                "ggc_memory_reported": "82k"
+              },
+              {
+                "name": "address taken",
+                "user_seconds": 0.32,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.33,
+                "ggc_memory_reported": "97k"
+              },
+              {
+                "name": "rebuild frequencies",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.12,
+                "ggc_memory_reported": "357k"
+              },
+              {
+                "name": "repair loop structures",
+                "user_seconds": 0.18,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.22,
+                "ggc_memory_reported": "11k"
+              }
+            ],
+            "selected_subsystem_rows": [
+              {
+                "name": "callgraph construction",
+                "user_seconds": 1.63,
+                "system_seconds": 0.61,
+                "wall_seconds": 2.55,
+                "ggc_memory_reported": "131M"
+              },
+              {
+                "name": "callgraph functions expansion",
+                "user_seconds": 58.66,
+                "system_seconds": 9.1,
+                "wall_seconds": 67.78,
+                "ggc_memory_reported": "1873M"
+              },
+              {
+                "name": "preprocessing",
+                "user_seconds": 3.77,
+                "system_seconds": 6.17,
+                "wall_seconds": 82.45,
+                "ggc_memory_reported": "414M"
+              },
+              {
+                "name": "parser (global)",
+                "user_seconds": 2.63,
+                "system_seconds": 4.02,
+                "wall_seconds": 6.92,
+                "ggc_memory_reported": "429M"
+              },
+              {
+                "name": "parser struct body",
+                "user_seconds": 1.38,
+                "system_seconds": 0.99,
+                "wall_seconds": 2.18,
+                "ggc_memory_reported": "197M"
+              },
+              {
+                "name": "parser function body",
+                "user_seconds": 0.99,
+                "system_seconds": 0.73,
+                "wall_seconds": 1.92,
+                "ggc_memory_reported": "322M"
+              },
+              {
+                "name": "parser inl. func. body",
+                "user_seconds": 0.86,
+                "system_seconds": 0.93,
+                "wall_seconds": 1.83,
+                "ggc_memory_reported": "90M"
+              },
+              {
+                "name": "parser inl. meth. body",
+                "user_seconds": 1.85,
+                "system_seconds": 1.14,
+                "wall_seconds": 2.98,
+                "ggc_memory_reported": "162M"
+              },
+              {
+                "name": "template instantiation",
+                "user_seconds": 18.47,
+                "system_seconds": 11.68,
+                "wall_seconds": 30.2,
+                "ggc_memory_reported": "2861M"
+              },
+              {
+                "name": "integration",
+                "user_seconds": 3.23,
+                "system_seconds": 1.3,
+                "wall_seconds": 4.66,
+                "ggc_memory_reported": "523M"
+              },
+              {
+                "name": "tree SSA incremental",
+                "user_seconds": 0.58,
+                "system_seconds": 0.23,
+                "wall_seconds": 0.93,
+                "ggc_memory_reported": "10M"
+              }
+            ],
+            "largest_subsystem_wall_rows": [
+              {
+                "name": "preprocessing",
+                "user_seconds": 3.77,
+                "system_seconds": 6.17,
+                "wall_seconds": 82.45,
+                "ggc_memory_reported": "414M"
+              },
+              {
+                "name": "callgraph functions expansion",
+                "user_seconds": 58.66,
+                "system_seconds": 9.1,
+                "wall_seconds": 67.78,
+                "ggc_memory_reported": "1873M"
+              },
+              {
+                "name": "callgraph ipa passes",
+                "user_seconds": 23.43,
+                "system_seconds": 9.83,
+                "wall_seconds": 33.27,
+                "ggc_memory_reported": "1123M"
+              },
+              {
+                "name": "template instantiation",
+                "user_seconds": 18.47,
+                "system_seconds": 11.68,
+                "wall_seconds": 30.2,
+                "ggc_memory_reported": "2861M"
+              },
+              {
+                "name": "|overload resolution",
+                "user_seconds": 10.69,
+                "system_seconds": 6.28,
+                "wall_seconds": 16.49,
+                "ggc_memory_reported": "1406M"
+              },
+              {
+                "name": "|name lookup",
+                "user_seconds": 5.93,
+                "system_seconds": 4.0,
+                "wall_seconds": 9.06,
+                "ggc_memory_reported": "135M"
+              },
+              {
+                "name": "parser (global)",
+                "user_seconds": 2.63,
+                "system_seconds": 4.02,
+                "wall_seconds": 6.92,
+                "ggc_memory_reported": "429M"
+              },
+              {
+                "name": "garbage collection",
+                "user_seconds": 5.71,
+                "system_seconds": 0.07,
+                "wall_seconds": 5.79,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "integration",
+                "user_seconds": 3.23,
+                "system_seconds": 1.3,
+                "wall_seconds": 4.66,
+                "ggc_memory_reported": "523M"
+              },
+              {
+                "name": "integrated RA",
+                "user_seconds": 3.47,
+                "system_seconds": 0.38,
+                "wall_seconds": 4.38,
+                "ggc_memory_reported": "281M"
+              }
+            ],
+            "phase_wall_fraction_of_total": {
+              "phase setup": 4.194630872483221e-05,
+              "phase parsing": 0.4487835570469798,
+              "phase lang. deferred": 0.10813758389261745,
+              "phase opt and generate": 0.4423657718120805,
+              "phase finalize": 0.0005453020134228189
+            }
+          }
+        ],
+        "evidence_files": {
+          "compiler_log": "<local-artifacts>/audit/compiler-stages/release/compiler.log",
+          "compiler_log_sha256": "2eea7391479c2cf7d57c2ae783e4c7cb60d4f29e554e726035a5872c77c59553",
+          "ccache_log": "<local-artifacts>/audit/compiler-stages/release/ccache.log",
+          "ccache_statslog": "<local-artifacts>/audit/compiler-stages/release/ccache.statslog",
+          "depfile": "<local-artifacts>/audit/compiler-stages/release/fiber_reinforced_elasticity_freq_01.cc.o.d",
+          "object": "<local-artifacts>/audit/compiler-stages/release/fiber_reinforced_elasticity_freq_01.cc.o"
+        },
+        "ccache_results": [
+          "local_storage_write",
+          "recache"
+        ],
+        "actual_compiler_execution_verified": true,
+        "object_sha256": "9239a3817fbc9bbc6c3561a9ff028742d01ca29e917497875c37fa844b31b3a6",
+        "object_bytes": 17274352,
+        "ccache_log_intervals": {
+          "ccache_hash_preprocessor_seconds": 99.751685,
+          "real_compiler_start_to_first_postcompile_dependency_message_seconds": 245.241986,
+          "first_postcompile_dependency_message_to_ccache_done_seconds": 10.987227,
+          "note": "These are ccache-log event intervals. The real-compiler interval includes assembler and wrapper work beyond the cc1 TOTAL timer; intervals are not all GCC compiler phase timers."
+        }
+      },
+      {
+        "variant": "Debug",
+        "source": "<source-root>/gtests/fiber_reinforced_elasticity_freq_01.cc",
+        "source_sha256_at_preparation": "624d7d191917c74bea1e6fe0a22d09c21a30f19af6652c1c4c380aa309a911f8",
+        "source_sha256_after_probe": "624d7d191917c74bea1e6fe0a22d09c21a30f19af6652c1c4c380aa309a911f8",
+        "source_unchanged": true,
+        "compiler_command": [
+          "<build-root>/immersx-ccache-launcher",
+          "/usr/bin/c++",
+          "-DBOOST_IOSTREAMS_DYN_LINK",
+          "-DBOOST_IOSTREAMS_NO_LIB",
+          "-DBOOST_RANDOM_DYN_LINK",
+          "-DBOOST_RANDOM_NO_LIB",
+          "-DBOOST_REGEX_DYN_LINK",
+          "-DBOOST_REGEX_NO_LIB",
+          "-DBOOST_SERIALIZATION_DYN_LINK",
+          "-DBOOST_SERIALIZATION_NO_LIB",
+          "-DCGAL_USE_GMPXX=1",
+          "-DDEBUG",
+          "-DGTEST_LINKED_AS_SHARED_LIBRARY=1",
+          "-DIMMERSX_BINARY_DIR=\"<build-root>\"",
+          "-DIMMERSX_SOURCE_DIR=\"<source-root>\"",
+          "-DIMMERSX_WEAK_TERM_TESTING",
+          "-DKOKKOS_DEPENDENCE",
+          "-DSOURCE_DIR=\"<source-root>\"",
+          "-DTEST_DATA_DIR=\"<build-root>/data\"",
+          "-DTEST_OUTPUT_DIR=\"<build-root>/test_output\"",
+          "-D_GLIBCXX_ASSERTIONS",
+          "-I<source-root>/gtests",
+          "-I<source-root>/apps",
+          "-I<source-root>/include",
+          "-I<build-root>/include",
+          "-isystem",
+          "/software/spack-v2/var/spack/views/dealii/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/openblas-0.3.33-p2d53vpami3cothphksqwf2thlxrz5yx/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/openmpi-5.0.10-35ecikk47z774md7te6ziav5mvgv7szl/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/taskflow-3.11.0-ysm3x2nzzvfapqjsh5m4w7akaqocvlzn/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/intel-tbb-2023.0.0-epny76jza5emkax3idgruwgwyon47w7p/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/zlib-ng-2.3.3-dajgcygzv4jdgtk4nz3vt6nbafjk5qny/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/boost-1.90.0-i4sgkm7sbc4dthitizb2y3io3x6getxv/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/ginkgo-1.11.0-onfnzvp7s7s7dsixj3dghxvj346spntd/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/metis-5.1.0-zsyzmiu5sq3yieeczbvp2jxthbd6tpav/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/petsc-3.25.2-347oy5wi57yooabclhs2tonehapf2bqm/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/kokkos-4.5.01-2usl3yltj5xs3amayh55r6anz2vsxer2/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/trilinos-16.1.0-3qndqvvj2gc7e37zz5hma3auxdhqobul/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/kokkos-kernels-4.5.01-uw3rlq2iq52ir5v3nnsykz3uclgjlmmf/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/suite-sparse-7.3.1-zqtl2hzxzcvuc6rsecrys2cpglctmajj/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/adol-c-2.7.2-oxgwnublkp7eba5jrhpakcu6kwk7d7xy/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/arborx-1.5-ji5k4n74nex42kcxu2qtm4raqdxdnbty/include/ArborX",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/arborx-1.5-ji5k4n74nex42kcxu2qtm4raqdxdnbty/include/ArborX/details",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/arborx-1.5-ji5k4n74nex42kcxu2qtm4raqdxdnbty/include/ArborX/geometry",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/arborx-1.5-ji5k4n74nex42kcxu2qtm4raqdxdnbty/include/ArborX/kokkos_ext",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/assimp-6.0.2-lj7zr3dprlxkuztaadf3xfz52mfi6qt4/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/cgal-5.6.3-ph6bikgzudg34kprwpoaf3z4bixyd2u2/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/gmp-6.3.0-etrmikslt5a77nlwmnxwzq66yrqsqt4g/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/mpfr-4.2.2-loiz3hw6f3atidhkcnht5lvymcintovw/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/gmsh-4.15.1-egxntvymr7h5g3ztxf6kzhgi732c4q2r/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/gsl-2.8-k5dsd7xplq5tiy6hik6mbvpc2voojnhr/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/hdf5-1.12.3-k67lx3xsuxvvqfqr5u24piamo3eg46ld/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/magic-enum-0.9.7-dzk27udjijmvxvdyh2iybynia6gicl5g/include/magic_enum",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/muparser-2.3.4-vv44srze62oobz3v22fjpuqx35oaavt2/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/opencascade-7.9.3-ekk7wocabn4oixxxt7ryhcfpgbuogvnf/include/opencascade",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/p4est-2.8.7-b7dr4odwusyudnksephmfmjtlxl2rgyu/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/psblas-develop-x3o6ecrh5e3tikadxev2t34ud24byb3s/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/slepc-3.25.1-dccfl65o2qxmykfapswzjubdbkfwyayf/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/sundials-6.7.0-xlkw3smhtlxmx3qzajzndvp56s2ga5is/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/symengine-0.9.0-klnspiquc2lgpflfyy5cqb5jilryxidc/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/mpc-1.4.1-6cvx3l76mjcccsx3x7hmrlqwhl6cnizy/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/cereal-1.3.2-dcdp4xylz4txbftdpjn33mhefhy6id4w/include",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/vtk-9.5.1-pcvjzv3asmlfkb5k2uav5x3jqonlgmnd/include/vtk-9.5",
+          "-isystem",
+          "/software/spack-v2/opt/spack/linux-broadwell/mumps-5.9.0-5h6r3sghf5xqwxx5woyml2mf4aoiww7r/include",
+          "-ffile-prefix-map=<source-root>=/immersx/source",
+          "-fdebug-prefix-map=<source-root>=/immersx/source",
+          "-fmacro-prefix-map=<source-root>=/immersx/source",
+          "-ffile-prefix-map=<build-root>=/immersx/build",
+          "-fdebug-prefix-map=<build-root>=/immersx/build",
+          "-fmacro-prefix-map=<build-root>=/immersx/build",
+          "-Wno-cpp",
+          "-pedantic",
+          "-Wall",
+          "-Wextra",
+          "-Wmissing-braces",
+          "-Woverloaded-virtual",
+          "-Wpointer-arith",
+          "-Wsign-compare",
+          "-Wsuggest-override",
+          "-Wswitch",
+          "-Wsynth",
+          "-Wwrite-strings",
+          "-Wno-placement-new",
+          "-Wno-literal-suffix",
+          "-Wno-psabi",
+          "-Wno-misleading-indentation",
+          "-Wno-unused-local-typedefs",
+          "-fopenmp-simd",
+          "-march=broadwell",
+          "-mtune=broadwell",
+          "-O0",
+          "-ggdb",
+          "-Wa,--compress-debug-sections",
+          "-march=core-avx2",
+          "-mtune=core-avx2",
+          "-mrtm",
+          "-frounding-math",
+          "-fopenmp",
+          "-c",
+          "<source-root>/gtests/fiber_reinforced_elasticity_freq_01.cc",
+          "-ftime-report",
+          "-MD",
+          "-MF",
+          "<local-artifacts>/audit/compiler-stages/debug/fiber_reinforced_elasticity_freq_01.cc.o.d",
+          "-MT",
+          "<local-artifacts>/audit/compiler-stages/debug/fiber_reinforced_elasticity_freq_01.cc.o",
+          "-o",
+          "<local-artifacts>/audit/compiler-stages/debug/fiber_reinforced_elasticity_freq_01.cc.o"
+        ],
+        "compiler_flags": {
+          "defines": [
+            "-DBOOST_IOSTREAMS_DYN_LINK",
+            "-DBOOST_IOSTREAMS_NO_LIB",
+            "-DBOOST_RANDOM_DYN_LINK",
+            "-DBOOST_RANDOM_NO_LIB",
+            "-DBOOST_REGEX_DYN_LINK",
+            "-DBOOST_REGEX_NO_LIB",
+            "-DBOOST_SERIALIZATION_DYN_LINK",
+            "-DBOOST_SERIALIZATION_NO_LIB",
+            "-DCGAL_USE_GMPXX=1",
+            "-DDEBUG",
+            "-DGTEST_LINKED_AS_SHARED_LIBRARY=1",
+            "-DIMMERSX_BINARY_DIR=\"<build-root>\"",
+            "-DIMMERSX_SOURCE_DIR=\"<source-root>\"",
+            "-DIMMERSX_WEAK_TERM_TESTING",
+            "-DKOKKOS_DEPENDENCE",
+            "-DSOURCE_DIR=\"<source-root>\"",
+            "-DTEST_DATA_DIR=\"<build-root>/data\"",
+            "-DTEST_OUTPUT_DIR=\"<build-root>/test_output\"",
+            "-D_GLIBCXX_ASSERTIONS"
+          ],
+          "optimization_and_debug": [
+            "-O0",
+            "-ggdb"
+          ],
+          "diagnostic_addition": "-ftime-report"
+        },
+        "process": {
+          "started_utc": "2026-11-02T21:45:09.079334+00:00",
+          "ended_utc": "2026-11-02T21:48:16.830291+00:00",
+          "wall_seconds": 187.74913158640265,
+          "user_seconds": 95.86,
+          "system_seconds": 48.82,
+          "maximum_resident_set_kib": 5651436.0,
+          "process_exit_code": 0
+        },
+        "gcc_time_reports": [
+          {
+            "rows": [
+              {
+                "name": "phase setup",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "1908k"
+              },
+              {
+                "name": "phase parsing",
+                "user_seconds": 17.28,
+                "system_seconds": 16.19,
+                "wall_seconds": 47.87,
+                "ggc_memory_reported": "2641M"
+              },
+              {
+                "name": "phase lang. deferred",
+                "user_seconds": 21.2,
+                "system_seconds": 10.31,
+                "wall_seconds": 31.52,
+                "ggc_memory_reported": "2851M"
+              },
+              {
+                "name": "phase opt and generate",
+                "user_seconds": 43.04,
+                "system_seconds": 15.26,
+                "wall_seconds": 58.31,
+                "ggc_memory_reported": "3824M"
+              },
+              {
+                "name": "phase last asm",
+                "user_seconds": 2.05,
+                "system_seconds": 0.29,
+                "wall_seconds": 2.33,
+                "ggc_memory_reported": "37M"
+              },
+              {
+                "name": "phase finalize",
+                "user_seconds": 0.0,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.71,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "|name lookup",
+                "user_seconds": 6.41,
+                "system_seconds": 4.25,
+                "wall_seconds": 10.44,
+                "ggc_memory_reported": "143M"
+              },
+              {
+                "name": "|overload resolution",
+                "user_seconds": 13.19,
+                "system_seconds": 6.79,
+                "wall_seconds": 20.45,
+                "ggc_memory_reported": "1876M"
+              },
+              {
+                "name": "garbage collection",
+                "user_seconds": 6.22,
+                "system_seconds": 0.06,
+                "wall_seconds": 6.3,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dump files",
+                "user_seconds": 2.73,
+                "system_seconds": 1.73,
+                "wall_seconds": 3.79,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "callgraph construction",
+                "user_seconds": 4.66,
+                "system_seconds": 0.94,
+                "wall_seconds": 5.61,
+                "ggc_memory_reported": "524M"
+              },
+              {
+                "name": "callgraph optimization",
+                "user_seconds": 1.2,
+                "system_seconds": 0.78,
+                "wall_seconds": 1.98,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "callgraph functions expansion",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "callgraph ipa passes",
+                "user_seconds": 3.54,
+                "system_seconds": 2.87,
+                "wall_seconds": 6.41,
+                "ggc_memory_reported": "257M"
+              },
+              {
+                "name": "ipa function summary",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "2512"
+              },
+              {
+                "name": "ipa dead code removal",
+                "user_seconds": 0.25,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.25,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa inheritance graph",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "183k"
+              },
+              {
+                "name": "ipa inlining heuristics",
+                "user_seconds": 0.43,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.44,
+                "ggc_memory_reported": "3072"
+              },
+              {
+                "name": "ipa comdats",
+                "user_seconds": 0.07,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa free lang data",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa free inline summary",
+                "user_seconds": 0.08,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa modref",
+                "user_seconds": 0.06,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "cfg construction",
+                "user_seconds": 0.16,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.33,
+                "ggc_memory_reported": "17M"
+              },
+              {
+                "name": "cfg cleanup",
+                "user_seconds": 0.58,
+                "system_seconds": 0.27,
+                "wall_seconds": 0.76,
+                "ggc_memory_reported": "431k"
+              },
+              {
+                "name": "trivially dead code",
+                "user_seconds": 0.31,
+                "system_seconds": 0.11,
+                "wall_seconds": 0.54,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df scan insns",
+                "user_seconds": 1.09,
+                "system_seconds": 0.25,
+                "wall_seconds": 1.54,
+                "ggc_memory_reported": "2985k"
+              },
+              {
+                "name": "df live regs",
+                "user_seconds": 0.48,
+                "system_seconds": 0.14,
+                "wall_seconds": 0.61,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df reg dead/unused notes",
+                "user_seconds": 0.34,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.41,
+                "ggc_memory_reported": "29M"
+              },
+              {
+                "name": "register information",
+                "user_seconds": 0.13,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.25,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "alias analysis",
+                "user_seconds": 0.18,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.27,
+                "ggc_memory_reported": "10221k"
+              },
+              {
+                "name": "alias stmt walking",
+                "user_seconds": 0.06,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "5023k"
+              },
+              {
+                "name": "rebuild jump labels",
+                "user_seconds": 0.19,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.22,
+                "ggc_memory_reported": "912"
+              },
+              {
+                "name": "preprocessing",
+                "user_seconds": 3.04,
+                "system_seconds": 4.98,
+                "wall_seconds": 22.38,
+                "ggc_memory_reported": "438M"
+              },
+              {
+                "name": "parser (global)",
+                "user_seconds": 2.45,
+                "system_seconds": 3.64,
+                "wall_seconds": 6.11,
+                "ggc_memory_reported": "433M"
+              },
+              {
+                "name": "parser struct body",
+                "user_seconds": 1.59,
+                "system_seconds": 0.96,
+                "wall_seconds": 2.83,
+                "ggc_memory_reported": "455M"
+              },
+              {
+                "name": "parser enumerator list",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "1028k"
+              },
+              {
+                "name": "parser function body",
+                "user_seconds": 0.88,
+                "system_seconds": 0.67,
+                "wall_seconds": 1.77,
+                "ggc_memory_reported": "68M"
+              },
+              {
+                "name": "parser inl. func. body",
+                "user_seconds": 1.23,
+                "system_seconds": 0.9,
+                "wall_seconds": 1.96,
+                "ggc_memory_reported": "98M"
+              },
+              {
+                "name": "parser inl. meth. body",
+                "user_seconds": 1.73,
+                "system_seconds": 1.38,
+                "wall_seconds": 2.77,
+                "ggc_memory_reported": "166M"
+              },
+              {
+                "name": "template instantiation",
+                "user_seconds": 21.86,
+                "system_seconds": 12.57,
+                "wall_seconds": 33.94,
+                "ggc_memory_reported": "2901M"
+              },
+              {
+                "name": "constant expression evaluation",
+                "user_seconds": 0.74,
+                "system_seconds": 0.42,
+                "wall_seconds": 1.25,
+                "ggc_memory_reported": "22M"
+              },
+              {
+                "name": "early inlining heuristics",
+                "user_seconds": 0.01,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "425k"
+              },
+              {
+                "name": "inline parameters",
+                "user_seconds": 0.12,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.37,
+                "ggc_memory_reported": "12M"
+              },
+              {
+                "name": "integration",
+                "user_seconds": 0.05,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "tree gimplify",
+                "user_seconds": 0.65,
+                "system_seconds": 0.41,
+                "wall_seconds": 1.12,
+                "ggc_memory_reported": "241M"
+              },
+              {
+                "name": "tree eh",
+                "user_seconds": 0.41,
+                "system_seconds": 0.21,
+                "wall_seconds": 0.62,
+                "ggc_memory_reported": "67M"
+              },
+              {
+                "name": "tree CFG construction",
+                "user_seconds": 0.25,
+                "system_seconds": 0.19,
+                "wall_seconds": 0.3,
+                "ggc_memory_reported": "105M"
+              },
+              {
+                "name": "tree CFG cleanup",
+                "user_seconds": 0.38,
+                "system_seconds": 0.2,
+                "wall_seconds": 0.77,
+                "ggc_memory_reported": "94k"
+              },
+              {
+                "name": "tree PHI insertion",
+                "user_seconds": 0.03,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.09,
+                "ggc_memory_reported": "11M"
+              },
+              {
+                "name": "tree SSA rewrite",
+                "user_seconds": 0.12,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.23,
+                "ggc_memory_reported": "47M"
+              },
+              {
+                "name": "tree SSA other",
+                "user_seconds": 0.31,
+                "system_seconds": 0.28,
+                "wall_seconds": 0.72,
+                "ggc_memory_reported": "9005k"
+              },
+              {
+                "name": "tree SSA incremental",
+                "user_seconds": 0.03,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "706k"
+              },
+              {
+                "name": "tree operand scan",
+                "user_seconds": 0.31,
+                "system_seconds": 0.31,
+                "wall_seconds": 0.52,
+                "ggc_memory_reported": "103M"
+              },
+              {
+                "name": "tree switch lowering",
+                "user_seconds": 0.1,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.12,
+                "ggc_memory_reported": "4087k"
+              },
+              {
+                "name": "dominance frontiers",
+                "user_seconds": 0.01,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dominance computation",
+                "user_seconds": 0.55,
+                "system_seconds": 0.4,
+                "wall_seconds": 0.85,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "out of ssa",
+                "user_seconds": 0.54,
+                "system_seconds": 0.2,
+                "wall_seconds": 0.57,
+                "ggc_memory_reported": "6688k"
+              },
+              {
+                "name": "expand vars",
+                "user_seconds": 0.94,
+                "system_seconds": 0.19,
+                "wall_seconds": 0.98,
+                "ggc_memory_reported": "26M"
+              },
+              {
+                "name": "expand",
+                "user_seconds": 1.8,
+                "system_seconds": 0.79,
+                "wall_seconds": 2.76,
+                "ggc_memory_reported": "368M"
+              },
+              {
+                "name": "post expand cleanups",
+                "user_seconds": 0.37,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.51,
+                "ggc_memory_reported": "58M"
+              },
+              {
+                "name": "varconst",
+                "user_seconds": 0.15,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.23,
+                "ggc_memory_reported": "64k"
+              },
+              {
+                "name": "jump",
+                "user_seconds": 0.13,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.18,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "loop init",
+                "user_seconds": 0.32,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.34,
+                "ggc_memory_reported": "48M"
+              },
+              {
+                "name": "loop fini",
+                "user_seconds": 0.07,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.16,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "mode switching",
+                "user_seconds": 0.04,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "integrated RA",
+                "user_seconds": 5.34,
+                "system_seconds": 1.6,
+                "wall_seconds": 7.36,
+                "ggc_memory_reported": "1559M"
+              },
+              {
+                "name": "LRA non-specific",
+                "user_seconds": 2.13,
+                "system_seconds": 0.58,
+                "wall_seconds": 2.19,
+                "ggc_memory_reported": "10M"
+              },
+              {
+                "name": "LRA virtuals elimination",
+                "user_seconds": 0.41,
+                "system_seconds": 0.18,
+                "wall_seconds": 0.7,
+                "ggc_memory_reported": "29M"
+              },
+              {
+                "name": "LRA reload inheritance",
+                "user_seconds": 0.26,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.31,
+                "ggc_memory_reported": "191k"
+              },
+              {
+                "name": "LRA create live ranges",
+                "user_seconds": 0.45,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.63,
+                "ggc_memory_reported": "557k"
+              },
+              {
+                "name": "LRA hard reg assignment",
+                "user_seconds": 0.2,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.32,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "reload",
+                "user_seconds": 0.15,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.29,
+                "ggc_memory_reported": "1537k"
+              },
+              {
+                "name": "thread pro- & epilogue",
+                "user_seconds": 1.09,
+                "system_seconds": 0.39,
+                "wall_seconds": 1.44,
+                "ggc_memory_reported": "105M"
+              },
+              {
+                "name": "machine dep reorg",
+                "user_seconds": 0.16,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.24,
+                "ggc_memory_reported": "8493k"
+              },
+              {
+                "name": "shorten branches",
+                "user_seconds": 0.65,
+                "system_seconds": 0.25,
+                "wall_seconds": 0.95,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "reg stack",
+                "user_seconds": 0.11,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "2448"
+              },
+              {
+                "name": "final",
+                "user_seconds": 3.02,
+                "system_seconds": 0.83,
+                "wall_seconds": 3.89,
+                "ggc_memory_reported": "162M"
+              },
+              {
+                "name": "symout",
+                "user_seconds": 4.33,
+                "system_seconds": 1.4,
+                "wall_seconds": 6.12,
+                "ggc_memory_reported": "1010M"
+              },
+              {
+                "name": "uninit var analysis",
+                "user_seconds": 0.11,
+                "system_seconds": 0.16,
+                "wall_seconds": 0.3,
+                "ggc_memory_reported": "2065k"
+              },
+              {
+                "name": "initialize rtl",
+                "user_seconds": 0.07,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "12k"
+              },
+              {
+                "name": "early local passes",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.05,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "rest of compilation",
+                "user_seconds": 4.34,
+                "system_seconds": 1.69,
+                "wall_seconds": 6.43,
+                "ggc_memory_reported": "162M"
+              },
+              {
+                "name": "unaccounted post reload",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "unaccounted late compilation",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "repair loop structures",
+                "user_seconds": 0.1,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "TOTAL",
+                "user_seconds": 83.57,
+                "system_seconds": 42.11,
+                "wall_seconds": 140.75,
+                "ggc_memory_reported": "9355M"
+              }
+            ],
+            "total": {
+              "name": "TOTAL",
+              "user_seconds": 83.57,
+              "system_seconds": 42.11,
+              "wall_seconds": 140.75,
+              "ggc_memory_reported": "9355M"
+            },
+            "phase_rows": [
+              {
+                "name": "phase setup",
+                "user_seconds": 0.0,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.01,
+                "ggc_memory_reported": "1908k"
+              },
+              {
+                "name": "phase parsing",
+                "user_seconds": 17.28,
+                "system_seconds": 16.19,
+                "wall_seconds": 47.87,
+                "ggc_memory_reported": "2641M"
+              },
+              {
+                "name": "phase lang. deferred",
+                "user_seconds": 21.2,
+                "system_seconds": 10.31,
+                "wall_seconds": 31.52,
+                "ggc_memory_reported": "2851M"
+              },
+              {
+                "name": "phase opt and generate",
+                "user_seconds": 43.04,
+                "system_seconds": 15.26,
+                "wall_seconds": 58.31,
+                "ggc_memory_reported": "3824M"
+              },
+              {
+                "name": "phase last asm",
+                "user_seconds": 2.05,
+                "system_seconds": 0.29,
+                "wall_seconds": 2.33,
+                "ggc_memory_reported": "37M"
+              },
+              {
+                "name": "phase finalize",
+                "user_seconds": 0.0,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.71,
+                "ggc_memory_reported": "0"
+              }
+            ],
+            "subsystem_rows": [
+              {
+                "name": "|name lookup",
+                "user_seconds": 6.41,
+                "system_seconds": 4.25,
+                "wall_seconds": 10.44,
+                "ggc_memory_reported": "143M"
+              },
+              {
+                "name": "|overload resolution",
+                "user_seconds": 13.19,
+                "system_seconds": 6.79,
+                "wall_seconds": 20.45,
+                "ggc_memory_reported": "1876M"
+              },
+              {
+                "name": "garbage collection",
+                "user_seconds": 6.22,
+                "system_seconds": 0.06,
+                "wall_seconds": 6.3,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dump files",
+                "user_seconds": 2.73,
+                "system_seconds": 1.73,
+                "wall_seconds": 3.79,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "callgraph construction",
+                "user_seconds": 4.66,
+                "system_seconds": 0.94,
+                "wall_seconds": 5.61,
+                "ggc_memory_reported": "524M"
+              },
+              {
+                "name": "callgraph optimization",
+                "user_seconds": 1.2,
+                "system_seconds": 0.78,
+                "wall_seconds": 1.98,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "callgraph functions expansion",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "callgraph ipa passes",
+                "user_seconds": 3.54,
+                "system_seconds": 2.87,
+                "wall_seconds": 6.41,
+                "ggc_memory_reported": "257M"
+              },
+              {
+                "name": "ipa function summary",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "2512"
+              },
+              {
+                "name": "ipa dead code removal",
+                "user_seconds": 0.25,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.25,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa inheritance graph",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "183k"
+              },
+              {
+                "name": "ipa inlining heuristics",
+                "user_seconds": 0.43,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.44,
+                "ggc_memory_reported": "3072"
+              },
+              {
+                "name": "ipa comdats",
+                "user_seconds": 0.07,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa free lang data",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa free inline summary",
+                "user_seconds": 0.08,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "ipa modref",
+                "user_seconds": 0.06,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "cfg construction",
+                "user_seconds": 0.16,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.33,
+                "ggc_memory_reported": "17M"
+              },
+              {
+                "name": "cfg cleanup",
+                "user_seconds": 0.58,
+                "system_seconds": 0.27,
+                "wall_seconds": 0.76,
+                "ggc_memory_reported": "431k"
+              },
+              {
+                "name": "trivially dead code",
+                "user_seconds": 0.31,
+                "system_seconds": 0.11,
+                "wall_seconds": 0.54,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df scan insns",
+                "user_seconds": 1.09,
+                "system_seconds": 0.25,
+                "wall_seconds": 1.54,
+                "ggc_memory_reported": "2985k"
+              },
+              {
+                "name": "df live regs",
+                "user_seconds": 0.48,
+                "system_seconds": 0.14,
+                "wall_seconds": 0.61,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "df reg dead/unused notes",
+                "user_seconds": 0.34,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.41,
+                "ggc_memory_reported": "29M"
+              },
+              {
+                "name": "register information",
+                "user_seconds": 0.13,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.25,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "alias analysis",
+                "user_seconds": 0.18,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.27,
+                "ggc_memory_reported": "10221k"
+              },
+              {
+                "name": "alias stmt walking",
+                "user_seconds": 0.06,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "5023k"
+              },
+              {
+                "name": "rebuild jump labels",
+                "user_seconds": 0.19,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.22,
+                "ggc_memory_reported": "912"
+              },
+              {
+                "name": "preprocessing",
+                "user_seconds": 3.04,
+                "system_seconds": 4.98,
+                "wall_seconds": 22.38,
+                "ggc_memory_reported": "438M"
+              },
+              {
+                "name": "parser (global)",
+                "user_seconds": 2.45,
+                "system_seconds": 3.64,
+                "wall_seconds": 6.11,
+                "ggc_memory_reported": "433M"
+              },
+              {
+                "name": "parser struct body",
+                "user_seconds": 1.59,
+                "system_seconds": 0.96,
+                "wall_seconds": 2.83,
+                "ggc_memory_reported": "455M"
+              },
+              {
+                "name": "parser enumerator list",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.02,
+                "ggc_memory_reported": "1028k"
+              },
+              {
+                "name": "parser function body",
+                "user_seconds": 0.88,
+                "system_seconds": 0.67,
+                "wall_seconds": 1.77,
+                "ggc_memory_reported": "68M"
+              },
+              {
+                "name": "parser inl. func. body",
+                "user_seconds": 1.23,
+                "system_seconds": 0.9,
+                "wall_seconds": 1.96,
+                "ggc_memory_reported": "98M"
+              },
+              {
+                "name": "parser inl. meth. body",
+                "user_seconds": 1.73,
+                "system_seconds": 1.38,
+                "wall_seconds": 2.77,
+                "ggc_memory_reported": "166M"
+              },
+              {
+                "name": "template instantiation",
+                "user_seconds": 21.86,
+                "system_seconds": 12.57,
+                "wall_seconds": 33.94,
+                "ggc_memory_reported": "2901M"
+              },
+              {
+                "name": "constant expression evaluation",
+                "user_seconds": 0.74,
+                "system_seconds": 0.42,
+                "wall_seconds": 1.25,
+                "ggc_memory_reported": "22M"
+              },
+              {
+                "name": "early inlining heuristics",
+                "user_seconds": 0.01,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "425k"
+              },
+              {
+                "name": "inline parameters",
+                "user_seconds": 0.12,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.37,
+                "ggc_memory_reported": "12M"
+              },
+              {
+                "name": "integration",
+                "user_seconds": 0.05,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "tree gimplify",
+                "user_seconds": 0.65,
+                "system_seconds": 0.41,
+                "wall_seconds": 1.12,
+                "ggc_memory_reported": "241M"
+              },
+              {
+                "name": "tree eh",
+                "user_seconds": 0.41,
+                "system_seconds": 0.21,
+                "wall_seconds": 0.62,
+                "ggc_memory_reported": "67M"
+              },
+              {
+                "name": "tree CFG construction",
+                "user_seconds": 0.25,
+                "system_seconds": 0.19,
+                "wall_seconds": 0.3,
+                "ggc_memory_reported": "105M"
+              },
+              {
+                "name": "tree CFG cleanup",
+                "user_seconds": 0.38,
+                "system_seconds": 0.2,
+                "wall_seconds": 0.77,
+                "ggc_memory_reported": "94k"
+              },
+              {
+                "name": "tree PHI insertion",
+                "user_seconds": 0.03,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.09,
+                "ggc_memory_reported": "11M"
+              },
+              {
+                "name": "tree SSA rewrite",
+                "user_seconds": 0.12,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.23,
+                "ggc_memory_reported": "47M"
+              },
+              {
+                "name": "tree SSA other",
+                "user_seconds": 0.31,
+                "system_seconds": 0.28,
+                "wall_seconds": 0.72,
+                "ggc_memory_reported": "9005k"
+              },
+              {
+                "name": "tree SSA incremental",
+                "user_seconds": 0.03,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "706k"
+              },
+              {
+                "name": "tree operand scan",
+                "user_seconds": 0.31,
+                "system_seconds": 0.31,
+                "wall_seconds": 0.52,
+                "ggc_memory_reported": "103M"
+              },
+              {
+                "name": "tree switch lowering",
+                "user_seconds": 0.1,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.12,
+                "ggc_memory_reported": "4087k"
+              },
+              {
+                "name": "dominance frontiers",
+                "user_seconds": 0.01,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "dominance computation",
+                "user_seconds": 0.55,
+                "system_seconds": 0.4,
+                "wall_seconds": 0.85,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "out of ssa",
+                "user_seconds": 0.54,
+                "system_seconds": 0.2,
+                "wall_seconds": 0.57,
+                "ggc_memory_reported": "6688k"
+              },
+              {
+                "name": "expand vars",
+                "user_seconds": 0.94,
+                "system_seconds": 0.19,
+                "wall_seconds": 0.98,
+                "ggc_memory_reported": "26M"
+              },
+              {
+                "name": "expand",
+                "user_seconds": 1.8,
+                "system_seconds": 0.79,
+                "wall_seconds": 2.76,
+                "ggc_memory_reported": "368M"
+              },
+              {
+                "name": "post expand cleanups",
+                "user_seconds": 0.37,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.51,
+                "ggc_memory_reported": "58M"
+              },
+              {
+                "name": "varconst",
+                "user_seconds": 0.15,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.23,
+                "ggc_memory_reported": "64k"
+              },
+              {
+                "name": "jump",
+                "user_seconds": 0.13,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.18,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "loop init",
+                "user_seconds": 0.32,
+                "system_seconds": 0.06,
+                "wall_seconds": 0.34,
+                "ggc_memory_reported": "48M"
+              },
+              {
+                "name": "loop fini",
+                "user_seconds": 0.07,
+                "system_seconds": 0.03,
+                "wall_seconds": 0.16,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "mode switching",
+                "user_seconds": 0.04,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.07,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "integrated RA",
+                "user_seconds": 5.34,
+                "system_seconds": 1.6,
+                "wall_seconds": 7.36,
+                "ggc_memory_reported": "1559M"
+              },
+              {
+                "name": "LRA non-specific",
+                "user_seconds": 2.13,
+                "system_seconds": 0.58,
+                "wall_seconds": 2.19,
+                "ggc_memory_reported": "10M"
+              },
+              {
+                "name": "LRA virtuals elimination",
+                "user_seconds": 0.41,
+                "system_seconds": 0.18,
+                "wall_seconds": 0.7,
+                "ggc_memory_reported": "29M"
+              },
+              {
+                "name": "LRA reload inheritance",
+                "user_seconds": 0.26,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.31,
+                "ggc_memory_reported": "191k"
+              },
+              {
+                "name": "LRA create live ranges",
+                "user_seconds": 0.45,
+                "system_seconds": 0.15,
+                "wall_seconds": 0.63,
+                "ggc_memory_reported": "557k"
+              },
+              {
+                "name": "LRA hard reg assignment",
+                "user_seconds": 0.2,
+                "system_seconds": 0.09,
+                "wall_seconds": 0.32,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "reload",
+                "user_seconds": 0.15,
+                "system_seconds": 0.1,
+                "wall_seconds": 0.29,
+                "ggc_memory_reported": "1537k"
+              },
+              {
+                "name": "thread pro- & epilogue",
+                "user_seconds": 1.09,
+                "system_seconds": 0.39,
+                "wall_seconds": 1.44,
+                "ggc_memory_reported": "105M"
+              },
+              {
+                "name": "machine dep reorg",
+                "user_seconds": 0.16,
+                "system_seconds": 0.08,
+                "wall_seconds": 0.24,
+                "ggc_memory_reported": "8493k"
+              },
+              {
+                "name": "shorten branches",
+                "user_seconds": 0.65,
+                "system_seconds": 0.25,
+                "wall_seconds": 0.95,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "reg stack",
+                "user_seconds": 0.11,
+                "system_seconds": 0.02,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "2448"
+              },
+              {
+                "name": "final",
+                "user_seconds": 3.02,
+                "system_seconds": 0.83,
+                "wall_seconds": 3.89,
+                "ggc_memory_reported": "162M"
+              },
+              {
+                "name": "symout",
+                "user_seconds": 4.33,
+                "system_seconds": 1.4,
+                "wall_seconds": 6.12,
+                "ggc_memory_reported": "1010M"
+              },
+              {
+                "name": "uninit var analysis",
+                "user_seconds": 0.11,
+                "system_seconds": 0.16,
+                "wall_seconds": 0.3,
+                "ggc_memory_reported": "2065k"
+              },
+              {
+                "name": "initialize rtl",
+                "user_seconds": 0.07,
+                "system_seconds": 0.04,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "12k"
+              },
+              {
+                "name": "early local passes",
+                "user_seconds": 0.05,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.05,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "rest of compilation",
+                "user_seconds": 4.34,
+                "system_seconds": 1.69,
+                "wall_seconds": 6.43,
+                "ggc_memory_reported": "162M"
+              },
+              {
+                "name": "unaccounted post reload",
+                "user_seconds": 0.01,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.04,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "unaccounted late compilation",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.06,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "repair loop structures",
+                "user_seconds": 0.1,
+                "system_seconds": 0.05,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "0"
+              }
+            ],
+            "selected_subsystem_rows": [
+              {
+                "name": "callgraph construction",
+                "user_seconds": 4.66,
+                "system_seconds": 0.94,
+                "wall_seconds": 5.61,
+                "ggc_memory_reported": "524M"
+              },
+              {
+                "name": "callgraph functions expansion",
+                "user_seconds": 0.02,
+                "system_seconds": 0.0,
+                "wall_seconds": 0.03,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "preprocessing",
+                "user_seconds": 3.04,
+                "system_seconds": 4.98,
+                "wall_seconds": 22.38,
+                "ggc_memory_reported": "438M"
+              },
+              {
+                "name": "parser (global)",
+                "user_seconds": 2.45,
+                "system_seconds": 3.64,
+                "wall_seconds": 6.11,
+                "ggc_memory_reported": "433M"
+              },
+              {
+                "name": "parser struct body",
+                "user_seconds": 1.59,
+                "system_seconds": 0.96,
+                "wall_seconds": 2.83,
+                "ggc_memory_reported": "455M"
+              },
+              {
+                "name": "parser function body",
+                "user_seconds": 0.88,
+                "system_seconds": 0.67,
+                "wall_seconds": 1.77,
+                "ggc_memory_reported": "68M"
+              },
+              {
+                "name": "parser inl. func. body",
+                "user_seconds": 1.23,
+                "system_seconds": 0.9,
+                "wall_seconds": 1.96,
+                "ggc_memory_reported": "98M"
+              },
+              {
+                "name": "parser inl. meth. body",
+                "user_seconds": 1.73,
+                "system_seconds": 1.38,
+                "wall_seconds": 2.77,
+                "ggc_memory_reported": "166M"
+              },
+              {
+                "name": "template instantiation",
+                "user_seconds": 21.86,
+                "system_seconds": 12.57,
+                "wall_seconds": 33.94,
+                "ggc_memory_reported": "2901M"
+              },
+              {
+                "name": "integration",
+                "user_seconds": 0.05,
+                "system_seconds": 0.07,
+                "wall_seconds": 0.08,
+                "ggc_memory_reported": "13M"
+              },
+              {
+                "name": "tree SSA incremental",
+                "user_seconds": 0.03,
+                "system_seconds": 0.01,
+                "wall_seconds": 0.1,
+                "ggc_memory_reported": "706k"
+              }
+            ],
+            "largest_subsystem_wall_rows": [
+              {
+                "name": "template instantiation",
+                "user_seconds": 21.86,
+                "system_seconds": 12.57,
+                "wall_seconds": 33.94,
+                "ggc_memory_reported": "2901M"
+              },
+              {
+                "name": "preprocessing",
+                "user_seconds": 3.04,
+                "system_seconds": 4.98,
+                "wall_seconds": 22.38,
+                "ggc_memory_reported": "438M"
+              },
+              {
+                "name": "|overload resolution",
+                "user_seconds": 13.19,
+                "system_seconds": 6.79,
+                "wall_seconds": 20.45,
+                "ggc_memory_reported": "1876M"
+              },
+              {
+                "name": "|name lookup",
+                "user_seconds": 6.41,
+                "system_seconds": 4.25,
+                "wall_seconds": 10.44,
+                "ggc_memory_reported": "143M"
+              },
+              {
+                "name": "integrated RA",
+                "user_seconds": 5.34,
+                "system_seconds": 1.6,
+                "wall_seconds": 7.36,
+                "ggc_memory_reported": "1559M"
+              },
+              {
+                "name": "rest of compilation",
+                "user_seconds": 4.34,
+                "system_seconds": 1.69,
+                "wall_seconds": 6.43,
+                "ggc_memory_reported": "162M"
+              },
+              {
+                "name": "callgraph ipa passes",
+                "user_seconds": 3.54,
+                "system_seconds": 2.87,
+                "wall_seconds": 6.41,
+                "ggc_memory_reported": "257M"
+              },
+              {
+                "name": "garbage collection",
+                "user_seconds": 6.22,
+                "system_seconds": 0.06,
+                "wall_seconds": 6.3,
+                "ggc_memory_reported": "0"
+              },
+              {
+                "name": "symout",
+                "user_seconds": 4.33,
+                "system_seconds": 1.4,
+                "wall_seconds": 6.12,
+                "ggc_memory_reported": "1010M"
+              },
+              {
+                "name": "parser (global)",
+                "user_seconds": 2.45,
+                "system_seconds": 3.64,
+                "wall_seconds": 6.11,
+                "ggc_memory_reported": "433M"
+              }
+            ],
+            "phase_wall_fraction_of_total": {
+              "phase setup": 7.104795737122558e-05,
+              "phase parsing": 0.3401065719360568,
+              "phase lang. deferred": 0.22394316163410302,
+              "phase opt and generate": 0.41428063943161636,
+              "phase last asm": 0.01655417406749556,
+              "phase finalize": 0.005044404973357015
+            }
+          }
+        ],
+        "evidence_files": {
+          "compiler_log": "<local-artifacts>/audit/compiler-stages/debug/compiler.log",
+          "compiler_log_sha256": "8184bd175f3c96b18fe29b57ddd35ba40fa108ad1ebe68906d6ffc4770eff7f9",
+          "ccache_log": "<local-artifacts>/audit/compiler-stages/debug/ccache.log",
+          "ccache_statslog": "<local-artifacts>/audit/compiler-stages/debug/ccache.statslog",
+          "depfile": "<local-artifacts>/audit/compiler-stages/debug/fiber_reinforced_elasticity_freq_01.cc.o.d",
+          "object": "<local-artifacts>/audit/compiler-stages/debug/fiber_reinforced_elasticity_freq_01.cc.o"
+        },
+        "ccache_results": [
+          "local_storage_write",
+          "recache"
+        ],
+        "actual_compiler_execution_verified": true,
+        "object_sha256": "bb75db02c7bd60537ed91dc22e4312ad65774db1822584a06e2cadc42b1730cf",
+        "object_bytes": 108636888,
+        "ccache_log_intervals": {
+          "ccache_hash_preprocessor_seconds": 24.556998,
+          "real_compiler_start_to_first_postcompile_dependency_message_seconds": 159.570591,
+          "first_postcompile_dependency_message_to_ccache_done_seconds": 3.544295,
+          "note": "These are ccache-log event intervals. The real-compiler interval includes assembler and wrapper work beyond the cc1 TOTAL timer; intervals are not all GCC compiler phase timers."
+        }
+      }
+    ],
+    "interpretation": [
+      "The GNU TOTAL and phase rows describe this individual compiler invocation. Subsystem timers such as template instantiation and preprocessing overlap those phases and sometimes one another; do not add phase and subsystem rows together.",
+      "GGC is GCC garbage-collected allocation accounting, not resident memory. The external process-time maximum RSS is recorded separately.",
+      "External process wall/user/system includes launcher, ccache, preprocessing/hash work, compiler and assembler; GNU time-report timers cover GCC work rather than the entire launcher process.",
+      "These forced-recaching diagnostic builds preserve all actual Debug/Release flags and prefix maps, add only timing and isolated dependency/output paths, and do not measure normal cache-hit latency.",
+      "The representative final-source local GNU11.4/deal.II9.8 TU is not the original GNU13.3/deal.II9.7.1 hosted CI. No fraction or speedup is extrapolated to other TUs or all CI.",
+      "Only source-file SHA is checked directly here; root freezes the relevant C++ source/header tree while these probes execute."
+    ],
+    "source_revision_after_probe": "7438d9539d8c34c1d8273d80c534a078bf7bb82f",
+    "numeric_source_unchanged_from_prepared_revision": true
+  },
+  "compiler_stage_provenance": {
+    "original_artifact_sha256": "31c638f594a96f316588257a0e8b67a6279b22ebf0fe852efab3efe9c829f43c",
+    "path_aliases": "Worker source, build, artifact and cache directories are replaced by named placeholders in the published commands; original command/source hashes are preserved.",
+    "scope": "One heavy GoogleTest translation unit in Debug and Release, with diagnostic -ftime-report instrumentation. Timings are not extrapolated to the complete CI or used as a matched Debug/Release speed benchmark."
+  },
+  "cache_archive_followup_not_implemented": {
+    "schema_version": 1,
+    "status": "read_only_proposal_not_implemented",
+    "action_revision": "5ebbd400eff9e74630f759d94ddd7b6c26299639",
+    "action_tag_used_in_workflow": "hendrikmuhs/ccache-action@v1.2",
+    "sources": {
+      "inputs": "https://github.com/hendrikmuhs/ccache-action/blob/5ebbd400eff9e74630f759d94ddd7b6c26299639/action.yml",
+      "restore_installer": "https://github.com/hendrikmuhs/ccache-action/blob/5ebbd400eff9e74630f759d94ddd7b6c26299639/src/restore.ts",
+      "save": "https://github.com/hendrikmuhs/ccache-action/blob/5ebbd400eff9e74630f759d94ddd7b6c26299639/src/save.ts",
+      "lockfile": "https://github.com/hendrikmuhs/ccache-action/blob/5ebbd400eff9e74630f759d94ddd7b6c26299639/package-lock.json",
+      "exact_dependency": "https://registry.npmjs.org/@actions/cache/-/cache-4.1.0.tgz"
+    },
+    "dependency_integrity_verified": "sha512-z3Opg+P4Y7baq+g1dODXgdtsvPLSewr3ZKpp3U0HQR1A/vWCoJFS52XSezjdngo4SIOdR5oHtyK3a3Arar+X9A==",
+    "findings": [
+      "The action exposes update-package-index and max-size but no archive-compression or extra-package input.",
+      "restore.ts installs ccache only when io.which(ccache) finds no existing executable. It installs only ccache via apt-get; it does not install zstd.",
+      "The exact locked @actions/cache4.1.0 dependency probes zstd --quiet --version. Empty output selects gzip; available zstd selects ZstdWithoutLong.",
+      "On GNU/Linux save then passes tar --use-compress-program zstdmt; extraction uses unzstd. Without zstd it uses tar -z.",
+      "The compression method participates in the cache version hash. Installing zstd before restoring cannot reuse the previous gzip-format cache entry, even with the same visible cache key."
+    ],
+    "safe_candidate": [
+      "Before ccache-action run one apt-get update followed by apt-get install -y --no-install-recommends ccache zstd.",
+      "Set ccache-action update-package-index:false. Because ccache is already present, its installer and apt-get update are skipped; only one package-index update occurs.",
+      "Verify command -v ccache, zstd --quiet --version and archive command in actual action logs; measure equivalent-size restore/save timings and end-to-end walltime."
+    ],
+    "migration_warning": "Switching archive format invalidates reuse of existing gzip cache version for the first zstd-restoring run. Do not mix this with the4GB capacity experiment and then attribute changed hit rate to capacity alone. A container image including ccache and zstd is an alternative, requiring its own image rollout.",
+    "measured_context_seconds": {
+      "old_cache_restore": 10.781,
+      "old_cache_compress_and_save": 30.29,
+      "old_ccache_install": 7.578
+    },
+    "expected_savings_seconds": null,
+    "priority": "Secondary: current compress+save is about30seconds of a56minute job. Larger4GB caches can make it more relevant, but no zstd speedup has been measured.",
+    "source_files": [
+      "actions-cache-4.1.0-cacheUtils.js",
+      "actions-cache-4.1.0-tar.js"
+    ]
+  }
+}

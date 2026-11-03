@@ -8,7 +8,6 @@
 #include <immersx/config.h>
 
 #include <cmath>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -17,8 +16,9 @@
 #include <vector>
 
 #include "test_paths.h"
+#include "test_watchdog.h"
 
-// Quote a path for the POSIX shell used by std::system().
+// Quote a path for the POSIX shell used by the application launcher.
 static std::string
 shell_quote(const std::string &value)
 {
@@ -104,7 +104,7 @@ run_application(const char                  *exe,
     shell_quote(executable.string()) + " " +
     shell_quote(parameter_file.string()) +
     (log.empty() ? "" : " > " + shell_quote(log.string()) + " 2>&1");
-  const int ret = std::system(cmd.c_str());
+  const int ret = ImmersX::TestWatchdog::run_owned_application(cmd);
   EXPECT_EQ(ret, 0) << "Command failed: " << cmd;
 }
 
@@ -208,26 +208,13 @@ TEST(AppExecutables, Laplacian)
   run_app_with_parameter("laplacian", "gtests/parameters/laplacian_simple.prm");
 }
 
-TEST(AppExecutables, CoupledElasticity)
-{
-  if (!is_single_rank())
-    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  GTEST_SKIP() << "No coupled_elasticity application is configured in CI.";
-}
-
-TEST(AppExecutables, PseudoCoupling1D)
-{
-  if (!is_single_rank())
-    GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  GTEST_SKIP() << "No pseudocoupling1D application is configured in CI.";
-}
-
 TEST(AppExecutables, ReducedPoisson)
 {
   if (!is_single_rank())
     GTEST_SKIP() << "MPI test – skipped on multi‑rank";
-  run_app_with_parameter("reduced_poisson",
-                         "tutorials/reduced_poisson/single_cylinder_3d.prm");
+  run_app_with_parameter(
+    "reduced_poisson",
+    "gtests/parameters/reduced_poisson_single_cylinder_3d.prm");
 }
 
 TEST(AppExecutables, NavierStokes)
@@ -610,6 +597,17 @@ TEST(AppExecutables, NavierStokesSimplex)
     GTEST_SKIP() << "The application launcher is serial.";
   run_app_with_parameter("navier_stokes",
                          "gtests/parameters/navier_stokes_simplex.prm");
+
+  const auto output_directory =
+    ImmersX::TestPaths::output_path("navier-stokes-simplex");
+  const auto records = read_pvd_records(output_directory / "navier_stokes.pvd");
+  ASSERT_EQ(records.size(), 2u);
+  EXPECT_NEAR(records[0].first, 0., 1.e-12);
+  EXPECT_NEAR(records[1].first, 0.02, 1.e-12);
+  EXPECT_NE(records[0].second, records[1].second);
+  for (const auto &record : records)
+    EXPECT_TRUE(
+      std::filesystem::is_regular_file(output_directory / record.second));
 }
 
 TEST(AppExecutables, ReducedPoissonSimplex)

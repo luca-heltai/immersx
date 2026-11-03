@@ -368,7 +368,8 @@ namespace ImmersX::detail
       Snapshot(const ExecutionComposition &composition,
                const double                time,
                const GlobalVectorType     &state,
-               const GlobalVectorType     &state_dot)
+               const GlobalVectorType     &state_dot,
+               const bool                  retain_matrices)
         : state_storage(state)
         , derivative_storage(state_dot)
         , state_view(composition.layout_, time)
@@ -378,8 +379,14 @@ namespace ImmersX::detail
         composition.field_layout_.bind_state(state_view, state_storage);
         composition.field_layout_.bind_state(derivative_view,
                                              derivative_storage);
+        if (retain_matrices)
+          {
+            composition.model_.update_context(context);
+            linearization = composition.model_.retained_linearization(context);
+          }
       }
 
+      Model                              linearization;
       GlobalVectorType                   state_storage;
       GlobalVectorType                   derivative_storage;
       StateView<FieldVectorType>         state_view;
@@ -390,11 +397,13 @@ namespace ImmersX::detail
     std::shared_ptr<Snapshot>
     make_snapshot(const double            time,
                   const GlobalVectorType &state,
-                  const GlobalVectorType &state_dot) const
+                  const GlobalVectorType &state_dot,
+                  const bool              retain_matrices = false) const
     {
       validate_state(state);
       validate_state(state_dot);
-      return std::make_shared<Snapshot>(*this, time, state, state_dot);
+      return std::make_shared<Snapshot>(
+        *this, time, state, state_dot, retain_matrices);
     }
 
     struct StateSnapshot
@@ -423,11 +432,13 @@ namespace ImmersX::detail
 
     Operator
     jacobian(const EvaluationContext<FieldVectorType> &context,
-             const double                              alpha) const
+             const double                              alpha,
+             const Model *prepared_model = nullptr) const
     {
       finalize();
-      model_.update_context(context);
-      return make_global_operator(context, alpha);
+      if (prepared_model == nullptr)
+        model_.update_context(context);
+      return make_global_operator(context, alpha, prepared_model);
     }
 
     dealii::IndexSet
@@ -508,9 +519,10 @@ namespace ImmersX::detail
     /** Materialize the current linearization as a true block sparse matrix. */
     BlockMatrixType
     block_matrix(const GlobalVectorType &state,
-                 const GlobalVectorType *state_dot = nullptr,
-                 const double            alpha     = 0.,
-                 const double            time      = 0.) const
+                 const GlobalVectorType *state_dot      = nullptr,
+                 const double            alpha          = 0.,
+                 const double            time           = 0.,
+                 const Model            *prepared_model = nullptr) const
     {
       finalize();
       validate_state(state);
@@ -528,7 +540,7 @@ namespace ImmersX::detail
         }
       else
         context.emplace(time, state_view, nullptr);
-      return make_block_matrix(*context, alpha);
+      return make_block_matrix(*context, alpha, prepared_model);
     }
 
     /** Convert a block matrix to its concatenated monolithic sparse matrix. */
@@ -642,8 +654,12 @@ namespace ImmersX::detail
     Operator
     second_order_preconditioner(const GlobalVectorType &state,
                                 const GlobalVectorType &state_dot,
-                                const double            alpha) const
+                                const double            alpha,
+                                const Snapshot *snapshot = nullptr) const
     {
+      const auto *prepared_model =
+        snapshot ? &snapshot->linearization : nullptr;
+      const auto &model = prepared_model ? *prepared_model : model_;
       finalize();
       validate_state(state);
       validate_state(state_dot);
@@ -654,16 +670,18 @@ namespace ImmersX::detail
       StateView<FieldVectorType> derivative_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
       field_layout_.bind_state(derivative_view, state_dot);
-      EvaluationContext<FieldVectorType> context(0.,
-                                                 state_view,
-                                                 &derivative_view);
-      const auto &pair         = model_.second_order_pairs().front();
-      const auto  inverse      = second_order_inverse(pair, context, alpha);
-      const auto  displacement = field_layout_.block(pair.displacement);
-      const auto  velocity     = field_layout_.block(pair.velocity);
-      const auto  partitions   = field_layout_.block_partitions();
-      const auto  communicator = communicator_;
-      Operator    result;
+      EvaluationContext<FieldVectorType> fallback_context(0.,
+                                                          state_view,
+                                                          &derivative_view);
+      const auto &context = snapshot ? snapshot->context : fallback_context;
+      const auto &pair    = model.second_order_pairs().front();
+      const auto  inverse =
+        second_order_inverse(pair, context, alpha, prepared_model);
+      const auto displacement = field_layout_.block(pair.displacement);
+      const auto velocity     = field_layout_.block(pair.velocity);
+      const auto partitions   = field_layout_.block_partitions();
+      const auto communicator = communicator_;
+      Operator   result;
       result.reinit_range_vector =
         [partitions, communicator](GlobalVectorType &vector, const bool) {
           vector.reinit(partitions, communicator);
@@ -702,19 +720,23 @@ namespace ImmersX::detail
     LocalOperator
     schur_operator(const FieldId           multiplier,
                    const GlobalVectorType &state,
-                   const GlobalVectorType *state_dot  = nullptr,
-                   const double            alpha      = 0.,
-                   const bool include_primal_coupling = false) const
+                   const GlobalVectorType *state_dot               = nullptr,
+                   const double            alpha                   = 0.,
+                   const bool              include_primal_coupling = false,
+                   const Snapshot         *snapshot = nullptr) const
     {
+      const auto *prepared_model =
+        snapshot ? &snapshot->linearization : nullptr;
+      const auto &model = prepared_model ? *prepared_model : model_;
       finalize();
       validate_state(state);
       const auto metadata =
-        std::find_if(model_.saddle_points().begin(),
-                     model_.saddle_points().end(),
+        std::find_if(model.saddle_points().begin(),
+                     model.saddle_points().end(),
                      [multiplier](const auto &entry) {
                        return entry.multiplier == multiplier;
                      });
-      AssertThrow(metadata != model_.saddle_points().end(),
+      AssertThrow(metadata != model.saddle_points().end(),
                   dealii::ExcMessage(
                     "No saddle-point metadata exists for this multiplier."));
       AssertThrow(!metadata->participants.empty(),
@@ -733,7 +755,7 @@ namespace ImmersX::detail
         }
       else
         derivative_context.emplace(0., state_view, nullptr);
-      const auto &context = *derivative_context;
+      const auto &context = snapshot ? snapshot->context : *derivative_context;
 
       std::vector<LocalOperator> terms;
       std::vector<LocalOperator> inverses, to, from;
@@ -742,16 +764,16 @@ namespace ImmersX::detail
         {
           // A Schur matrix action must remain linear. Residual-stopped CG
           // is reserved for the outer flexible block preconditioner.
-          const auto inverse =
-            local_preconditioner(participant, state, context, alpha, true);
+          const auto inverse = local_preconditioner(
+            participant, state, context, alpha, true, prepared_model);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur construction requires a local inverse for "
                         "every participant field."));
           const auto to_multiplier =
-            model_.state_operator(multiplier, participant, context);
+            model.state_operator(multiplier, participant, context);
           const auto from_multiplier =
-            model_.state_operator(participant, multiplier, context);
+            model.state_operator(participant, multiplier, context);
           terms.push_back(to_multiplier * *inverse * from_multiplier);
           if (include_primal_coupling)
             {
@@ -768,19 +790,20 @@ namespace ImmersX::detail
         for (unsigned int i = 0; i < inverses.size(); ++i)
           for (unsigned int j = 0; j < inverses.size(); ++j)
             if (i != j &&
-                model_.has_state_operator(multiplier,
-                                          metadata->participants[i]) &&
-                model_.has_state_operator(metadata->participants[j],
-                                          multiplier) &&
-                (model_.has_state_operator(metadata->participants[i],
-                                           metadata->participants[j]) ||
-                 model_.has_derivative_operator(metadata->participants[i],
-                                                metadata->participants[j])))
+                model.has_state_operator(multiplier,
+                                         metadata->participants[i]) &&
+                model.has_state_operator(metadata->participants[j],
+                                         multiplier) &&
+                (model.has_state_operator(metadata->participants[i],
+                                          metadata->participants[j]) ||
+                 model.has_derivative_operator(metadata->participants[i],
+                                               metadata->participants[j])))
               terms.push_back(-1. * to[i] * inverses[i] *
                               linearized_operator(metadata->participants[i],
                                                   metadata->participants[j],
                                                   context,
-                                                  alpha) *
+                                                  alpha,
+                                                  prepared_model) *
                               inverses[j] * from[j]);
 
       LocalOperator result = terms.front();
@@ -799,17 +822,21 @@ namespace ImmersX::detail
                          const double            alpha              = 0.,
                          const unsigned int      maximum_iterations = 1000,
                          const double            tolerance          = 1.e-9,
-                         const bool include_primal_coupling = false) const
+                         const bool      include_primal_coupling    = false,
+                         const Snapshot *snapshot = nullptr) const
     {
+      const auto *prepared_model =
+        snapshot ? &snapshot->linearization : nullptr;
+      const auto &model = prepared_model ? *prepared_model : model_;
       finalize();
       validate_state(state);
       const auto metadata =
-        std::find_if(model_.saddle_points().begin(),
-                     model_.saddle_points().end(),
+        std::find_if(model.saddle_points().begin(),
+                     model.saddle_points().end(),
                      [multiplier](const auto &entry) {
                        return entry.multiplier == multiplier;
                      });
-      AssertThrow(metadata != model_.saddle_points().end(),
+      AssertThrow(metadata != model.saddle_points().end(),
                   dealii::ExcMessage(
                     "No saddle-point metadata exists for this multiplier."));
       AssertThrow(!metadata->participants.empty(),
@@ -828,7 +855,7 @@ namespace ImmersX::detail
         }
       else
         derivative_context.emplace(0., state_view, nullptr);
-      const auto &context = *derivative_context;
+      const auto &context = snapshot ? snapshot->context : *derivative_context;
       struct Participant
       {
         unsigned int  block;
@@ -840,16 +867,18 @@ namespace ImmersX::detail
       participants.reserve(metadata->participants.size());
       for (const auto field : metadata->participants)
         {
-          const auto inverse =
-            local_preconditioner(field, state, context, alpha);
+          const auto inverse = local_preconditioner(
+            field, state, context, alpha, false, prepared_model);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur preconditioning requires local inverses for "
                         "all participant fields."));
           participants.push_back(
             {field_layout_.block(field),
-             linearized_operator(multiplier, field, context, alpha),
-             linearized_operator(field, multiplier, context, alpha),
+             linearized_operator(
+               multiplier, field, context, alpha, prepared_model),
+             linearized_operator(
+               field, multiplier, context, alpha, prepared_model),
              *inverse});
         }
 
@@ -870,8 +899,8 @@ namespace ImmersX::detail
                           }))
             continue;
 
-          const auto inverse =
-            local_preconditioner(field, state, context, alpha);
+          const auto inverse = local_preconditioner(
+            field, state, context, alpha, false, prepared_model);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur preconditioning requires local inverses for "
@@ -880,7 +909,7 @@ namespace ImmersX::detail
         }
 
       const auto schur = schur_operator(
-        multiplier, state, state_dot, alpha, include_primal_coupling);
+        multiplier, state, state_dot, alpha, include_primal_coupling, snapshot);
       struct PrimalCorrection
       {
         unsigned int  row, column;
@@ -891,10 +920,10 @@ namespace ImmersX::detail
         for (unsigned int i = 0; i < participants.size(); ++i)
           for (unsigned int j = 0; j < participants.size(); ++j)
             if (i != j &&
-                (model_.has_state_operator(metadata->participants[i],
-                                           metadata->participants[j]) ||
-                 model_.has_derivative_operator(metadata->participants[i],
-                                                metadata->participants[j])))
+                (model.has_state_operator(metadata->participants[i],
+                                          metadata->participants[j]) ||
+                 model.has_derivative_operator(metadata->participants[i],
+                                               metadata->participants[j])))
               primal_corrections.push_back(
                 {i,
                  j,
@@ -902,11 +931,12 @@ namespace ImmersX::detail
                    linearized_operator(metadata->participants[i],
                                        metadata->participants[j],
                                        context,
-                                       alpha) *
+                                       alpha,
+                                       prepared_model) *
                    participants[j].inverse});
-      const auto multiplier_block = field_layout_.block(multiplier);
-      const auto multiplier_preconditioner =
-        this->multiplier_preconditioner(multiplier, state, context);
+      const auto multiplier_block          = field_layout_.block(multiplier);
+      const auto multiplier_preconditioner = this->multiplier_preconditioner(
+        multiplier, state, context, prepared_model);
       const auto schur_transpose = dealii::transpose_operator(schur);
       const auto multiplier_preconditioner_transpose =
         dealii::transpose_operator(multiplier_preconditioner);
@@ -1679,16 +1709,19 @@ namespace ImmersX::detail
                          const GlobalVectorType                   &state,
                          const EvaluationContext<FieldVectorType> &context,
                          const double                              alpha,
-                         const bool fixed_linear_action = false) const
+                         const bool   fixed_linear_action = false,
+                         const Model *prepared_model      = nullptr) const
     {
+      const auto &model = prepared_model ? *prepared_model : model_;
       finalize();
       validate_state(state);
       if (alpha > 0.)
-        for (const auto &pair : model_.second_order_pairs())
+        for (const auto &pair : model.second_order_pairs())
           if (field == pair.displacement || field == pair.velocity)
             {
-              const auto inverse = second_order_inverse(pair, context, alpha);
-              const bool displacement = field == pair.displacement;
+              const auto inverse =
+                second_order_inverse(pair, context, alpha, prepared_model);
+              const bool    displacement = field == pair.displacement;
               LocalOperator result;
               const auto    owned = layout_.field(field).locally_owned;
               result.reinit_range_vector =
@@ -1726,14 +1759,15 @@ namespace ImmersX::detail
               result.Tvmult_add = result.vmult_add;
               return result;
             }
-      if (!model_.has_preconditioner(field))
+      if (!model.has_preconditioner(field))
         return std::nullopt;
 
       std::shared_ptr<MatrixType> matrix;
-      if (model_.has_state_operator(field, field) ||
-          (alpha != 0. && model_.has_derivative_operator(field, field)))
+      if (model.has_state_operator(field, field) ||
+          (alpha != 0. && model.has_derivative_operator(field, field)))
         {
-          matrix = materialized_block(field, field, context, alpha);
+          matrix =
+            materialized_block(field, field, context, alpha, prepared_model);
         }
       if (matrix)
         {
@@ -1744,7 +1778,7 @@ namespace ImmersX::detail
               vector.reinit(owned, communicator);
             };
           const auto local =
-            model_.preconditioner(field, *matrix, reinit_vector);
+            model.preconditioner(field, *matrix, reinit_vector);
           if (local.has_value())
             {
               auto       result     = *local;
@@ -1784,12 +1818,12 @@ namespace ImmersX::detail
       auto empty_matrix = std::make_shared<MatrixType>();
       empty_matrix->reinit(partition, partition, empty, communicator_, false);
       const auto local =
-        model_.preconditioner(field,
-                              *empty_matrix,
-                              [partition, communicator = communicator_](
-                                FieldVectorType &vector, const bool) {
-                                vector.reinit(partition, communicator);
-                              });
+        model.preconditioner(field,
+                             *empty_matrix,
+                             [partition, communicator = communicator_](
+                               FieldVectorType &vector, const bool) {
+                               vector.reinit(partition, communicator);
+                             });
       if (!local.has_value())
         return std::nullopt;
       auto       result     = *local;
@@ -1819,17 +1853,18 @@ namespace ImmersX::detail
 
     /** Build the metric preconditioner used by a multiplier Schur solve. */
     LocalOperator
-    multiplier_preconditioner(
-      const FieldId                             multiplier,
-      const GlobalVectorType                   &state,
-      const EvaluationContext<FieldVectorType> &context) const
+    multiplier_preconditioner(const FieldId           multiplier,
+                              const GlobalVectorType &state,
+                              const EvaluationContext<FieldVectorType> &context,
+                              const Model *prepared_model = nullptr) const
     {
-      const auto partition = layout_.field(multiplier).locally_owned;
-      const auto metric    = model_.multiplier_metric(multiplier, context);
+      const auto &model     = prepared_model ? *prepared_model : model_;
+      const auto  partition = layout_.field(multiplier).locally_owned;
+      const auto  metric    = model.multiplier_metric(multiplier, context);
       if (metric.has_value())
         {
           const auto metric_matrix = metric->matrix();
-          if (model_.has_preconditioner(multiplier))
+          if (model.has_preconditioner(multiplier))
             {
               const auto reinitializer =
                 [partition,
@@ -1837,9 +1872,8 @@ namespace ImmersX::detail
                                                const bool       omit) {
                   vector.reinit(partition, communicator, omit);
                 };
-              const auto local = model_.preconditioner(multiplier,
-                                                       *metric_matrix,
-                                                       reinitializer);
+              const auto local =
+                model.preconditioner(multiplier, *metric_matrix, reinitializer);
               if (local.has_value())
                 return *local;
             }
@@ -1877,7 +1911,8 @@ namespace ImmersX::detail
           return result;
         }
 
-      if (const auto local = local_preconditioner(multiplier, state);
+      if (const auto local = local_preconditioner(
+            multiplier, state, context, 0., false, prepared_model);
           local.has_value())
         return *local;
 
@@ -1892,8 +1927,11 @@ namespace ImmersX::detail
     Operator
     block_diagonal_preconditioner(const GlobalVectorType &state,
                                   const GlobalVectorType *state_dot = nullptr,
-                                  const double            alpha     = 0.) const
+                                  const double            alpha     = 0.,
+                                  const Snapshot *snapshot = nullptr) const
     {
+      const auto *prepared_model =
+        snapshot ? &snapshot->linearization : nullptr;
       finalize();
       validate_state(state);
       if (state_dot != nullptr)
@@ -1911,13 +1949,14 @@ namespace ImmersX::detail
       else
         context.emplace(0., state_view, nullptr);
 
+      const auto &selected_context = snapshot ? snapshot->context : *context;
       std::vector<LocalOperator> diagonal;
       diagonal.reserve(field_layout_.n_blocks());
       for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
         {
           const auto field = field_layout_.field(block);
-          const auto local =
-            local_preconditioner(field, state, *context, alpha);
+          const auto local = local_preconditioner(
+            field, state, selected_context, alpha, false, prepared_model);
           AssertThrow(local.has_value(),
                       dealii::ExcMessage(
                         "Block diagonal preconditioning requires a local "
@@ -1963,8 +2002,11 @@ namespace ImmersX::detail
     block_triangular_preconditioner(const GlobalVectorType &state,
                                     const bool              lower     = true,
                                     const GlobalVectorType *state_dot = nullptr,
-                                    const double            alpha = 0.) const
+                                    const double            alpha     = 0.,
+                                    const Snapshot *snapshot = nullptr) const
     {
+      const auto *prepared_model =
+        snapshot ? &snapshot->linearization : nullptr;
       finalize();
       validate_state(state);
       if (state_dot != nullptr)
@@ -1982,15 +2024,18 @@ namespace ImmersX::detail
       else
         context.emplace(0., state_view, nullptr);
 
-      const unsigned int         n = field_layout_.n_blocks();
+      const unsigned int n         = field_layout_.n_blocks();
+      const auto &selected_context = snapshot ? snapshot->context : *context;
       std::vector<LocalOperator> diagonal;
       diagonal.reserve(n);
       for (unsigned int block = 0; block < n; ++block)
         {
           const auto local = local_preconditioner(field_layout_.field(block),
                                                   state,
-                                                  *context,
-                                                  alpha);
+                                                  selected_context,
+                                                  alpha,
+                                                  false,
+                                                  prepared_model);
           AssertThrow(local.has_value(),
                       dealii::ExcMessage(
                         "Block triangular preconditioning requires a local "
@@ -2005,8 +2050,9 @@ namespace ImmersX::detail
           if (i != j && (lower ? j < i : j > i))
             off_diagonal[i][j] = linearized_operator(field_layout_.field(i),
                                                      field_layout_.field(j),
-                                                     *context,
-                                                     alpha);
+                                                     selected_context,
+                                                     alpha,
+                                                     prepared_model);
 
       auto apply = [diagonal, off_diagonal, lower](GlobalVectorType       &dst,
                                                    const GlobalVectorType &src,
@@ -2121,8 +2167,10 @@ namespace ImmersX::detail
     std::shared_ptr<SecondOrderPreconditioner>
     second_order_inverse(const SecondOrderPair                    &pair,
                          const EvaluationContext<FieldVectorType> &context,
-                         const double                              alpha) const
+                         const double                              alpha,
+                         const Model *prepared_model = nullptr) const
     {
+      const auto &model = prepared_model ? *prepared_model : model_;
       AssertThrow(
         alpha > 0.,
         dealii::ExcMessage(
@@ -2146,14 +2194,14 @@ namespace ImmersX::detail
       auto      &cached   = second_order_preconditioners_[pair.displacement];
       if (!cached.inverse || cached.revision != revision)
         {
-          const auto mass = model_.derivative_matrix_operator(pair.displacement,
-                                                              pair.displacement,
-                                                              context);
-          const auto stiffness = model_.state_matrix_operator(pair.velocity,
-                                                              pair.displacement,
-                                                              context);
+          const auto mass = model.derivative_matrix_operator(pair.displacement,
+                                                             pair.displacement,
+                                                             context);
+          const auto stiffness = model.state_matrix_operator(pair.velocity,
+                                                             pair.displacement,
+                                                             context);
           const auto damping =
-            model_.state_matrix_operator(pair.velocity, pair.velocity, context);
+            model.state_matrix_operator(pair.velocity, pair.velocity, context);
           AssertThrow(mass && stiffness && damping,
                       dealii::ExcMessage("Second-order factorization requires "
                                          "matrix-backed M, K and D blocks."));
@@ -2197,21 +2245,23 @@ namespace ImmersX::detail
     linearized_operator(const FieldId                             row,
                         const FieldId                             column,
                         const EvaluationContext<FieldVectorType> &context,
-                        const double                              alpha) const
+                        const double                              alpha,
+                        const Model *prepared_model = nullptr) const
     {
-      const bool has_state      = model_.has_state_operator(row, column);
-      const bool has_derivative = model_.has_derivative_operator(row, column);
+      const auto   &model          = prepared_model ? *prepared_model : model_;
+      const bool    has_state      = model.has_state_operator(row, column);
+      const bool    has_derivative = model.has_derivative_operator(row, column);
       LocalOperator result;
       if (has_state)
-        result = model_.state_operator(row, column, context);
+        result = model.state_operator(row, column, context);
       if (alpha != 0. && has_derivative)
         {
           const auto derivative =
-            model_.derivative_operator(row, column, context);
+            model.derivative_operator(row, column, context);
           result = has_state ? result + alpha * derivative : alpha * derivative;
         }
       if (!has_state && (alpha == 0. || !has_derivative))
-        result = model_.state_operator(row, column, context);
+        result = model.state_operator(row, column, context);
       return result;
     }
 
@@ -2290,21 +2340,23 @@ namespace ImmersX::detail
 
     bool
     can_materialize_matrix(const EvaluationContext<FieldVectorType> &context,
-                           const double alpha) const
+                           const double                              alpha,
+                           const Model *prepared_model = nullptr) const
     {
+      const auto &model = prepared_model ? *prepared_model : model_;
       for (unsigned int i = 0; i < field_layout_.n_blocks(); ++i)
         for (unsigned int j = 0; j < field_layout_.n_blocks(); ++j)
           {
             const auto row       = field_layout_.field(i);
             const auto column    = field_layout_.field(j);
-            const bool has_state = model_.has_state_operator(row, column);
+            const bool has_state = model.has_state_operator(row, column);
             const bool has_derivative =
-              model_.has_derivative_operator(row, column);
+              model.has_derivative_operator(row, column);
             if (has_state &&
-                !model_.state_matrix_operator(row, column, context).has_value())
+                !model.state_matrix_operator(row, column, context).has_value())
               return false;
             if (alpha != 0. && has_derivative &&
-                !model_.derivative_matrix_operator(row, column, context)
+                !model.derivative_matrix_operator(row, column, context)
                    .has_value())
               return false;
           }
@@ -2315,20 +2367,22 @@ namespace ImmersX::detail
     materialized_block(const FieldId                             row,
                        const FieldId                             column,
                        const EvaluationContext<FieldVectorType> &context,
-                       const double                              alpha) const
+                       const double                              alpha,
+                       const Model *prepared_model = nullptr) const
     {
-      const bool has_state      = model_.has_state_operator(row, column);
-      const bool has_derivative = model_.has_derivative_operator(row, column);
+      const auto &model          = prepared_model ? *prepared_model : model_;
+      const bool  has_state      = model.has_state_operator(row, column);
+      const bool  has_derivative = model.has_derivative_operator(row, column);
       if (!has_state && (alpha == 0. || !has_derivative))
         return {};
 
       std::optional<typename Model::MatrixOperator> state_matrix;
       std::optional<typename Model::MatrixOperator> derivative_matrix;
       if (has_state)
-        state_matrix = model_.state_matrix_operator(row, column, context);
+        state_matrix = model.state_matrix_operator(row, column, context);
       if (alpha != 0. && has_derivative)
         derivative_matrix =
-          model_.derivative_matrix_operator(row, column, context);
+          model.derivative_matrix_operator(row, column, context);
       AssertThrow(!has_state || state_matrix.has_value(),
                   dealii::ExcMessage(
                     "A state operator is not completely matrix-based."));
@@ -2351,9 +2405,10 @@ namespace ImmersX::detail
 
     BlockMatrixType
     make_block_matrix(const EvaluationContext<FieldVectorType> &context,
-                      const double                              alpha) const
+                      const double                              alpha,
+                      const Model *prepared_model = nullptr) const
     {
-      AssertThrow(can_materialize_matrix(context, alpha),
+      AssertThrow(can_materialize_matrix(context, alpha, prepared_model),
                   dealii::ExcMessage(
                     "The current execution linearization is not completely "
                     "matrix-based."));
@@ -2368,7 +2423,8 @@ namespace ImmersX::detail
             auto  matrix = materialized_block(field_layout_.field(i),
                                              field_layout_.field(j),
                                              context,
-                                             alpha);
+                                             alpha,
+                                             prepared_model);
             auto &block  = result.block(i, j);
             if (matrix)
               {
@@ -2411,28 +2467,30 @@ namespace ImmersX::detail
 
     Operator
     make_global_operator(const EvaluationContext<FieldVectorType> &context,
-                         const double                              alpha) const
+                         const double                              alpha,
+                         const Model *prepared_model = nullptr) const
     {
-      const unsigned int n = field_layout_.n_blocks();
+      const auto        &model = prepared_model ? *prepared_model : model_;
+      const unsigned int n     = field_layout_.n_blocks();
       std::vector<std::vector<typename Model::Operator>> blocks(
         n, std::vector<typename Model::Operator>(n));
       for (unsigned int i = 0; i < n; ++i)
         for (unsigned int j = 0; j < n; ++j)
           blocks[i][j] = zero_operator(context.state(field_layout_.field(i)),
                                        context.state(field_layout_.field(j)));
-      for (const auto &[row, column] : model_.active_operator_blocks())
+      for (const auto &[row, column] : model.active_operator_blocks())
         {
           const auto i         = field_layout_.block(row);
           const auto j         = field_layout_.block(column);
-          const bool has_state = model_.has_state_operator(row, column);
+          const bool has_state = model.has_state_operator(row, column);
           const bool has_derivative =
-            model_.has_derivative_operator(row, column);
+            model.has_derivative_operator(row, column);
           if (has_state)
-            blocks[i][j] = model_.state_operator(row, column, context);
+            blocks[i][j] = model.state_operator(row, column, context);
           if (alpha != 0. && has_derivative)
             {
               const auto derivative =
-                alpha * model_.derivative_operator(row, column, context);
+                alpha * model.derivative_operator(row, column, context);
               blocks[i][j] = has_state ? blocks[i][j] + derivative : derivative;
             }
         }

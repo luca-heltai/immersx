@@ -1,0 +1,40 @@
+# IRCAD case 12: metres, pascals, seconds. Illustrative growth controls.
+subsection Liver
+  set Arterial grid = @TEST_DATA_DIR@/ircad-case12/arterial.vtk
+  set Venous grid = @TEST_DATA_DIR@/ircad-case12/venous.vtk
+  set Output directory = @TEST_OUTPUT_DIR@/liver-vascularization
+  subsection Domain
+    set Grid generator = @TEST_DATA_DIR@/ircad-case12/liver.stl
+    set Triangulation type = fullydistributed
+    subsection Surface mesh
+      set Target edge length = 0.012
+      set Feature angle = 60
+      set Volume cells = tetrahedra
+    end
+  end
+  subsection Vascularization
+    set Length scale = meter
+    subsection Growth
+      set Seed length = .003
+      set Minimum vessel length = .0002
+      set Candidate vessels = 16
+      set Local optimization steps = 5
+    end
+    subsection Sampling
+      set Terminal count multiplier factor = none
+      set Terminal count = 1000
+      set Random seed = 23
+      set Sample budget per insertion = 2000
+    end
+    subsection Physiology
+      set Dynamic viscosity = .004
+      set Total new-tissue reference flow = 2e-9
+      set Reference pressures = 83:12000,177:2000
+      set Minimum radius = .00005
+    end
+    subsection Venous network
+      set Enabled = true
+      set Terminal separation = .003
+    end
+  end
+end

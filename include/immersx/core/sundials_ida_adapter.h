@@ -653,9 +653,38 @@ namespace ImmersX
                                         dst,
                                         rhs,
                                         *current_preconditioner_);
-                  pcout << "IDAAdapter: FGMRES converged in "
-                        << control.last_step() << " iteration(s), residual "
-                        << control.last_value() << "." << std::endl;
+                  // An inexact Schur preconditioner can give a small projected
+                  // residual while the original system is still inaccurate.
+                  // Solve defect equations within the same iteration budget.
+                  const auto   maximum_iterations = control.max_steps();
+                  unsigned int iterations         = control.last_step();
+                  auto         defect             = composition_.make_state();
+                  current_jacobian_->vmult(defect, dst);
+                  defect.sadd(-1., 1., rhs);
+                  while (defect.l2_norm() > control.tolerance() &&
+                         iterations < maximum_iterations)
+                    {
+                      auto correction = composition_.make_state();
+                      correction      = 0.;
+                      control.set_max_steps(maximum_iterations - iterations);
+                      flexible_solver.solve(*current_jacobian_,
+                                            correction,
+                                            defect,
+                                            *current_preconditioner_);
+                      AssertThrow(control.last_step() > 0,
+                                  dealii::SolverControl::NoConvergence(
+                                    iterations, defect.l2_norm()));
+                      iterations += control.last_step();
+                      dst += correction;
+                      current_jacobian_->vmult(defect, dst);
+                      defect.sadd(-1., 1., rhs);
+                    }
+                  AssertThrow(defect.l2_norm() <= control.tolerance(),
+                              dealii::SolverControl::NoConvergence(
+                                iterations, defect.l2_norm()));
+                  pcout << "IDAAdapter: FGMRES converged in " << iterations
+                        << " iteration(s), true residual " << defect.l2_norm()
+                        << "." << std::endl;
                 }
               else
                 {
@@ -838,37 +867,42 @@ namespace ImmersX
     {
       ++jacobian_setups_;
       dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
-      const auto snapshot = composition_.make_snapshot(time, state, state_dot);
-      const auto operator_view =
-        composition_.jacobian(snapshot->context, alpha);
+      const bool                 retain_matrices = !solve_;
+      const auto                 snapshot =
+        composition_.make_snapshot(time, state, state_dot, retain_matrices);
+      const auto operator_view = std::make_shared<const Operator>(
+        composition_.jacobian(snapshot->context,
+                              alpha,
+                              retain_matrices ? &snapshot->linearization :
+                                                nullptr));
 
       Operator stable;
-      stable.reinit_range_vector = [operator_view](GlobalVectorType &vector,
-                                                   const bool        omit) {
-        operator_view.reinit_range_vector(vector, omit);
-      };
-      stable.reinit_domain_vector = [operator_view](GlobalVectorType &vector,
-                                                    const bool        omit) {
-        operator_view.reinit_domain_vector(vector, omit);
-      };
+      stable.reinit_range_vector =
+        [operator_view, snapshot](GlobalVectorType &vector, const bool omit) {
+          operator_view->reinit_range_vector(vector, omit);
+        };
+      stable.reinit_domain_vector =
+        [operator_view, snapshot](GlobalVectorType &vector, const bool omit) {
+          operator_view->reinit_domain_vector(vector, omit);
+        };
       stable.vmult = [operator_view, snapshot](GlobalVectorType &destination,
                                                const GlobalVectorType &source) {
-        operator_view.vmult(destination, source);
+        operator_view->vmult(destination, source);
       };
       stable.vmult_add = [operator_view,
                           snapshot](GlobalVectorType       &destination,
                                     const GlobalVectorType &source) {
-        operator_view.vmult_add(destination, source);
+        operator_view->vmult_add(destination, source);
       };
       stable.Tvmult = [operator_view,
                        snapshot](GlobalVectorType       &destination,
                                  const GlobalVectorType &source) {
-        operator_view.Tvmult(destination, source);
+        operator_view->Tvmult(destination, source);
       };
       stable.Tvmult_add = [operator_view,
                            snapshot](GlobalVectorType       &destination,
                                      const GlobalVectorType &source) {
-        operator_view.Tvmult_add(destination, source);
+        operator_view->Tvmult_add(destination, source);
       };
       current_jacobian_ = std::move(stable);
       current_preconditioner_.reset();
@@ -882,7 +916,8 @@ namespace ImmersX
             composition_.block_matrix(snapshot->state_storage,
                                       &snapshot->derivative_storage,
                                       alpha,
-                                      time));
+                                      time,
+                                      &snapshot->linearization));
           if (linear_solver_ == LinearSolver::umfpack)
             {
               dealii::DynamicSparsityPattern sparsity(matrix.m(), matrix.n());
@@ -948,36 +983,36 @@ namespace ImmersX
       else if (!solve_)
         {
           const auto keep_snapshot = [snapshot](Operator operator_view) {
+            const auto retained =
+              std::make_shared<const Operator>(std::move(operator_view));
             Operator result;
-            result.reinit_range_vector = [operator_view,
-                                          snapshot](GlobalVectorType &vector,
-                                                    const bool        omit) {
-              operator_view.reinit_range_vector(vector, omit);
-            };
-            result.reinit_domain_vector = [operator_view,
-                                           snapshot](GlobalVectorType &vector,
-                                                     const bool        omit) {
-              operator_view.reinit_domain_vector(vector, omit);
-            };
-            result.vmult = [operator_view,
+            result.reinit_range_vector =
+              [retained, snapshot](GlobalVectorType &vector, const bool omit) {
+                retained->reinit_range_vector(vector, omit);
+              };
+            result.reinit_domain_vector =
+              [retained, snapshot](GlobalVectorType &vector, const bool omit) {
+                retained->reinit_domain_vector(vector, omit);
+              };
+            result.vmult = [retained,
                             snapshot](GlobalVectorType       &destination,
                                       const GlobalVectorType &source) {
-              operator_view.vmult(destination, source);
+              retained->vmult(destination, source);
             };
-            result.vmult_add = [operator_view,
+            result.vmult_add = [retained,
                                 snapshot](GlobalVectorType       &destination,
                                           const GlobalVectorType &source) {
-              operator_view.vmult_add(destination, source);
+              retained->vmult_add(destination, source);
             };
-            result.Tvmult = [operator_view,
+            result.Tvmult = [retained,
                              snapshot](GlobalVectorType       &destination,
                                        const GlobalVectorType &source) {
-              operator_view.Tvmult(destination, source);
+              retained->Tvmult(destination, source);
             };
-            result.Tvmult_add = [operator_view,
+            result.Tvmult_add = [retained,
                                  snapshot](GlobalVectorType       &destination,
                                            const GlobalVectorType &source) {
-              operator_view.Tvmult_add(destination, source);
+              retained->Tvmult_add(destination, source);
             };
             return result;
           };
@@ -994,7 +1029,8 @@ namespace ImmersX
                   alpha,
                   1000,
                   1.e-9,
-                  include_schur_primal_coupling_));
+                  include_schur_primal_coupling_,
+                  snapshot.get()));
               current_solver_is_flexible_ = true;
             }
           else if (composition_.has_isolated_second_order_pair())
@@ -1003,7 +1039,8 @@ namespace ImmersX
                 keep_snapshot(composition_.second_order_preconditioner(
                   snapshot->state_storage,
                   snapshot->derivative_storage,
-                  alpha));
+                  alpha,
+                  snapshot.get()));
               current_solver_is_flexible_ = true;
             }
           else if (composition_.has_complete_local_preconditioners())
@@ -1014,11 +1051,13 @@ namespace ImmersX
                                   snapshot->state_storage,
                                   true,
                                   &snapshot->derivative_storage,
-                                  alpha) :
+                                  alpha,
+                                  snapshot.get()) :
                                 composition_.block_diagonal_preconditioner(
                                   snapshot->state_storage,
                                   &snapshot->derivative_storage,
-                                  alpha));
+                                  alpha,
+                                  snapshot.get()));
               current_solver_is_flexible_ = composition_.n_fields() > 1;
             }
         }

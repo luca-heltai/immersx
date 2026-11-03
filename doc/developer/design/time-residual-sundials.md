@@ -4,8 +4,9 @@ The semantic execution model exposes a residual and its two state
 derivatives. A contributor adds residual operations to the shared
 `SemiDiscreteModel` and registers separate operators for
 `dF/dy` and `dF/dydot`. The execution adapter evaluates these operations for
-the supplied state; the evaluation context and its state views are not stored
-after the evaluation.
+the supplied state. The adapter owns the evaluation context and state views
+for as long as its linearized operators need them. Contributors must not retain
+references to a temporary evaluation context.
 
 ## IDA
 
@@ -55,6 +56,18 @@ J = \frac{\partial F}{\partial y}
 Problems provide the two derivative operators separately. The adapter can
 use its built-in GMRES/FGMRES path or an application-supplied linear solve
 callback.
+
+For the built-in linear solvers, each Jacobian setup retains the separate
+`dF/dy` and `dF/dydot` contributions at that time and state. Contributions with
+a materializer become owned matrices immediately, before another factory can
+reuse its native storage. Global Jacobian and Schur actions and direct matrix
+factorization reuse these matrices throughout the linear solve. Matrix-free
+contributions remain actions evaluated from the same snapshot. The next setup builds a new linearization; residual
+evaluation remains independent. The adapter shares each composed Jacobian and
+preconditioner between its callbacks, avoiding duplicate copies of the operator
+graph. Direct solvers require materializable contributions; matrix-free terms
+remain available to iterative and custom solves. Custom linear solve callbacks
+keep their existing path.
 
 `TimeIntervalParameters` owns the initial and final times and the physical
 output interval. `IDAParameters` owns IDA's adaptive-step controls, error

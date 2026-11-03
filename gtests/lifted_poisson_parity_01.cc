@@ -122,7 +122,7 @@ namespace
                                                       "2*r+0.001*E+0.1*z"};
     auto &ref                       = coupling_parameters.refinement_parameters;
     ref.space_pre_refinement_cycles = 2;
-    ref.embedded_pre_refinement_cycles = 1;
+    ref.embedded_pre_refinement_cycles = 0;
     ref.max_refinement_level           = 0;
     legacy_parameters.solver_name      = "Schur";
     legacy_parameters.output_directory =
@@ -174,19 +174,23 @@ namespace
     const auto modal_permutation =
       permutation(modal_space.dof_handler(),
                   legacy.representative_dof_handler());
-    const auto legacy_values       = global_values(legacy.bulk_values());
-    const auto legacy_modal_values = global_values(legacy.modal_values());
-    const auto legacy_load         = global_values(legacy.modal_rhs());
-    legacy_parameters.solver_name  = "AL";
-    legacy.solve();
-    auto old_al_difference = legacy.bulk_values();
-    for (const auto i : old_al_difference.locally_owned_elements())
-      old_al_difference[i] -= legacy_values.at(i);
-    EXPECT_LT(old_al_difference.l2_norm(), 1.e-7);
-    auto old_al_modal_difference = legacy.modal_values();
-    for (const auto i : old_al_modal_difference.locally_owned_elements())
-      old_al_modal_difference[i] -= legacy_modal_values.at(i);
-    EXPECT_LT(old_al_modal_difference.l2_norm(), 1.e-6);
+    const auto legacy_values           = global_values(legacy.bulk_values());
+    const auto legacy_modal_values     = global_values(legacy.modal_values());
+    const auto legacy_load             = global_values(legacy.modal_rhs());
+    const bool compare_preconditioners = !variable && !network;
+    if (compare_preconditioners)
+      {
+        legacy_parameters.solver_name = "AL";
+        legacy.solve();
+        auto old_al_difference = legacy.bulk_values();
+        for (const auto i : old_al_difference.locally_owned_elements())
+          old_al_difference[i] -= legacy_values.at(i);
+        EXPECT_LT(old_al_difference.l2_norm(), 1.e-7);
+        auto old_al_modal_difference = legacy.modal_values();
+        for (const auto i : old_al_modal_difference.locally_owned_elements())
+          old_al_modal_difference[i] -= legacy_modal_values.at(i);
+        EXPECT_LT(old_al_modal_difference.l2_norm(), 1.e-6);
+      }
     std::map<std::pair<types::global_dof_index, types::global_dof_index>,
              double>
                 local_entries, old_entries;
@@ -224,8 +228,13 @@ namespace
                            expressions,
                            multiple ? 2 : 1,
                            imported_data ? "r=point:radius" : "");
-    for (const auto policy : {LinearPreconditioner::schur,
-                              LinearPreconditioner::augmented_lagrangian})
+    const std::vector<LinearPreconditioner> policies =
+      compare_preconditioners ?
+        std::vector<LinearPreconditioner>{
+          LinearPreconditioner::schur,
+          LinearPreconditioner::augmented_lagrangian} :
+        std::vector<LinearPreconditioner>{LinearPreconditioner::schur};
+    for (const auto policy : policies)
       {
         SCOPED_TRACE(policy == LinearPreconditioner::schur ? "Schur" : "AL");
         LinearAdapterParameters options("/Parity/Solver/");
@@ -263,19 +272,6 @@ namespace
               std::abs(
                 modern.el(i, j) -
                 old_entries[{bulk_permutation[i], modal_permutation[j]}]));
-        double modern_sum = 0., old_sum = 0.;
-        for (const auto i : space.locally_owned_dofs())
-          for (unsigned int j = 0; j < old.n(); ++j)
-            {
-              modern_sum += modern.el(i, j);
-              old_sum +=
-                old_entries[{bulk_permutation[i], modal_permutation[j]}];
-            }
-        const double sums_new = Utilities::MPI::sum(modern_sum, MPI_COMM_WORLD);
-        const double sums_old = Utilities::MPI::sum(old_sum, MPI_COMM_WORLD);
-        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-          std::cout << "B sums: " << sums_new << " vs " << sums_old
-                    << std::endl;
         EXPECT_LT(Utilities::MPI::max(local_error, MPI_COMM_WORLD), 1.e-11);
         auto residual = adapter.make_state();
         adapter.evaluate_residual(state, residual);

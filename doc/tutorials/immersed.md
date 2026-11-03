@@ -10,4 +10,6 @@ reduced-poisson
 coupled-poisson
 coupled-poisson-elasticity
 ../how-to/vascular-tree-elasticity
+vascular-generation
+liver-vascularization
 ```

@@ -1,0 +1,18 @@
+{
+  "assets_sha256": {
+    "arteriovenous.svg": "7e80a12d95c068383011c1038e28499b097bf268e2fbb2060c6ac76b5d9ba6a8",
+    "domains.svg": "568823996567cbe5b92bb95db7e8f2ba85099872dd801c8a6181df29372eb002",
+    "effective-parameters.txt": "45bad20a888816b5c8d03589d98824e546041a79a51611bcdec54e99c7c91d05",
+    "length-distribution.svg": "921d45e05336d5005f8291df6e7d10a9438e43e11ee23f2a9c3aa1128e3cf6e9",
+    "meshes.svg": "7bd1c58239615e35f4f8fa6e50f63bec8d42141735a021ad14bbc7adf2344a41",
+    "rediscretization.svg": "bf716b85aef5ed29c6f017735406abbcf27af94bf6eb68d780650c63a2db2406",
+    "summary.csv": "a37fd36e55d197269ded9daa8c7ad45974bd257df9aee8b228220e24788e3bd5",
+    "targets.svg": "9563f30fbda65f4898c880a3b35054bb7a0071f8a34cc833114f0cb228bc77cd",
+    "terminal-density.svg": "e6f867a878513373eed5535a8dc1b085a4c77eb03f9fa4f2cbedb8c8834bb047"
+  },
+  "density_volume": "Native QGauss(2) background weights binned by physical position",
+  "diameter_exaggeration": 4,
+  "projection": "x=.82*(x-y), y=.4*(x+y)-.82*z; fixed common scale",
+  "schema": 1,
+  "source": "Owned output of the native vascular_network application"
+}

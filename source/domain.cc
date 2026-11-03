@@ -20,6 +20,8 @@
 #include <immersx/core/domain.h>
 #include <immersx/io/vtk_utils.h>
 
+#include "surface_volume_mesh.h"
+
 #if DEAL_II_VERSION_GTE(9, 8, 0) && defined(DEAL_II_WITH_VTK)
 #  include <deal.II/vtk/utilities.h>
 #elif !DEAL_II_VERSION_GTE(9, 8, 0)
@@ -158,10 +160,26 @@ namespace ImmersX
       dealii::GridIn<dim, spacedim> grid_in;
       grid_in.attach_triangulation(tria);
 #if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
-      if (extension == "msh")
+      if (extension == "msh" || extension == "stl")
         {
           grid_in.read_msh(filename);
           return;
+        }
+#endif
+#ifdef DEAL_II_WITH_ASSIMP
+      if constexpr (dim == 2 && spacedim == 3)
+        {
+          // GridIn's ordinary extension parser does not dispatch Assimp
+          // formats. Let Assimp detect additional surface formats itself.
+          try
+            {
+              dealii::GridIn<dim, spacedim>::parse_format(extension);
+            }
+          catch (const dealii::ExceptionBase &)
+            {
+              grid_in.read_assimp(filename);
+              return;
+            }
         }
 #endif
       grid_in.read(filename);
@@ -175,10 +193,70 @@ namespace ImmersX
     {
       if (std::filesystem::path(parameters.name_of_grid).has_extension())
         {
-          read_mesh_file<dim, spacedim>(parameters.name_of_grid,
-                                        tria,
-                                        parameters.vtk_material_id_field,
-                                        parameters.vtk_boundary_id_field);
+          if constexpr (dim == 3 && spacedim == 3)
+            {
+              // Probe into serial storage: a failed read must not populate the
+              // destination, which may already be a distributed triangulation.
+              dealii::Triangulation<3> volume;
+              std::string              volume_error;
+              if (parameters.mesh_input != "surface")
+                {
+                  try
+                    {
+                      read_mesh_file<3, 3>(parameters.name_of_grid,
+                                           volume,
+                                           parameters.vtk_material_id_field,
+                                           parameters.vtk_boundary_id_field);
+                      AssertThrow(volume.n_active_cells() > 0,
+                                  dealii::ExcMessage(
+                                    "The input contains no volume cells."));
+                    }
+                  catch (const dealii::ExceptionBase &error)
+                    {
+                      if (parameters.mesh_input == "volume")
+                        throw;
+                      volume_error = error.what();
+                    }
+                  if (volume.n_active_cells() > 0 && volume_error.empty())
+                    {
+                      tria.copy_triangulation(volume);
+                      return;
+                    }
+                }
+              AssertThrow(
+                !parameters.read_vtk_fields,
+                dealii::ExcMessage(
+                  "Surface remeshing cannot transfer input VTK fields."));
+              dealii::Triangulation<2, 3> surface;
+              try
+                {
+                  read_mesh_file<2, 3>(parameters.name_of_grid,
+                                       surface,
+                                       "",
+                                       "");
+                }
+              catch (const dealii::ExceptionBase &error)
+                {
+                  AssertThrow(
+                    false,
+                    dealii::ExcMessage(
+                      "Cannot read input as a volume or surface mesh. Volume: " +
+                      volume_error + " Surface: " + error.what()));
+                }
+              volume.clear();
+              detail::generate_volume_from_surface(surface, volume, parameters);
+              AssertThrow(
+                parameters.surface_volume_cells != "tetrahedra" ||
+                  parameters.triangulation_type == "fullydistributed",
+                dealii::ExcMessage(
+                  "Tetrahedra require Triangulation type = fullydistributed."));
+              tria.copy_triangulation(volume);
+            }
+          else
+            read_mesh_file<dim, spacedim>(parameters.name_of_grid,
+                                          tria,
+                                          parameters.vtk_material_id_field,
+                                          parameters.vtk_boundary_id_field);
           return;
         }
 
@@ -266,6 +344,33 @@ namespace ImmersX
                   "",
                   this->prm,
                   dealii::Patterns::Selection("distributed|fullydistributed"));
+    if constexpr (dim == 3 && spacedim == 3)
+      {
+        enter_subsection("Surface mesh");
+        add_parameter(
+          "Input",
+          mesh_input,
+          "Read a volume, mesh a closed surface, or detect automatically.",
+          this->prm,
+          dealii::Patterns::Selection("auto|volume|surface"));
+        add_parameter("Target edge length",
+                      surface_mesh_size,
+                      "Length in input coordinates, before Grid scale.",
+                      this->prm,
+                      dealii::Patterns::Double(0.));
+        add_parameter("Feature angle",
+                      surface_feature_angle,
+                      "Gmsh surface classification angle in degrees.",
+                      this->prm,
+                      dealii::Patterns::Double(0., 180.));
+        add_parameter(
+          "Volume cells",
+          surface_volume_cells,
+          "Hexahedra are obtained by conforming tetrahedron subdivision.",
+          this->prm,
+          dealii::Patterns::Selection("tetrahedra|hexahedra"));
+        leave_subsection();
+      }
     enter_subsection("VTK support");
     add_parameter("Read fields", read_vtk_fields);
     add_parameter("Boundary id field", vtk_boundary_id_field);

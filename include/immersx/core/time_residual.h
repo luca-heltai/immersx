@@ -104,6 +104,47 @@ namespace ImmersX
         factory(context);
     }
 
+    /** Retain a linearization at one execution-owned evaluation point.
+     * Materialize each eligible contribution before another factory can change
+     * a native matrix observed by its view. Shared materialized storage is
+     * cloned, and each retained view owns its matrix. Matrix-free actions
+     * remain actions.
+     */
+    SemiDiscreteModel
+    retained_linearization(const Context &context) const
+    {
+      SemiDiscreteModel result = *this;
+      const auto        retain = [&context](auto &registry) {
+        for (auto &[key, entries] : registry)
+          for (auto &entry : entries)
+            if (context.terms().includes(entry.term, TermTreatment::all))
+              {
+                if (entry.matrix_factory)
+                  {
+                    auto op = entry.matrix_factory(context);
+                    if (op.is_materializable())
+                      {
+                        auto matrix = op.matrix();
+                        if (matrix.use_count() > 1)
+                          matrix = detail::clone_matrix(*matrix);
+                        op = matrix_operator<VectorType>(std::move(matrix));
+                      }
+                    entry.factory = [op](const Context &) { return op.view; };
+                    entry.matrix_factory = [op](const Context &) { return op; };
+                  }
+                else
+                  {
+                    const auto op = entry.factory(context);
+                    entry.factory = [op](const Context &) { return op; };
+                  }
+              }
+      };
+      retain(result.state_operators_);
+      retain(result.derivative_operators_);
+      result.context_updates_.clear();
+      return result;
+    }
+
     void
     evaluate_row(const FieldId  row,
                  const Context &context,

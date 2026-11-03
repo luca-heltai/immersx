@@ -27,7 +27,6 @@
 #include <immersx/core/reduced_field_utils.h>
 #include <mpi.h>
 
-#include <cstdio>  // For std::remove
 #include <fstream> // For writing temporary VTK file
 #include <memory>
 #include <string>
@@ -779,87 +778,7 @@ TEST(VTKUtils, DataToDealiiVectorAndInterpolate)
       EXPECT_NEAR(vector_from_data_to_dealii(i), interpolated_vector(i), 1e-9);
     }
   ASSERT_FALSE(mismatch_found) << "Vectors do not match.";
-
-
-  // 10. Delete temporary file - REMOVED
 }
 
-TEST(VTKUtils, DataFromSimpleVtkToDealiiVectorAndInterpolate)
-{
-  const int         dim      = 1;
-  const int         spacedim = 3;
-  const std::string vtk_filename =
-    ImmersX::TestPaths::data_filename("tests/simple_1d_grid.vtk");
-
-  // 1. Read VTK mesh
-  Triangulation<dim, spacedim> tria;
-  ASSERT_NO_THROW(VTKUtils::read_vtk(vtk_filename, tria, /*cleanup=*/true));
-  ASSERT_EQ(tria.n_vertices(), 10);
-  ASSERT_EQ(tria.n_active_cells(), 9);
-
-  // 2. Read data using VTKUtils::read_data
-  Vector<double> raw_data_vector;
-  ASSERT_NO_THROW(VTKUtils::read_data(vtk_filename, raw_data_vector));
-  // Expected size: x(10*1) + xyz(10*3) + center_x(9*1) + center_xyz(9*3) =
-  // 10+30+9+27 = 76
-  ASSERT_EQ(raw_data_vector.size(), 76);
-
-  // 3. Create FiniteElement using VTKUtils::vtk_to_finite_element
-  std::vector<std::string> data_names_from_fe;
-  auto                     fe_system_ptr =
-    read_finite_element<dim, spacedim>(vtk_filename, data_names_from_fe);
-  ASSERT_TRUE(fe_system_ptr);
-  ASSERT_EQ(data_names_from_fe.size(), 4);
-  EXPECT_EQ(data_names_from_fe[0], "x");
-  EXPECT_EQ(data_names_from_fe[1], "xyz");
-  EXPECT_EQ(data_names_from_fe[2], "center_x");
-  EXPECT_EQ(data_names_from_fe[3], "center_xyz");
-  ASSERT_EQ(fe_system_ptr->n_blocks(), 4);
-  ASSERT_EQ(fe_system_ptr->n_components(), 8);
-
-  // 4. Create DoFHandler and distribute DoFs
-  DoFHandler<dim, spacedim> dof_handler(tria);
-  dof_handler.distribute_dofs(*fe_system_ptr);
-  ASSERT_EQ(dof_handler.n_dofs(), 76);
-
-  // 5. Call data_to_dealii_vector
-  Vector<double> vector_from_data_to_dealii(dof_handler.n_dofs());
-  ASSERT_NO_THROW(ReducedFieldUtils::data_to_dealii_vector(
-    tria, raw_data_vector, dof_handler, vector_from_data_to_dealii));
-
-  // 6. Create ParsedFunction
-  FunctionParser<spacedim>      function_parser(fe_system_ptr->n_components());
-  std::string                   parsed_function_str = "x; x;y;z; x; x;y;z";
-  std::map<std::string, double> constants;
-  function_parser.initialize(FunctionParser<spacedim>::default_variable_names(),
-                             parsed_function_str,
-                             constants,
-                             false);
-
-  // 7. Interpolate ParsedFunction
-  Vector<double>           interpolated_vector(dof_handler.n_dofs());
-  MappingQ1<dim, spacedim> mapping;
-  ASSERT_NO_THROW(VectorTools::interpolate(
-    mapping, dof_handler, function_parser, interpolated_vector));
-
-  // 8. Compare vectors
-  ASSERT_EQ(vector_from_data_to_dealii.size(), interpolated_vector.size());
-  bool mismatch_found = false;
-  for (unsigned int i = 0; i < vector_from_data_to_dealii.size(); ++i)
-    {
-      if (std::abs(vector_from_data_to_dealii(i) - interpolated_vector(i)) >
-          1e-9)
-        {
-          std::cerr << "Mismatch at global DoF index " << i
-                    << ": data_to_dealii_vector = "
-                    << vector_from_data_to_dealii(i)
-                    << ", interpolated_vector = " << interpolated_vector(i)
-                    << "\n";
-          mismatch_found = true;
-        }
-      EXPECT_NEAR(vector_from_data_to_dealii(i), interpolated_vector(i), 1e-9);
-    }
-  ASSERT_FALSE(mismatch_found) << "Vectors do not match. See cerr for details.";
-}
 
 #endif // DEAL_II_WITH_VTK

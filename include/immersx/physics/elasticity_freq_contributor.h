@@ -56,37 +56,51 @@ namespace ImmersX
                  const double              omega,
                  const double              weight = 1.)
     {
-      const auto &real      = fields.real;
-      const auto &imaginary = fields.imaginary;
-      const auto  elasticity =
-        [&](const auto &source, const auto &row, const double factor) {
-          (weak_term((factor * 2. * material.Lame_mu) *
-                       symmetric_gradient(source),
+      const auto &real       = fields.real;
+      const auto &imaginary  = fields.imaginary;
+      const auto  elasticity = [&](const auto  &source,
+                                  const auto  &row,
+                                  const double factor,
+                                  const bool keep_constraint_diagonal = false) {
+        const double shear = factor * 2. * material.Lame_mu;
+        const double bulk  = factor * material.Lame_lambda;
+        if (shear != 0. || keep_constraint_diagonal)
+          (weak_term(shear * symmetric_gradient(source),
                      symmetric_gradient(test(row))) *
            support)
             .add(builder);
-          (weak_term((factor * material.Lame_lambda) * divergence(source),
-                     divergence(test(row))) *
+        if (bulk != 0.)
+          (weak_term(bulk * divergence(source), divergence(test(row))) *
            support)
             .add(builder);
-        };
+      };
       const auto inertia =
         [&](const auto &source, const auto &row, const double factor) {
-          (weak_term((factor * material.rho) * value(source), test(row)) *
-           support)
-            .add(builder);
+          const double mass = factor * material.rho;
+          if (mass != 0.)
+            (weak_term(mass * value(source), test(row)) * support).add(builder);
         };
       const auto damping =
         [&](const auto &source, const auto &row, const double factor) {
           elasticity(source, row, factor * material.rayleigh_beta);
           inertia(source, row, factor * material.rayleigh_alpha);
-          (weak_term((factor * material.neta) * symmetric_gradient(source),
-                     symmetric_gradient(test(row))) *
-           support)
-            .add(builder);
+          const double viscous = factor * material.neta;
+          if (viscous != 0.)
+            (weak_term(viscous * symmetric_gradient(source),
+                       symmetric_gradient(test(row))) *
+             support)
+              .add(builder);
         };
-      elasticity(real, real, weight);
-      elasticity(imaginary, imaginary, weight);
+      // Native essential rows are supplied by a diagonal weak term. Retain
+      // one zero shear action per field when all diagonal coefficients vanish,
+      // including purely viscous models whose physical terms are all
+      // off-diagonal.
+      const bool keep_constraint_diagonal =
+        weight * 2. * material.Lame_mu == 0. &&
+        weight * material.Lame_lambda == 0. &&
+        -weight * omega * omega * material.rho == 0.;
+      elasticity(real, real, weight, keep_constraint_diagonal);
+      elasticity(imaginary, imaginary, weight, keep_constraint_diagonal);
       inertia(real, real, -weight * omega * omega);
       inertia(imaginary, imaginary, -weight * omega * omega);
       damping(imaginary, real, -weight * omega);

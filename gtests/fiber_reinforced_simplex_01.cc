@@ -23,6 +23,9 @@ namespace
     initialize_parameters(
       TestPaths::parameter_path("gtests/parameters/fiber_reinforced_simplex_" +
                                 std::to_string(dim) + "d.prm"));
+    if constexpr (dim == 3)
+      parameters.matrix_parameters.domain_parameters.name_of_grid =
+        TestPaths::data_filename("tests/simplex_unit_cube.msh");
     FiberReinforcedElastodynamics<dim> driver(parameters);
     driver.setup();
     if (ida)

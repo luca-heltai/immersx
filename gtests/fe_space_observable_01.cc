@@ -86,11 +86,12 @@ namespace
 {
   template <int dim, int spacedim>
   void
-  check_ambient_vector_mask()
+  check_ambient_vector_mask(const unsigned int extra_components = 2)
   {
     Triangulation<dim, spacedim> mesh;
     GridGenerator::hyper_cube(mesh);
-    FESystem<dim, spacedim>   fe(FE_Q<dim, spacedim>(1), spacedim + 2);
+    FESystem<dim, spacedim>   fe(FE_Q<dim, spacedim>(1),
+                               spacedim + extra_components);
     DoFHandler<dim, spacedim> dh(mesh);
     dh.distribute_dofs(fe);
     MappingQ1<dim, spacedim>  mapping;
@@ -99,6 +100,7 @@ namespace
     const auto space  = ImmersX::fe_space(dh, mapping, constraints);
     const auto vector = space.field("vector", FEValuesExtractors::Vector(1));
     const auto mask   = vector.component_mask();
+    EXPECT_EQ(mask.size(), fe.n_components());
     EXPECT_EQ(mask.n_selected_components(), spacedim);
     for (unsigned int c = 0; c < fe.n_components(); ++c)
       EXPECT_EQ(mask[c], c >= 1 && c < 1 + spacedim);
@@ -116,6 +118,7 @@ TEST(FESpace, VectorMasksSelectAmbientComponents)
   check_ambient_vector_mask<1, 3>();
   check_ambient_vector_mask<2, 3>();
   check_ambient_vector_mask<2, 2>();
+  check_ambient_vector_mask<2, 2>(1);
 }
 
 TEST(FESpace, FieldLocalConstraintsArePersistentAndIndependent)
@@ -158,26 +161,6 @@ TEST(FESpace, FieldLocalConstraintsArePersistentAndIndependent)
   EXPECT_TRUE(velocity.constraints().is_constrained(1));
 }
 
-TEST(FESpace, FieldComponentMaskComesFromNonzeroExtractor)
-{
-  Triangulation<2> tria;
-  GridGenerator::hyper_cube(tria);
-  FESystem<2>   fe(FE_Q<2>(1), 1, FE_Q<2>(1), 2);
-  DoFHandler<2> dof_handler(tria);
-  dof_handler.distribute_dofs(fe);
-  AffineConstraints<double> constraints;
-  constraints.close();
-
-  const auto V =
-    ImmersX::fe_space(dof_handler, StaticMappingQ1<2>::mapping, constraints);
-  const auto vector = V.field("vector", FEValuesExtractors::Vector(1));
-  const auto mask   = vector.component_mask();
-
-  ASSERT_EQ(mask.size(), 3u);
-  EXPECT_FALSE(mask[0]);
-  EXPECT_TRUE(mask[1]);
-  EXPECT_TRUE(mask[2]);
-}
 
 TEST(FESpace, ScalarAndVectorFieldCPOsUseDealIIExtractors)
 {

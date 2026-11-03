@@ -20,6 +20,28 @@
 
 #include <string>
 
+#include "test_watchdog.h"
+
+namespace
+{
+  class TestTimeLimit : public ::testing::EmptyTestEventListener
+  {
+  public:
+    void
+    OnTestStart(const ::testing::TestInfo &info) override
+    {
+      ImmersX::TestWatchdog::instance().arm(
+        std::string(info.test_suite_name()) + "." + info.name());
+    }
+
+    void
+    OnTestEnd(const ::testing::TestInfo &) override
+    {
+      ImmersX::TestWatchdog::instance().disarm();
+    }
+  };
+} // namespace
+
 // The category guard needs a typed registry entry to check glob matching.
 // Keep this fixture in the common driver so it needs no separate translation
 // unit.
@@ -79,6 +101,7 @@ main(int argc, char *argv[])
 
   ::testing::TestEventListeners &listeners =
     ::testing::UnitTest::GetInstance()->listeners();
+  listeners.Append(new TestTimeLimit());
   if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0)
     {
       delete listeners.Release(listeners.default_result_printer());

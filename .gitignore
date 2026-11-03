@@ -51,6 +51,12 @@ data/tests/*
 !data/lifted_elasticity/
 data/lifted_elasticity/*
 !data/lifted_elasticity/*.in
+!data/vascularization/
+data/vascularization/*
+!data/vascularization/*.in
+!data/vascularization/liver_smoke/
+data/vascularization/liver_smoke/*
+!data/vascularization/liver_smoke/*.in
 data/**/*.prm
 execute/*
 compile_commands.json

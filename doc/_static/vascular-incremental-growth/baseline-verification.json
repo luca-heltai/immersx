@@ -1,0 +1,149 @@
+{
+  "groups": {
+    "strong-1000": {
+      "manifest": "/tmp/immersx-vascular-root-config/vascular-measurements/strong-1000/manifest.json",
+      "manifest_sha256": "6a12f6e0e03af0abd2291ce7221dd1d480c0acc069742dd17199dfe59960cec4",
+      "commit": "76bb381187285e57bdc281a09f2bdd4c09a70703",
+      "binary_hashes_verified": {
+        "vascular_network_profile": "d4a70de019707637c76897b44dd33723a5cc3a1805793abc784467096f8a06ca",
+        "libimmersx_lib.so": "559e03f47fe7a6e041f40bf6d134a133b8f2c2b3b5b28965dd70e0c29b9eb082"
+      },
+      "cases": [
+        {
+          "seed": 23,
+          "time": 144.29592964,
+          "samples": 1019,
+          "accepted": 999,
+          "batches": 1019,
+          "phases": {
+            "initialization_seconds": 0.010488447,
+            "sampling_seconds": 0.04796503800012742,
+            "search_seconds": 2.842881448999953,
+            "optimization_seconds": 8.492013825999965,
+            "selection_seconds": 3.642503661999937,
+            "commit_seconds": 129.09489677000005,
+            "redistribution_seconds": 78.95714309800005,
+            "physiology_seconds": 8.358787166999992,
+            "certification_seconds": 39.191875041,
+            "total_seconds": 144.12028023300005
+          },
+          "input_sha256": "98faae270c7d81eea6bca89b0c9e333b6b74dd9c94d0d602bee4141a5b689e91"
+        },
+        {
+          "seed": 24,
+          "time": 144.819321309,
+          "samples": 1004,
+          "accepted": 999,
+          "batches": 1004,
+          "phases": {
+            "initialization_seconds": 0.009323894,
+            "sampling_seconds": 0.04870062900004393,
+            "search_seconds": 2.7611747210001356,
+            "optimization_seconds": 9.303945069999791,
+            "selection_seconds": 3.5853256950001287,
+            "commit_seconds": 128.95743970799992,
+            "redistribution_seconds": 79.29969139700002,
+            "physiology_seconds": 8.383746440999994,
+            "certification_seconds": 38.72838029200001,
+            "total_seconds": 144.65658718200004
+          },
+          "input_sha256": "f2d29a9283bae69cec3ca5ced3bb55ffa1a92f9a6b88395b1e926d777bc4ecec"
+        },
+        {
+          "seed": 25,
+          "time": 143.170104361,
+          "samples": 1007,
+          "accepted": 999,
+          "batches": 1007,
+          "phases": {
+            "initialization_seconds": 0.009613423,
+            "sampling_seconds": 0.05002920499980554,
+            "search_seconds": 2.7255627909998723,
+            "optimization_seconds": 8.255445133000121,
+            "selection_seconds": 3.5752192260000597,
+            "commit_seconds": 128.39369749600002,
+            "redistribution_seconds": 78.89349682800005,
+            "physiology_seconds": 8.251523559999999,
+            "certification_seconds": 38.702071463999985,
+            "total_seconds": 142.99995633199987
+          },
+          "input_sha256": "665866940a69215ca5861c46ca601805a4a3cafbd320b998851bb971f602efac"
+        }
+      ],
+      "median_generation_seconds": 144.29592964
+    },
+    "strong-10000": {
+      "manifest": "/tmp/immersx-vascular-root-config/vascular-measurements/strong-10000/manifest.json",
+      "manifest_sha256": "c8a1ac9f45d49c634d1a88f173572ee0aa95c9edb5e874e3dca72fd33dc02f79",
+      "commit": "76bb381187285e57bdc281a09f2bdd4c09a70703",
+      "binary_hashes_verified": {
+        "vascular_network_profile": "d4a70de019707637c76897b44dd33723a5cc3a1805793abc784467096f8a06ca",
+        "libimmersx_lib.so": "559e03f47fe7a6e041f40bf6d134a133b8f2c2b3b5b28965dd70e0c29b9eb082"
+      },
+      "cases": [
+        {
+          "seed": 23,
+          "time": 14177.368884775,
+          "samples": 10529,
+          "accepted": 9999,
+          "batches": 10529,
+          "phases": {
+            "initialization_seconds": 0.009628246,
+            "sampling_seconds": 0.7731160079366574,
+            "search_seconds": 253.5667209880067,
+            "optimization_seconds": 261.66644829799907,
+            "selection_seconds": 83.37784723001084,
+            "commit_seconds": 13573.770059436036,
+            "redistribution_seconds": 7725.981926528,
+            "physiology_seconds": 1262.503319663,
+            "certification_seconds": 4255.547401363998,
+            "total_seconds": 14173.154427365987
+          },
+          "input_sha256": "707b1ef9de0a8b3b1a77b81d365faf8daa2962b66f68468aefcc78358d01fe61"
+        },
+        {
+          "seed": 24,
+          "time": 14265.193299814,
+          "samples": 10017,
+          "accepted": 9999,
+          "batches": 10017,
+          "phases": {
+            "initialization_seconds": 0.011457954,
+            "sampling_seconds": 0.751843927028373,
+            "search_seconds": 243.70947053401568,
+            "optimization_seconds": 280.56777416301986,
+            "selection_seconds": 81.78595786592737,
+            "commit_seconds": 13654.329724069086,
+            "redistribution_seconds": 7783.546460802005,
+            "physiology_seconds": 1261.0334775329989,
+            "certification_seconds": 4281.5196732720015,
+            "total_seconds": 14261.144777769077
+          },
+          "input_sha256": "bd275585fce2d12cf16b04246158d0e70b895ef73d3281a1051f74eecd62123c"
+        },
+        {
+          "seed": 25,
+          "time": 14145.935610531,
+          "samples": 10047,
+          "accepted": 9999,
+          "batches": 10047,
+          "phases": {
+            "initialization_seconds": 0.010369455,
+            "sampling_seconds": 0.6774550290638921,
+            "search_seconds": 237.8753224919629,
+            "optimization_seconds": 276.6310437119905,
+            "selection_seconds": 80.26092139801086,
+            "commit_seconds": 13546.570989476973,
+            "redistribution_seconds": 7741.959087852003,
+            "physiology_seconds": 1229.1049134649995,
+            "certification_seconds": 4264.295504183998,
+            "total_seconds": 14142.015763177998
+          },
+          "input_sha256": "d3f1ebb45bea6901b5a3f4459f2e996c4cebb341a52f14e6aab0994f241b2783"
+        }
+      ],
+      "median_generation_seconds": 14177.368884775
+    }
+  },
+  "ratio": 98.25203607714877
+}
