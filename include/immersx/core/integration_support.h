@@ -12,6 +12,7 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/mpi.templates.h>
 #include <deal.II/base/tensor.h>
 
 #include <deal.II/fe/fe_values_base.h>
