@@ -575,8 +575,8 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
   auto transpose = input;
   schur.Tvmult(transpose, input);
 
-  EXPECT_NEAR(normal[0], 462., 1.e-12);
-  EXPECT_NEAR(transpose[0], 693., 1.e-12);
+  EXPECT_NEAR(normal[0], 461., 1.e-12);
+  EXPECT_NEAR(transpose[0], 692., 1.e-12);
 
   const auto augmented = adapter.augmented_lagrangian_operator(state, 2.);
   auto       augmented_normal    = adapter.make_state();
@@ -604,7 +604,7 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
   schur_prec.vmult(preconditioned, state);
   schur_prec.Tvmult(transposed_preconditioned, state);
 
-  const double normal_multiplier = 30. / 462.;
+  const double normal_multiplier = 30. / 461.;
   EXPECT_NEAR(adapter.field(preconditioned, fields.fields().multiplier)[0],
               normal_multiplier,
               1.e-10);
@@ -615,7 +615,7 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
               2. - 22. * normal_multiplier,
               1.e-10);
 
-  const double transpose_multiplier = 201. / 693.;
+  const double transpose_multiplier = 201. / 692.;
   EXPECT_NEAR(adapter.field(transposed_preconditioned,
                             fields.fields().multiplier)[0],
               transpose_multiplier,

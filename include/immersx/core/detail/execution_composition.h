@@ -716,7 +716,7 @@ namespace ImmersX::detail
       return model_.saddle_points();
     }
 
-    /** Build S ~= sum_i B_i P_i^-1 B_i^T on a semantic multiplier field. */
+    /** Build S ~= sum_i B_i P_i^-1 D_i - J_lambda,lambda. */
     LocalOperator
     schur_operator(const FieldId           multiplier,
                    const GlobalVectorType &state,
@@ -805,6 +805,13 @@ namespace ImmersX::detail
                                                   alpha,
                                                   prepared_model) *
                               inverses[j] * from[j]);
+
+      if (model.has_state_operator(multiplier, multiplier) ||
+          (alpha != 0. &&
+           model.has_derivative_operator(multiplier, multiplier)))
+        terms.push_back(
+          -1. * linearized_operator(
+                  multiplier, multiplier, context, alpha, prepared_model));
 
       LocalOperator result = terms.front();
       for (std::size_t i = 1; i < terms.size(); ++i)
@@ -1101,7 +1108,7 @@ namespace ImmersX::detail
       return result;
     }
 
-    /** Apply A_gamma = A + gamma B^T W^-1 B on the coupled state. */
+    /** Add gamma D W^-1 times the constraint row to each primal row. */
     Operator
     augmented_lagrangian_operator(const GlobalVectorType &state,
                                   const double            gamma     = 1.e1,
@@ -1132,6 +1139,7 @@ namespace ImmersX::detail
       struct Augmentation
       {
         std::vector<unsigned int>               participants;
+        std::vector<unsigned int>               columns;
         std::vector<std::vector<LocalOperator>> terms;
       };
       std::vector<Augmentation> augmentations;
@@ -1213,10 +1221,23 @@ namespace ImmersX::detail
                 participant, metadata.multiplier, context, alpha));
             }
 
-          augmentation.terms.resize(
-            participant_count, std::vector<LocalOperator>(participant_count));
+          augmentation.columns = augmentation.participants;
+          if (model_.has_state_operator(metadata.multiplier,
+                                        metadata.multiplier) ||
+              (alpha != 0. &&
+               model_.has_derivative_operator(metadata.multiplier,
+                                              metadata.multiplier)))
+            {
+              augmentation.columns.push_back(
+                field_layout_.block(metadata.multiplier));
+              to_multiplier.push_back(linearized_operator(
+                metadata.multiplier, metadata.multiplier, context, alpha));
+            }
+          augmentation.terms.resize(participant_count,
+                                    std::vector<LocalOperator>(
+                                      to_multiplier.size()));
           for (std::size_t i = 0; i < participant_count; ++i)
-            for (std::size_t j = 0; j < participant_count; ++j)
+            for (std::size_t j = 0; j < to_multiplier.size(); ++j)
               augmentation.terms[i][j] =
                 gamma * (from_multiplier[i] * inverse_metric_operator *
                          to_multiplier[j]);
@@ -1238,38 +1259,36 @@ namespace ImmersX::detail
                                               const GlobalVectorType &source) {
             destination = 0.;
             for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
-              for (std::size_t j = 0; j < augmentation.participants.size(); ++j)
+              for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
                 augmentation.terms[i][j].vmult_add(
                   destination.block(augmentation.participants[i]),
-                  source.block(augmentation.participants[j]));
+                  source.block(augmentation.columns[j]));
           };
           contribution.vmult_add =
             [augmentation](GlobalVectorType       &destination,
                            const GlobalVectorType &source) {
               for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
-                for (std::size_t j = 0; j < augmentation.participants.size();
-                     ++j)
+                for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
                   augmentation.terms[i][j].vmult_add(
                     destination.block(augmentation.participants[i]),
-                    source.block(augmentation.participants[j]));
+                    source.block(augmentation.columns[j]));
             };
           contribution.Tvmult = [augmentation](GlobalVectorType &destination,
                                                const GlobalVectorType &source) {
             destination = 0.;
             for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
-              for (std::size_t j = 0; j < augmentation.participants.size(); ++j)
+              for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
                 dealii::transpose_operator(augmentation.terms[i][j])
-                  .vmult_add(destination.block(augmentation.participants[j]),
+                  .vmult_add(destination.block(augmentation.columns[j]),
                              source.block(augmentation.participants[i]));
           };
           contribution.Tvmult_add =
             [augmentation](GlobalVectorType       &destination,
                            const GlobalVectorType &source) {
               for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
-                for (std::size_t j = 0; j < augmentation.participants.size();
-                     ++j)
+                for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
                   dealii::transpose_operator(augmentation.terms[i][j])
-                    .vmult_add(destination.block(augmentation.participants[j]),
+                    .vmult_add(destination.block(augmentation.columns[j]),
                                source.block(augmentation.participants[i]));
             };
           result += contribution;
@@ -1279,7 +1298,7 @@ namespace ImmersX::detail
     }
 
     /**
-     * Materialize the matrix A + gamma B^T diag(W^{-1}) B.
+     * Materialize the augmented operator, including its multiplier column.
      *
      * The multiplier metric is intentionally reduced to its diagonal here:
      * this is the matrix-based counterpart of the lumped metric used by the
@@ -1339,11 +1358,18 @@ namespace ImmersX::detail
             }
           inverse_metric.compress(dealii::VectorOperation::insert);
 
+          auto columns = metadata.participants;
+          if (model_.has_state_operator(metadata.multiplier,
+                                        metadata.multiplier) ||
+              (alpha != 0. &&
+               model_.has_derivative_operator(metadata.multiplier,
+                                              metadata.multiplier)))
+            columns.push_back(metadata.multiplier);
           for (std::size_t i = 0; i < metadata.participants.size(); ++i)
-            for (std::size_t j = 0; j < metadata.participants.size(); ++j)
+            for (std::size_t j = 0; j < columns.size(); ++j)
               {
                 const auto row_field = metadata.participants[i];
-                const auto col_field = metadata.participants[j];
+                const auto col_field = columns[j];
                 const auto from      = materialized_block(row_field,
                                                      metadata.multiplier,
                                                      context,

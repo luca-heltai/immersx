@@ -26,8 +26,8 @@ namespace ImmersX
    * and multiplier columns, this class solves
    *
    * @code
-   *   [ A  C ] [u     ] = [f    ],
-   *   [ C^T 0 ] [lambda]   [g_Q  ].
+   *   [ A    C      ] [u     ] = [f  ],
+   *   [ C^T -M_out  ] [lambda]   [g_Q].
    * @endcode
    *
    * The solver is independent of Problem and FE-field layers.  Its
@@ -64,6 +64,8 @@ namespace ImmersX
                            solver.background_preconditioner);
         dst = 0.;
         solver.coupling_matrix.Tvmult(dst, background_inverse);
+        if (solver.outside_mass != nullptr)
+          solver.outside_mass->vmult_add(dst, src);
       }
 
       dealii::types::global_dof_index
@@ -85,6 +87,10 @@ namespace ImmersX
     };
 
   public:
+    /**
+     * The optional positive outside mass contributes -M_out to the multiplier
+     * diagonal. Its lifetime must include all calls to solve().
+     */
     LagrangeMultiplierConstraintSolver(
       const MatrixType       &background_matrix,
       const MatrixType       &coupling_matrix,
@@ -93,9 +99,11 @@ namespace ImmersX
       const MPI_Comm          mpi_communicator,
       const unsigned int      max_steps       = 200,
       const double            tolerance       = 1.e-10,
-      const double            block_tolerance = 1.e-12)
+      const double            block_tolerance = 1.e-12,
+      const MatrixType       *outside_mass    = nullptr)
       : background_matrix(background_matrix)
       , coupling_matrix(coupling_matrix)
+      , outside_mass(outside_mass)
       , background_owned_dofs(background_owned_dofs)
       , multiplier_owned_dofs(multiplier_owned_dofs)
       , mpi_communicator(mpi_communicator)
@@ -175,6 +183,7 @@ namespace ImmersX
 
     const MatrixType &background_matrix;
     const MatrixType &coupling_matrix;
+    const MatrixType *outside_mass;
 
     const dealii::IndexSet background_owned_dofs;
     const dealii::IndexSet multiplier_owned_dofs;

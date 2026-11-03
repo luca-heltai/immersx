@@ -24,6 +24,8 @@ namespace ImmersX
   public:
     /**
      * Build the block preconditioner from linear-operator building blocks.
+     * Ct_ is the upper-right block of the augmented system. For a physical
+     * multiplier diagonal -M_out, pass D - gamma D invW M_out.
      */
     BlockPreconditionerAugmentedLagrangian(
       const LinearOperator<VectorType> Aug_inv_,
@@ -65,7 +67,7 @@ namespace ImmersX
      */
     LinearOperator<VectorType> invW;
     /**
-     * Transpose coupling operator from multipliers to displacement.
+     * Upper-right block from multipliers to displacement after augmentation.
      */
     LinearOperator<VectorType> Ct;
     /**
