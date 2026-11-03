@@ -49,6 +49,7 @@
 #include <fstream>
 #include <functional>
 #include <map>
+#include <optional>
 
 namespace ImmersX
 {
@@ -218,13 +219,10 @@ namespace ImmersX
     /**
      * @brief Assemble the mass matrix of the multiplier space.
      *
-     * The entries are int_gamma psi_m psi_n |D(s)| m_c ds for equal modes c,
-     * with m_c the mean square of mode c (see
-     * ReferenceCrossSection::get_basis_mean_squares()): the Gram matrix of
-     * the functions psi phi_c on the cross sections, consistent with the
-     * coupling matrix. A multiplier is therefore a force per unit area of the
-     * cross section. Point coupling uses int_S phi_j^2 per inclusion, which is
-     * not divided by |S| as its coupling matrix is.
+     * The complete sampled Gram matrix integrates products of the lifted
+     * representative basis, including products of distinct transverse modes.
+     * It is independent of background coverage and remains the multiplier
+     * metric when only part of the physical support is coupled.
      *
      * @tparam MatrixType The matrix type (e.g., SparseMatrix<double>).
      * @param mass_matrix The matrix to assemble.
@@ -233,15 +231,29 @@ namespace ImmersX
     void
     assemble_coupling_mass_matrix(MatrixType &mass_matrix) const;
 
+    /** Assemble the sampled Gram matrix on points inside the background. */
+    template <typename MatrixType>
+    void
+    assemble_overlap_mass_matrix(MatrixType &mass_matrix) const;
+
+    /** Assemble the sampled Gram matrix on points outside the background. */
+    template <typename MatrixType>
+    void
+    assemble_outside_mass_matrix(MatrixType &mass_matrix) const;
+
+    /** Source-owned membership, in get_locally_owned_qpoints() order. */
+    const std::vector<bool> &
+    source_point_membership() const
+    {
+      return located_source_points;
+    }
+
     /**
      * @brief Assemble the right-hand side vector for the reduced space.
      *
-     * Computes the right-hand side induced by coefficient functions on the
-     * reduced domain: int_gamma psi g_c |D(s)| m_c ds, i.e., the coupling
-     * matrix applied to u = sum_c g_c phi_c. Since the modes have maximum one,
-     * the coefficient g_c is the amplitude of mode c in the imposed field, as
-     * in point coupling, where the right-hand side is the circle average
-     * g_j <phi_j^2> instead.
+     * Reconstructs the prescribed field from its modal coefficient functions
+     * and pairs it with the lifted multiplier basis at located physical
+     * samples. No contribution is added at points outside the background.
      *
      * @tparam VectorType The vector type (e.g., Vector<double>).
      * @param reduced_rhs The right-hand side vector to assemble.
@@ -258,6 +270,21 @@ namespace ImmersX
     get_coupling_constraints() const;
 
   private:
+    /** Visit each physical sample with its representative indices and basis. */
+    template <typename Callback>
+    void
+    for_each_source_sample(const Callback &callback) const;
+
+    template <typename MatrixType>
+    void
+    assemble_sampled_mass_matrix(MatrixType               &mass_matrix,
+                                 const std::optional<bool> inside) const;
+
+    std::map<types::global_cell_index, std::vector<std::vector<double>>>
+    modal_data_values() const;
+
+    std::vector<bool> located_source_points;
+
     template <typename MatrixType, typename VectorType>
     void
     assemble_coupling_matrix_impl(MatrixType                 &coupling_matrix,
@@ -489,258 +516,133 @@ namespace ImmersX
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
-  template <typename MatrixType>
-  inline void
+  template <typename Callback>
+  void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-    assemble_coupling_mass_matrix(MatrixType &mass_matrix) const
+    for_each_source_sample(const Callback &callback) const
   {
-    if constexpr (reduced_dim == 0)
+    const auto &points  = this->get_locally_owned_qpoints();
+    const auto &weights = this->get_locally_owned_weights();
+    const auto &modes   = this->get_locally_owned_mode_values();
+    const auto  owned   = this->locally_owned_qpoints();
+    AssertDimension(owned.n_elements(), points.size());
+    AssertDimension(located_source_points.size(), points.size());
+    for (unsigned int q = 0; q < points.size(); ++q)
       {
-        AssertDimension(mass_matrix.m(), this->n_representative_dofs());
-        AssertDimension(mass_matrix.n(), this->n_representative_dofs());
-        mass_matrix              = 0;
-        const unsigned int block = this->n_representative_dofs_per_entity();
-        const auto        &mean_squares =
-          this->get_reference_cross_section().get_basis_mean_squares();
-        for (const auto entity : this->locally_owned_representative_entities())
+        const auto [entity, representative_q, section_q] =
+          this->particle_id_to_representative_indices(
+            owned.nth_index_in_set(q));
+        (void)section_q;
+        std::vector<types::global_dof_index> indices;
+        std::vector<Tensor<1, n_components>> basis;
+        if constexpr (reduced_dim == 0)
           {
-            const double section_measure =
-              this->get_reference_cross_section().measure(
-                this->get_entity_thickness(entity));
-            for (unsigned int j = 0; j < block; ++j)
-              mass_matrix.add(entity * block + j,
-                              entity * block + j,
-                              section_measure * mean_squares[j]);
+            indices = this->get_representative_dof_indices(entity);
+            basis.resize(indices.size());
+            for (unsigned int i = 0; i < indices.size(); ++i)
+              for (unsigned int d = 0; d < n_components; ++d)
+                basis[i][d] = modes[q][i * n_components + d];
           }
-        mass_matrix.compress(VectorOperation::add);
-        return;
+        else
+          {
+            indices = this->get_dof_indices(entity);
+            basis.resize(indices.size());
+            const auto &fe   = this->get_dof_handler().get_fe();
+            const auto &unit = this->get_quadrature().point(representative_q);
+            for (unsigned int i = 0; i < indices.size(); ++i)
+              {
+                const auto component = fe.system_to_component_index(i).first;
+                for (unsigned int d = 0; d < n_components; ++d)
+                  basis[i][d] = fe.shape_value(i, unit) *
+                                modes[q][component * n_components + d];
+              }
+          }
+        callback(q, entity, representative_q, indices, basis, weights[q][0]);
       }
-    else
-      {
-        AssertDimension(mass_matrix.m(), this->get_dof_handler().n_dofs());
-        AssertDimension(mass_matrix.n(), this->get_dof_handler().n_dofs());
-
-        mass_matrix    = 0;
-        const auto &fe = this->get_dof_handler().get_fe();
-        ReducedFieldValues<reduced_dim, spacedim> field_values(
-          this->properties_dh,
-          this->get_quadrature(),
-          this->properties,
-          this->properties_bindings);
-        std::vector<double> bound_values(this->get_quadrature().size() *
-                                         this->properties_bindings.size());
-
-        FullMatrix<double> local_mass_matrix(fe.n_dofs_per_cell(),
-                                             fe.n_dofs_per_cell());
-        std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
-        FEValues<reduced_dim, spacedim>      fe_values(fe,
-                                                  this->get_quadrature(),
-                                                  update_values |
-                                                    update_quadrature_points |
-                                                    update_JxW_values);
-
-        std::vector<double> thickness_values(this->get_quadrature().size(),
-                                             this->constant_thickness);
-
-        for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-          if (cell->is_locally_owned())
-            {
-              fe_values.reinit(cell);
-              const auto &JxW = fe_values.get_JxW_values();
-
-              if (!this->properties_bindings.empty())
-                field_values.extract(cell->as_dof_handler_iterator(
-                                       this->properties_dh),
-                                     bound_values);
-              evaluate_thickness_values<reduced_dim, spacedim>(
-                this->get_thickness_evaluator(),
-                this->get_thickness_expression().empty() ?
-                  std::string("constant") :
-                  this->get_thickness_expression(),
-                cell->as_dof_handler_iterator(this->properties_dh),
-                fe_values.get_quadrature_points(),
-                bound_values,
-                this->constant_thickness,
-                rhs_time,
-                thickness_values);
-
-              local_mass_matrix = 0;
-              for (const auto q : fe_values.quadrature_point_indices())
-                {
-                  const auto section_measure =
-                    this->get_reference_cross_section().measure(
-                      thickness_values[q]);
-
-                  for (const auto i : fe_values.dof_indices())
-                    {
-                      const auto comp_i =
-                        fe_values.get_fe().system_to_component_index(i).first;
-                      for (const auto j : fe_values.dof_indices())
-                        {
-                          const auto comp_j = fe_values.get_fe()
-                                                .system_to_component_index(j)
-                                                .first;
-                          if (comp_i == comp_j)
-                            local_mass_matrix(i, j) +=
-                              fe_values.shape_value(i, q) *
-                              fe_values.shape_value(j, q) * JxW[q] *
-                              section_measure *
-                              this->get_reference_cross_section()
-                                .get_basis_mean_squares()[comp_i];
-                        }
-                    }
-                }
-              cell->get_dof_indices(dof_indices);
-              coupling_constraints.distribute_local_to_global(local_mass_matrix,
-                                                              dof_indices,
-                                                              mass_matrix);
-            }
-      }
-    mass_matrix.compress(VectorOperation::add);
   }
 
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  template <typename MatrixType>
+  void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+    assemble_sampled_mass_matrix(MatrixType               &matrix,
+                                 const std::optional<bool> inside) const
+  {
+    AssertDimension(matrix.m(), this->n_representative_dofs());
+    AssertDimension(matrix.n(), this->n_representative_dofs());
+    matrix = 0.;
+    for_each_source_sample([&](const auto q,
+                               const auto,
+                               const auto,
+                               const auto  &indices,
+                               const auto  &basis,
+                               const double weight) {
+      if (inside.has_value() && located_source_points[q] != *inside)
+        return;
+      FullMatrix<double> local(indices.size(), indices.size());
+      for (unsigned int i = 0; i < indices.size(); ++i)
+        for (unsigned int j = 0; j < indices.size(); ++j)
+          local(i, j) = weight * (basis[i] * basis[j]);
+      coupling_constraints.distribute_local_to_global(local, indices, matrix);
+    });
+    matrix.compress(VectorOperation::add);
+  }
 
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  template <typename MatrixType>
+  void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+    assemble_coupling_mass_matrix(MatrixType &matrix) const
+  {
+    assemble_sampled_mass_matrix(matrix, std::nullopt);
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  template <typename MatrixType>
+  void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+    assemble_overlap_mass_matrix(MatrixType &matrix) const
+  {
+    assemble_sampled_mass_matrix(matrix, true);
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  template <typename MatrixType>
+  void
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
+    assemble_outside_mass_matrix(MatrixType &matrix) const
+  {
+    assemble_sampled_mass_matrix(matrix, false);
+  }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
   template <typename VectorType>
-  inline void
+  void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-    assemble_reduced_rhs(VectorType &reduced_rhs) const
+    assemble_reduced_rhs(VectorType &rhs) const
   {
-    if constexpr (reduced_dim == 0)
-      {
-        const unsigned int n_basis =
-          this->get_reference_cross_section().n_selected_basis();
-        const unsigned int  block = this->n_representative_dofs_per_entity();
-        Vector<double>      local_rhs(block);
-        std::vector<double> values(n_basis);
-        for (const auto entity : this->locally_owned_representative_entities())
-          {
-            local_rhs = 0;
-            const double section_measure =
-              this->get_reference_cross_section().measure(
-                this->get_entity_thickness(entity));
-            if (symbolic_coupling_rhs)
-              symbolic_coupling_rhs->evaluate_into(
-                this->get_entity_position(entity),
-                rhs_time,
-                this->get_entity_property_values(entity),
-                values);
-            else
-              {
-                Vector<double> value_vector(n_basis);
-                coupling_rhs->vector_value(this->get_entity_position(entity),
-                                           value_vector);
-                for (unsigned int j = 0; j < n_basis; ++j)
-                  values[j] = value_vector[j];
-              }
-            const auto &mean_squares =
-              this->get_reference_cross_section().get_basis_mean_squares();
-            for (unsigned int j = 0; j < block; ++j)
-              local_rhs[j] = values[j] * section_measure * mean_squares[j];
-            coupling_constraints.distribute_local_to_global(
-              local_rhs,
-              this->get_representative_dof_indices(entity),
-              reduced_rhs);
-          }
-        reduced_rhs.compress(VectorOperation::add);
+    const auto  data  = modal_data_values();
+    const auto &modes = this->get_locally_owned_mode_values();
+    rhs               = 0.;
+    for_each_source_sample([&](const auto   q,
+                               const auto   entity,
+                               const auto   representative_q,
+                               const auto  &indices,
+                               const auto  &basis,
+                               const double weight) {
+      if (!located_source_points[q])
         return;
-      }
-    else
-      {
-        FEValues<reduced_dim, spacedim> fe_values(
-          this->get_dof_handler().get_fe(),
-          this->get_quadrature(),
-          update_values | update_quadrature_points | update_JxW_values);
-
-        Vector<double> local_rhs(
-          this->get_dof_handler().get_fe().n_dofs_per_cell());
-        std::vector<Vector<double>> rhs_values(
-          this->get_quadrature().size(),
-          Vector<double>(
-            this->get_reference_cross_section().n_selected_basis()));
-        std::vector<types::global_dof_index> dof_indices(
-          this->get_dof_handler().get_fe().n_dofs_per_cell());
-        ReducedFieldValues<reduced_dim, spacedim> field_values(
-          this->properties_dh,
-          this->get_quadrature(),
-          this->properties,
-          this->properties_bindings);
-        std::vector<double> bound_values(this->get_quadrature().size() *
-                                         this->properties_bindings.size());
-        std::vector<double> fields_at_q(this->properties_bindings.size());
-        std::vector<double> evaluated_rhs(
-          this->get_reference_cross_section().n_selected_basis());
-
-        std::vector<double> thickness_values(this->get_quadrature().size(),
-                                             this->constant_thickness);
-
-        // VectorTools::create_right_hand_side(this->get_dof_handler(),
-        //                                     this->get_quadrature(),
-        //                                     *coupling_rhs,
-        //                                     reduced_rhs,
-        //                                     coupling_constraints);
-        for (const auto &cell : this->get_dof_handler().active_cell_iterators())
-          if (cell->is_locally_owned())
-            {
-              fe_values.reinit(cell);
-              const auto &JxW      = fe_values.get_JxW_values();
-              const auto &q_points = fe_values.get_quadrature_points();
-              if (!this->properties_bindings.empty())
-                field_values.extract(cell->as_dof_handler_iterator(
-                                       this->properties_dh),
-                                     bound_values);
-              if (symbolic_coupling_rhs)
-                for (const auto q : fe_values.quadrature_point_indices())
-                  {
-                    std::copy(bound_values.begin() +
-                                q * this->properties_bindings.size(),
-                              bound_values.begin() +
-                                (q + 1) * this->properties_bindings.size(),
-                              fields_at_q.begin());
-                    symbolic_coupling_rhs->evaluate_into(q_points[q],
-                                                         rhs_time,
-                                                         fields_at_q,
-                                                         evaluated_rhs);
-                    std::copy(evaluated_rhs.begin(),
-                              evaluated_rhs.end(),
-                              rhs_values[q].begin());
-                  }
-              else
-                coupling_rhs->vector_value_list(q_points, rhs_values);
-
-              evaluate_thickness_values<reduced_dim, spacedim>(
-                this->get_thickness_evaluator(),
-                this->get_thickness_expression().empty() ?
-                  std::string("constant") :
-                  this->get_thickness_expression(),
-                cell->as_dof_handler_iterator(this->properties_dh),
-                q_points,
-                bound_values,
-                this->constant_thickness,
-                rhs_time,
-                thickness_values);
-
-              local_rhs = 0;
-              for (const auto q : fe_values.quadrature_point_indices())
-                for (const auto i : fe_values.dof_indices())
-                  {
-                    const auto comp_i =
-                      fe_values.get_fe().system_to_component_index(i).first;
-                    local_rhs(i) += rhs_values[q][comp_i] *
-                                    fe_values.shape_value(i, q) * JxW[q] *
-                                    this->get_reference_cross_section().measure(
-                                      thickness_values[q]) *
-                                    this->get_reference_cross_section()
-                                      .get_basis_mean_squares()[comp_i];
-                  }
-              cell->get_dof_indices(dof_indices);
-              coupling_constraints.distribute_local_to_global(local_rhs,
-                                                              dof_indices,
-                                                              reduced_rhs);
-            }
-      }
-    reduced_rhs.compress(VectorOperation::add);
+      const auto &coefficients = data.at(entity).at(representative_q);
+      Tensor<1, n_components> imposed;
+      for (unsigned int c = 0; c < coefficients.size(); ++c)
+        for (unsigned int d = 0; d < n_components; ++d)
+          imposed[d] += coefficients[c] * modes[q][c * n_components + d];
+      Vector<double> local(indices.size());
+      for (unsigned int i = 0; i < indices.size(); ++i)
+        local[i] = weight * (basis[i] * imposed);
+      coupling_constraints.distribute_local_to_global(local, indices, rhs);
+    });
+    rhs.compress(VectorOperation::add);
   }
 #endif
 

@@ -700,9 +700,8 @@ namespace ImmersX
     bool                      representative_handler_initialized = false;
     unsigned int              n_global_representative_entities   = 0;
     std::vector<unsigned int> source_entity_ids;
-    // These vectors contain only the source-local input until the
-    // representative particle handler is initialized. Runtime geometry and
-    // metadata then live exclusively in representative_particles.
+    // Keep source-owned geometry and metadata for representatives outside
+    // the background. The particle handler contains only the located view.
     std::vector<std::vector<double>>       representative_properties;
     IndexSet                               relevant_representative_entities;
     std::vector<unsigned int>              lifted_entity_ids;
