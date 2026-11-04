@@ -1,10 +1,18 @@
+#include <deal.II/base/scope_exit.h>
+
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/manifold_lib.h>
 
 #include <gtest/gtest.h>
 #include <immersx/core/domain.h>
 
 #include <fstream>
 #include <set>
+#include <sstream>
+
+#if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
+#  include <gmsh.h>
+#endif
 
 #include "test_paths.h"
 
@@ -450,3 +458,121 @@ TEST(Domain, ReadsBoundaryIdsWithoutRetainingVtkFields)
 
   EXPECT_EQ(boundary_ids, (std::set<types::boundary_id>{11, 12, 13, 14}));
 }
+
+#if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
+namespace
+{
+  std::string
+  mesh_bytes(const std::string &filename)
+  {
+    std::ifstream      input(filename, std::ios::binary);
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    return contents.str();
+  }
+} // namespace
+
+TEST(Domain, BOTH_GmshPhysicalTagsAndNamedOverrides)
+{
+  const bool owns_gmsh = gmsh::isInitialized() == 0;
+  if (owns_gmsh)
+    gmsh::initialize();
+  const ScopeExit finalize([owns_gmsh]() {
+    if (owns_gmsh && gmsh::isInitialized())
+      gmsh::finalize();
+  });
+  double          old_version = 0., old_save_all = 0., old_binary = 0.;
+  gmsh::option::getNumber("Mesh.MshFileVersion", old_version);
+  gmsh::option::getNumber("Mesh.SaveAll", old_save_all);
+  gmsh::option::getNumber("Mesh.Binary", old_binary);
+  const ScopeExit restore([old_version, old_save_all, old_binary]() {
+    gmsh::option::setNumber("Mesh.MshFileVersion", old_version);
+    gmsh::option::setNumber("Mesh.SaveAll", old_save_all);
+    gmsh::option::setNumber("Mesh.Binary", old_binary);
+  });
+  gmsh::option::setNumber("Mesh.MshFileVersion", 2.2);
+  gmsh::option::setNumber("Mesh.SaveAll", 0);
+  gmsh::option::setNumber("Mesh.Binary", 1);
+
+  for (const std::string backend : {"distributed", "fullydistributed"})
+    for (const std::string variant : {"unnamed", "named", "mixed", "untagged"})
+      {
+        SCOPED_TRACE(backend + "/" + variant);
+        ParameterAcceptor::clear();
+        DomainParameters<2> parameters("/Gmsh physical tags/");
+        parameters.name_of_grid =
+          TestPaths::data_filename("tests/gmsh_physical_" + variant + ".msh");
+        parameters.triangulation_type = backend;
+        parameters.initial_refinement = 0;
+        const auto original           = mesh_bytes(parameters.name_of_grid);
+        Domain<2>  domain(parameters);
+        domain.prepare_grid();
+        // The reader transfers selectors; callers own their actual manifolds.
+        domain.refinement_triangulation().set_manifold(2, FlatManifold<2>());
+        domain.refinement_triangulation().set_manifold(3, FlatManifold<2>());
+        domain.finalize_grid();
+        EXPECT_EQ(mesh_bytes(parameters.name_of_grid), original);
+        unsigned int cells  = 0;
+        double       volume = 0., boundary_measure = 0.;
+        for (const auto &cell : domain.triangulation().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              ++cells;
+              volume += cell->measure();
+              const bool left = cell->center()[0] < 1.;
+              EXPECT_EQ(cell->material_id(),
+                        left ? (variant == "mixed"    ? 7u :
+                                variant == "untagged" ? 0u :
+                                                        11u) :
+                               42u);
+              EXPECT_EQ(cell->manifold_id(),
+                        left && variant == "mixed" ? 2u :
+                                                     numbers::flat_manifold_id);
+              for (const auto face : cell->face_indices())
+                if (cell->at_boundary(face))
+                  {
+                    const auto &f = cell->face(face);
+                    boundary_measure += f->measure();
+                    const bool         left_face = f->center()[0] < 1e-10;
+                    const unsigned int expected =
+                      left_face ? (variant == "mixed" ? 5u : 101u) :
+                      f->center()[0] > 2. - 1e-10 ? 202u :
+                      f->center()[1] < .5         ? 77u :
+                                                    99u;
+                    EXPECT_EQ(f->boundary_id(), expected);
+                    EXPECT_EQ(f->manifold_id(),
+                              left_face && variant == "mixed" ?
+                                3u :
+                                numbers::flat_manifold_id);
+                  }
+            }
+        EXPECT_EQ(Utilities::MPI::sum(cells, MPI_COMM_WORLD), 2u);
+        EXPECT_NEAR(Utilities::MPI::sum(volume, MPI_COMM_WORLD), 2., 1e-14);
+        EXPECT_NEAR(Utilities::MPI::sum(boundary_measure, MPI_COMM_WORLD),
+                    6.,
+                    1e-14);
+        double version = 0., save_all = 0., binary = 0.;
+        gmsh::option::getNumber("Mesh.MshFileVersion", version);
+        gmsh::option::getNumber("Mesh.SaveAll", save_all);
+        gmsh::option::getNumber("Mesh.Binary", binary);
+        EXPECT_DOUBLE_EQ(version, 2.2);
+        EXPECT_DOUBLE_EQ(save_all, 0.);
+        EXPECT_DOUBLE_EQ(binary, 1.);
+      }
+
+  ParameterAcceptor::clear();
+  DomainParameters<2> invalid("/Gmsh failure/");
+  invalid.name_of_grid =
+    TestPaths::data_filename("tests/missing-gmsh-input.msh");
+  invalid.initial_refinement = 0;
+  Domain<2> problem(invalid);
+  EXPECT_ANY_THROW(problem.make_grid());
+  double version = 0., save_all = 0., binary = 0.;
+  gmsh::option::getNumber("Mesh.MshFileVersion", version);
+  gmsh::option::getNumber("Mesh.SaveAll", save_all);
+  gmsh::option::getNumber("Mesh.Binary", binary);
+  EXPECT_DOUBLE_EQ(version, 2.2);
+  EXPECT_DOUBLE_EQ(save_all, 0.);
+  EXPECT_DOUBLE_EQ(binary, 1.);
+}
+#endif

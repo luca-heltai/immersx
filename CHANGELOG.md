@@ -245,6 +245,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Preserve unnamed Gmsh physical material and boundary ids during Domain imports without changing named material, boundary or manifold selectors. Keep untagged entities, input files and Gmsh output settings intact.
+
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Reuse the current linearization in steady Schur and block preconditioners so each application avoids assembling the coupling again. Refresh retained matrices for every solve.
 
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Retain affine boundary contributions, full sampled modal Gram matrices, and nominal pressure data when coupling support is partial. Account for the exterior multiplier block in Schur and augmented-Lagrangian solves, and honor the configured inner-solver tolerance in the immersed Laplacian solver.
