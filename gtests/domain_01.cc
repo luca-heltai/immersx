@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <immersx/core/domain.h>
 
+#include <array>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -481,18 +482,26 @@ TEST(Domain, BOTH_GmshPhysicalTagsAndNamedOverrides)
     if (owns_gmsh && gmsh::isInitialized())
       gmsh::finalize();
   });
-  double          old_version = 0., old_save_all = 0., old_binary = 0.;
+  double old_version = 0., old_save_all = 0., old_binary = 0., old_scaling = 0.,
+         old_orphans = 0.;
   gmsh::option::getNumber("Mesh.MshFileVersion", old_version);
   gmsh::option::getNumber("Mesh.SaveAll", old_save_all);
   gmsh::option::getNumber("Mesh.Binary", old_binary);
-  const ScopeExit restore([old_version, old_save_all, old_binary]() {
-    gmsh::option::setNumber("Mesh.MshFileVersion", old_version);
-    gmsh::option::setNumber("Mesh.SaveAll", old_save_all);
-    gmsh::option::setNumber("Mesh.Binary", old_binary);
-  });
+  gmsh::option::getNumber("Mesh.ScalingFactor", old_scaling);
+  gmsh::option::getNumber("Mesh.SaveWithoutOrphans", old_orphans);
+  const ScopeExit restore(
+    [old_version, old_save_all, old_binary, old_scaling, old_orphans]() {
+      gmsh::option::setNumber("Mesh.MshFileVersion", old_version);
+      gmsh::option::setNumber("Mesh.SaveAll", old_save_all);
+      gmsh::option::setNumber("Mesh.Binary", old_binary);
+      gmsh::option::setNumber("Mesh.ScalingFactor", old_scaling);
+      gmsh::option::setNumber("Mesh.SaveWithoutOrphans", old_orphans);
+    });
   gmsh::option::setNumber("Mesh.MshFileVersion", 2.2);
   gmsh::option::setNumber("Mesh.SaveAll", 0);
   gmsh::option::setNumber("Mesh.Binary", 1);
+  gmsh::option::setNumber("Mesh.ScalingFactor", 2.5);
+  gmsh::option::setNumber("Mesh.SaveWithoutOrphans", 1);
 
   for (const std::string backend : {"distributed", "fullydistributed"})
     for (const std::string variant : {"unnamed", "named", "mixed", "untagged"})
@@ -558,7 +567,40 @@ TEST(Domain, BOTH_GmshPhysicalTagsAndNamedOverrides)
         EXPECT_DOUBLE_EQ(version, 2.2);
         EXPECT_DOUBLE_EQ(save_all, 0.);
         EXPECT_DOUBLE_EQ(binary, 1.);
+        double scaling = 0., orphans = 0.;
+        gmsh::option::getNumber("Mesh.ScalingFactor", scaling);
+        gmsh::option::getNumber("Mesh.SaveWithoutOrphans", orphans);
+        EXPECT_DOUBLE_EQ(scaling, 2.5);
+        EXPECT_DOUBLE_EQ(orphans, 1.);
       }
+
+  ParameterAcceptor::clear();
+  DomainParameters<2> precise_parameters("/Gmsh coordinates/");
+  precise_parameters.name_of_grid =
+    TestPaths::data_filename("tests/gmsh_physical_precise.msh");
+  precise_parameters.initial_refinement = 0;
+  Domain<2> precise(precise_parameters);
+  precise.make_grid();
+  const std::array<double, 3> xs{
+    {0.12345678901234566, 1.2345678901234567, 2.3456789012345678}};
+  const std::array<double, 2> ys{{0.23456789012345678, 1.3456789012345678}};
+  for (const double x : xs)
+    for (const double y : ys)
+      {
+        unsigned int found = 0;
+        for (const auto &cell : precise.triangulation().active_cell_iterators())
+          if (cell->is_locally_owned())
+            for (const auto v : cell->vertex_indices())
+              found += cell->vertex(v)[0] == x && cell->vertex(v)[1] == y;
+        EXPECT_GT(Utilities::MPI::sum(found, MPI_COMM_WORLD), 0u);
+      }
+  double area = 0.;
+  for (const auto &cell : precise.triangulation().active_cell_iterators())
+    if (cell->is_locally_owned())
+      area += cell->measure();
+  EXPECT_NEAR(Utilities::MPI::sum(area, MPI_COMM_WORLD),
+              (xs.back() - xs.front()) * (ys.back() - ys.front()),
+              1e-14);
 
   ParameterAcceptor::clear();
   DomainParameters<2> invalid("/Gmsh failure/");
@@ -574,5 +616,10 @@ TEST(Domain, BOTH_GmshPhysicalTagsAndNamedOverrides)
   EXPECT_DOUBLE_EQ(version, 2.2);
   EXPECT_DOUBLE_EQ(save_all, 0.);
   EXPECT_DOUBLE_EQ(binary, 1.);
+  double scaling = 0., orphans = 0.;
+  gmsh::option::getNumber("Mesh.ScalingFactor", scaling);
+  gmsh::option::getNumber("Mesh.SaveWithoutOrphans", orphans);
+  EXPECT_DOUBLE_EQ(scaling, 2.5);
+  EXPECT_DOUBLE_EQ(orphans, 1.);
 }
 #endif

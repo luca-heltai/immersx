@@ -73,18 +73,24 @@ namespace ImmersX
         if (owns_gmsh && gmsh::isInitialized())
           gmsh::finalize();
       });
-      double                  version = 0., save_all = 0., binary = 0.;
+      double version = 0., save_all = 0., binary = 0., scaling = 0.,
+             orphans = 0.;
       gmsh::option::getNumber("Mesh.MshFileVersion", version);
       gmsh::option::getNumber("Mesh.SaveAll", save_all);
       gmsh::option::getNumber("Mesh.Binary", binary);
-      const dealii::ScopeExit restore_options([version, save_all, binary]() {
-        // Older native readers finalize the Gmsh session they use.
-        if (!gmsh::isInitialized())
-          gmsh::initialize();
-        gmsh::option::setNumber("Mesh.MshFileVersion", version);
-        gmsh::option::setNumber("Mesh.SaveAll", save_all);
-        gmsh::option::setNumber("Mesh.Binary", binary);
-      });
+      gmsh::option::getNumber("Mesh.ScalingFactor", scaling);
+      gmsh::option::getNumber("Mesh.SaveWithoutOrphans", orphans);
+      const dealii::ScopeExit restore_options(
+        [version, save_all, binary, scaling, orphans]() {
+          // Older native readers finalize the Gmsh session they use.
+          if (!gmsh::isInitialized())
+            gmsh::initialize();
+          gmsh::option::setNumber("Mesh.MshFileVersion", version);
+          gmsh::option::setNumber("Mesh.SaveAll", save_all);
+          gmsh::option::setNumber("Mesh.Binary", binary);
+          gmsh::option::setNumber("Mesh.ScalingFactor", scaling);
+          gmsh::option::setNumber("Mesh.SaveWithoutOrphans", orphans);
+        });
       gmsh::option::setNumber("General.Verbosity", 0);
       gmsh::clear();
       gmsh::open(filename);
@@ -128,7 +134,9 @@ namespace ImmersX
       });
       gmsh::option::setNumber("Mesh.MshFileVersion", 4.1);
       gmsh::option::setNumber("Mesh.SaveAll", 1);
-      gmsh::option::setNumber("Mesh.Binary", 0);
+      gmsh::option::setNumber("Mesh.Binary", 1);
+      gmsh::option::setNumber("Mesh.ScalingFactor", 1);
+      gmsh::option::setNumber("Mesh.SaveWithoutOrphans", 0);
       gmsh::write(temporary_file);
       grid_in.read_msh(temporary_file);
     }
@@ -246,7 +254,10 @@ namespace ImmersX
 #if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
       if (extension == "msh" || extension == "stl")
         {
-          read_gmsh_file(filename, grid_in);
+          if (extension == "msh")
+            read_gmsh_file(filename, grid_in);
+          else if (extension == "stl")
+            grid_in.read_msh(filename);
           return;
         }
 #endif
