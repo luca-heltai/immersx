@@ -45,23 +45,22 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <set>
 #include <type_traits>
 #include <utility>
 #include <vector>
-#include <iostream>
 
 namespace ImmersX
 {
   namespace detail
   {
     inline void
-    report_retained_quadrature_points_once(
-      const std::uint64_t retained,
-      const std::uint64_t total,
-      const MPI_Comm     communicator)
+    report_retained_quadrature_points_once(const std::uint64_t retained,
+                                           const std::uint64_t total,
+                                           const MPI_Comm      communicator)
     {
       // Only rank zero prints. No MPI collective is performed here.
       if (dealii::Utilities::MPI::this_mpi_process(communicator) != 0)
@@ -77,11 +76,8 @@ namespace ImmersX
       if (reported.exchange(true))
         return;
 
-      std::cout
-        << "Quadrature points retained: "
-        << retained << " / " << total
-        << " (" << total - retained << " skipped)."
-        << std::endl;
+      std::cout << "Quadrature points retained: " << retained << " / " << total
+                << " (" << total - retained << " skipped)." << std::endl;
     }
     template <int dim, typename Support>
     dealii::Quadrature<dim>
@@ -2711,7 +2707,7 @@ namespace ImmersX
               global_points,
               target_field.space().mpi_communicator());
 
-            
+
             for (const auto &particle : distribution.get_particles())
               if (particle.get_surrounding_cell()->is_locally_owned())
                 {
