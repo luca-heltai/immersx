@@ -31,7 +31,7 @@ def check_ratio_charts(page, url):
     failed_attempt = attempt("d", "4", "failed")
     failed_record = attempt("e", "5")
     failed_record["records"][0]["status"] = "failed"
-    failed_record["records"].append(normalize({**raw(), "case": "stiffness_q1",
+    failed_record["records"].append(normalize({**raw(), "case": "laplace_q1",
         "relative_matrix_error": 1.e-5}, CONFIG))
     # Non-equivalent native work must remain N/A, even when timings exist.
     a["records"].append(normalize({**raw(), "case": "boundary_flux_q1",
@@ -45,20 +45,20 @@ def check_ratio_charts(page, url):
     overview = page.locator("#performance-overview")
     cards = overview.locator(".performance-case")
     assert cards.count() == 3  # Includes native-unavailable and failed-only cases.
-    failed = cards.filter(has=page.get_by_role("heading", name="stiffness_q1 (2D, 1 ranks, Release)", exact=True))
+    failed = cards.filter(has=page.get_by_role("heading", name="laplace_q1 (2D, 1 ranks, Release)", exact=True))
     assert failed.locator("svg").count() == 0
     assert "1 failed measurements excluded" in failed.inner_text()
     mass = cards.filter(has=page.get_by_role("heading", name="mass_q1 (2D, 1 ranks, Release)", exact=True))
     assert mass.locator("svg").count() == 2  # Different CPUs never share a line.
     assert sorted(mass.locator("svg").evaluate_all("nodes => nodes.map(n => n.querySelectorAll('circle').length)")) == [1, 2]
     assert "2 failed measurements excluded" in mass.inner_text()
-    assert "no historical trend yet" in mass.inner_text()
     assert mass.locator("svg circle title").all_text_contents() == [
         "a: 2.0000 × native deal.II", "b: 0.75000 × native deal.II", "0: 2.0000 × native deal.II"]
     assert mass.locator("svg").first.is_visible()
     assert not mass.locator("svg").nth(1).is_visible()
     mass.locator("summary").click()
     assert mass.locator("svg").nth(1).is_visible()
+    assert "no historical trend yet" in mass.inner_text()
     boundary = cards.filter(has=page.get_by_role("heading", name="boundary_flux_q1 (2D, 1 ranks, Release)", exact=True))
     assert boundary.is_visible() and boundary.locator("svg").count() == 0
     assert "no equivalent native comparison" in boundary.inner_text()
@@ -93,7 +93,8 @@ def check_ratio_charts(page, url):
     assert "metric=absolute" in page.url
     assert chooser.input_value().endswith("/warm_immersx")
     assert overview.locator("svg line").count() == 0
-    assert boundary.locator("svg circle").count() == 1
+    assert boundary.locator("svg").count() == 2
+    assert boundary.locator("svg").first.locator("circle title").text_content() == "a: 2.0000 ms"
     assert svg.locator("line").count() == 0
     assert svg.locator("circle title").all_text_contents() == ["a: 2.0000 ms", "b: 3.0000 ms"]
     page.reload()
