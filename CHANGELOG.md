@@ -432,6 +432,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Bound coupled transient application regressions to 115 seconds and use three-point cross-section quadrature while retaining their meshes, finite-element degrees, forcing and solver tolerances.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Exercise both coupled manufactured boundary conditions with dedicated application fixtures and a 115-second test budget, preserving the resolved tutorial inputs for accuracy studies.
+
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Avoid GMRES breakdown in the static tensor-product coupling regression by using a bulk mesh that can represent its six multiplier constraints, and check both assembled block residuals.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Initialize the vascular crossing-work fixture widths directly, preserving its nonuniform cells while avoiding GCC 13 array-bounds diagnostics from chained vector assignment.

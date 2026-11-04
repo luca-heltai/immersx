@@ -6,7 +6,7 @@ if(DEFINED MPIEXEC AND NOT MPIEXEC STREQUAL "")
   list(PREPEND _command "${MPIEXEC}" -np "${MPI_RANKS}")
 endif()
 if(NOT DEFINED APPLICATION_TIMEOUT)
-  set(APPLICATION_TIMEOUT 590)
+  set(APPLICATION_TIMEOUT 110)
 endif()
 execute_process(COMMAND ${_command}
                 RESULT_VARIABLE _result

@@ -1,0 +1,25 @@
+# Application regression; the resolved tutorial remains a separate accuracy run.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube_neumann.prm
+
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-neumann
+  subsection Domain
+    # Retain four axial cells for the two flow cells.
+    set Grid generator arguments = 4, 8, 8: -0.120685, -0.120685, -0.120685: 0.120685, 0.120685, 0.120685: false
+  end
+end
+
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-neumann
+  subsection IDA parameters
+    set Final time = 0.02
+    set Time interval between each output = 0.01
+  end
+end
+
+subsection MetricFlowX vessel wall lift
+  subsection Cross section
+    set Refinement level = 1
+    set Number of points = 2
+  end
+end

@@ -92,7 +92,7 @@ subsection MetricFlowX vessel wall lift
     set Maximum inclusion degree = 1
     set Selected indices = 3, 7
     set Quadrature type = gauss
-    set Number of points = 8
+    set Number of points = 3
   end
   subsection Representative quadrature
     set Type = gauss
