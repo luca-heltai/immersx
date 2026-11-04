@@ -432,6 +432,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Keep lifted elasticity application checks within 115 seconds and reduce the three-dimensional multiplier fixture while preserving two global refinement cycles, three multiplier fields and solver tolerances.
+
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Bound coupled transient application regressions to 115 seconds and use three-point cross-section quadrature while retaining their meshes, finite-element degrees, forcing and solver tolerances.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Exercise both coupled manufactured boundary conditions with dedicated application fixtures and a 115-second test budget, preserving the resolved tutorial inputs for accuracy studies.

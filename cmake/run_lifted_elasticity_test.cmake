@@ -18,7 +18,7 @@ if(RANKS GREATER 1)
 endif()
 execute_process(COMMAND ${_mpi_command} "${EXECUTABLE}" "${PARAMETERS}"
   RESULT_VARIABLE _result OUTPUT_VARIABLE _stdout ERROR_VARIABLE _stderr
-  TIMEOUT 250)
+  TIMEOUT 110)
 message("${_stdout}${_stderr}")
 if(NOT _result EQUAL 0)
   message(FATAL_ERROR "Static elasticity example failed: ${_result}")
