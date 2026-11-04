@@ -245,7 +245,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Omit exterior reinforcement quadrature points from shared harmonic elasticity, retaining interior samples of partially overlapping fibers and reporting their retained volume.
+- [PR #329](https://github.com/luca-heltai/immersx/pull/329) Omit exterior reinforcement quadrature points from shared harmonic elasticity, retaining interior samples of partially overlapping fibers and reporting their retained volume.
 
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Reuse the current linearization in steady Schur and block preconditioners so each application avoids assembling the coupling again. Refresh retained matrices for every solve.
 
