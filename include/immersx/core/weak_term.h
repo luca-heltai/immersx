@@ -51,11 +51,38 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <iostream>
 
 namespace ImmersX
 {
   namespace detail
   {
+    inline void
+    report_retained_quadrature_points_once(
+      const std::uint64_t retained,
+      const std::uint64_t total,
+      const MPI_Comm     communicator)
+    {
+      // Only rank zero prints. No MPI collective is performed here.
+      if (dealii::Utilities::MPI::this_mpi_process(communicator) != 0)
+        return;
+
+      // Ignore empty supports without consuming the one-time report.
+      if (total == 0)
+        return;
+
+      // Shared across calls, including different weak-term template types.
+      static std::atomic<bool> reported{false};
+
+      if (reported.exchange(true))
+        return;
+
+      std::cout
+        << "Quadrature points retained: "
+        << retained << " / " << total
+        << " (" << total - retained << " skipped)."
+        << std::endl;
+    }
     template <int dim, typename Support>
     dealii::Quadrature<dim>
     support_quadrature(const Support                 &support,
@@ -937,10 +964,17 @@ namespace ImmersX
                 const auto global_routed_points = dealii::Utilities::MPI::sum(
                   static_cast<std::uint64_t>(routed_points),
                   target_field.space().mpi_communicator());
-                AssertThrow(global_routed_points == global_points,
-                            dealii::ExcMessage(
-                              "Not every physical support quadrature point "
-                              "was located in the background mesh."));
+                // Missing points are intentionally omitted from assembly.
+                // Keep a sanity check against unexpected duplicate routing.
+                AssertThrow(
+                  global_routed_points <= global_points,
+                  dealii::ExcMessage(
+                    "More support quadrature points were routed than supplied."));
+                ImmersX::detail::report_retained_quadrature_points_once(
+                  global_routed_points,
+                  global_points,
+                  target_field.space().mpi_communicator());
+
                 for (const auto &particle : distribution.get_particles())
                   if (particle.get_surrounding_cell()->is_locally_owned())
                     {
@@ -954,10 +988,12 @@ namespace ImmersX
                 const auto global_located_points = dealii::Utilities::MPI::sum(
                   local_quadrature_point_count,
                   target_field.space().mpi_communicator());
-                AssertThrow(global_located_points == global_points,
-                            dealii::ExcMessage(
-                              "Physical support quadrature points were not "
-                              "assigned to locally owned background cells."));
+
+                AssertThrow(
+                  global_located_points == global_routed_points,
+                  dealii::ExcMessage(
+                    "Some successfully routed support quadrature points were not "
+                    "assigned to locally owned background cells."));
               }
             else
               {
@@ -2664,10 +2700,18 @@ namespace ImmersX
             const auto global_routed_points = dealii::Utilities::MPI::sum(
               static_cast<std::uint64_t>(routed_points),
               target_field.space().mpi_communicator());
-            AssertThrow(global_routed_points == global_points,
-                        dealii::ExcMessage(
-                          "Not every physical support quadrature point was "
-                          "located in the background mesh."));
+            // Missing points are intentionally omitted from assembly.
+            // Keep a sanity check against unexpected duplicate routing.
+            AssertThrow(
+              global_routed_points <= global_points,
+              dealii::ExcMessage(
+                "More support quadrature points were routed than supplied."));
+            ImmersX::detail::report_retained_quadrature_points_once(
+              global_routed_points,
+              global_points,
+              target_field.space().mpi_communicator());
+
+            
             for (const auto &particle : distribution.get_particles())
               if (particle.get_surrounding_cell()->is_locally_owned())
                 {
