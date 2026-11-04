@@ -96,6 +96,10 @@ TEST(ElasticityCouplingIntegrationValidation, StaticSolveCompletes)
   // The six multiplier constraints need more than the three free bulk DoFs
   // of the level-one mesh with homogeneous Dirichlet boundary conditions.
   par.initial_refinement = 2;
+  // Resolve the augmented system accurately before checking the physical
+  // residuals, which undo its scaling.
+  par.augmented_lagrange_solver_control.set_tolerance(1.e-13);
+  par.augmented_lagrange_solver_control.set_reduction(1.e-13);
   ElasticityProblem<2, 3> problem(par);
 
   problem.make_grid();
