@@ -6,6 +6,7 @@ set(IMMERSX_UNIT_TEST_SUITES
     TestCategoryTyped/*
     ContributorCore
     DimensionParameters
+    CouplingNames
     FESpace
     InputFieldSelector
     MaterialParameters
