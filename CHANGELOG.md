@@ -245,6 +245,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #328](https://github.com/luca-heltai/immersx/pull/328) Reuse the current linearization in steady Schur and block preconditioners so each application avoids assembling the coupling again. Refresh retained matrices for every solve.
+
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Retain affine boundary contributions, full sampled modal Gram matrices, and nominal pressure data when coupling support is partial. Account for the exterior multiplier block in Schur and augmented-Lagrangian solves, and honor the configured inner-solver tolerance in the immersed Laplacian solver.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Retain materializable IDA Jacobian contributions per evaluation point and share composed operator callbacks, so iterative global and Schur actions and direct factorization reuse owned matrices without duplicating callback trees or rebuilding contributions during capability checks. Preserve matrix-free actions and fresh residual evaluation.

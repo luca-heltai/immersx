@@ -450,16 +450,19 @@ namespace ImmersX
       state         = composition_.make_state();
       composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
-      std::unique_ptr<BlockMatrixType> iterative_matrix;
+      std::shared_ptr<typename Composition::Snapshot> snapshot;
+      std::unique_ptr<BlockMatrixType>                iterative_matrix;
       auto operator_view = composition_.jacobian(0., state, nullptr, 0.);
       if (!solve_ && composition_.can_materialize_matrix(state))
         {
           pcout << "LinearAdapter: assembling the iterative solve matrix."
                 << std::endl;
-          // This solve owns the matrix it reuses. Weak terms retain only the
-          // recipes, so applying their views would otherwise reassemble it.
-          iterative_matrix.reset(
-            new BlockMatrixType(composition_.block_matrix(state)));
+          // Keep the same linearization for the matrix and its preconditioner.
+          // Weak-term views otherwise reassemble coupling at every Schur
+          // action.
+          snapshot = composition_.make_snapshot(0., state, true);
+          iterative_matrix.reset(new BlockMatrixType(composition_.block_matrix(
+            state, nullptr, 0., 0., &snapshot->linearization)));
           operator_view =
             dealii::linear_operator(operator_view, *iterative_matrix);
         }
@@ -473,7 +476,8 @@ namespace ImmersX
         }
       else
         {
-          const auto preconditioner = make_preconditioner(operator_view, state);
+          const auto preconditioner =
+            make_preconditioner(operator_view, state, snapshot.get());
           dealii::SolverControl control(parameters_.maximum_iterations,
                                         parameters_.tolerance);
           const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
@@ -543,8 +547,9 @@ namespace ImmersX
 
   private:
     Operator
-    make_preconditioner(const Operator         &operator_view,
-                        const GlobalVectorType &state) const
+    make_preconditioner(const Operator                       &operator_view,
+                        const GlobalVectorType               &state,
+                        const typename Composition::Snapshot *snapshot) const
     {
       auto choice = parameters_.preconditioner;
       if (choice == LinearPreconditioner::automatic)
@@ -565,7 +570,10 @@ namespace ImmersX
                       dealii::ExcMessage(
                         "Block diagonal preconditioning needs local "
                         "preconditioners for every field."));
-          return composition_.block_diagonal_preconditioner(state);
+          return composition_.block_diagonal_preconditioner(state,
+                                                            nullptr,
+                                                            0.,
+                                                            snapshot);
         }
       if (choice == LinearPreconditioner::block_triangular)
         {
@@ -573,7 +581,8 @@ namespace ImmersX
                       dealii::ExcMessage(
                         "Block triangular preconditioning needs local "
                         "preconditioners for every field."));
-          return composition_.block_triangular_preconditioner(state);
+          return composition_.block_triangular_preconditioner(
+            state, true, nullptr, 0., snapshot);
         }
       if (choice == LinearPreconditioner::schur)
         {
@@ -582,7 +591,14 @@ namespace ImmersX
                         "Schur preconditioning currently requires exactly "
                         "one saddle-point relation."));
           return composition_.schur_preconditioner(
-            composition_.saddle_points().front().multiplier, state);
+            composition_.saddle_points().front().multiplier,
+            state,
+            nullptr,
+            0.,
+            1000,
+            1.e-9,
+            false,
+            snapshot);
         }
       if (choice == LinearPreconditioner::augmented_lagrangian)
         return composition_.augmented_lagrangian_preconditioner(

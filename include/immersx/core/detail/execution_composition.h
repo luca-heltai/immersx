@@ -368,17 +368,18 @@ namespace ImmersX::detail
       Snapshot(const ExecutionComposition &composition,
                const double                time,
                const GlobalVectorType     &state,
-               const GlobalVectorType     &state_dot,
+               const GlobalVectorType     *state_dot,
                const bool                  retain_matrices)
         : state_storage(state)
-        , derivative_storage(state_dot)
+        , derivative_storage(state_dot ? *state_dot : composition.make_state())
         , state_view(composition.layout_, time)
         , derivative_view(composition.layout_, time)
-        , context(time, state_view, &derivative_view)
+        , context(time, state_view, state_dot ? &derivative_view : nullptr)
       {
         composition.field_layout_.bind_state(state_view, state_storage);
-        composition.field_layout_.bind_state(derivative_view,
-                                             derivative_storage);
+        if (state_dot)
+          composition.field_layout_.bind_state(derivative_view,
+                                               derivative_storage);
         if (retain_matrices)
           {
             composition.model_.update_context(context);
@@ -403,7 +404,17 @@ namespace ImmersX::detail
       validate_state(state);
       validate_state(state_dot);
       return std::make_shared<Snapshot>(
-        *this, time, state, state_dot, retain_matrices);
+        *this, time, state, &state_dot, retain_matrices);
+    }
+
+    std::shared_ptr<Snapshot>
+    make_snapshot(const double            time,
+                  const GlobalVectorType &state,
+                  const bool              retain_matrices) const
+    {
+      validate_state(state);
+      return std::make_shared<Snapshot>(
+        *this, time, state, nullptr, retain_matrices);
     }
 
     struct StateSnapshot

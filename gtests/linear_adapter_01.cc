@@ -8,6 +8,8 @@
 #include <immersx/core/linear_adapter.h>
 #include <immersx/io/utils.h>
 
+#include <array>
+
 namespace ImmersX
 {
   struct FakeProblem
@@ -628,4 +630,187 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
                             fields.fields().primal)[1],
               3. * (1. - 2. * transpose_multiplier),
               1.e-10);
+}
+
+
+namespace ImmersX
+{
+  struct RetainedSolveProblem
+  {
+    std::array<dealii::IndexSet, 2>             owned;
+    std::array<ImmersXLA::MPI::SparseMatrix, 4> matrices;
+    std::array<ImmersXLA::MPI::Vector, 2>       rhs;
+    mutable std::array<unsigned int, 4>         recipe_actions{};
+    mutable std::array<unsigned int, 4>         materializations{};
+  };
+
+  struct RetainedSolveFields
+  {
+    FieldId primal;
+    FieldId multiplier;
+  };
+
+  template <typename Builder>
+  RetainedSolveFields
+  contribute(Builder &builder, const RetainedSolveProblem &problem)
+  {
+    using VectorType    = ImmersXLA::MPI::Vector;
+    using MatrixType    = ImmersXLA::MPI::SparseMatrix;
+    using MatrixFactory = typename Builder::Model::MatrixOperatorFactory;
+    const std::array<FieldId, 2> fields = {
+      {builder.algebraic_field("primal", problem.owned[0]),
+       builder.algebraic_field("multiplier", problem.owned[1])}};
+    builder.saddle_point(fields[1], {fields[0]});
+    builder.preconditioner(fields[0], [](const auto &, const auto &reinit) {
+      return dealii::identity_operator<VectorType>(reinit);
+    });
+    for (unsigned int row = 0; row < 2; ++row)
+      {
+        builder.term(fields[row], "physical residual")
+          .residual([fields, row, &problem](const auto &context) {
+            const auto *primal     = &context.state(fields[0]);
+            const auto *multiplier = &context.state(fields[1]);
+            dealii::PackagedOperation<VectorType> result;
+            result.reinit_vector = [owned =
+                                      problem.owned[row]](VectorType &vector,
+                                                          const bool  omit) {
+              vector.reinit(owned, MPI_COMM_WORLD, omit);
+            };
+            result.apply =
+              [primal, multiplier, row, &problem](VectorType &dst) {
+                problem.matrices[2 * row].vmult(dst, *primal);
+                problem.matrices[2 * row + 1].vmult_add(dst, *multiplier);
+                dst -= problem.rhs[row];
+              };
+            result.apply_add = [apply = result.apply](VectorType &dst) {
+              VectorType contribution;
+              contribution.reinit(dst);
+              apply(contribution);
+              dst += contribution;
+            };
+            return result;
+          });
+        for (unsigned int column = 0; column < 2; ++column)
+          {
+            const auto slot = 2 * row + column;
+            builder.term(fields[row], "matrix recipe")
+              .state(fields[column],
+                     MatrixFactory([slot, &problem](const auto &context) {
+                       EXPECT_FALSE(context.has_state_derivative());
+                       auto result =
+                         matrix_operator<VectorType>(problem.matrices[slot]);
+                       const auto count_action =
+                         [slot, &problem](const auto &action) {
+                           return
+                             [slot, &problem, action](VectorType       &dst,
+                                                      const VectorType &src) {
+                               ++problem.recipe_actions[slot];
+                               action(dst, src);
+                             };
+                         };
+                       result.view.vmult = count_action(result.view.vmult);
+                       result.view.vmult_add =
+                         count_action(result.view.vmult_add);
+                       result.view.Tvmult = count_action(result.view.Tvmult);
+                       result.view.Tvmult_add =
+                         count_action(result.view.Tvmult_add);
+                       result.direct_matrix   = false;
+                       result.observes_matrix = false;
+                       result.observed_matrix = nullptr;
+                       result.materialize     = [slot, &problem] {
+                         ++problem.materializations[slot];
+                         auto matrix = std::make_shared<MatrixType>();
+                         matrix->reinit(problem.matrices[slot]);
+                         matrix->copy_from(problem.matrices[slot]);
+                         return matrix;
+                       };
+                       return result;
+                     }));
+          }
+      }
+    return {fields[0], fields[1]};
+  }
+} // namespace ImmersX
+
+TEST(LinearAdapter, BOTH_SchurSolveRetainsRecipesAndRefreshesMatrices)
+{
+  using VectorType = ImmersX::ImmersXLA::MPI::Vector;
+  using Adapter =
+    ImmersX::LinearAdapter<VectorType, ImmersX::ImmersXLA::MPI::BlockVector>;
+  dealii::ParameterAcceptor::clear();
+  ImmersX::RetainedSolveProblem problem;
+  problem.owned[0] =
+    dealii::Utilities::MPI::create_evenly_distributed_partitioning(
+      MPI_COMM_WORLD, 2);
+  problem.owned[1] =
+    dealii::Utilities::MPI::create_evenly_distributed_partitioning(
+      MPI_COMM_WORLD, 1);
+  EXPECT_EQ(problem.owned[1].n_elements(),
+            dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0 ? 1u :
+                                                                            0u);
+  for (unsigned int row = 0; row < 2; ++row)
+    {
+      problem.rhs[row].reinit(problem.owned[row], MPI_COMM_WORLD);
+      for (const auto i : problem.owned[row])
+        problem.rhs[row][i] = row == 0 ? (i == 0 ? 5. : 7.) : 2.;
+      problem.rhs[row].compress(dealii::VectorOperation::insert);
+      for (unsigned int column = 0; column < 2; ++column)
+        {
+          dealii::DynamicSparsityPattern graph(problem.owned[row].size(),
+                                               problem.owned[column].size(),
+                                               problem.owned[row]);
+          for (const auto i : problem.owned[row])
+            for (unsigned int j = 0; j < problem.owned[column].size(); ++j)
+              graph.add(i, j);
+          problem.matrices[2 * row + column].reinit(problem.owned[row],
+                                                    problem.owned[column],
+                                                    graph,
+                                                    MPI_COMM_WORLD);
+        }
+    }
+  ImmersX::LinearAdapterParameters parameters;
+  parameters.solver             = ImmersX::LinearSolver::iterative;
+  parameters.preconditioner     = ImmersX::LinearPreconditioner::schur;
+  parameters.tolerance          = 1.e-11;
+  parameters.maximum_iterations = 30;
+  Adapter    adapter(parameters, MPI_COMM_WORLD);
+  const auto fields = adapter.add(problem, "retained solve").fields();
+  auto       state  = adapter.make_state();
+  const std::array<std::array<double, 3>, 2> expected = {{
+    {{19. / 11., 20. / 11., 17. / 11.}},
+    {{66. / 61., 69. / 61., 41. / 61.}},
+  }};
+  std::array<unsigned int, 4>                previous_materializations{};
+  for (unsigned int solve = 0; solve < 2; ++solve)
+    {
+      // [A D; B -m], f=(5,7), g=2. The second solve changes all four blocks.
+      const std::array<std::vector<double>, 4> values = {
+        {std::vector<double>{
+           solve == 0 ? 2. : 4., 0., 0., solve == 0 ? 3. : 5.},
+         std::vector<double>{1., solve == 0 ? 1. : 2.},
+         std::vector<double>{1., solve == 0 ? 1. : 2.},
+         std::vector<double>{solve == 0 ? -1. : -2.}}};
+      for (unsigned int slot = 0; slot < 4; ++slot)
+        {
+          auto &matrix = problem.matrices[slot];
+          for (const auto i : problem.owned[slot / 2])
+            for (unsigned int j = 0; j < matrix.n(); ++j)
+              matrix.set(i, j, values[slot][i * matrix.n() + j]);
+          matrix.compress(dealii::VectorOperation::insert);
+        }
+      adapter.solve(state);
+      const auto &primal     = adapter.field(state, fields.primal);
+      const auto &multiplier = adapter.field(state, fields.multiplier);
+      for (const auto i : problem.owned[0])
+        EXPECT_NEAR(primal[i], expected[solve][i], 1.e-10);
+      for (const auto i : problem.owned[1])
+        EXPECT_NEAR(multiplier[i], expected[solve][2], 1.e-10);
+      for (unsigned int slot = 0; slot < 4; ++slot)
+        {
+          EXPECT_EQ(problem.recipe_actions[slot], 0u);
+          EXPECT_GT(problem.materializations[slot],
+                    previous_materializations[slot]);
+          previous_materializations[slot] = problem.materializations[slot];
+        }
+    }
 }
