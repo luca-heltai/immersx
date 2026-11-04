@@ -3,8 +3,11 @@
 #include "growth_loop.h"
 
 #include <deal.II/base/function_parser.h>
+#include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/scope_exit.h>
 #include <deal.II/base/timer.h>
+
+#include <deal.II/particles/particle_handler.h>
 
 #include <boost/multi_index/member.hpp>
 #include <boost/multi_index/ranked_index.hpp>
@@ -17,6 +20,7 @@
 
 #include <immersx/vascularization/generation.h>
 
+#include <deque>
 #include <memory>
 #include <random>
 
@@ -216,7 +220,8 @@ namespace ImmersX::Vascularization::internal
                               static_cast<double>(system),
                               companion.terminal_separation,
                               has_demand_callbacks ? 1. : 0.}},
-      std::array<std::string, 2>{{p.terminal_weight, p.tissue_demand}});
+      std::array<std::string, 3>{
+        {p.terminal_weight, p.tissue_demand, p.terminal_sampling}});
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
     if (!phase(valid,
@@ -431,7 +436,9 @@ namespace ImmersX::Vascularization::internal
     if (!phase(valid, "Invalid spatial-weight or tissue-demand expression."))
       return run;
     const BackgroundCellSampler *cell_sampler = nullptr;
-    if (system == System::arterial)
+    const bool                   prescribed   = system == System::arterial &&
+                            p.terminal_sampling == "prescribed per cell";
+    if (system == System::arterial && !prescribed)
       try
         {
           cell_sampler = &geometry.sample_cells(p.density_beta, comm);
@@ -448,7 +455,99 @@ namespace ImmersX::Vascularization::internal
     std::mt19937_64 random(seed);
     std::seed_seq   physical_seed{p.random_seed, rank, 194838u};
     std::mt19937    physical_random(physical_seed);
-    const auto      uniform = [&]() {
+    std::unique_ptr<Particles::ParticleHandler<3>> prescribed_points;
+    std::deque<Particles::ParticleHandler<3>::particle_iterator>
+      prescribed_pending;
+    if (prescribed)
+      {
+        // Existing seed leaves occupy slots, so the final forest, rather than
+        // just its extra insertions, has exactly k terminal points in each
+        // cell.
+        std::map<Id, Point<3>> leaves;
+        for (Id id : run.accepted.physiology.owned_leaf_terminals)
+          leaves.emplace(id,
+                         run.accepted.network.nodes
+                           .at(run.accepted.network.terminals.at(id).node)
+                           .position);
+        const auto located = geometry.locate_points(leaves, comm);
+        std::map<unsigned int, std::map<CellId, unsigned int>> claims;
+        valid = located.size() == leaves.size();
+        for (const auto &[id, cell] : located)
+          ++claims[cell.cell_owner][cell.id];
+        const auto received = Utilities::MPI::some_to_some(comm, claims);
+        std::map<CellId, unsigned int> occupied;
+        for (const auto &[owner, cells] : received)
+          for (const auto &[cell, n] : cells)
+            occupied[cell] += n;
+        prescribed_points =
+          std::make_unique<Particles::ParticleHandler<3>>(bg, mapping);
+        types::particle_index next_point = rank;
+        try
+          {
+            for (const auto &cell : bg.active_cell_iterators())
+              if (cell->is_locally_owned())
+                {
+                  const auto n = occupied[cell->id()];
+                  valid        = valid && n <= p.terminal_count;
+                  std::vector<Point<3>> locations;
+                  if (cell->reference_cell().is_hyper_cube())
+                    {
+                      unsigned int side = 1;
+                      while (static_cast<std::uint64_t>(side) * side * side <
+                             p.terminal_count)
+                        ++side;
+                      locations =
+                        QIterated<3>(QMidpoint<1>(), side).get_points();
+                    }
+                  else if (cell->reference_cell().is_simplex())
+                    {
+                      unsigned int order = 1;
+                      while (QGaussSimplex<3>(order).size() < p.terminal_count)
+                        ++order;
+                      locations = QGaussSimplex<3>(order).get_points();
+                    }
+                  else
+                    AssertThrow(
+                      false,
+                      ExcMessage(
+                        "Prescribed sampling supports hexahedra and tetrahedra."));
+                  std::shuffle(locations.begin(), locations.end(), random);
+                  for (unsigned int j = n; j < p.terminal_count; ++j)
+                    {
+                      const auto &reference = locations[j];
+                      const auto  point =
+                        mapping.transform_unit_to_real_cell(cell, reference);
+                      prescribed_points->insert_particle(point,
+                                                         reference,
+                                                         next_point,
+                                                         cell);
+                      next_point += size;
+                    }
+                }
+          }
+        catch (const std::exception &error)
+          {
+            valid = false;
+            run.validation.issues.push_back(
+              {"prescribed sampling", invalid_id, error.what()});
+          }
+        std::vector<Particles::ParticleHandler<3>::particle_iterator> order;
+        for (auto particle = prescribed_points->begin();
+             particle != prescribed_points->end();
+             ++particle)
+          order.push_back(particle);
+        std::shuffle(order.begin(), order.end(), random);
+        prescribed_pending.assign(order.begin(), order.end());
+        const auto remaining = Utilities::MPI::sum(
+          static_cast<std::uint64_t>(prescribed_pending.size()), comm);
+        valid = valid && remaining + count == terminal_count;
+        if (
+          !phase(
+            valid,
+            "Prescribed targets require at most k existing mutable leaves per cell and exactly k terminal slots per global cell."))
+          return run;
+      }
+    const auto uniform = [&]() {
       return static_cast<double>(random() >> 11) * 0x1.0p-53;
     };
     std::array<Id, 4> next{{0, 0, 0, 0}};
@@ -679,7 +778,20 @@ namespace ImmersX::Vascularization::internal
           {
             try
               {
-                raw = cell_sampler->sample(random, physical_random);
+                if (prescribed)
+                  {
+                    if (!prescribed_pending.empty())
+                      {
+                        raw = prescribed_pending.front()->get_location();
+                        // Failed targets remain in the cloud. Try the others
+                        // before retrying this point against a larger tree.
+                        prescribed_pending.push_back(
+                          prescribed_pending.front());
+                        prescribed_pending.pop_front();
+                      }
+                  }
+                else
+                  raw = cell_sampler->sample(random, physical_random);
                 run.sampled_points += raw.has_value();
               }
             catch (const std::exception &error)
@@ -1148,6 +1260,8 @@ namespace ImmersX::Vascularization::internal
             pending.erase(shared_territory);
           }
         run.accepted_insertions += splits.size();
+        if (prescribed && !splits.empty())
+          prescribed_pending.pop_back();
         run.maximum_batch_insertions =
           std::max(run.maximum_batch_insertions, selected);
         count += selected;
@@ -1155,6 +1269,9 @@ namespace ImmersX::Vascularization::internal
         record(&committed);
       }
     std::uint64_t unserved = 0;
+    if (prescribed)
+      unserved = Utilities::MPI::sum(
+        static_cast<std::uint64_t>(prescribed_pending.size()), comm);
     if (system == System::venous || system == System::portal)
       unserved =
         Utilities::MPI::sum(static_cast<std::uint64_t>(pending.size()), comm);

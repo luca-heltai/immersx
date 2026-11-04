@@ -67,6 +67,65 @@ TEST(VascularGeneration, CubeSeedAnalyticalGate)
   EXPECT_TRUE(initial.vessels.empty());
 }
 
+TEST(VascularGeneration, BOTH_PrescribedTargetsRespectEveryCellQuota)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> background(comm);
+  GridGenerator::hyper_cube(background);
+  background.refine_global(1);
+  const MappingQ1<3> mapping;
+  for (const unsigned int k : {1u, 2u})
+    {
+      Parameters p;
+      synthetic(p);
+      p.seed_position                    = Point<3>(.3, .27, .31);
+      p.seed_length                      = .1;
+      p.seed_radius                      = .001;
+      p.terminal_count                   = k;
+      p.terminal_count_multiplier_factor = "background cell count";
+      p.terminal_sampling                = "prescribed per cell";
+      p.density_beta                     = 3.;
+      p.coverage.service_radius          = 2.;
+      const auto result = generate(background, mapping, {}, p, comm);
+      ASSERT_TRUE(result.validation.valid());
+      std::vector<Point<3>> owned;
+      for (const auto &[id, terminal] : result.network.terminals)
+        if (terminal.owner == rank)
+          owned.push_back(result.network.nodes.at(terminal.node).position);
+      const auto all = Utilities::MPI::all_gather(comm, owned);
+      EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(owned.size()),
+                                    comm),
+                8 * k);
+      for (const auto &cell : background.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            unsigned int count = 0;
+            for (const auto &points : all)
+              for (const auto &point : points)
+                {
+                  const auto unit =
+                    mapping.transform_real_to_unit_cell(cell, point);
+                  count += cell->reference_cell().contains_point(unit);
+                }
+            EXPECT_EQ(count, k);
+          }
+      EXPECT_NEAR(result.tissue.arterial_coverage, 1., 1.e-13);
+    }
+}
+
+TEST(VascularGeneration, PrescribedTargetsRejectCountCalibration)
+{
+  Parameters p;
+  synthetic(p);
+  p.terminal_count_multiplier_factor = "background cell count";
+  p.terminal_sampling                = "prescribed per cell";
+  p.density_beta                     = 3.;
+  EXPECT_NO_THROW(p.validate());
+  p.calibration.minimum_coverage = .9;
+  EXPECT_THROW(p.validate(), ExceptionBase);
+}
+
 TEST(VascularGeneration, RejectsWallEscapeWithInteriorCentreline)
 {
   Triangulation<3> background;
@@ -411,6 +470,58 @@ TEST(VascularGeneration, BOTH_PublicTetrahedralSeedWithEmptyBackgroundRanks)
               1.,
               1.e-13);
   EXPECT_NEAR(result.tissue.arterial_coverage, 1., 1.e-13);
+}
+
+TEST(VascularGeneration, BOTH_PrescribedSimplexTargetsWithEmptyRanks)
+{
+  const auto       comm = MPI_COMM_WORLD;
+  Triangulation<3> serial;
+  GridGenerator::reference_cell(serial, ReferenceCells::Tetrahedron);
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial, comm);
+  parallel::fullydistributed::Triangulation<3> background(comm);
+  background.create_triangulation(description);
+  Parameters p;
+  synthetic(p);
+  p.seed_position                    = Point<3>(.15, .15, .15);
+  p.seed_length                      = .1;
+  p.seed_radius                      = .001;
+  p.terminal_count                   = 2;
+  p.terminal_sampling                = "prescribed per cell";
+  p.terminal_count_multiplier_factor = "background cell count";
+  p.density_beta                     = 3.;
+  const auto result =
+    generate(background, MappingFE<3>(FE_SimplexP<3>(1)), {}, p, comm);
+  ASSERT_TRUE(result.validation.valid());
+  const auto   rank  = Utilities::MPI::this_mpi_process(comm);
+  unsigned int owned = 0;
+  for (const auto &[id, terminal] : result.network.terminals)
+    owned += terminal.owner == rank;
+  EXPECT_EQ(Utilities::MPI::sum(owned, comm), 2u);
+}
+
+TEST(VascularGeneration, PrescribedTargetsRemainIncompleteOnExhaustion)
+{
+  Triangulation<3> background;
+  GridGenerator::hyper_cube(background);
+  background.refine_global(1);
+  Parameters p;
+  synthetic(p);
+  p.seed_position                    = Point<3>(.3, .27, .31);
+  p.seed_length                      = .6;
+  p.terminal_count                   = 1;
+  p.terminal_sampling                = "prescribed per cell";
+  p.terminal_count_multiplier_factor = "background cell count";
+  p.density_beta                     = 3.;
+  p.minimum_length                   = .59;
+  p.sample_budget                    = 10;
+  const auto result =
+    generate(background, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
+  EXPECT_FALSE(result.validation.valid());
+  EXPECT_EQ(result.network.terminals.size(), 1u);
+  EXPECT_EQ(result.accepted_insertions, 0u);
+  EXPECT_EQ(result.sampled_points, 10u);
 }
 
 TEST(VascularGeneration, BOTH_GrowthStatisticsCountActualOwnedWork)

@@ -127,6 +127,62 @@ Volume-fraction and coverage targets are disabled to retain this terminal
 count. The fixed inlet radius is $0.1$; it is not rescaled to meet a volume
 target. Increasing refinement also increases the requested terminal count.
 
+### Prescribe the terminal cloud before growth
+
+To prescribe exactly $k$ terminal slots in every active cell, use:
+
+```text
+subsection Vascularization
+  subsection Sampling
+    set Terminal sampling = prescribed per cell
+    set Terminal count = 1
+    set Terminal count multiplier factor = background cell count
+    set Density mesh exponent = 3
+    set Spatial weight = 1
+  end
+end
+```
+
+Here `Terminal count` is $k$. With $k=1$, the prescribed position is the
+mapped reference-cell centre. For larger counts, hexahedra use a tensor
+midpoint grid with the smallest number of subdivisions providing at least
+$k$ points. The generator shuffles this grid and selects $k$ positions.
+Tetrahedra use interior simplex quadrature locations. Existing mutable
+leaves occupy slots in their containing cells; their positions stay fixed.
+The generator rejects an initial forest with more than $k$ mutable leaves
+in any cell.
+
+Each rank stores its cloud in a deal.II `ParticleHandler` on its owned cells.
+CCO attempts to connect these points in shuffled order. A failed point stays
+pending and is retried after the other points, when the tree may offer more
+connections. Success requires every prescribed slot to be connected; a full
+cell-based count alone cannot hide missing cells. Geometry, minimum length,
+Murray radii, and collision constraints still apply. A finite search budget
+can therefore leave the result invalid.
+
+This mode fixes the count and requires volume and minimum-coverage count
+calibration to remain disabled. `Maximum service distance` can still be
+positive to measure coverage. The number of points per cell follows mesh
+density; it does not impose uniform density per physical volume.
+
+The {download}`benchmark script <../../tutorials/cco_sphere/benchmark_sampling.py>`
+runs a JSON list of cases serially, using the same executable and one thread.
+Each case names its `mode` (`random` or `prescribed per cell`), `refinement`,
+`k`, and `seed`; optional controls include `beta`, `radius`, `candidates`,
+`budget`, and `service_distance`. It preserves parameter files, physical
+archives, logs, summaries, binary checksum, and a combined `results.csv`.
+Use fresh output directories for every experiment:
+
+```bash
+python3 "$IMMERSX_SOURCE/tutorials/cco_sphere/benchmark_sampling.py" \
+  "$IMMERSX_BUILD/vascular_network" plan.json "$IMMERSX_BUILD/sampling-comparison"
+```
+
+Compare successful runs at matching terminal counts and coverage, using the
+same positive service distance and coverage quadrature. Report generation
+time separately from the process wall time, which also includes startup
+and output.
+
 ## Generate and save with the standalone application
 
 {download}`generate.prm.in <../../tutorials/cco_sphere/generate.prm.in>` uses

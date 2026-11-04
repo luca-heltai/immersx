@@ -127,6 +127,12 @@ namespace ImmersX::Vascularization
     leave_subsection();
     enter_subsection("Sampling");
     add_parameter(
+      "Terminal sampling",
+      terminal_sampling,
+      "Random proposals or prescribed points per owned background cell. Prescribed points remain pending until connected.",
+      this->prm,
+      dealii::Patterns::Selection("random|prescribed per cell"));
+    add_parameter(
       "Terminal count",
       terminal_count,
       "Base count of newly generated tissue terminals across selected attachments, multiplied by Terminal count multiplier factor; unselected input terminals are excluded.");
@@ -246,6 +252,17 @@ namespace ImmersX::Vascularization
   void
   Parameters::validate(const bool creating_seed) const
   {
+    AssertThrow(terminal_sampling == "random" ||
+                  terminal_sampling == "prescribed per cell",
+                dealii::ExcMessage("Invalid terminal sampling policy."));
+    AssertThrow(
+      terminal_sampling != "prescribed per cell" ||
+        (terminal_count_multiplier_factor == "background cell count" &&
+         density_beta == 3. && terminal_weight == "1" &&
+         calibration.volume_fraction == 0. &&
+         calibration.minimum_coverage == 0.),
+      dealii::ExcMessage(
+        "Prescribed sampling requires a fixed cell-based count, density exponent 3, spatial weight 1, and disabled count calibration."));
     AssertThrow(length_scale == "meter" || length_scale == "local mesh size" ||
                   length_scale == "min mesh size" ||
                   length_scale == "max mesh size",

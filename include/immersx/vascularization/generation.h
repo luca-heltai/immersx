@@ -133,8 +133,11 @@ namespace ImmersX::Vascularization
     double           minimum_angle            = 15.;
     double           dissipation_weight       = 0.;
     double           density_beta             = 3.;
-    std::string      terminal_weight          = "1";
-    double           terminal_weight_bound    = 1.;
+    /** Random proposals, or a fixed cloud with terminal_count points per cell,
+     * including existing mutable leaves in their containing cell's quota. */
+    std::string terminal_sampling     = "random";
+    std::string terminal_weight       = "1";
+    double      terminal_weight_bound = 1.;
     /** Relative tissue-demand density in x,y,z, integrated with physical JxW.
      */
     std::string tissue_demand = "1";
