@@ -270,7 +270,9 @@ Before **every commit**, without exception:
    git diff --check
    ```
 3. Confirm that no unrelated user changes or generated files are included.
-4. Run the focused validation appropriate for that commit.
+4. Run the focused build appropriate for that commit. For documentation-only
+   changes, reuse a successful build of the unchanged code. Tests may continue
+   after the commit and authorized push.
 
 `./scripts/indent` formats the repository globally. Review formatter-induced
 changes carefully before committing.
@@ -287,10 +289,17 @@ Do **not**:
 
 unless explicitly requested by the user.
 
-Before opening or updating a pull request, run `./scripts/build_doc.sh` from
-the repository root and require it to complete without errors. Fix
-documentation build errors before the pull request is opened or updated.
-This check is separate from, and does not replace, the requirement to run
+Once the user has authorized publishing a branch or opening/updating a pull
+request, push as soon as the relevant compilation succeeds. Do not wait for
+local tests or the documentation build to finish or turn green. Run them while
+GitHub CI is running, and fix any local or GitHub CI failures with follow-up
+commits and pushes. Report pending and failed checks accurately. Complete the
+required checks before reporting the PR ready to merge.
+
+Run `./scripts/build_doc.sh` from the repository root while CI runs, and require
+it to complete without errors before reporting the PR ready to merge. Fix
+documentation errors with follow-up commits and pushes. This check does not
+delay an authorized push and remains separate from the requirement to run
 `./scripts/indent` before every commit.
 
 For parallel work, prefer separate git worktrees and separate branches. Do not

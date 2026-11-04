@@ -353,6 +353,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #328](https://github.com/luca-heltai/immersx/pull/328) Start GitHub CI after a successful compilation by pushing authorized changes early, while local tests and documentation checks continue in parallel.
+
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Register vascular pages in the current documentation sections and distinguish the linear PR stack from archived point-demand measurements.
 
 - [PR #323](https://github.com/luca-heltai/immersx/pull/323) Generate coupled elasticity API documentation without unmatched group warnings.
