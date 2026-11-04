@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR pending](https://github.com/luca-heltai/immersx/issues/2) Support scalar Robin data on selected Poisson boundaries, including mixed Dirichlet conditions, embedded meshes and simplex cells. Validate coefficients collectively and check manufactured solutions, boundary integrals and the Neumann limit.
+
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Integrate nonmatching multiplier couplings on overlapping quadrature samples and impose a homogeneous multiplier mass equation on all exterior samples, including partially covered cells. Support fixed reference geometry in continuity constraints, lifted and modal interactions, fiber dynamics, legacy point couplings, and MetricFlowX coupling while preserving physical material ids.
 
 - [PR #327](https://github.com/luca-heltai/immersx/pull/327) Classify source cells against a distributed background using quadrature or supplied physical points, assign material ids for outside, partial and inside coverage, and synchronize ghost-cell labels.

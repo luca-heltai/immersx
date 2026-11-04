@@ -99,6 +99,18 @@ namespace ImmersX
 
     std::list<dealii::types::boundary_id> dirichlet_ids{0};
 
+    /** Boundary ids on which the outward flux satisfies du/dn + beta*u = g.
+     * These ids must be disjoint from dirichlet_ids. The coefficient beta
+     * must be finite and nonnegative at the boundary quadrature points.
+     */
+    std::list<dealii::types::boundary_id> robin_ids;
+    mutable dealii::ParameterAcceptorProxy<
+      dealii::Functions::ParsedFunction<spacedim>>
+      robin_coefficient;
+    mutable dealii::ParameterAcceptorProxy<
+      dealii::Functions::ParsedFunction<spacedim>>
+      robin_rhs;
+
     std::string  refinement_strategy = "fixed_fraction";
     double       coarsening_fraction = 0.0;
     double       refinement_fraction = 0.3;

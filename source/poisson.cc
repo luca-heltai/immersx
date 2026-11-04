@@ -21,9 +21,11 @@
 
 #include <deal.II/lac/vector.h>
 
+#include <immersx/compatibility/reference_cell.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/poisson.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -70,6 +72,10 @@ namespace ImmersX
     : ParameterAcceptor(normalize_poisson_subsection(subsection))
     , domain_parameters(
         domain_subsection(normalize_poisson_subsection(subsection)))
+    , robin_coefficient(normalize_poisson_subsection(subsection) +
+                        "Robin coefficient")
+    , robin_rhs(normalize_poisson_subsection(subsection) +
+                "Robin boundary conditions")
     , rhs(normalize_poisson_subsection(subsection) + "Right hand side")
     , bc(normalize_poisson_subsection(subsection) +
          "Dirichlet boundary conditions")
@@ -86,6 +92,7 @@ namespace ImmersX
                   output_results_before_solving);
     add_parameter("Estimate condition number", estimate_condition_number);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
+    add_parameter("Robin boundary ids", robin_ids);
 
     enter_subsection("Refinement and remeshing");
     {
@@ -176,6 +183,12 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Setup system");
     AssertThrow(fe != nullptr, ExcMessage("setup_fe() must be called first."));
+    for (const auto boundary_id : par.robin_ids)
+      AssertThrow(std::find(par.dirichlet_ids.begin(),
+                            par.dirichlet_ids.end(),
+                            boundary_id) == par.dirichlet_ids.end(),
+                  ExcMessage(
+                    "Dirichlet and Robin boundary ids must be disjoint."));
 
     dh.distribute_dofs(*fe);
     owned_dofs    = dh.locally_owned_dofs();
@@ -257,6 +270,16 @@ namespace ImmersX
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
     const FEValuesExtractors::Scalar     scalar(0);
 
+    std::unique_ptr<FEFaceValues<dim, spacedim>> robin_values;
+    if (!par.robin_ids.empty())
+      robin_values = std::make_unique<FEFaceValues<dim, spacedim>>(
+        mapping(),
+        *fe,
+        compatibility::gauss_quadrature<dim - 1>(
+          fe->reference_cell().face_reference_cell(0), par.fe_degree + 1),
+        update_values | update_quadrature_points | update_JxW_values);
+    unsigned int invalid_robin_data = 0;
+
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -281,6 +304,40 @@ namespace ImmersX
                 }
             }
 
+          if (robin_values)
+            for (const auto face : cell->face_indices())
+              if (cell->face(face)->at_boundary() &&
+                  std::find(par.robin_ids.begin(),
+                            par.robin_ids.end(),
+                            cell->face(face)->boundary_id()) !=
+                    par.robin_ids.end())
+                {
+                  robin_values->reinit(cell, face);
+                  for (unsigned int q = 0;
+                       q < robin_values->n_quadrature_points;
+                       ++q)
+                    {
+                      const auto  &point = robin_values->quadrature_point(q);
+                      const double beta  = par.robin_coefficient.value(point);
+                      const double g     = par.robin_rhs.value(point);
+                      if (!std::isfinite(beta) || beta < 0. ||
+                          !std::isfinite(g))
+                        {
+                          invalid_robin_data = 1;
+                          continue;
+                        }
+                      for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                        {
+                          const double phi_i = robin_values->shape_value(i, q);
+                          cell_rhs(i) += phi_i * g * robin_values->JxW(q);
+                          for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                            cell_matrix(i, j) +=
+                              phi_i * beta * robin_values->shape_value(j, q) *
+                              robin_values->JxW(q);
+                        }
+                    }
+                }
+
           cell->get_dof_indices(local_dof_indices);
           constraints_storage.distribute_local_to_global(cell_matrix,
                                                          cell_rhs,
@@ -289,6 +346,14 @@ namespace ImmersX
                                                          system_rhs_storage);
         }
 
+    // Validate collectively before compress(), including ranks with no Robin
+    // faces.
+    if (robin_values)
+      AssertThrow(Utilities::MPI::max(invalid_robin_data, mpi_communicator) ==
+                    0,
+                  ExcMessage(
+                    "Robin coefficients must be finite and nonnegative, "
+                    "and Robin boundary data must be finite."));
     stiffness_matrix.compress(VectorOperation::add);
     system_rhs_storage.compress(VectorOperation::add);
   }
