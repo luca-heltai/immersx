@@ -126,6 +126,34 @@ TEST(VascularGeneration, PrescribedTargetsRejectCountCalibration)
   EXPECT_THROW(p.validate(), ExceptionBase);
 }
 
+TEST(VascularGeneration, PrescribedSphereConnectsEveryCell)
+{
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_ball(background, Point<3>(), 1., false);
+  background.refine_global(1);
+  Parameters p;
+  synthetic(p);
+  p.seed_position                     = Point<3>(0., 0., -.7);
+  p.seed_direction                    = Point<3>(0., 0., 1.);
+  p.seed_length                       = .5;
+  p.seed_radius                       = .025;
+  p.length_scale                      = "local mesh size";
+  p.terminal_count                    = 2;
+  p.terminal_count_multiplier_factor  = "background cell count";
+  p.terminal_sampling                 = "prescribed per cell";
+  p.density_beta                      = 3.;
+  p.random_seed                       = 23;
+  p.coverage.service_radius           = 1.;
+  p.reference_flow                    = 2.e-9;
+  p.reference_conditions.pressures[0] = 12000.;
+  const auto result =
+    generate(background, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_EQ(result.network.terminals.size(), 112u);
+  EXPECT_EQ(result.accepted_insertions, 111u);
+  EXPECT_NEAR(result.tissue.arterial_coverage, 1., 1.e-13);
+}
+
 TEST(VascularGeneration, RejectsWallEscapeWithInteriorCentreline)
 {
   Triangulation<3> background;
@@ -515,6 +543,7 @@ TEST(VascularGeneration, PrescribedTargetsRemainIncompleteOnExhaustion)
   p.terminal_count_multiplier_factor = "background cell count";
   p.density_beta                     = 3.;
   p.minimum_length                   = .59;
+  p.optimization_steps               = 0;
   p.sample_budget                    = 10;
   const auto result =
     generate(background, MappingQ1<3>(), {}, p, MPI_COMM_WORLD);

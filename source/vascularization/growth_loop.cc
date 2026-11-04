@@ -537,6 +537,11 @@ namespace ImmersX::Vascularization::internal
              ++particle)
           order.push_back(particle);
         std::shuffle(order.begin(), order.end(), random);
+        std::stable_sort(
+          order.begin(), order.end(), [&](const auto &a, const auto &b) {
+            return a->get_location().distance_square(p.seed_position) <
+                   b->get_location().distance_square(p.seed_position);
+          });
         prescribed_pending.assign(order.begin(), order.end());
         const auto remaining = Utilities::MPI::sum(
           static_cast<std::uint64_t>(prescribed_pending.size()), comm);

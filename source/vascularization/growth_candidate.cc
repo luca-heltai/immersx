@@ -395,6 +395,36 @@ namespace ImmersX::Vascularization::internal
                             terminal_demand,
                             geometry,
                             work);
+    if (!best && parameters.terminal_sampling == "prescribed per cell" &&
+        parameters.optimization_steps > 0)
+      {
+        // A prescribed endpoint cannot be replaced by an easier sample.
+        // Search for a feasible start before the usual descent: the midpoint
+        // and centroid can both violate an angle or an obstacle constraint.
+        const auto try_start = [&](const dealii::Point<3> &point) {
+          if (!best)
+            best = propose_growth(x,
+                                  parameters,
+                                  point,
+                                  terminal,
+                                  std::numeric_limits<double>::infinity(),
+                                  terminal_demand,
+                                  geometry,
+                                  work);
+        };
+        for (double a : {.2, .4, .6})
+          for (double b : {.2, .4, .6})
+            if (a + b < .9)
+              try_start(a * s[0] + b * s[1] + (1. - a - b) * terminal);
+        for (double factor : {.125, .25, .5})
+          for (unsigned int d = 0; d < 3; ++d)
+            for (double sign : {-1., 1.})
+              {
+                auto point = (s[0] + s[1] + terminal) / 3.;
+                point[d] += sign * factor * s[0].distance(s[1]);
+                try_start(point);
+              }
+      }
     if (!best)
       return {};
     double step = .25 * s[0].distance(s[1]);

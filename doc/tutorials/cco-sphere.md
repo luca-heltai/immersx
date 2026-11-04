@@ -133,6 +133,12 @@ To prescribe exactly $k$ terminal slots in every active cell, use:
 
 ```text
 subsection Vascularization
+  subsection Input and ports
+    set Seed radius = 0.025
+  end
+  subsection Growth
+    set Minimum vessel length = 0
+  end
   subsection Sampling
     set Terminal sampling = prescribed per cell
     set Terminal count = 1
@@ -149,12 +155,18 @@ midpoint grid with the smallest number of subdivisions providing at least
 $k$ points. The generator shuffles this grid and selects $k$ positions.
 Tetrahedra use interior simplex quadrature locations. Existing mutable
 leaves occupy slots in their containing cells; their positions stay fixed.
+For a point on a cell interface, the containing cell with the smallest
+diameter is selected, breaking ties by `CellId`.
 The generator rejects an initial forest with more than $k$ mutable leaves
 in any cell.
 
 Each rank stores its cloud in a deal.II `ParticleHandler` on its owned cells.
-CCO attempts to connect these points in shuffled order. A failed point stays
-pending and is retried after the other points, when the tree may offer more
+Each owner orders the points by distance from `Seed position`, shuffling ties,
+so its first connections start near the seed. CCO attempts to connect these
+points using additional junction starts when the usual midpoint and centroid
+are infeasible. Setting `Local optimization steps = 0` disables this extra
+search. A failed point stays pending and is retried after the other points,
+when the tree may offer more
 connections. Success requires every prescribed slot to be connected; a full
 cell-based count alone cannot hide missing cells. Geometry, minimum length,
 Murray radii, and collision constraints still apply. A finite search budget
@@ -169,8 +181,9 @@ The {download}`benchmark script <../../tutorials/cco_sphere/benchmark_sampling.p
 runs a JSON list of cases serially, using the same executable and one thread.
 Each case names its `mode` (`random` or `prescribed per cell`), `refinement`,
 `k`, and `seed`; optional controls include `beta`, `radius`, `candidates`,
-`budget`, and `service_distance`. It preserves parameter files, physical
-archives, logs, summaries, binary checksum, and a combined `results.csv`.
+`budget`, `minimum_length`, `minimum_angle`, and `service_distance`.
+It preserves parameter files, physical archives, logs, summaries, binary
+checksum, and a combined `results.csv`.
 Use fresh output directories for every experiment:
 
 ```bash
@@ -182,6 +195,37 @@ Compare successful runs at matching terminal counts and coverage, using the
 same positive service distance and coverage quadrature. Report generation
 time separately from the process wall time, which also includes startup
 and output.
+
+In the spherical experiments, `Seed radius = 0.025` and
+`Minimum vessel length = 0` produced complete 448-terminal prescribed trees
+at refinement 2 with random seed 23. The minimum junction angle remained
+15 degrees. Positive minimum lengths left some prescribed targets
+unconnected in these trials. Treat completion at larger counts as an
+experimental result to check, not as a guarantee of this greedy connection
+algorithm.
+
+The {download}`prescribed-cloud input <../../tutorials/cco_sphere/generate_prescribed.prm.in>`
+contains this configuration at refinement 2. After CMake configuration, run:
+
+```bash
+"$IMMERSX_BUILD/vascular_network" \
+  "$IMMERSX_BUILD/tutorials/cco_sphere/generate_prescribed.prm"
+```
+
+It writes to `<build>/tutorial-output/cco-sphere/prescribed`. Set
+`Terminal count = 2` to request 896 terminal slots on the same mesh.
+
+Use ParaView's Python executable and the independent
+{download}`quota verifier <../../tutorials/cco_sphere/verify_cell_quota.py>`
+to locate the saved arterial endpoints in the exported background mesh:
+
+```bash
+pvpython "$IMMERSX_SOURCE/tutorials/cco_sphere/verify_cell_quota.py" \
+  "$IMMERSX_BUILD/tutorial-output/cco-sphere/prescribed" --k 1
+```
+
+The verifier checks every cell. It assigns the axial seed tip, which lies on
+cell interfaces, to the unique containing cell with an unfilled quota.
 
 ## Generate and save with the standalone application
 

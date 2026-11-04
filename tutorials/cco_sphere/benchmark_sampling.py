@@ -31,9 +31,19 @@ def main():
         "executable": str(executable),
         "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "platform": platform.platform(),
+        "library_path": environment.get("LD_LIBRARY_PATH", ""),
         "plan": plan,
         "thread_environment": {name: environment[name] for name in ("DEAL_II_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")},
     }
+    library = executable.parent / "libimmersx_lib.so"
+    if library.exists():
+        metadata["library_sha256"] = hashlib.sha256(library.read_bytes()).hexdigest()
+    source = Path(__file__).resolve().parents[2]
+    metadata["git_head"] = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    patch = subprocess.check_output(["git", "-C", str(source), "diff", "--binary", "HEAD"])
+    metadata["tracked_changes"] = bool(patch)
+    if patch:
+        (args.output / "source.patch").write_bytes(patch)
     if hasattr(os, "sched_getaffinity"):
         metadata["cpu_affinity"] = sorted(os.sched_getaffinity(0))
     cpuinfo = Path("/proc/cpuinfo")
@@ -52,7 +62,9 @@ def main():
         overrides = {
             "Input and ports": {"Mode": "generate", "Evaluate reference": "true", "Seed radius": case.get("radius", .1)},
             "Sampling": {"Terminal sampling": mode, "Terminal count": case.get("k", 1), "Random seed": case.get("seed", 23), "Density mesh exponent": case.get("beta", 3), "Sample budget per insertion": case.get("budget", 4000)},
-            "Growth": {"Candidate vessels": case.get("candidates", 12)},
+            "Growth": {"Candidate vessels": case.get("candidates", 12),
+                       "Minimum vessel length": case.get("minimum_length", .1),
+                       "Minimum junction angle": case.get("minimum_angle", 15)},
             "Objectives": {"Maximum service distance": case.get("service_distance", 1), "Coverage quadrature order": case.get("coverage_order", 2)},
             "Domain": {"Shape": "sphere", "Sphere center": "0,0,0", "Sphere radius": 1, "Uniform refinements": case.get("refinement", 3), "Refinement focus": "none"},
             "Output": {"Directory": directory.resolve() / "generation", "Save physical archive": "true", "Write tables": "true", "Write meshes": case.get("meshes", "false")},
@@ -74,7 +86,10 @@ def main():
         summary = directory / "generation" / "summary.csv"
         if summary.exists():
             with summary.open() as stream:
-                record.update(next(csv.DictReader(stream)))
+                measured = next(csv.DictReader(stream))
+                measured["application_mode"] = measured.pop("mode")
+                record.update(measured)
+        record["mode"] = mode
         (directory / "run.json").write_text(json.dumps(record, indent=2) + "\n")
         records.append(record)
         fields = list(dict.fromkeys(key for item in records for key in item))

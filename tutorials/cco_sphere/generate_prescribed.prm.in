@@ -1,0 +1,24 @@
+# Prescribe k terminal slots per cell before connecting them with CCO.
+include @IMMERSX_BINARY_DIR@/tutorials/cco_sphere/generate.prm
+
+subsection Vascularization
+  subsection Input and ports
+    set Seed radius = 0.025
+  end
+  subsection Growth
+    set Minimum vessel length = 0
+  end
+  subsection Sampling
+    set Terminal sampling = prescribed per cell
+    set Terminal count = 1
+  end
+  subsection Objectives
+    set Maximum service distance = 1
+  end
+  subsection Domain
+    set Uniform refinements = 2
+  end
+  subsection Output
+    set Directory = @IMMERSX_BINARY_DIR@/tutorial-output/cco-sphere/prescribed
+  end
+end
