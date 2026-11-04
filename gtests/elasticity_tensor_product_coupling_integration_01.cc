@@ -93,6 +93,9 @@ TEST(ElasticityCouplingIntegrationValidation, StaticSolveCompletes)
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2, 3> par;
   configure_tensor_product_parameters(par);
+  // The six multiplier constraints need more than the three free bulk DoFs
+  // of the level-one mesh with homogeneous Dirichlet boundary conditions.
+  par.initial_refinement = 2;
   ElasticityProblem<2, 3> problem(par);
 
   problem.make_grid();
@@ -104,6 +107,29 @@ TEST(ElasticityCouplingIntegrationValidation, StaticSolveCompletes)
 
   EXPECT_TRUE(std::isfinite(problem.solution.block(0).l2_norm()));
   EXPECT_TRUE(std::isfinite(problem.solution.block(1).l2_norm()));
+
+  LA::MPI::Vector bulk_action(problem.system_rhs.block(0));
+  LA::MPI::Vector multiplier_action(problem.system_rhs.block(0));
+  problem.stiffness_matrix.vmult(bulk_action, problem.solution.block(0));
+  problem.coupling_matrix.vmult(multiplier_action, problem.solution.block(1));
+  const double bulk_scale = bulk_action.l2_norm() +
+                            multiplier_action.l2_norm() +
+                            problem.system_rhs.block(0).l2_norm();
+  bulk_action += multiplier_action;
+  bulk_action -= problem.system_rhs.block(0);
+  EXPECT_LE(bulk_action.l2_norm(), 1.e-8 * std::max(1., bulk_scale));
+
+  LA::MPI::Vector constraint_action(problem.system_rhs.block(1));
+  LA::MPI::Vector outside_action(problem.system_rhs.block(1));
+  problem.coupling_matrix.Tvmult(constraint_action, problem.solution.block(0));
+  problem.outside_mass_matrix.vmult(outside_action, problem.solution.block(1));
+  const double constraint_scale = constraint_action.l2_norm() +
+                                  outside_action.l2_norm() +
+                                  problem.system_rhs.block(1).l2_norm();
+  constraint_action -= outside_action;
+  constraint_action -= problem.system_rhs.block(1);
+  EXPECT_LE(constraint_action.l2_norm(),
+            1.e-8 * std::max(1., constraint_scale));
 }
 
 TEST(ElasticityCouplingIntegrationValidation,

@@ -432,6 +432,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Avoid GMRES breakdown in the static tensor-product coupling regression by using a bulk mesh that can represent its six multiplier constraints, and check both assembled block residuals.
+
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Initialize the vascular crossing-work fixture widths directly, preserving its nonuniform cells while avoiding GCC 13 array-bounds diagnostics from chained vector assignment.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Retain the accepted growth snapshot while traversing its obstacle index in the vascular regression, avoiding GCC 13 lifetime diagnostics.
