@@ -117,11 +117,11 @@ namespace
     problem.assemble_coupling_system();
     if (disjoint)
       {
-        EXPECT_EQ(problem.coupling_matrix_frobenius_norm(), 0.);
+        EXPECT_EQ(problem.multiplier_load_matrix_frobenius_norm(), 0.);
       }
     else
       {
-        ASSERT_GT(problem.coupling_matrix_frobenius_norm(), 0.);
+        ASSERT_GT(problem.multiplier_load_matrix_frobenius_norm(), 0.);
       }
     if (grid != "simplex_interior_line_3d.vtk")
       {
@@ -142,20 +142,21 @@ namespace
     auto bulk_residual = problem.bulk_rhs();
     problem.assembled_bulk().vmult(bulk_residual, problem.bulk_values());
     auto reaction = problem.bulk_rhs();
-    problem.assembled_coupling().vmult(reaction, problem.modal_values());
+    problem.assembled_multiplier_load_matrix().vmult(reaction,
+                                                     problem.modal_values());
     bulk_residual += reaction;
     bulk_residual -= problem.bulk_rhs();
     const double bulk_scale =
       std::max(1.,
                problem.assembled_bulk().frobenius_norm() *
                    problem.bulk_values().l2_norm() +
-                 problem.assembled_coupling().frobenius_norm() *
+                 problem.assembled_multiplier_load_matrix().frobenius_norm() *
                    problem.modal_values().l2_norm() +
                  problem.bulk_rhs().l2_norm());
     EXPECT_LT(bulk_residual.l2_norm(), 1.e-8 * bulk_scale);
     auto constraint_residual = problem.modal_rhs();
-    problem.assembled_coupling().Tvmult(constraint_residual,
-                                        problem.bulk_values());
+    problem.assembled_multiplier_load_matrix().Tvmult(constraint_residual,
+                                                      problem.bulk_values());
     auto outside_action = problem.modal_values();
     problem.assembled_outside_mass().vmult(outside_action,
                                            problem.modal_values());

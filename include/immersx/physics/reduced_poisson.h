@@ -180,7 +180,7 @@ namespace ImmersX
    * - `A` is the bulk Poisson stiffness matrix assembled in
    *   `assemble_poisson_system()`;
    * - `B` is the reduced trace/projection operator assembled in
-   *   `ReducedCoupling::assemble_coupling_matrix()`;
+   *   `ReducedCoupling::assemble_multiplier_load_matrix()`;
    * - `g` is the reduced right-hand side assembled in
    *   `ReducedCoupling::assemble_reduced_rhs()`.
    *
@@ -264,9 +264,23 @@ namespace ImmersX
     }
 
     const LA::MPI::SparseMatrix &
+    assembled_multiplier_load_matrix() const
+    {
+      return multiplier_load_matrix;
+    }
+
+    /** Compatibility name for assembled_multiplier_load_matrix(). */
+    const LA::MPI::SparseMatrix &
     assembled_coupling() const
     {
-      return coupling_matrix;
+      return assembled_multiplier_load_matrix();
+    }
+
+    /** Communicator-global Frobenius norm of the multiplier load matrix. */
+    double
+    multiplier_load_matrix_frobenius_norm() const
+    {
+      return coupling_matrix_frobenius_norm();
     }
 
     const auto &
@@ -339,8 +353,8 @@ namespace ImmersX
 
     AffineConstraints<double> constraints;
 
-    LA::MPI::SparseMatrix coupling_matrix;
-    LA::MPI::SparseMatrix coupling_matrix_transpose;
+    LA::MPI::SparseMatrix multiplier_load_matrix;
+    LA::MPI::SparseMatrix multiplier_constraint_matrix;
     LA::MPI::SparseMatrix inclusion_matrix;
     LA::MPI::SparseMatrix outside_mass_matrix;
     const Mapping<spacedim> &

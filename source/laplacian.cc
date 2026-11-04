@@ -216,7 +216,7 @@ namespace ImmersX
               complete_index_set(inclusions.n_dofs_per_inclusion()));
           }
 
-        coupling_matrix.clear();
+        multiplier_load_matrix.clear();
         DynamicSparsityPattern dsp(dh.n_dofs(),
                                    inclusions.n_dofs(),
                                    relevant_dofs[0]);
@@ -237,10 +237,10 @@ namespace ImmersX
                                                    owned_dofs[0],
                                                    mpi_communicator,
                                                    relevant_dofs[0]);
-        coupling_matrix.reinit(owned_dofs[0],
-                               owned_dofs[1],
-                               dsp,
-                               mpi_communicator);
+        multiplier_load_matrix.reinit(owned_dofs[0],
+                                      owned_dofs[1],
+                                      dsp,
+                                      mpi_communicator);
 
         DynamicSparsityPattern idsp(inclusions.n_dofs(),
                                     inclusions.n_dofs(),
@@ -294,9 +294,9 @@ namespace ImmersX
   void
   PoissonProblem<dim, spacedim>::assemble_poisson_system()
   {
-    stiffness_matrix = 0;
-    coupling_matrix  = 0;
-    system_rhs       = 0;
+    stiffness_matrix       = 0;
+    multiplier_load_matrix = 0;
+    system_rhs             = 0;
     FEValues<spacedim>               fe_values(geometry_mapping(),
                                  *fe,
                                  *quadrature,
@@ -478,11 +478,11 @@ namespace ImmersX
                                                    fe_dof_indices,
                                                    inclusion_constraints,
                                                    inclusion_dof_indices,
-                                                   coupling_matrix);
+                                                   multiplier_load_matrix);
           }
         particle = pic.end();
       }
-    coupling_matrix.compress(VectorOperation::add);
+    multiplier_load_matrix.compress(VectorOperation::add);
     mass_matrix         = 0.;
     outside_mass_matrix = 0.;
     inclusions.for_each_source_point(
@@ -695,7 +695,7 @@ namespace ImmersX
         const auto B = transpose_operator(Bt);
 #else
         const auto Bt =
-          TrilinosWrappers::linear_operator<VectorType>(coupling_matrix);
+          TrilinosWrappers::linear_operator<VectorType>(multiplier_load_matrix);
         const auto B = transpose_operator(Bt);
 #endif
         const auto C =

@@ -23,7 +23,7 @@
 #  include <iomanip>
 
 #  if 1
-#    include <immersx/physics/coupled_elasticity.h>
+#    include <immersx/physics/vessel_elasticity.h>
 #  endif
 #  include <immersx/fvm/coupledModel1d.h>
 #  include <immersx/io/utils.h>
@@ -67,7 +67,7 @@ main(int argc, char *argv[])
                             TimerOutput::wall_times);
 
           ElasticityProblemParameters<3> par;
-          CoupledElasticityProblem<3>    problem3D(par);
+          VesselElasticityProblem<3>     problem3D(par);
           initialize_parameters(prm_file);
           problem3D.run_timestep0();
 

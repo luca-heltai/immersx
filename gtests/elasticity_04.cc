@@ -27,7 +27,7 @@
 #include <deal.II/base/mpi.h>
 
 #include <gtest/gtest.h>
-#include <immersx/physics/coupled_elasticity.h>
+#include <immersx/physics/vessel_elasticity.h>
 
 #include <array>
 #include <cmath>
@@ -171,7 +171,7 @@ TEST(ElasticityValidation, BOTH_PaperAxisSymmetricAdaptiveRegression)
 
 
 
-// Section 5.1 with the pressure of CoupledElasticityProblem, on the annulus
+// Section 5.1 with the pressure of VesselElasticityProblem, on the annulus
 // between the inclusion (ri = 0.2) and the unit circle (R = 1), with normal
 // inflation ubar = 0.1 and Lame lambda = 3, mu = 1. The exact solution of the
 // parameter file does not depend on the material:
@@ -196,7 +196,7 @@ TEST(ElasticityValidation, BOTH_PaperAxisSymmetricPressure)
 
   ParameterAcceptor::clear();
   ElasticityProblemParameters<2> par;
-  CoupledElasticityProblem<2>    problem(par);
+  VesselElasticityProblem<2>     problem(par);
   initialize_parameters(TestPaths::parameter_path(
     "gtests/parameters/elasticity_04_axis_symmetric.prm"));
   ParameterAcceptor::prm.parse_input_from_string(

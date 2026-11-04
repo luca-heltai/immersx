@@ -112,7 +112,7 @@ Recognize these settings:
 ```text
 subsection Immersed Problem
   set Coupling type = TensorProduct
-  set Pressure coupling = false
+  set Prescribed vessel pressure = false
 end
 ```
 

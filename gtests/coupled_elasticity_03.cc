@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include <immersx/physics/coupled_elasticity.h>
+#include <immersx/physics/vessel_elasticity.h>
 
 #include <cstddef>
 
@@ -17,7 +17,7 @@ using namespace ImmersX;
 
 #include "test_paths.h"
 
-// Tests of CoupledElasticityProblem::update_vessel_radius_data() and
+// Tests of VesselElasticityProblem::update_vessel_radius_data() and
 // split_pressure_over_inclusions() on a straight cylinder along x embedded in
 // a cube. The setup is the one of
 // coupled_elasticity_02.cc. The reduced grids and inclusion files are
@@ -259,12 +259,12 @@ namespace
   // `test`. The problem is built before parsing, as in app_coupled_elasticity,
   // so that its Inclusions member reads its parameters too.
   void
-  with_problem(const std::string                                        &text,
-               const std::function<void(CoupledElasticityProblem<3> &)> &test)
+  with_problem(const std::string                                       &text,
+               const std::function<void(VesselElasticityProblem<3> &)> &test)
   {
     ParameterAcceptor::clear();
     ElasticityProblemParameters<3> par;
-    CoupledElasticityProblem<3>    problem(par);
+    VesselElasticityProblem<3>     problem(par);
     initialize_parameters();
     ParameterAcceptor::prm.parse_input_from_string(text);
     ParameterAcceptor::parse_all_parameters();
@@ -303,7 +303,7 @@ namespace
   // Set the pressure of inclusion i to pressure(i), for the 50 inclusions of
   // point_parameters().
   void
-  set_pressure_by_inclusion(CoupledElasticityProblem<3>           &problem,
+  set_pressure_by_inclusion(VesselElasticityProblem<3>            &problem,
                             const std::function<double(unsigned)> &pressure)
   {
     auto &by_inclusion = problem.pressure_at_immersed_surface_by_inclusion;
@@ -430,7 +430,7 @@ namespace
 
   // Set multiplier dof i to 1 + i.
   void
-  set_increasing_multiplier(CoupledElasticityProblem<3> &problem)
+  set_increasing_multiplier(VesselElasticityProblem<3> &problem)
   {
     auto           &lambda = problem.locally_relevant_solution.block(1);
     LA::MPI::Vector owned(lambda.locally_owned_elements(), MPI_COMM_WORLD);
@@ -448,7 +448,7 @@ namespace
   //   p_v = sum_{k in v} (lambda_{b(k),3} + lambda_{b(k),7}) / 2 / |Gamma_v|,
   // with |Gamma_v| the sum of |S_k| over the inclusions of v.
   void
-  check_pressure_from_multiplier(CoupledElasticityProblem<3> &problem)
+  check_pressure_from_multiplier(VesselElasticityProblem<3> &problem)
   {
     set_increasing_multiplier(problem);
     problem.compute_pressure_at_immersed_surface();
@@ -690,7 +690,7 @@ namespace
   // Solve, then set the multiplier to zero, so that the pressure computed
   // afterwards is the interior stress alone.
   void
-  solve_and_zero_multiplier(CoupledElasticityProblem<3> &problem)
+  solve_and_zero_multiplier(VesselElasticityProblem<3> &problem)
   {
     problem.run_timestep0();
     problem.run_timestep();
@@ -1302,7 +1302,7 @@ end
         std::make_unique<MaterialProperties>("low");
       par.material_properties_by_id[8] =
         std::make_unique<MaterialProperties>("high");
-      CoupledElasticityProblem<3> problem(par);
+      VesselElasticityProblem<3> problem(par);
       initialize_parameters();
       ParameterAcceptor::prm.parse_input_from_string(text);
       ParameterAcceptor::parse_all_parameters();
