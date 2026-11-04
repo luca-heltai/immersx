@@ -374,8 +374,8 @@ namespace ImmersX
    *
    * The `uses_prescribed_vessel_pressure() == true` branch does *not* solve the
    * saddle-point problem. Instead it computes \f$\lambda \approx M^{-1}g\f$ and
-   * then forms an additional load \f$f_f = B^T\lambda\f$ (stored in
-   * `system_rhs_f.block(0)`).
+   * then applies the additional load \f$f_f = B^T\lambda\f$ to the bulk
+   * equation.
    *
    * Multiplier right-hand side \f$g\f$ (as assembled in `assemble_coupling()`)
    * is a normalized quadrature projection of the inclusion boundary data onto
@@ -389,8 +389,7 @@ namespace ImmersX
    *
    * @note In the stationary case (`initial_time == final_time`) with
    * `uses_prescribed_vessel_pressure() == true`, the stationary path computes
-   * \f$f_f=B^T\lambda\f$ but then solves \f$A u = f\f$ (i.e., \f$f_f\f$ is not
-   * used in the stationary solve path).
+   * \f$\lambda=M^{-1}g\f$ and solves \f$A u = f+B^T\lambda\f$.
    *
    * @section elasticity_time Time integration (Newmark predictor/corrector)
    *
@@ -400,8 +399,9 @@ namespace ImmersX
    * \f[
    *   C\,\ddot u + D\,\dot u + A\,u = \big(f + f_f\big)\,\sin(t),
    * \f]
-   * where \f$f_f=B^T\lambda\f$ is present only in the `pressure_coupling ==
-   * true` branch (as implemented in `solve()`).
+   * where \f$f_f=B^T\lambda\f$ is present only in the
+   * `uses_prescribed_vessel_pressure() == true` branch (as implemented in
+   * `solve()`).
    *
    * Given \f$u^n, v^n=\dot u^n, a^n=\ddot u^n\f$, the code computes:
    * Predictor:

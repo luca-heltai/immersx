@@ -186,8 +186,8 @@ namespace ImmersX
     /**
      * @brief Assemble the matrix mapping multiplier coefficients to background loads.
      *
-     * The entries are B_ij = int_gamma int_D(s) v_i . (psi phi_c)_j dD ds, a
-     * surface integral over the cross sections D(s) along the reduced domain
+     * The entries are (B^T)_ij = int_gamma int_D(s) v_i . (psi phi_c)_j dD ds,
+     * a surface integral over the cross sections D(s) along the reduced domain
      * gamma. Point coupling instead uses the plain average
      * 1/|S| int_S v_i . phi_j over the circle S of each inclusion, which does
      * not grow with the size of the inclusion.

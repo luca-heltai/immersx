@@ -179,7 +179,8 @@ namespace ImmersX
    * where:
    * - `A` is the bulk Poisson stiffness matrix assembled in
    *   `assemble_poisson_system()`;
-   * - `B` is the reduced trace/projection operator assembled in
+   * - `B` is the reduced trace/projection operator, the transpose of the
+   *   bulk-row/multiplier-column matrix assembled by
    *   `ReducedCoupling::assemble_multiplier_load_matrix()`;
    * - `g` is the reduced right-hand side assembled in
    *   `ReducedCoupling::assemble_reduced_rhs()`.
