@@ -448,3 +448,82 @@ TEST(FiberReinforcedElasticityFreq, BOTH_ExteriorLiftPreservesUncoupledDynamics)
 {
   check_harmonic_overlap(false);
 }
+
+namespace
+{
+  void
+  check_shared_harmonic_overlap(const bool partial)
+  {
+    ParameterAcceptor::clear();
+    FiberReinforcedElasticityFreqParameters<1, 3> parameters;
+    parameters.formulation      = "shared";
+    parameters.output_directory = TestPaths::output_directory(
+      partial ? "harmonic-shared-partial" : "harmonic-shared-exterior");
+    parameters.geometry->thickness          = "0.5";
+    parameters.geometry->section.n_q_points = 2;
+    auto &matrix                            = parameters.matrix_parameters;
+    auto &fiber                             = parameters.fiber_parameters;
+    matrix.initial_refinement               = 0;
+    fiber.initial_refinement                = 1;
+    matrix.dirichlet_ids.clear();
+    fiber.dirichlet_ids.clear();
+    if (partial)
+      {
+        matrix.name_of_grid       = "subdivided_hyper_rectangle";
+        matrix.arguments_for_grid = "1, 1, 1: -1, 0, -1: 1, 1, 1: false";
+      }
+    fiber.arguments_for_grid = partial ? "-0.75:0.75:false" : "2:3:false";
+    for (auto *material : {&matrix.default_material_properties,
+                           &fiber.default_material_properties})
+      {
+        material->rho            = 2.;
+        material->rayleigh_alpha = .4;
+      }
+    initialize_parameters_from_string(R"(
+subsection Fiber Reinforced Elasticity Frequency
+ subsection Matrix
+  subsection Functions
+   subsection Right hand side
+    set Function expression = 1; 2; 3
+   end
+  end
+ end
+ subsection Fiber
+  subsection Functions
+   subsection Right hand side
+    set Function expression = 1; 2; 3
+   end
+  end
+ end
+end
+)");
+    FiberReinforcedElasticityFreq<1, 3> driver(parameters);
+    driver.setup();
+    // Half of the symmetric section is inside y>=0; all points of the
+    // translated exterior fiber are outside the cube.
+    EXPECT_NEAR(driver.reinforcement_measure(), partial ? .75 : 0., 1.e-12);
+    const double frequency = .25;
+    driver.solve_frequency(frequency);
+    const double omega = 2. * std::acos(-1.) * frequency;
+    const auto   amplitude =
+      1. / std::complex<double>(-2. * omega * omega, .8 * omega);
+    // Matching density, damping and body load give an exact translation
+    // pointwise, independent of the retained reinforcement geometry.
+    check_coefficients(driver.matrix_problem(),
+                       [amplitude](const auto &, unsigned int c) {
+                         return (c + 1.) * amplitude;
+                       });
+    EXPECT_LT(driver.residual_norm(), 1.e-8);
+  }
+} // namespace
+
+TEST(FiberReinforcedElasticityFreq, BOTH_SharedPartialLiftSkipsExteriorPoints)
+{
+  check_shared_harmonic_overlap(true);
+}
+
+TEST(FiberReinforcedElasticityFreq,
+     BOTH_SharedExteriorLiftPreservesBulkDynamics)
+{
+  check_shared_harmonic_overlap(false);
+}
