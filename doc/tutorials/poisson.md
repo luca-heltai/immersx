@@ -44,10 +44,11 @@ The configured input writes results below
 `poisson_debug` instead. The same canonical input is exercised by
 `AppExecutables.TutorialPoisson`.
 
-The application executes the assembled affine system through `LinearAdapter`
-using the standard iterative solver and a block-diagonal local preconditioner.
-The adapter keeps the semantic field and execution storage separate, so the
-same Problem can also be composed with other Problems in a coupled adapter.
+The `poisson` executable solves the assembled system with conjugate gradients
+and an AMG preconditioner. The `poisson_adapter` executable registers the same
+assembled Problem with `LinearAdapter`. The adapter keeps the semantic field
+and execution storage separate, so that Problem can also be composed with other
+Problems in a coupled adapter.
 
 For a distributed run, launch the executable explicitly with MPI:
 
