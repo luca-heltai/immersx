@@ -20,6 +20,7 @@
 #include <immersx/core/reduced_field_values.h>
 #include <immersx/physics/coupled_elasticity.h>
 
+#include <algorithm>
 #include <cstddef>
 
 namespace ImmersX
@@ -35,9 +36,8 @@ namespace ImmersX
    * @brief Compute the mean normal stress (the "pressure") that the tissue
    * exerts on each vessel wall, from the reduced Lagrange multiplier.
    *
-   * See the class documentation in coupled_elasticity.h and
-   * doc/concepts/vessel-pressure.md for the derivation of every formula used
-   * here.
+   * The class documentation in coupled_elasticity.h defines the sampled
+   * nominal-wall average and its scalar projection.
    */
   template <int dim, int spacedim>
   void
@@ -48,445 +48,481 @@ namespace ImmersX
                          "Postprocessing: Computing Pressure");
 
     if (!this->uses_tensor_product_coupling() &&
+        this->inclusions.n_inclusions() == 0)
+      return;
+
+    const auto     &lambda = this->locally_relevant_solution.block(1);
+    LA::MPI::Vector owned_lambda(lambda.locally_owned_elements(),
+                                 this->mpi_communicator);
+    owned_lambda = lambda;
+
+    if (!this->uses_tensor_product_coupling() &&
         this->inclusions.n_inclusions() > 0)
       {
-        const auto locally_owned_vessels =
-          Utilities::MPI::create_evenly_distributed_partitioning(
-            this->mpi_communicator, this->inclusions.get_n_vessels());
+        const auto &inclusions = this->inclusions;
+        const auto &source_inclusions =
+          inclusions.locally_owned_source_inclusions();
+        const auto source_points = inclusions.locally_owned_source_points();
+        const auto n_q = inclusions.n_particles() / inclusions.n_inclusions();
+        IndexSet   relevant = owned_lambda.locally_owned_elements();
+        for (const auto inclusion : source_inclusions)
+          {
+            const auto &indices = inclusions.get_dof_indices(inclusion * n_q);
+            relevant.add_indices(indices.begin(), indices.end());
+          }
+        relevant.compress();
+        LA::MPI::Vector source_lambda(owned_lambda.locally_owned_elements(),
+                                      relevant,
+                                      this->mpi_communicator);
+        source_lambda = owned_lambda;
 
-        const auto locally_owned_inclusions =
-          Utilities::MPI::create_evenly_distributed_partitioning(
-            this->mpi_communicator, this->inclusions.n_inclusions());
-
-        pressure_at_immersed_surface.reinit(locally_owned_vessels,
-                                            this->mpi_communicator);
-        auto &pressure = pressure_at_immersed_surface;
-        pressure       = 0;
-        pressure_at_immersed_surface_by_inclusion.reinit(
-          locally_owned_inclusions, this->mpi_communicator);
-        auto &pressure_at_inc = pressure_at_immersed_surface_by_inclusion;
-        pressure_at_inc       = 0;
-
-        auto &lambda_to_pressure = this->locally_relevant_solution.block(1);
-
-        const auto used_number_modes = this->inclusions.n_dofs_per_inclusion();
-
-        const auto local_lambda = lambda_to_pressure.locally_owned_elements();
-
-        // Only the coefficients of cos(theta) in the first vessel-frame
-        // direction and of sin(theta) in the second one exert a normal force
-        // on the wall: (mode 1, x) and (mode 2, y), i.e., the indices d and
-        // 2d + 1 (3 and 7 in 3D, 2 and 5 in 2D). The normal force of every
-        // other coefficient averages to zero over the wall. Find where these
-        // two coefficients are in the selection; a coefficient that is not
-        // selected contributes nothing.
-        const auto &selection = this->inclusions.get_selected_coefficients();
-        std::vector<bool> is_normal_coefficient(used_number_modes, false);
-        for (unsigned int j = 0; j < used_number_modes; ++j)
-          is_normal_coefficient[j] =
-            (selection[j] == spacedim || selection[j] == 2 * spacedim + 1);
-
-        // Area of the lateral surface of each vessel, |Gamma_v| = sum of
-        // |S_k| over its inclusions, with |S_k| = 2 pi r_k |d_k| in 3D and
-        // 2 pi r_k in 2D. Every rank knows all inclusions.
-        std::vector<double> vessel_area(this->inclusions.get_n_vessels(), 0.);
-        for (unsigned int k = 0; k < this->inclusions.n_inclusions(); ++k)
-          vessel_area[this->inclusions.get_vesselID(k)] +=
-            this->inclusions.get_section_measure(k);
-
-        // The material also fills the vessels, so the multiplier gives the
-        // jump of the normal stress across the wall, tissue minus interior.
-        // The interior is a disc with the imposed wall displacement on its
-        // boundary. In plane strain its mean normal stress on the wall
-        // depends only on the mean normal wall displacement u_n,
-        //   sigma_int = 2 (lambda + mu) u_n / r,
-        // and adding it back gives the normal stress of the tissue. u_n is
-        // read from the imposed data: an entry g of the multiplier
-        // right-hand side for the coefficient 3 or 7 contributes g to u_n of
-        // its block (the mean of cos^2 or sin^2 is 1/2, as for lambda). With
-        // segments the data of a block is the sum over its n_s inclusions,
-        // and each inclusion gets the mean g / n_s. lambda + mu is the mean
-        // over the cells that contain the support points of the inclusion.
-        const auto         &imposed_displacement = this->force_rhs.block(1);
-        std::vector<double> interior_stiffness;
+        LA::MPI::Vector stiffness;
         if (this->par.remove_interior_stress_from_pressure)
           {
-            std::vector<double> local_stiffness(this->inclusions.n_inclusions(),
-                                                0.);
-            std::vector<double> local_n_points(this->inclusions.n_inclusions(),
-                                               0.);
-            for (const auto &particle :
-                 this->inclusions.inclusions_as_particles)
-              {
-                const auto k =
-                  this->inclusions.get_inclusion_id(particle.get_id());
-                const auto &mp = this->par.get_material_properties(
-                  particle.get_surrounding_cell()->material_id());
-                local_stiffness[k] += 2. * (mp.Lame_lambda + mp.Lame_mu);
-                local_n_points[k] += 1.;
-              }
-            interior_stiffness.resize(this->inclusions.n_inclusions());
-            std::vector<double> n_points(this->inclusions.n_inclusions());
-            Utilities::MPI::sum(local_stiffness,
-                                this->mpi_communicator,
-                                interior_stiffness);
-            Utilities::MPI::sum(local_n_points,
-                                this->mpi_communicator,
-                                n_points);
-            const auto &default_material =
-              this->par.get_material_properties(numbers::invalid_material_id);
-            for (unsigned int k = 0; k < interior_stiffness.size(); ++k)
-              interior_stiffness[k] = n_points[k] > 0 ?
-                                        interior_stiffness[k] / n_points[k] :
-                                        2. * (default_material.Lame_lambda +
-                                              default_material.Lame_mu);
+            stiffness.reinit(source_points, this->mpi_communicator);
+            for (const auto &particle : inclusions.inclusions_as_particles)
+              if (particle.get_surrounding_cell()->is_locally_owned())
+                {
+                  const auto &material = this->par.get_material_properties(
+                    particle.get_surrounding_cell()->material_id());
+                  stiffness[particle.get_id()] +=
+                    2. * (material.Lame_lambda + material.Lame_mu);
+                }
+            stiffness.compress(VectorOperation::add);
           }
 
-        // A normal coefficient lambda of the multiplier block used by
-        // inclusion k is a force: on the wall of k it produces the normal
-        // force lambda / 2 (the mean of cos^2 or sin^2 over the circle).
-        // Dividing by |S_k| gives the mean normal stress on the wall of k,
-        //   p_k = (lambda_1x + lambda_2y) / (2 |S_k|) + sigma_int,k,
-        // and dividing the force by |Gamma_v| gives the contribution to the
-        // mean normal stress on the wall of vessel v,
-        //   p_v = sum_k ((lambda_1x + lambda_2y) / 2 + |S_k| sigma_int,k)
-        //         / |Gamma_v|.
-        // `displacement` is the contribution of this entry to u_n of the
-        // inclusion.
-        const auto add_normal_force = [&](const unsigned int inclusion,
-                                          const double       lambda,
-                                          const double       displacement) {
-          AssertIndexRange(inclusion, this->inclusions.n_inclusions());
-          const auto vessel_id = this->inclusions.get_vesselID(inclusion);
-          const auto measure = this->inclusions.get_section_measure(inclusion);
-          auto       interior_stress = 0.0;
-          if (this->par.remove_interior_stress_from_pressure)
-            interior_stress = interior_stiffness[inclusion] * displacement /
-                              this->inclusions.get_radius(inclusion);
-          pressure_at_inc[inclusion] +=
-            lambda / (2. * measure) + interior_stress;
-          pressure[vessel_id] +=
-            (lambda / 2. + measure * interior_stress) / vessel_area[vessel_id];
-        };
-
-        if (!this->inclusions.cluster_with_segments)
+        const auto         &selection = inclusions.get_selected_coefficients();
+        std::vector<double> nominal_displacement(source_inclusions.n_elements(),
+                                                 0.);
+        if (this->par.remove_interior_stress_from_pressure)
           {
-            // Multiplier block k belongs to inclusion k.
-            for (const auto &element_of_local_lambda : local_lambda)
+            LA::MPI::Vector nominal_rhs(owned_lambda.locally_owned_elements(),
+                                        this->mpi_communicator);
+            this->assemble_point_coupling_rhs(nominal_rhs, false);
+            LA::MPI::Vector source_datum(owned_lambda.locally_owned_elements(),
+                                         relevant,
+                                         this->mpi_communicator);
+            source_datum = nominal_rhs;
+            std::vector<unsigned int> segment_sizes;
+            if (inclusions.cluster_with_segments)
               {
-                if (!is_normal_coefficient[element_of_local_lambda %
-                                           used_number_modes])
-                  continue;
-                const unsigned inclusion_number = (unsigned int)floor(
-                  element_of_local_lambda / (used_number_modes));
-                add_normal_force(inclusion_number,
-                                 lambda_to_pressure[element_of_local_lambda],
-                                 imposed_displacement[element_of_local_lambda]);
+                segment_sizes.assign(inclusions.n_global_segments(), 0);
+                for (unsigned int inclusion = 0;
+                     inclusion < inclusions.n_inclusions();
+                     ++inclusion)
+                  ++segment_sizes[inclusions.get_segment_index(inclusion *
+                                                               n_q)];
+              }
+            for (const auto inclusion : source_inclusions)
+              {
+                const auto local =
+                  source_inclusions.index_within_set(inclusion);
+                const auto &indices =
+                  inclusions.get_dof_indices(inclusion * n_q);
+                for (unsigned int j = 0; j < indices.size(); ++j)
+                  if (selection[j] == spacedim ||
+                      selection[j] == 2 * spacedim + 1)
+                    nominal_displacement[local] += source_datum[indices[j]];
+                if (inclusions.cluster_with_segments)
+                  nominal_displacement[local] /=
+                    segment_sizes[inclusions.get_segment_index(inclusion *
+                                                               n_q)];
               }
           }
-        else
+
+        std::vector<double> normal_force(source_inclusions.n_elements(), 0.);
+        std::vector<double> interior_force(source_inclusions.n_elements(), 0.);
+        std::vector<unsigned int> found(source_inclusions.n_elements(), 0);
+        std::vector<double> mean_stiffness(source_inclusions.n_elements(), 0.);
+        inclusions.for_each_source_point(
+          [&](const auto id, const auto &, const bool inside) {
+            if (!inside)
+              return;
+            const auto local = source_inclusions.index_within_set(
+              inclusions.get_inclusion_id(id));
+            ++found[local];
+            if (this->par.remove_interior_stress_from_pressure)
+              mean_stiffness[local] += stiffness[id];
+          });
+        for (unsigned int local = 0; local < found.size(); ++local)
+          if (found[local] > 0)
+            mean_stiffness[local] /= found[local];
+        inclusions.for_each_source_point(
+          [&](const auto id, const auto &point, const bool inside) {
+            if (!inside)
+              return;
+            const auto inclusion = inclusions.get_inclusion_id(id);
+            const auto local = source_inclusions.index_within_set(inclusion);
+
+            const auto measure  = inclusions.get_section_measure(inclusion);
+            const auto radius   = inclusions.get_radius(inclusion);
+            const auto rotation = inclusions.get_rotation(inclusion);
+            const auto indices  = inclusions.get_dof_indices(id);
+            const auto modes    = inclusions.get_fe_values(id);
+            const auto normal =
+              (point - inclusions.get_center(inclusion)) / radius;
+            Tensor<1, spacedim> traction;
+            for (unsigned int j = 0; j < indices.size(); ++j)
+              {
+                const auto component = inclusions.get_component(indices[j]);
+                for (unsigned int d = 0; d < spacedim; ++d)
+                  traction[d] += source_lambda[indices[j]] * modes[j] *
+                                 rotation[d][component] / measure;
+              }
+            const auto weight = inclusions.get_JxW(id);
+            normal_force[local] += weight * (traction * normal);
+            if (this->par.remove_interior_stress_from_pressure)
+              interior_force[local] += weight * mean_stiffness[local] *
+                                       nominal_displacement[local] / radius;
+          });
+
+        // Resolve the products with the normal before using their exact
+        // circle moments; otherwise retain the sampled quadrature result.
+        const bool resolved_moments =
+          n_q > 2 && std::all_of(selection.begin(),
+                                 selection.end(),
+                                 [n_q](const auto index) {
+                                   return (index / spacedim + 1) / 2 + 1 < n_q;
+                                 });
+        for (const auto inclusion : source_inclusions)
           {
-            std::vector<unsigned int> n_cells_concurring_to_each_vessel(
-              this->inclusions.get_n_vessels(), 0);
-            [[maybe_unused]] auto expected_dofs =
-              this->inclusions.n_global_segments() *
-              this->inclusions.n_dofs_per_inclusion();
-            AssertDimension(expected_dofs, this->solution.block(1).size());
-
-            // Multiplier block s belongs to segment s. The segment constraint
-            // is the sum of the constraints of its inclusions, so the segment
-            // multiplier acts on each inclusion of the segment as if that
-            // inclusion had it as its own multiplier: every inclusion of the
-            // segment receives the whole block, with its own |S_k|. If the
-            // inclusions of a segment are made shorter and more numerous, the
-            // segment multiplier decreases in proportion and p_k does not
-            // change.
-            //
-            // The entries of one segment are consecutive, so look up its
-            // inclusions only when the segment changes: the lookup scans all
-            // inclusions.
-            unsigned int current_segment = numbers::invalid_unsigned_int;
-            std::vector<unsigned int> inclusions_in_segment;
-            for (const auto &element_of_local_lambda : local_lambda)
+            const auto local = source_inclusions.index_within_set(inclusion);
+            if (resolved_moments && found[local] == n_q)
               {
-                const unsigned segment_number = (unsigned int)floor(
-                  element_of_local_lambda / (used_number_modes));
-
-                AssertIndexRange(segment_number,
-                                 this->inclusions.n_global_segments());
-                if (!is_normal_coefficient[element_of_local_lambda %
-                                           used_number_modes])
-                  continue;
-                if (segment_number != current_segment)
-                  {
-                    current_segment = segment_number;
-                    inclusions_in_segment =
-                      this->inclusions.get_inclusions_in_a_segment(
-                        segment_number);
-                  }
-
-                for (const auto i : inclusions_in_segment)
-                  {
-                    n_cells_concurring_to_each_vessel[this->inclusions
-                                                        .get_vesselID(i)]++;
-                    add_normal_force(
-                      i,
-                      lambda_to_pressure[element_of_local_lambda],
-                      imposed_displacement[element_of_local_lambda] /
-                        inclusions_in_segment.size());
-                  }
+                normal_force[local] = 0.;
+                const auto &indices =
+                  inclusions.get_dof_indices(inclusion * n_q);
+                for (unsigned int j = 0; j < indices.size(); ++j)
+                  if (selection[j] == spacedim ||
+                      selection[j] == 2 * spacedim + 1)
+                    normal_force[local] += 0.5 * source_lambda[indices[j]];
               }
           }
-        // A segment is owned by the rank that owns its cell, while both
-        // vectors are split evenly by vessel or inclusion, so some of the
-        // additions above go to entries owned by other ranks.
-        pressure.compress(VectorOperation::add);
-        pressure_at_inc.compress(VectorOperation::add);
+
+        std::vector<double> vessel_area(inclusions.get_n_vessels(), 0.);
+        for (unsigned int inclusion = 0; inclusion < inclusions.n_inclusions();
+             ++inclusion)
+          vessel_area[inclusions.get_vesselID(inclusion)] +=
+            inclusions.get_section_measure(inclusion);
+        pressure_at_immersed_surface.reinit(
+          Utilities::MPI::create_evenly_distributed_partitioning(
+            this->mpi_communicator, inclusions.get_n_vessels()),
+          this->mpi_communicator);
+        pressure_at_immersed_surface_by_inclusion.reinit(
+          Utilities::MPI::create_evenly_distributed_partitioning(
+            this->mpi_communicator, inclusions.n_inclusions()),
+          this->mpi_communicator);
+        for (const auto inclusion : source_inclusions)
+          {
+            const auto local  = source_inclusions.index_within_set(inclusion);
+            const auto force  = normal_force[local] + interior_force[local];
+            const auto vessel = inclusions.get_vesselID(inclusion);
+            pressure_at_immersed_surface_by_inclusion[inclusion] +=
+              force / inclusions.get_section_measure(inclusion);
+            pressure_at_immersed_surface[vessel] += force / vessel_area[vessel];
+          }
+        pressure_at_immersed_surface_by_inclusion.compress(
+          VectorOperation::add);
+        pressure_at_immersed_surface.compress(VectorOperation::add);
       }
-    else if (this->uses_tensor_product_coupling()) // tensor coupling
+    else if (this->uses_tensor_product_coupling())
       {
 #ifdef DEAL_II_WITH_VTK
-        // block(1) is indexed by the DoFs of the reduced DoFHandler, so lambda
-        // is a finite element field on the reduced grid: component c of
-        // lambda is the coefficient Lambda_c(s) of the selected cross-section
-        // mode phi_c, and the force per unit wall area is
-        //   T(s, xi) = sum_c Lambda_c(s) phi_c(xi).
-        const auto &reduced_dh =
-          this->tensor_product_coupling->get_dof_handler();
-        const auto        &lambda = this->locally_relevant_solution.block(1);
-        const auto        &fe     = reduced_dh.get_fe();
-        const unsigned int n_comp = fe.n_components();
-
         AssertThrow(!vessel_index_of_a_cell.empty(),
-                    ExcMessage("error in filling the vessels_id"));
-
-        const auto locally_owned_vessels =
-          Utilities::MPI::create_evenly_distributed_partitioning(
-            this->mpi_communicator, n_vessels());
-
-        pressure_at_immersed_surface.reinit(locally_owned_vessels,
-                                            this->mpi_communicator);
-        auto &pressure = pressure_at_immersed_surface;
-        pressure       = 0;
-
-        // Weight of each component in the mean normal stress on the wall,
-        //   p(s) = 1/|D(s)| int_{D(s)} T . n = sum_c k_c Lambda_c(s),
-        //   k_c  = 1/|D_ref| int_{D_ref} phi_c . n.
-        // Only the modes x e_x and y e_y, i.e., the selected indices 3 and 7,
-        // exert a normal force; their weight is 1/2 on the circle, where they
-        // are cos(theta) e_x and sin(theta) e_y.
-        // The weight is computed with the quadrature of the reference cross
-        // section, so it is exact for the quadrature used by the coupling.
-        const auto &section =
-          this->tensor_product_coupling->get_reference_cross_section();
+                    ExcMessage("The reduced grid has no vessel identifiers."));
+        const auto &coupling     = *this->tensor_product_coupling;
+        const auto &reduced_dh   = coupling.get_dof_handler();
+        const auto &fe           = reduced_dh.get_fe();
+        const auto  n_components = fe.n_components();
         const auto &selection =
           this->par.tensor_product_coupling_parameters
             .tensor_product_space_parameters.section.selected_coefficients;
-        AssertDimension(selection.size(), n_comp);
-        const auto &section_quadrature = section.get_global_quadrature();
-        std::vector<double> normal_weight(n_comp, 0.);
-        for (unsigned int c = 0; c < n_comp; ++c)
-          if (selection[c] == 3 || selection[c] == 7)
-            {
-              for (unsigned int q = 0; q < section_quadrature.size(); ++q)
-                {
-                  const auto &xi = section_quadrature.point(q);
-                  const auto  n  = xi / xi.norm();
-                  for (unsigned int d = 0; d < spacedim; ++d)
-                    normal_weight[c] += section.shape_value(c, q, d) * n[d] *
-                                        section_quadrature.weight(q);
-                }
-              normal_weight[c] /= section.measure();
-            }
-
-        // Interior stress (see the point-coupling branch above). The imposed
-        // wall displacement is sum_c a_c(s) phi_c with M a = g, where g is the
-        // multiplier right-hand side and M the coupling mass matrix
-        // int psi_m psi_n |D(s)| m_c ds, i.e., the Gram matrix of the
-        // multiplier space, with m_c = 1/|D| int_D phi_c . phi_c. Its mean
-        // normal value is
-        //   u_n(s) = sum_c k_c a_c(s),
-        // and the mean normal stress of the interior material on the wall is
-        //   sigma_int(s) = 2 (lambda + mu) u_n(s) / r(s),
-        // with r(s) the thickness. lambda + mu is the mean over the bulk cells
-        // that contain the lifted points of each reduced cell.
-        LA::MPI::Vector     imposed_coefficients;
-        std::vector<double> interior_stiffness;
+        AssertDimension(selection.size(), n_components);
+        const auto relevant =
+          DoFTools::extract_locally_relevant_dofs(reduced_dh);
+        LA::MPI::Vector source_lambda(owned_lambda.locally_owned_elements(),
+                                      relevant,
+                                      this->mpi_communicator);
+        source_lambda             = owned_lambda;
+        const auto &source_points = coupling.locally_owned_qpoints();
+        const auto &points        = coupling.get_locally_owned_qpoints();
+        const auto &weights       = coupling.get_locally_owned_weights();
+        const auto &modes         = coupling.get_locally_owned_mode_values();
+        const auto &inside        = coupling.source_point_membership();
+        AssertDimension(points.size(), source_points.n_elements());
+        AssertDimension(inside.size(), points.size());
+        std::map<types::global_cell_index,
+                 std::vector<std::pair<unsigned int, unsigned int>>>
+          samples;
+        for (unsigned int q = 0; q < points.size(); ++q)
+          {
+            const auto [cell, representative_q, section_q] =
+              coupling.particle_id_to_representative_indices(
+                source_points.nth_index_in_set(q));
+            (void)section_q;
+            samples[cell].emplace_back(q, representative_q);
+          }
+        LA::MPI::Vector stiffness, source_coefficients;
         if (this->par.remove_interior_stress_from_pressure)
           {
-            LA::MPI::Vector owned_coefficients(
-              this->force_rhs.block(1).locally_owned_elements(),
-              this->mpi_communicator);
-            ReductionControl          control(1000, 1e-14, 1e-12);
-            SolverCG<LA::MPI::Vector> cg(control);
-            cg.solve(this->inclusion_matrix,
-                     owned_coefficients,
-                     this->force_rhs.block(1),
-                     this->prec_M);
-            imposed_coefficients = lambda;
-            imposed_coefficients = owned_coefficients;
-
-            const auto n_reduced_cells =
-              this->tensor_product_coupling->get_triangulation()
-                .n_global_active_cells();
-            std::vector<double> local_stiffness(n_reduced_cells, 0.);
-            std::vector<double> local_n_points(n_reduced_cells, 0.);
-            for (const auto &particle :
-                 this->tensor_product_coupling->get_particles())
-              {
-                const auto reduced_cell = std::get<0>(
-                  this->tensor_product_coupling
-                    ->particle_id_to_representative_indices(particle.get_id()));
-                const auto &mp = this->par.get_material_properties(
-                  particle.get_surrounding_cell()->material_id());
-                local_stiffness[reduced_cell] +=
-                  2. * (mp.Lame_lambda + mp.Lame_mu);
-                local_n_points[reduced_cell] += 1.;
-              }
-            interior_stiffness.resize(n_reduced_cells);
-            std::vector<double> n_points(n_reduced_cells);
-            Utilities::MPI::sum(local_stiffness,
-                                this->mpi_communicator,
-                                interior_stiffness);
-            Utilities::MPI::sum(local_n_points,
-                                this->mpi_communicator,
-                                n_points);
-            const auto &default_material =
-              this->par.get_material_properties(numbers::invalid_material_id);
-            for (unsigned int c = 0; c < n_reduced_cells; ++c)
-              interior_stiffness[c] = n_points[c] > 0 ?
-                                        interior_stiffness[c] / n_points[c] :
-                                        2. * (default_material.Lame_lambda +
-                                              default_material.Lame_mu);
+            LA::MPI::SparseMatrix nominal_mass;
+            nominal_mass.reinit(this->inclusion_matrix);
+            coupling.assemble_coupling_mass_matrix(nominal_mass);
+            LA::MPI::Vector nominal_rhs(owned_lambda.locally_owned_elements(),
+                                        this->mpi_communicator);
+            LA::MPI::Vector coefficients(owned_lambda.locally_owned_elements(),
+                                         this->mpi_communicator);
+            coupling.assemble_prescribed_rhs(nominal_rhs);
+            LA::MPI::PreconditionJacobi preconditioner;
+            preconditioner.initialize(nominal_mass);
+            ReductionControl          control(1000, 1.e-14, 1.e-12);
+            SolverCG<LA::MPI::Vector> solver(control);
+            solver.solve(nominal_mass,
+                         coefficients,
+                         nominal_rhs,
+                         preconditioner);
+            source_coefficients.reinit(owned_lambda.locally_owned_elements(),
+                                       relevant,
+                                       this->mpi_communicator);
+            source_coefficients = coefficients;
+            stiffness.reinit(source_points, this->mpi_communicator);
+            for (const auto &particle : coupling.get_particles())
+              if (particle.get_surrounding_cell()->is_locally_owned())
+                {
+                  const auto &material = this->par.get_material_properties(
+                    particle.get_surrounding_cell()->material_id());
+                  stiffness[particle.get_id()] +=
+                    2. * (material.Lame_lambda + material.Lame_mu);
+                }
+            stiffness.compress(VectorOperation::add);
           }
 
-        // Pressure at each support point of the reduced grid: the nodal
-        // value p_n = sum_c k_c (lambda_{n,c} + 2 (lambda + mu) a_{n,c} / r_n)
-        // of the pressure field p_h(s); the second term is the interior
-        // stress, if it is removed.
-        // Support point n is the n-th degree of freedom of component 0 in
-        // the numbering of the reduced DoFHandler. Its other components are
-        // on the same support point, so they are owned by the same rank.
-        const IndexSet owned_dofs_of_first_component = DoFTools::extract_dofs(
-          reduced_dh, fe.component_mask(FEValuesExtractors::Scalar(0)));
-        const auto [first_support_point, n_support_points] =
-          Utilities::MPI::partial_and_total_sum(
-            owned_dofs_of_first_component.n_elements(), this->mpi_communicator);
-        IndexSet owned_support_points(n_support_points);
-        owned_support_points.add_range(
-          first_support_point,
-          first_support_point + owned_dofs_of_first_component.n_elements());
-        pressure_at_immersed_surface_by_inclusion.reinit(
-          owned_support_points, this->mpi_communicator);
-        auto &pressure_at_inc = pressure_at_immersed_surface_by_inclusion;
-        pressure_at_inc       = 0;
-
-        // The thickness at the support points, for the interior stress; a
-        // support point shared by two cells takes the material of the last
-        // one visited.
-        const Quadrature<1> support_points(
-          fe.base_element(0).get_unit_support_points());
-        std::vector<double> support_point_thickness(support_points.size());
-
-        std::vector<types::global_dof_index> dof_indices(fe.n_dofs_per_cell());
-        for (const auto &cell : reduced_dh.active_cell_iterators())
-          if (cell->is_locally_owned())
-            {
-              cell->get_dof_indices(dof_indices);
-              if (this->par.remove_interior_stress_from_pressure)
-                this->tensor_product_coupling->get_thickness_values(
-                  cell, support_points, support_point_thickness);
-              for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
-                {
-                  const auto [component, base_index] =
-                    fe.system_to_component_index(i);
-                  if (component != 0 ||
-                      !owned_dofs_of_first_component.is_element(dof_indices[i]))
-                    continue;
-                  double nodal_pressure = 0;
-                  for (unsigned int c = 0; c < n_comp; ++c)
-                    if (normal_weight[c] != 0)
-                      {
-                        const auto dof =
-                          dof_indices[fe.component_to_system_index(c,
-                                                                   base_index)];
-                        nodal_pressure += normal_weight[c] * lambda[dof];
-                        if (this->par.remove_interior_stress_from_pressure)
-                          nodal_pressure +=
-                            interior_stiffness[cell
-                                                 ->global_active_cell_index()] *
-                            normal_weight[c] * imposed_coefficients[dof] /
-                            support_point_thickness[base_index];
-                      }
-                  pressure_at_inc[first_support_point +
-                                  owned_dofs_of_first_component
-                                    .index_within_set(dof_indices[i])] =
-                    nodal_pressure;
-                }
-            }
-        pressure_at_inc.compress(VectorOperation::insert);
-
-        // Pressure of vessel v: the mean of p_h over its centerline,
-        //   p_v = 1/|gamma_v| int_{gamma_v} p_h(s) ds,
-        // which is a weighted mean of the nodal values p_n. With a constant
-        // radius this is also the mean normal stress over the wall of v.
-        FEValues<1, spacedim> fe_values(
-          fe,
-          this->tensor_product_coupling->get_quadrature(),
-          update_values | update_JxW_values);
-        std::vector<Vector<double>> lambda_values(fe_values.n_quadrature_points,
-                                                  Vector<double>(n_comp));
+        // Project the covered-section mean with the nominal centerline mass.
+        // The full representative mesh retains exterior-only cells.
+        DoFHandler<1, spacedim> pressure_dh(coupling.get_triangulation());
+        const auto             &pressure_fe = fe.base_element(0);
+        pressure_dh.distribute_dofs(pressure_fe);
+        const auto pressure_relevant =
+          DoFTools::extract_locally_relevant_dofs(pressure_dh);
+        AffineConstraints<double> constraints;
+        constraints.reinit(pressure_dh.locally_owned_dofs(), pressure_relevant);
+        DoFTools::make_hanging_node_constraints(pressure_dh, constraints);
+        constraints.close();
+        DynamicSparsityPattern sparsity(pressure_relevant);
+        DoFTools::make_sparsity_pattern(pressure_dh, sparsity, constraints);
+        SparsityTools::distribute_sparsity_pattern(
+          sparsity,
+          pressure_dh.locally_owned_dofs(),
+          this->mpi_communicator,
+          pressure_relevant);
+        LA::MPI::SparseMatrix mass;
+        mass.reinit(pressure_dh.locally_owned_dofs(),
+                    pressure_dh.locally_owned_dofs(),
+                    sparsity,
+                    this->mpi_communicator);
+        LA::MPI::Vector             rhs(pressure_dh.locally_owned_dofs(),
+                            this->mpi_communicator);
+        LA::MPI::Vector             projected(pressure_dh.locally_owned_dofs(),
+                                  this->mpi_communicator);
+        FEValues<1, spacedim>       values(fe,
+                                     coupling.get_quadrature(),
+                                     update_values | update_quadrature_points |
+                                       update_JxW_values);
+        FEValues<1, spacedim>       pressure_values(pressure_fe,
+                                              coupling.get_quadrature(),
+                                              update_values);
+        std::vector<Vector<double>> lambda_values(
+          coupling.get_quadrature().size(), Vector<double>(n_components));
         std::vector<Vector<double>> coefficient_values(
-          fe_values.n_quadrature_points, Vector<double>(n_comp));
-        std::vector<double> thickness(fe_values.n_quadrature_points);
-
-        std::vector<double> local_force(n_vessels(), 0.);
-        std::vector<double> local_length(n_vessels(), 0.);
+          coupling.get_quadrature().size(), Vector<double>(n_components));
+        std::vector<double> nominal_radius(coupling.get_quadrature().size());
+        std::vector<types::global_dof_index> pressure_indices(
+          pressure_fe.n_dofs_per_cell());
+        std::vector<double> local_integral(n_vessels(), 0.),
+          local_length(n_vessels(), 0.);
         for (const auto &cell : reduced_dh.active_cell_iterators())
           if (cell->is_locally_owned())
             {
-              const auto vessel_id =
-                vessel_index_of_a_cell[cell->active_cell_index()];
-              fe_values.reinit(cell);
-              fe_values.get_function_values(lambda, lambda_values);
+              const auto pressure_cell =
+                cell->as_dof_handler_iterator(pressure_dh);
+              pressure_cell->get_dof_indices(pressure_indices);
+              values.reinit(cell);
+              pressure_values.reinit(pressure_cell);
+              values.get_function_values(source_lambda, lambda_values);
               if (this->par.remove_interior_stress_from_pressure)
                 {
-                  fe_values.get_function_values(imposed_coefficients,
-                                                coefficient_values);
-                  this->tensor_product_coupling->get_thickness_values(
-                    cell,
-                    this->tensor_product_coupling->get_quadrature(),
-                    thickness);
+                  values.get_function_values(source_coefficients,
+                                             coefficient_values);
+                  coupling.get_thickness_values(cell,
+                                                coupling.get_quadrature(),
+                                                nominal_radius);
                 }
-              for (unsigned int q = 0; q < fe_values.n_quadrature_points; ++q)
+              double       mean_stiffness   = 0.;
+              unsigned int material_samples = 0;
+              if (this->par.remove_interior_stress_from_pressure)
                 {
-                  for (unsigned int c = 0; c < n_comp; ++c)
+                  for (const auto &[q, representative_q] :
+                       samples[cell->global_active_cell_index()])
                     {
-                      local_force[vessel_id] += normal_weight[c] *
-                                                lambda_values[q][c] *
-                                                fe_values.JxW(q);
-                      if (this->par.remove_interior_stress_from_pressure)
-                        local_force[vessel_id] +=
-                          interior_stiffness[cell->global_active_cell_index()] *
-                          normal_weight[c] * coefficient_values[q][c] /
-                          thickness[q] * fe_values.JxW(q);
+                      (void)representative_q;
+                      if (inside[q])
+                        {
+                          mean_stiffness +=
+                            stiffness[source_points.nth_index_in_set(q)];
+                          ++material_samples;
+                        }
                     }
-                  local_length[vessel_id] += fe_values.JxW(q);
+                  if (material_samples > 0)
+                    mean_stiffness /= material_samples;
+                }
+              const auto          n_q = coupling.get_quadrature().size();
+              std::vector<double> nominal_displacement(n_q, 0.),
+                nominal_area(n_q, 0.);
+              for (const auto &[q, representative_q] :
+                   samples[cell->global_active_cell_index()])
+                {
+                  nominal_area[representative_q] += weights[q][0];
+                  if (this->par.remove_interior_stress_from_pressure)
+                    {
+                      const auto radial =
+                        points[q] - values.quadrature_point(representative_q);
+                      AssertThrow(
+                        radial.norm() > 0.,
+                        ExcMessage(
+                          "Wall pressure needs a nonzero physical radius."));
+                      const auto normal = radial / radial.norm();
+                      for (unsigned int c = 0; c < n_components; ++c)
+                        if (selection[c] == spacedim ||
+                            selection[c] == 2 * spacedim + 1)
+                          for (unsigned int d = 0; d < spacedim; ++d)
+                            nominal_displacement[representative_q] +=
+                              weights[q][0] *
+                              coefficient_values[representative_q][c] *
+                              modes[q][c * spacedim + d] * normal[d];
+                    }
+                }
+              for (unsigned int q = 0; q < n_q; ++q)
+                {
+                  AssertThrow(
+                    nominal_area[q] > 0.,
+                    ExcMessage(
+                      "A representative point has no nominal wall samples."));
+                  nominal_displacement[q] /= nominal_area[q];
+                }
+
+              std::vector<double> normal_force(n_q, 0.);
+              for (const auto &[q, representative_q] :
+                   samples[cell->global_active_cell_index()])
+                {
+                  if (!inside[q])
+                    continue;
+                  const auto radial =
+                    points[q] - values.quadrature_point(representative_q);
+                  const auto radius = radial.norm();
+                  AssertThrow(
+                    radius > 0.,
+                    ExcMessage(
+                      "Wall pressure needs a nonzero physical radius."));
+                  const auto normal        = radial / radius;
+                  double     normal_stress = 0.;
+                  for (unsigned int c = 0; c < n_components; ++c)
+                    for (unsigned int d = 0; d < spacedim; ++d)
+                      normal_stress += lambda_values[representative_q][c] *
+                                       modes[q][c * spacedim + d] * normal[d];
+                  if (this->par.remove_interior_stress_from_pressure)
+                    normal_stress += mean_stiffness *
+                                     nominal_displacement[representative_q] /
+                                     nominal_radius[representative_q];
+                  normal_force[representative_q] +=
+                    weights[q][0] * normal_stress;
+                }
+
+              FullMatrix<double> local_mass(pressure_indices.size(),
+                                            pressure_indices.size());
+              Vector<double>     local_rhs(pressure_indices.size());
+              const auto         vessel =
+                vessel_index_of_a_cell[cell->active_cell_index()];
+              for (unsigned int q = 0; q < n_q; ++q)
+                {
+                  const double coverage_pressure =
+                    normal_force[q] / nominal_area[q];
+                  const double weight = values.JxW(q);
+                  local_integral[vessel] += weight * coverage_pressure;
+                  local_length[vessel] += weight;
+                  for (unsigned int i = 0; i < pressure_indices.size(); ++i)
+                    {
+                      local_rhs[i] += weight * coverage_pressure *
+                                      pressure_values.shape_value(i, q);
+                      for (unsigned int j = 0; j < pressure_indices.size(); ++j)
+                        local_mass(i, j) += weight *
+                                            pressure_values.shape_value(i, q) *
+                                            pressure_values.shape_value(j, q);
+                    }
+                }
+              constraints.distribute_local_to_global(
+                local_mass, local_rhs, pressure_indices, mass, rhs);
+            }
+        mass.compress(VectorOperation::add);
+        rhs.compress(VectorOperation::add);
+        LA::MPI::PreconditionJacobi preconditioner;
+        preconditioner.initialize(mass);
+        SolverControl control(1000, 1.e-14 * std::max(1., rhs.l2_norm()));
+        SolverCG<LA::MPI::Vector> solver(control);
+        solver.solve(mass, projected, rhs, preconditioner);
+        constraints.distribute(projected);
+        LA::MPI::Vector relevant_pressure(pressure_dh.locally_owned_dofs(),
+                                          pressure_relevant,
+                                          this->mpi_communicator);
+        relevant_pressure = projected;
+
+        // Retain the public numbering by owned component-zero support points.
+        const auto owned_first =
+          DoFTools::extract_dofs(
+            reduced_dh, fe.component_mask(FEValuesExtractors::Scalar(0))) &
+          reduced_dh.locally_owned_dofs();
+        const auto [first, total] =
+          Utilities::MPI::partial_and_total_sum(owned_first.n_elements(),
+                                                this->mpi_communicator);
+        IndexSet owned_output(total);
+        owned_output.add_range(first, first + owned_first.n_elements());
+        pressure_at_immersed_surface_by_inclusion.reinit(
+          owned_output, this->mpi_communicator);
+        std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
+        for (const auto &cell : reduced_dh.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              cell->get_dof_indices(indices);
+              cell->as_dof_handler_iterator(pressure_dh)
+                ->get_dof_indices(pressure_indices);
+              for (unsigned int i = 0; i < indices.size(); ++i)
+                {
+                  const auto [component, base] =
+                    fe.system_to_component_index(i);
+                  if (component == 0 && owned_first.is_element(indices[i]))
+                    pressure_at_immersed_surface_by_inclusion
+                      [first + owned_first.index_within_set(indices[i])] =
+                        relevant_pressure[pressure_indices[base]];
                 }
             }
-        std::vector<double> force(n_vessels(), 0.);
-        std::vector<double> length(n_vessels(), 0.);
-        Utilities::MPI::sum(local_force, this->mpi_communicator, force);
+        pressure_at_immersed_surface_by_inclusion.compress(
+          VectorOperation::insert);
+        std::vector<double> integral(n_vessels()), length(n_vessels());
+        Utilities::MPI::sum(local_integral, this->mpi_communicator, integral);
         Utilities::MPI::sum(local_length, this->mpi_communicator, length);
-
-        for (const auto v : pressure.locally_owned_elements())
+        pressure_at_immersed_surface.reinit(
+          Utilities::MPI::create_evenly_distributed_partitioning(
+            this->mpi_communicator, n_vessels()),
+          this->mpi_communicator);
+        for (const auto vessel :
+             pressure_at_immersed_surface.locally_owned_elements())
           {
-            AssertThrow(length[v] > 0,
-                        ExcMessage("Vessel " + std::to_string(v) +
-                                   " has no cells in the reduced grid."));
-            pressure[v] = force[v] / length[v];
+            AssertThrow(
+              length[vessel] > 0.,
+              ExcMessage("A vessel has no representative quadrature samples."));
+            pressure_at_immersed_surface[vessel] =
+              integral[vessel] / length[vessel];
           }
-        pressure.compress(VectorOperation::insert);
+        pressure_at_immersed_surface.compress(VectorOperation::insert);
 #endif
       }
   }

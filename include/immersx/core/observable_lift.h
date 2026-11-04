@@ -216,6 +216,15 @@ namespace ImmersX
       return result;
     }
 
+    /** Representative quadrature used to generate the physical lifted points.
+     */
+    dealii::Quadrature<reduced_dim>
+    representative_quadrature() const
+    {
+      return support_->representative_quadrature(
+        source().finite_element().reference_cell());
+    }
+
     const std::vector<Point> &
     lifted_points() const
     {

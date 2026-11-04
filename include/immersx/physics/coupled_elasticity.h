@@ -24,74 +24,68 @@ namespace ImmersX
     run_timestep();
 
     /**
-     * Compute the pressure that the tissue exerts on each vessel wall from
-     * the reduced Lagrange multiplier, and store it in
-     * pressure_at_immersed_surface (one value per vessel) and
-     * pressure_at_immersed_surface_by_inclusion (one value per inclusion, or
-     * per support point of the reduced grid with tensor-product coupling).
+     * Compute tissue pressure from physical wall samples with fixed overlap
+     * flags. Missing tissue contributes zero; normalization always uses the
+     * complete nominal section. Every selected multiplier mode enters the
+     * physical traction before taking its normal component.
      *
-     * The pressure is the mean normal stress of the tissue on the wall,
+     * For point coupling the coefficients are forces. Inclusion k uses its
+     * own multiplier block b(k), or its segment's block when clustering:
+     * @f$\mathbf t_q=|S_k|^{-1}\sum_c\lambda_{b(k),c}
+     * \boldsymbol\phi_c(q)@f$. The inclusion and vessel values are
      * @f[
-     *   p_v = \frac{1}{|\Gamma_v|} \int_{\Gamma_v} \mathbf{t}\cdot\mathbf{n}
-     *   \, d\Gamma ,
+     * p_k=\frac{\sum_{q\in S_k}w_q\chi_q\sigma_q}{|S_k|},\qquad
+     * p_v=\frac{\sum_{k\in v}\sum_{q\in S_k}w_q\chi_q\sigma_q}
+     *                 {\sum_{k\in v}|S_k|},\qquad
+     * \sigma_q=\mathbf t_q\cdot\mathbf n_q+\sigma^-_{nn,q}.
      * @f]
-     * where @f$\mathbf{t}@f$ is the force per unit area that the multiplier
-     * applies to the tissue and @f$\mathbf{n}@f$ is the outward unit normal
-     * of the vessel wall @f$\Gamma_v@f$. Only the multiplier coefficients of
-     * @f$\cos\theta\,\mathbf{e}_x@f$ and @f$\sin\theta\,\mathbf{e}_y@f$ (in
-     * the frame of the vessel) have a nonzero mean normal component, so only
-     * they enter the pressure: the coefficient indices 3 and 7 in 3D, 2 and 5
-     * in 2D. The result has the sign of the multiplier.
+     * On a complete circle with resolved Fourier products, only the radial
+     * moments cos(theta) e_x and sin(theta) e_y survive, each with mean 1/2.
+     * These have coefficient indices 3 and 7 in 3D, or 2 and 5 in 2D.
+     * Their cancellation with other modes does not hold on a partial section.
      *
-     * <b>Point coupling.</b> Each multiplier coefficient is a force. Inclusion
-     * @f$k@f$ uses the multiplier block @f$b(k)@f$: its own block, or the
-     * block of its segment with "Cluster inclusions with segments". With
-     * @f$|S_k| = 2\pi r_k |\mathbf{d}_k|@f$ the area of its wall (@f$2\pi
-     * r_k@f$ in 2D),
+     * For tensor-product coupling, coefficients are traction densities:
+     * @f$\mathbf t_{j\ell}=\sum_c\Lambda_c(s_j)
+     * \boldsymbol\phi_c(j,\ell)@f$. First compute the covered-section mean
+     * using all nominal section weights in its denominator:
      * @f[
-     *   p_k = \frac{\lambda_{b(k),3} + \lambda_{b(k),7}}{2\,|S_k|},
-     *   \qquad
-     *   p_v = \frac{\sum_{k \in v} \frac12 (\lambda_{b(k),3} +
-     *   \lambda_{b(k),7})}{\sum_{k \in v} |S_k|},
+     * p_{\rm cov}(s_j)=
+     * \frac{\sum_\ell w_{j\ell}\chi_{j\ell}\sigma_{j\ell}}
+     *      {\sum_\ell w_{j\ell}}.
      * @f]
-     * so @f$p_v@f$ is the mean of @f$p_k@f$ weighted by the wall areas, and
-     * for a constant radius it is the sum of the normal forces divided by
-     * @f$2\pi r L_v@f$, with @f$L_v@f$ the vessel length. Both values do not
-     * change if the vessel is split into more, shorter inclusions.
-     *
-     * <b>Tensor-product coupling.</b> The multiplier is a finite element field
-     * on the reduced grid whose component @f$c@f$ is the coefficient
-     * @f$\Lambda_c(s)@f$ of the cross-section mode @f$\phi_c@f$, scaled to
-     * maximum one as in point coupling, so the radial modes are
-     * @f$\cos\theta\,\mathbf{e}_x@f$ and @f$\sin\theta\,\mathbf{e}_y@f$.
-     * The mean normal stress on the cross section at @f$s@f$ and on vessel
-     * @f$v@f$ are
+     * Preserve the centerline averaging convention, including for a variable
+     * radius. If v_j are the representative quadrature weights, then
+     * @f$p_v=\sum_{j\in\gamma_v}v_j p_{\rm cov}(s_j)/
+     * \sum_{j\in\gamma_v}v_j@f$. The values stored per reduced support point
+     * are coefficients of a scalar L2 projection with the nominal centerline
+     * mass:
      * @f[
-     *   p(s) = \frac{\Lambda_3(s) + \Lambda_7(s)}{2},
-     *   \qquad
-     *   p_v = \frac{1}{|\gamma_v|} \int_{\gamma_v} p(s)\, ds .
+     * M_{ik}=\sum_jv_j\psi_i(s_j)\psi_k(s_j),\qquad
+     * b_i=\sum_jv_j p_{\rm cov}(s_j)\psi_i(s_j),\qquad Mp=b.
      * @f]
-     * The factor @f$1/2@f$ is computed with the quadrature of the
-     * reference cross section. The value stored per support point is the
-     * nodal value of @f$p@f$, and @f$p_v@f$ is a mean of these values
-     * weighted by @f$\int_{\gamma_v} \psi_n\, ds@f$.
+     * Vessel values are stored in pressure_at_immersed_surface; inclusion
+     * values or projected coefficients are stored in
+     * pressure_at_immersed_surface_by_inclusion.
      *
-     * <b>Material inside the vessels.</b> The elastic material also fills
-     * the vessels, so the multiplier gives the jump
-     * @f$\sigma^+_{nn} - \sigma^-_{nn}@f$ between the normal stress of the
-     * tissue and that of the interior material. If
-     * ElasticityProblemParameters::remove_interior_stress_from_pressure is
-     * true (the default), the analytic plane-strain interior stress
-     * @f[
-     *   \bar\sigma^-_{nn} = \frac{2(\lambda+\mu)}{r}\, \bar u_n
-     * @f]
-     * is added to @f$p_k@f$ and @f$p(s)@f$ (and therefore to @f$p_v@f$), so
-     * that the pressure is the normal stress of the tissue alone. Here
-     * @f$\bar u_n@f$ is the mean normal wall displacement of the imposed data,
-     * @f$r@f$ the radius, and @f$\lambda, \mu@f$ the Lame parameters of the
-     * cells that contain the coupling points.
+     * If ElasticityProblemParameters::remove_interior_stress_from_pressure
+     * is true, retain the axisymmetric plane-strain correction
+     * @f$\sigma^-_{nn,q}=\overline K\bar a_n(s_q)/r(s_q)@f$.
+     * Here @f$\overline K@f$ is the arithmetic mean of 2(lambda_L+mu) over the
+     * located particles of the inclusion or reduced cell; it is zero when
+     * there are no such particles. No default material is assigned outside.
+     * The radius and mean radial datum use the nominal geometry. Point
+     * coupling uses the full nominal rhs moments, averaged over a segment's
+     * inclusions when clustering. Tensor coupling first projects the original
+     * datum into the modal FE space using the full nominal Gram and rhs,
+     * independently of overlap and without changing the accepted multiplier.
+     * On a resolved circle the radial mean is
+     * @f$\bar a_n=(a_d+a_{2d+1})/2@f$. Only these radial modes enter the
+     * interior correction. A rigid translation contributes no interior
+     * stress, including on a partial wall. This closure retains the previous
+     * mean radial model and does not infer a general angular interior stress.
      *
-     * The derivation is in doc/concepts/vessel-pressure.md.
+     * See doc/how-to/support-aware-weak-terms.md for the fixed quadrature
+     * support and geometry convention.
      */
     void
     compute_pressure_at_immersed_surface();

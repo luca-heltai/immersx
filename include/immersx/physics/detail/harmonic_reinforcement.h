@@ -7,6 +7,7 @@
 
 #include <immersx/core/lifted_integration_support.h>
 #include <immersx/core/observable_lift.h>
+#include <immersx/core/overlap_integration_support.h>
 #include <immersx/physics/elasticity_freq_contributor.h>
 
 #include <map>
@@ -182,8 +183,7 @@ namespace ImmersX::harmonic_detail
                         const MatrixField &matrix,
                         const FiberField  &fiber,
                         const Multiplier  &multiplier,
-                        const Lift        &geometry,
-                        const double       section_measure)
+                        const Lift        &geometry)
   {
     constexpr int spacedim      = FiberField::spacedimension();
     using Scalar                = dealii::FEValuesExtractors::Scalar;
@@ -196,13 +196,26 @@ namespace ImmersX::harmonic_detail
     const auto multiplier_component = [&](unsigned int c) {
       return multiplier.space().field(multiplier.name(), Scalar(c));
     };
+    const auto lifted_multiplier =
+      lift(value(multiplier_component(0)), geometry);
+    dealii::GridTools::Cache<spacedim> background(
+      matrix.dof_handler().get_triangulation(), matrix.mapping());
+    const auto supports = make_overlap_supports(
+      IntegrationSupport<FiberField::dimension(), spacedim>(
+        fiber.dof_handler().get_triangulation()),
+      multiplier.mapping(),
+      lifted_multiplier.representative_quadrature(),
+      lifted_multiplier.lifted_points(),
+      background);
     const auto bulk_term = [&](unsigned int c) {
       return weak_term(value(matrix_component(c)),
-                       test(lift(value(multiplier_component(c)), geometry)));
+                       test(lift(value(multiplier_component(c)), geometry)))
+        .on(supports.overlap);
     };
     const auto fiber_term = [&](unsigned int c) {
-      return weak_term(section_measure * value(fiber_component(c)),
-                       test(multiplier_component(c)));
+      // The shared support already supplies the selected section measure.
+      return weak_term(value(fiber_component(c)), test(multiplier_component(c)))
+        .on(supports.overlap);
     };
     auto terms = bulk_term(0) - fiber_term(0);
     for (unsigned int c = 1; c < spacedim; ++c)
@@ -213,6 +226,11 @@ namespace ImmersX::harmonic_detail
     const auto metric = detail::make_multiplier_metric(builder, multiplier);
     const auto registered =
       make_constraint(std::move(terms)).add(builder, &metric);
+    const auto active_multiplier =
+      multiplier.with_id(registered.multiplier.id());
+    weak_term(-1. * value(active_multiplier), test(active_multiplier))
+      .on(supports.outside)
+      .add(builder);
     return multiplier.with_id(registered.multiplier.id());
   }
 } // namespace ImmersX::harmonic_detail

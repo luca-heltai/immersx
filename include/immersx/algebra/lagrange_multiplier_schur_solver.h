@@ -34,11 +34,11 @@ namespace ImmersX
    * @code
    *   A_bulk u + C lambda       = f,
    *   A_embedded w - M^T lambda = g,
-   *   C^T u - M w               = 0.
+   *   C^T u - M w - M_out lambda = 0.
    * @endcode
    *
-   * It owns no PDE object and has no knowledge of how any of the four matrices
-   * were assembled. The two diagonal inverses use the supplied AMG
+   * It owns no PDE object and has no knowledge of how the matrices were
+   * assembled. The two diagonal inverses use the supplied AMG
    * preconditioner type; the multiplier Schur operator is applied matrix-free.
    */
   template <typename MatrixType,
@@ -84,6 +84,8 @@ namespace ImmersX
                            solver.embedded_matrix,
                            solver.embedded_preconditioner);
         solver.mass_matrix.vmult_add(dst, embedded_inverse);
+        if (solver.outside_mass != nullptr)
+          solver.outside_mass->vmult_add(dst, src);
       }
 
       dealii::types::global_dof_index
@@ -107,6 +109,10 @@ namespace ImmersX
     };
 
   public:
+    /**
+     * The optional positive outside mass contributes -M_out to the multiplier
+     * diagonal. Its lifetime must include all calls to solve().
+     */
     LagrangeMultiplierSchurSolver(const MatrixType       &bulk_matrix,
                                   const MatrixType       &embedded_matrix,
                                   const MatrixType       &coupling_matrix,
@@ -117,11 +123,13 @@ namespace ImmersX
                                   const MPI_Comm          mpi_communicator,
                                   const unsigned int      max_steps = 200,
                                   const double            tolerance = 1.e-10,
-                                  const double block_tolerance      = 1.e-12)
+                                  const double      block_tolerance = 1.e-12,
+                                  const MatrixType *outside_mass    = nullptr)
       : bulk_matrix(bulk_matrix)
       , embedded_matrix(embedded_matrix)
       , coupling_matrix(coupling_matrix)
       , mass_matrix(mass_matrix)
+      , outside_mass(outside_mass)
       , bulk_owned_dofs(bulk_owned_dofs)
       , embedded_owned_dofs(embedded_owned_dofs)
       , multiplier_owned_dofs(multiplier_owned_dofs)
@@ -231,6 +239,7 @@ namespace ImmersX
     const MatrixType &embedded_matrix;
     const MatrixType &coupling_matrix;
     const MatrixType &mass_matrix;
+    const MatrixType *outside_mass;
 
     const dealii::IndexSet bulk_owned_dofs;
     const dealii::IndexSet embedded_owned_dofs;

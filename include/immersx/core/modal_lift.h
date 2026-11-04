@@ -9,6 +9,8 @@
 
 #include <immersx/core/constraint.h>
 #include <immersx/core/observable_lift.h>
+#include <immersx/core/overlap_integration_support.h>
+#include <immersx/coupling/lifted_modal_load.h>
 
 #include <filesystem>
 
@@ -94,16 +96,24 @@ namespace ImmersX
                               "Radius must be finite and positive."));
                 const auto transformed =
                   support_.transform(p, tangent, values.JxW(q), r, q);
-                for (const auto &lifted : transformed)
+                for (unsigned int section_q = 0; section_q < transformed.size();
+                     ++section_q)
                   {
-                    Point point;
+                    const auto &lifted = transformed[section_q];
+                    Point       point;
                     point.point                = lifted.point;
                     point.representative_point = p;
                     point.source_cell_id       = cell->id();
                     point.source_entity_id = cell->global_active_cell_index();
                     point.weight           = lifted.weight;
-                    point.dof_indices      = indices;
-                    point.mode_values      = lifted.mode_values;
+                    point.representative_qpoint = q;
+                    point.section_qpoint        = section_q;
+                    point.stable_id =
+                      static_cast<std::uint64_t>(point.source_entity_id) *
+                        quadrature.size() * transformed.size() +
+                      q * transformed.size() + section_q;
+                    point.dof_indices = indices;
+                    point.mode_values = lifted.mode_values;
                     point.source_basis_values.resize(indices.size());
                     for (unsigned int i = 0; i < indices.size(); ++i)
                       {
@@ -215,17 +225,10 @@ namespace ImmersX
         }
       ParticleCouplingParameters<3> parameters("/Lifted output search/");
       ParticleCoupling<3>           search(parameters);
-      search.initialize_particle_handler(bulk.distributed_triangulation(),
+      search.initialize_particle_handler(bulk.dof_handler().get_triangulation(),
                                          bulk.mapping(),
                                          2);
       search.insert_points(positions, properties);
-      const auto expected =
-        dealii::Utilities::MPI::sum(positions.size(),
-                                    field_.space().mpi_communicator());
-      AssertThrow(
-        search.get_particles().n_global_particles() == expected,
-        dealii::ExcMessage(
-          "Some lifted output points lie outside the background mesh."));
       dealii::Particles::DataOut<3> output;
       output.build_patches(
         search.get_particles(),
@@ -240,6 +243,34 @@ namespace ImmersX
         std::filesystem::create_directories(directory);
       MPI_Barrier(communicator);
       output.write_vtu_in_parallel(filename, communicator);
+    }
+
+    template <typename Support>
+    auto
+    assemble_overlap(const ModalDataEvaluator &data,
+                     const Support            &overlap) const
+    {
+      overlap.assert_matches(field_.dof_handler().get_triangulation());
+      AssertThrow(!overlap.has_material_filter(),
+                  dealii::ExcMessage(
+                    "A modal Gram matrix requires the full source mesh."));
+      const auto basis = [&](const std::size_t q, const unsigned int i) {
+        return points_[q].basis_values[i];
+      };
+      const auto datum = [&](const std::size_t q) {
+        const auto &point = points_[q];
+        const auto  amplitudes =
+          data(point.source_cell_id, point.representative_point);
+        AssertDimension(amplitudes.size(), point.mode_values.size());
+        double value = 0.;
+        for (unsigned int c = 0; c < amplitudes.size(); ++c)
+          value += amplitudes[c] * point.mode_values[c];
+        return value;
+      };
+      return detail::assemble_modal_gram(
+        field_, points_, basis, datum, [&](const auto &point) {
+          return overlap.includes_lifted_point(point);
+        });
     }
 
     /** Production modal data are coefficients of the projected trace. Their
@@ -402,34 +433,41 @@ namespace ImmersX
     auto
     operator()(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
     {
-      const auto &field  = lift_.source();
-      const auto  id     = builder.algebraic_field(field.name(),
+      const auto                 &field = lift_.source();
+      const auto                  id    = builder.algebraic_field(field.name(),
                                               field.locally_owned_dofs(),
                                               field.locally_relevant_dofs());
-      auto        metric = std::make_shared<MatrixType>();
-      VectorType  rhs;
-      const auto  retained_sparsity =
-        lift_.assemble_representative(*metric, rhs, data_);
-      auto metric_operator        = builder.matrix_operator(*metric);
-      metric_operator.materialize = [metric, retained_sparsity] {
-        return metric;
-      };
+      dealii::GridTools::Cache<3> background(
+        bulk_.dof_handler().get_triangulation(), bulk_.mapping());
+      const auto supports =
+        make_overlap_supports(IntegrationSupport<1, 3>(
+                                field.dof_handler().get_triangulation()),
+                              field.mapping(),
+                              lift_.support().representative_quadrature(),
+                              lift_.lifted_points(),
+                              background);
+      const auto [metric, outside, rhs] =
+        lift_.assemble_overlap(data_, supports.overlap);
+      auto metric_operator             = builder.matrix_operator(*metric);
+      metric_operator.materialize      = [metric] { return metric; };
       metric_operator.materialize_into = [metric](MatrixType &out) {
         out.copy_from(*metric);
       };
       builder.saddle_point(id, {bulk_.id()}, metric_operator);
       weak_term(value(bulk_), test(lift_))
+        .on(supports.overlap)
         .add_constraint_terms(builder, id, 1., 0);
+      detail::add_modal_outside_mass(builder, field.with_id(id), outside);
       builder.term(id, "modal data").residual([rhs](const auto &) {
         typename SemiDiscreteModel<VectorType, MatrixType>::Operation result;
         result.reinit_vector = [rhs](VectorType &out, bool omit) {
-          out.reinit(rhs, omit);
+          out.reinit(*rhs, omit);
         };
         result.apply = [rhs](VectorType &out) {
-          out = rhs;
+          out = *rhs;
           out *= -1.;
         };
-        result.apply_add = [rhs](VectorType &out) { out -= rhs; };
+        result.apply_add = [rhs](VectorType &out) { out -= *rhs; };
         return result;
       });
       return ConstraintFields<FieldTypeAlias>{field.with_id(id)};

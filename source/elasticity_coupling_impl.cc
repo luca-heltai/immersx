@@ -78,6 +78,16 @@ namespace ImmersX
 
         relevant_dofs[1] = assemble_coupling_sparsity(dsp);
         relevant_dofs[1].add_indices(owned_dofs[1]);
+        const auto points_per_inclusion =
+          inclusions.n_particles() / inclusions.n_inclusions();
+        for (const auto inclusion :
+             inclusions.locally_owned_source_inclusions())
+          {
+            const auto indices =
+              inclusions.get_dof_indices(inclusion * points_per_inclusion);
+            relevant_dofs[1].add_indices(indices.begin(), indices.end());
+          }
+        relevant_dofs[1].compress();
         SparsityTools::distribute_sparsity_pattern(dsp,
                                                    owned_dofs[0],
                                                    mpi_communicator,
@@ -89,8 +99,15 @@ namespace ImmersX
                                mpi_communicator);
 
         DynamicSparsityPattern idsp(relevant_dofs[1]);
-        for (const auto i : relevant_dofs[1])
-          idsp.add(i, i);
+        for (const auto inclusion :
+             inclusions.locally_owned_source_inclusions())
+          {
+            const auto indices =
+              inclusions.get_dof_indices(inclusion * points_per_inclusion);
+            for (const auto i : indices)
+              for (const auto j : indices)
+                idsp.add(i, j);
+          }
 
         SparsityTools::distribute_sparsity_pattern(idsp,
                                                    owned_dofs[1],
@@ -101,6 +118,7 @@ namespace ImmersX
                                 owned_dofs[1],
                                 idsp,
                                 mpi_communicator);
+        outside_mass_matrix.reinit(inclusion_matrix);
       }
   }
 
@@ -153,6 +171,7 @@ namespace ImmersX
                             owned_dofs[1],
                             idsp,
                             mpi_communicator);
+    outside_mass_matrix.reinit(inclusion_matrix);
 #else
     (void)dim;
     (void)spacedim; // silence warnings if compiled without VTK
@@ -173,20 +192,30 @@ namespace ImmersX
     system_rhs.block(1) = 0;
     force_rhs.block(1)  = 0;
 
-    // Build the coupling matrix between background and reduced space
-    tensor_product_coupling->assemble_coupling_matrix(coupling_matrix,
-                                                      dh,
-                                                      constraints);
-
     // Assemble the tensor-product rhs and copy it into the system rhs. The
     // cross-section modes have maximum one, as in point coupling, so the data
     // are the amplitudes of the modes (see
     // ReducedCoupling::assemble_reduced_rhs()).
-    tensor_product_coupling->assemble_reduced_rhs(force_rhs.block(1));
+    if (par.pressure_coupling || par.time_mode != TimeMode::Static)
+      tensor_product_coupling->assemble_prescribed_rhs(force_rhs.block(1));
+    else
+      tensor_product_coupling->assemble_reduced_rhs(force_rhs.block(1));
     system_rhs.block(1) = force_rhs.block(1);
+    // Finish the copy on every rank before adding affine constraint loads.
+    system_rhs.block(1).compress(VectorOperation::insert);
+    if (par.pressure_coupling || par.time_mode != TimeMode::Static)
+      tensor_product_coupling->assemble_coupling_matrix(coupling_matrix,
+                                                        dh,
+                                                        constraints);
+    else
+      tensor_product_coupling->assemble_coupling_matrix(coupling_matrix,
+                                                        dh,
+                                                        constraints,
+                                                        system_rhs.block(1));
 
     // Assemble the tensor-product mass matrix.
     tensor_product_coupling->assemble_coupling_mass_matrix(inclusion_matrix);
+    tensor_product_coupling->assemble_outside_mass_matrix(outside_mass_matrix);
 
     if (n_multiplier_dofs() > 0)
       {
@@ -205,6 +234,48 @@ namespace ImmersX
 #endif
   }
 
+
+  template <int dim, int spacedim>
+  void
+  ElasticityProblem<dim, spacedim>::assemble_point_coupling_rhs(
+    LA::MPI::Vector &rhs,
+    const bool       restrict_to_overlap) const
+  {
+    rhs = 0.;
+    inclusions.for_each_source_point(
+      [&](const auto id, const auto &point, const bool inside) {
+        if (restrict_to_overlap && !inside)
+          return;
+        const auto     inclusion = inclusions.get_inclusion_id(id);
+        const auto     indices   = inclusions.get_dof_indices(id);
+        const auto    &basis     = inclusions.get_fe_values(id);
+        Vector<double> local(indices.size());
+        const double   weight =
+          inclusions.get_JxW(id) / inclusions.get_section_measure(inclusion);
+        for (unsigned int i = 0; i < indices.size(); ++i)
+          {
+            double     data      = 0.;
+            const auto component = inclusions.get_component(i);
+            if (!inclusions.inclusions_data[inclusion].empty())
+              {
+                for (unsigned int j = 0; j < indices.size(); ++j)
+                  if (inclusions.get_component(j) == component &&
+                      inclusions.get_fourier_component(j) <
+                        inclusions.inclusions_data[inclusion].size())
+                    data +=
+                      basis[j] * inclusions.get_inclusion_data(inclusion, j);
+                if (par.time_parameters.initial_time !=
+                    par.time_parameters.final_time)
+                  data *= inclusions.inclusions_rhs.value(point, component);
+              }
+            else
+              data = inclusions.inclusions_rhs.value(point, component);
+            local[i] = basis[i] * data * weight;
+          }
+        inclusion_constraints.distribute_local_to_global(local, indices, rhs);
+      });
+    rhs.compress(VectorOperation::add);
+  }
 
   // Solver helpers
 

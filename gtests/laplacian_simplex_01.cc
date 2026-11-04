@@ -20,14 +20,17 @@ namespace
 {
   template <int dim>
   void
-  check_laplacian(const bool simplex)
+  check_laplacian(const bool simplex, const std::string &inclusion = "")
   {
     ParameterAcceptor::clear();
     ProblemParameters<dim> parameters;
     // The executable constructs the Problem before reading its parameters.
     PoissonProblem<dim> problem(parameters);
     const auto          directory = TestPaths::output_directory(
-      "laplacian-simplex-" + std::to_string(dim) + (simplex ? "p" : "q"));
+      "laplacian-simplex-" + std::to_string(dim) + (simplex ? "p" : "q") +
+      (inclusion.empty()   ? "" :
+                inclusion[0] == '-' ? "-partial" :
+                                      "-outside"));
     initialize_parameters_from_string(
       "subsection Immersed Problem\n"
       " set FE degree = 2\n set Dirichlet boundary ids = 0\n"
@@ -50,10 +53,17 @@ namespace
       "\n set Function expression = " +
       std::string(dim == 2 ? "1+x*x+y*y" : "1+x*x+y*y+z*z") +
       "\n end\n"
-      " subsection Immersed inclusions\n set Inclusions =\n set Inclusions file =\n subsection Boundary data\n set Function expression = 0\n end\n end\n"
+      " subsection Immersed inclusions\n set Inclusions = " +
+      inclusion +
+      "\n set Inclusions file =\n set Number of fourier coefficients = " +
+      std::string(inclusion.empty() ? "1" : "3") +
+      "\n subsection Boundary data\n set Function expression = " +
+      std::string(dim == 2 ? "1+x*x+y*y" : "1+x*x+y*y+z*z") +
+      "\n end\n end\n"
       " subsection Solver\n subsection Inner control\n set Max steps = 1000\n set Tolerance = 1.e-13\n set Reduction = 1.e-13\n end\n subsection Outer control\n set Max steps = 1000\n set Tolerance = 1.e-13\n set Reduction = 1.e-13\n end\nend\nend\n");
     std::filesystem::create_directories(directory);
     problem.run();
+    EXPECT_LT(problem.multiplier_solution_l2_norm(), 1.e-9);
     const auto snapshot = directory + "/" + problem.output_solution();
     MPI_Barrier(MPI_COMM_WORLD);
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
@@ -97,5 +107,13 @@ TEST(LaplacianValidation, BOTH_HypercubeQuadraticSolution)
 {
   check_laplacian<2>(false);
   check_laplacian<3>(false);
+}
+TEST(LaplacianValidation, BOTH_ExteriorMultiplierLeavesQuadraticBulk)
+{
+  check_laplacian<2>(false, "2,2,0.25");
+}
+TEST(LaplacianValidation, BOTH_PartialConstraintWithNonzeroDirichletData)
+{
+  check_laplacian<2>(false, "-0.1,0.5,0.25");
 }
 #endif

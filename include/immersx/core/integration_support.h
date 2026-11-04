@@ -13,16 +13,21 @@
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/mpi.templates.h>
+#include <deal.II/base/quadrature.h>
 #include <deal.II/base/tensor.h>
 
 #include <deal.II/fe/fe_values_base.h>
 
 #include <deal.II/grid/tria.h>
 
+#include <cstdint>
+#include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace ImmersX
 {
@@ -86,6 +91,37 @@ namespace ImmersX
 
   } // namespace detail
 
+  namespace detail
+  {
+    template <typename Point, typename = void>
+    struct has_support_source_cell_id : std::false_type
+    {};
+    template <typename Point>
+    struct has_support_source_cell_id<
+      Point,
+      std::void_t<decltype(std::declval<Point>().source_cell_id)>>
+      : std::true_type
+    {};
+
+    /** A fixed quadrature partition shared by the two parts of an integral. */
+    struct OverlapCellQuadrature
+    {
+      std::vector<std::vector<unsigned char>> inside;
+      std::vector<double>                     overlap_weights;
+      std::vector<double>                     total_weights;
+
+      template <typename Archive>
+      void
+      serialize(Archive &archive, const unsigned int)
+      {
+        archive &inside &overlap_weights &total_weights;
+      }
+    };
+
+    using OverlapQuadraturePartition =
+      std::map<dealii::types::global_cell_index, OverlapCellQuadrature>;
+  } // namespace detail
+
   /** A non-owning view of the cells used by a weak-term integral. */
   template <int dim, int spacedim = dim>
   class IntegrationSupport
@@ -139,7 +175,90 @@ namespace ImmersX
     bool
     includes_cell(const CellIterator &cell) const
     {
-      return !material_id_ || cell->material_id() == *material_id_;
+      if (material_id_ && cell->material_id() != *material_id_)
+        return false;
+      if (!partition_)
+        return true;
+      const auto &data = cell_partition(cell);
+      for (unsigned int q = 0; q < data.total_weights.size(); ++q)
+        if (selected_weight(data, q) > 0.)
+          return true;
+      return false;
+    }
+
+    bool
+    has_quadrature_partition() const
+    {
+      return partition_ != nullptr;
+    }
+
+    /** Keep this quadrature fixed for all terms using the sampled partition. */
+    const dealii::Quadrature<dim> &
+    quadrature(const dealii::Quadrature<dim> &fallback) const
+    {
+      return quadrature_ ? *quadrature_ : fallback;
+    }
+
+    template <typename CellIterator>
+    double
+    point_weight(const CellIterator &cell, const unsigned int q) const
+    {
+      return partition_ ? selected_weight(cell_partition(cell), q) : 1.;
+    }
+
+    template <typename CellIterator>
+    double
+    full_point_weight(const CellIterator &cell, const unsigned int q) const
+    {
+      return partition_ ? cell_partition(cell).total_weights.at(q) : 1.;
+    }
+
+    template <typename PointRecord>
+    bool
+    includes_lifted_point(const PointRecord &point) const
+    {
+      if (!partition_)
+        {
+          if (material_id_)
+            {
+              if constexpr (detail::has_support_source_cell_id<
+                              PointRecord>::value)
+                return includes_cell(
+                  triangulation_->create_cell_iterator(point.source_cell_id));
+              else
+                AssertThrow(
+                  false,
+                  dealii::ExcMessage(
+                    "A lifted material support requires source cell ids."));
+            }
+          return true;
+        }
+      const auto entry = partition_->find(point.source_entity_id);
+      if (entry == partition_->end())
+        return false;
+      const auto &flags = entry->second.inside;
+      if (point.representative_qpoint >= flags.size() ||
+          point.section_qpoint >= flags[point.representative_qpoint].size())
+        return false;
+      if (entry->second.total_weights[point.representative_qpoint] == 0.)
+        return false;
+      return (flags[point.representative_qpoint][point.section_qpoint] != 0) !=
+             outside_;
+    }
+
+    /** Internal assembly data; use make_overlap_supports() to build it. */
+    IntegrationSupport
+    with_quadrature_partition(
+      const dealii::Quadrature<dim>                            &quadrature,
+      std::shared_ptr<const detail::OverlapQuadraturePartition> partition,
+      const bool                                                outside) const
+    {
+      auto result = *this;
+      result.quadrature_ =
+        std::make_shared<const dealii::Quadrature<dim>>(quadrature);
+      result.partition_ = std::move(partition);
+      result.outside_   = outside;
+      return result;
     }
 
     template <typename TriangulationType>
@@ -154,6 +273,29 @@ namespace ImmersX
     }
 
   private:
+    template <typename CellIterator>
+    const detail::OverlapCellQuadrature &
+    cell_partition(const CellIterator &cell) const
+    {
+      const auto entry = partition_->find(cell->global_active_cell_index());
+      AssertThrow(
+        entry != partition_->end(),
+        dealii::ExcMessage(
+          "Overlap support is stale or does not contain this source cell; rebuild it after mesh changes."));
+      return entry->second;
+    }
+
+    double
+    selected_weight(const detail::OverlapCellQuadrature &data,
+                    const unsigned int                   q) const
+    {
+      return outside_ ? data.total_weights.at(q) - data.overlap_weights.at(q) :
+                        data.overlap_weights.at(q);
+    }
+
+    std::shared_ptr<const dealii::Quadrature<dim>>            quadrature_;
+    std::shared_ptr<const detail::OverlapQuadraturePartition> partition_;
+    bool                                                      outside_ = false;
     const dealii::Triangulation<dim, spacedim> *triangulation_ = nullptr;
     std::optional<dealii::types::material_id>   material_id_;
   };

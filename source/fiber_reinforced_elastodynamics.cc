@@ -21,6 +21,7 @@
 #include <immersx/core/constraint.h>
 #include <immersx/core/matrix_operator.h>
 #include <immersx/core/observable.h>
+#include <immersx/core/overlap_integration_support.h>
 #include <immersx/core/weak_term.h>
 #include <immersx/physics/fiber_reinforced_elastodynamics.h>
 
@@ -45,7 +46,8 @@ namespace ImmersX
       const FiniteElementSpaceView<fiber_dim, spacedim>  &multiplier_space,
       std::shared_ptr<ImmersXLA::MPI::SparseMatrix>      &matrix_to_multiplier,
       std::shared_ptr<ImmersXLA::MPI::SparseMatrix>      &fiber_to_multiplier,
-      std::shared_ptr<ImmersXLA::MPI::SparseMatrix>      &matrix_coupling)
+      std::shared_ptr<ImmersXLA::MPI::SparseMatrix>      &matrix_coupling,
+      std::shared_ptr<ImmersXLA::MPI::SparseMatrix>      &outside_mass)
     {
       const auto matrix_velocity =
         matrix_space.field(FieldId(0),
@@ -69,15 +71,34 @@ namespace ImmersX
       using MatrixType                 = ImmersXLA::MPI::SparseMatrix;
       using VectorType                 = ImmersXLA::MPI::Vector;
 
-      const auto matrix_prepared =
+      GridTools::Cache<spacedim> background(
+        matrix_space.dof_handler().get_triangulation(), matrix_space.mapping());
+      const auto quadrature = compatibility::gauss_quadrature<fiber_dim>(
+        multiplier_space.finite_element().reference_cell(),
+        std::max({matrix_space.finite_element().degree,
+                  fiber_space.finite_element().degree,
+                  multiplier_space.finite_element().degree}) +
+          1);
+      const auto supports = make_overlap_supports(
+        IntegrationSupport<fiber_dim, spacedim>(
+          multiplier_space.dof_handler().get_triangulation()),
+        multiplier_space.mapping(),
+        quadrature,
+        background);
+      matrix_to_multiplier =
         detail::WeakAssembly<MatrixObservable, MultiplierObservable>::
-          template prepare<VectorType, MatrixType>(matrix_observable,
-                                                   multiplier_observable);
-      matrix_to_multiplier = matrix_prepared->storage.matrix;
+          template assemble_on_support<VectorType, MatrixType>(
+            matrix_observable, multiplier_observable, supports.overlap)
+            .matrix;
       fiber_to_multiplier =
         detail::WeakAssembly<FiberObservable, MultiplierObservable>::
-          template assemble<VectorType, MatrixType>(fiber_observable,
-                                                    multiplier_observable)
+          template assemble_on_support<VectorType, MatrixType>(
+            fiber_observable, multiplier_observable, supports.overlap)
+            .matrix;
+      outside_mass =
+        detail::WeakAssembly<MultiplierObservable, MultiplierObservable>::
+          template assemble_on_support<VectorType, MatrixType>(
+            multiplier_observable, multiplier_observable, supports.outside)
             .matrix;
       const auto matrix_operator =
         ImmersX::matrix_operator<VectorType, MatrixType>(*matrix_to_multiplier);
@@ -340,7 +361,8 @@ namespace ImmersX
                                        *multiplier_space_storage,
                                        matrix_to_multiplier_storage,
                                        fiber_to_multiplier_storage,
-                                       matrix_coupling_storage);
+                                       matrix_coupling_storage,
+                                       outside_mass_storage);
   }
 
 
@@ -403,7 +425,8 @@ namespace ImmersX
       MPI_COMM_WORLD,
       parameters.schur_max_steps,
       parameters.schur_tolerance,
-      parameters.block_tolerance);
+      parameters.block_tolerance,
+      outside_mass_storage.get());
     effective_matrices_valid = true;
     effective_time_step      = dt;
   }
@@ -545,9 +568,21 @@ namespace ImmersX
 
     residuals_storage.matrix_velocity = matrix_residual.l2_norm();
     residuals_storage.fiber_velocity  = fiber_residual.l2_norm();
-    residuals_storage.velocity_constraint =
-      continuity_defect(matrix_problem_storage.velocity(),
-                        fiber_problem_storage.velocity());
+    VectorType constraint_residual;
+    constraint_residual.reinit(multiplier_storage);
+    matrix_to_multiplier_storage->vmult(constraint_residual,
+                                        matrix_problem_storage.velocity());
+    VectorType fiber_trace;
+    fiber_trace.reinit(multiplier_storage);
+    fiber_to_multiplier_storage->vmult(fiber_trace,
+                                       fiber_problem_storage.velocity());
+    constraint_residual -= fiber_trace;
+    if (outside_mass_storage)
+      {
+        outside_mass_storage->vmult(fiber_trace, multiplier_storage);
+        constraint_residual -= fiber_trace;
+      }
+    residuals_storage.velocity_constraint = constraint_residual.l2_norm();
     residuals_storage.displacement_compatibility =
       continuity_defect(matrix_problem_storage.displacement(),
                         fiber_problem_storage.displacement());
@@ -612,6 +647,17 @@ namespace ImmersX
     fiber_to_multiplier_storage->copy_from(
       *coupling_matrix(lambda, fiber.velocity));
     *fiber_to_multiplier_storage *= -1.;
+    const auto exterior =
+      adapter.state_matrix_operator(state, lambda.id(), lambda.id());
+    outside_mass_storage =
+      exterior ? exterior->matrix() : std::shared_ptr<MatrixType>();
+    if (outside_mass_storage)
+      {
+        auto positive = std::make_shared<MatrixType>();
+        positive->copy_from(*outside_mass_storage);
+        *positive *= -1.;
+        outside_mass_storage = std::move(positive);
+      }
 
     const auto initialize = [&](const auto &problem, const auto &fields) {
       adapter.field(state, fields.displacement)     = problem.displacement();

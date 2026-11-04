@@ -107,23 +107,22 @@ namespace ImmersX
     output_particles(const std::string &output_name) const;
 
     /**
-     * Initializes the particle handler with a background triangulation.
+     * Initializes the particle handler with a serial or parallel background
+     * mesh.
      *
      * @param tria_background The background triangulation.
      * @param mapping The mapping associated with the triangulation.
      * @param n_properties Number of scalar properties stored on each particle.
      */
     void
-    initialize_particle_handler(
-      const parallel::TriangulationBase<dim> &tria_background,
-      const Mapping<dim>                     &mapping,
-      const unsigned int                      n_properties = 1);
+    initialize_particle_handler(const Triangulation<dim> &tria_background,
+                                const Mapping<dim>       &mapping,
+                                const unsigned int        n_properties = 1);
 
     /** Initialize using the background mesh's linear reference-cell mapping. */
     void
-    initialize_particle_handler(
-      const parallel::TriangulationBase<dim> &tria_background,
-      const unsigned int                      n_properties = 1);
+    initialize_particle_handler(const Triangulation<dim> &tria_background,
+                                const unsigned int        n_properties = 1);
 
     /**
      * Get a covering of the background triangulation indexed by processor.
@@ -168,7 +167,7 @@ namespace ImmersX
     /**
      * @brief Smart pointer to the background triangulation.
      */
-    ObserverPointer<const parallel::TriangulationBase<dim>> tria_background;
+    ObserverPointer<const Triangulation<dim>> tria_background;
 
     /**
      * @brief Smart pointer to the mapping associated with the triangulation.

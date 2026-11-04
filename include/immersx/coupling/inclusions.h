@@ -48,13 +48,16 @@
 #include <deal.II/physics/transformations.h>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/serialization/map.hpp>
 
 #include <immersx/compatibility/reference_cell.h>
 #include <immersx/core/integration_support.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <fstream>
 #include <map>
+#include <optional>
 
 using namespace dealii;
 
@@ -429,6 +432,9 @@ namespace ImmersX
         compatibility::linear_mapping<spacedim>(*reference_cell);
       inclusions_as_particles.initialize(tria, mapping);
       particles_on_centerline.initialize(tria, mapping);
+      source_inclusion_indices = IndexSet(n_inclusions());
+      located_source_points.clear();
+      exterior_source_centers.clear();
       if (n_inclusions() == 0)
         return;
 
@@ -437,6 +443,7 @@ namespace ImmersX
         Utilities::MPI::create_evenly_distributed_partitioning(mpi_communicator,
                                                                n_inclusions());
 
+      source_inclusion_indices = inclusions_set;
       std::vector<Point<spacedim>> particles_positions;
       std::vector<Point<spacedim>> central_particle_positions;
       particles_positions.reserve(n_particles());
@@ -468,19 +475,95 @@ namespace ImmersX
                "global_bounding_boxes to be filled at this stage. "
                "Make sure you fill this vector before trying to use it "
                "here. Bailing out."));
-      inclusions_as_particles.insert_global_particles(particles_positions,
-                                                      global_bounding_boxes);
-      particles_on_centerline.insert_global_particles(
-        central_particle_positions, global_bounding_boxes);
-
-      // Sanity check.
-      AssertDimension(inclusions_as_particles.n_global_particles(),
-                      n_particles());
-      AssertDimension(particles_on_centerline.n_global_particles(),
-                      n_inclusions());
-
+      const auto received_points =
+        inclusions_as_particles.insert_global_particles(particles_positions,
+                                                        global_bounding_boxes);
+      const auto received_centers =
+        particles_on_centerline.insert_global_particles(
+          central_particle_positions, global_bounding_boxes);
+      const auto destinations =
+        Utilities::MPI::some_to_some(mpi_communicator, received_points);
+      located_source_points.assign(particles_positions.size(), false);
+      for (const auto &[rank, indices] : destinations)
+        {
+          (void)rank;
+          for (const auto q : indices)
+            located_source_points[q] = true;
+        }
       if (cluster_with_segments)
-        build_segment_index_vector();
+        {
+          const auto center_destinations =
+            Utilities::MPI::some_to_some(mpi_communicator, received_centers);
+          IndexSet located_centers(central_particle_positions.size());
+          for (const auto &[rank, indices] : center_destinations)
+            {
+              (void)rank;
+              located_centers.add_indices(indices);
+            }
+          for (const auto inclusion : source_inclusion_indices)
+            if (!located_centers.is_element(
+                  source_inclusion_indices.index_within_set(inclusion)))
+              exterior_source_centers.push_back(inclusion);
+          build_segment_index_vector();
+        }
+    }
+
+    /** Source ownership is retained even when the center is outside. */
+    const IndexSet &
+    locally_owned_source_inclusions() const
+    {
+      return source_inclusion_indices;
+    }
+
+    IndexSet
+    locally_owned_source_points() const
+    {
+      return source_inclusion_indices.tensor_product(
+        complete_index_set(n_q_points));
+    }
+
+    /** Membership in locally_owned_source_points() order. */
+    const std::vector<bool> &
+    source_point_membership() const
+    {
+      return located_source_points;
+    }
+
+    /** Visit the original source samples, including exterior points. */
+    template <typename Callback>
+    void
+    for_each_source_point(const Callback &callback) const
+    {
+      unsigned int local_q = 0;
+      for (const auto inclusion : source_inclusion_indices)
+        {
+          const auto points = get_current_support_points(inclusion);
+          for (unsigned int q = 0; q < points.size(); ++q, ++local_q)
+            callback(inclusion * n_q_points + q,
+                     points[q],
+                     located_source_points[local_q]);
+        }
+    }
+
+    template <typename MatrixType>
+    void
+    assemble_coupling_mass_matrix(MatrixType &matrix) const
+    {
+      assemble_sampled_mass_matrix(matrix, std::nullopt);
+    }
+
+    template <typename MatrixType>
+    void
+    assemble_overlap_mass_matrix(MatrixType &matrix) const
+    {
+      assemble_sampled_mass_matrix(matrix, true);
+    }
+
+    template <typename MatrixType>
+    void
+    assemble_outside_mass_matrix(MatrixType &matrix) const
+    {
+      assemble_sampled_mass_matrix(matrix, false);
     }
 
     /**
@@ -1119,97 +1202,44 @@ namespace ImmersX
     void
     build_segment_index_vector()
     {
-      std::vector<unsigned int> owned_segment_indices;
-      owned_segment_indices.reserve(
-        particles_on_centerline.n_locally_owned_particles());
-      auto         particle        = particles_on_centerline.begin();
-      unsigned int current_segment = 0;
+      std::map<types::global_dof_index, unsigned int> local_segments;
+      unsigned int                                    current_segment = 0;
+      auto particle = particles_on_centerline.begin();
       while (particle != particles_on_centerline.end())
         {
-          const auto        &cell0 = particle->get_surrounding_cell();
-          const unsigned int n_pic =
-            particles_on_centerline.n_particles_in_cell(cell0);
-          const auto pic = particles_on_centerline.particles_in_cell(cell0);
-
-          for (unsigned int i = 0; i < n_pic; i++)
-            {
-              owned_segment_indices.push_back(current_segment);
-            }
-          particle = pic.end();
-          current_segment++;
+          const auto range = particles_on_centerline.particles_in_cell(
+            particle->get_surrounding_cell());
+          for (const auto &center : range)
+            local_segments.emplace(center.get_id(), current_segment);
+          particle = range.end();
+          ++current_segment;
         }
-      MPI_Barrier(mpi_communicator);
-
-
+      // An exterior center has no background cell defining a cluster. Retain
+      // one source-owned segment for that inclusion, including partial walls.
+      for (const auto inclusion : exterior_source_centers)
+        local_segments.emplace(inclusion, current_segment++);
       local_max_segment_index = current_segment;
-      auto [local_shift, global_size] =
+      const auto [shift, total] =
         Utilities::MPI::partial_and_total_sum(local_max_segment_index,
                                               mpi_communicator);
-
-      global_max_segment_index = global_size;
-
-      for (auto &segment_index : owned_segment_indices)
-        segment_index += local_shift;
-
-      // now we build segment_indices out of the local vectors each processor
-      // has
-      auto owned_particle_indices =
-        particles_on_centerline.locally_owned_particle_ids().get_index_vector();
-      AssertDimension(owned_particle_indices.size(),
-                      owned_segment_indices.size());
-
-      std::vector<int> send_buffer;
-      for (unsigned int i = 0; i < owned_segment_indices.size(); i++)
+      global_max_segment_index = total;
+      for (auto &[inclusion, segment] : local_segments)
         {
-          send_buffer.push_back(owned_particle_indices[i]);
-          send_buffer.push_back(owned_segment_indices[i]);
+          (void)inclusion;
+          segment += shift;
         }
-
-      int send_count = send_buffer.size();
-
-      std::vector<int> recv_counts(
-        Utilities::MPI::n_mpi_processes(mpi_communicator));
-      MPI_Allgather(&send_count,
-                    1,
-                    MPI_INT,
-                    recv_counts.data(),
-                    1,
-                    MPI_INT,
-                    mpi_communicator);
-
-      // displacements
-      std::vector<int> displs(Utilities::MPI::n_mpi_processes(mpi_communicator),
-                              0);
-      int              total_size = 0;
-      for (unsigned int i = 0;
-           i < Utilities::MPI::n_mpi_processes(mpi_communicator);
-           i++)
-        {
-          displs[i] = total_size;
-          total_size += recv_counts[i];
-        }
-
-      // receive buffer
-      std::vector<int> recv_buffer(total_size);
-
-      MPI_Allgatherv(send_buffer.data(),
-                     send_count,
-                     MPI_INT,
-                     recv_buffer.data(),
-                     recv_counts.data(),
-                     displs.data(),
-                     MPI_INT,
-                     mpi_communicator);
-
-      segment_indices.resize(n_inclusions());
-      for (int i = 0; i < total_size; i += 2)
-        {
-          int idx              = recv_buffer[i];
-          int val              = recv_buffer[i + 1];
-          segment_indices[idx] = val;
-        }
-
-      return;
+      segment_indices.assign(n_inclusions(), numbers::invalid_unsigned_int);
+      const auto global_segments =
+        Utilities::MPI::all_gather(mpi_communicator, local_segments);
+      for (const auto &labels : global_segments)
+        for (const auto &[inclusion, segment] : labels)
+          segment_indices[inclusion] = segment;
+      AssertThrow(std::all_of(segment_indices.begin(),
+                              segment_indices.end(),
+                              [](const auto segment) {
+                                return segment != numbers::invalid_unsigned_int;
+                              }),
+                  ExcMessage("An inclusion has no segment owner."));
     }
 
 
@@ -1306,6 +1336,38 @@ namespace ImmersX
     bool cluster_with_segments = false; // make const
 
   private:
+    template <typename MatrixType>
+    void
+    assemble_sampled_mass_matrix(MatrixType               &matrix,
+                                 const std::optional<bool> inside) const
+    {
+      AssertDimension(matrix.m(), n_dofs());
+      AssertDimension(matrix.n(), n_dofs());
+      matrix            = 0.;
+      const auto points = locally_owned_source_points();
+      AssertDimension(points.n_elements(), located_source_points.size());
+      for (const auto id : points)
+        {
+          const auto q = points.index_within_set(id);
+          if (inside.has_value() && located_source_points[q] != *inside)
+            continue;
+          const auto   indices = get_dof_indices(id);
+          const auto  &values  = get_fe_values(id);
+          const double weight  = get_JxW(id);
+          for (unsigned int i = 0; i < indices.size(); ++i)
+            for (unsigned int j = 0; j < indices.size(); ++j)
+              if (get_component(i) == get_component(j))
+                matrix.add(indices[i],
+                           indices[j],
+                           weight * values[i] * values[j]);
+        }
+      matrix.compress(VectorOperation::add);
+    }
+
+    IndexSet                             source_inclusion_indices;
+    std::vector<bool>                    located_source_points;
+    std::vector<types::global_dof_index> exterior_source_centers;
+
     unsigned int n_q_points     = 100;
     unsigned int n_coefficients = 0;
     // unsigned int              offset_coefficients = 0;

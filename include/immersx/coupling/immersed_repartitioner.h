@@ -40,6 +40,7 @@ namespace ImmersX
    * RepartitioningPolicyTools::Base class and overrides the partition method.
    * The rank of the immersed cell is assigned to the processor that own the
    * background cell where the center of the immersed cell is located.
+   * Cells with an exterior center retain their existing owner.
    *
    * @tparam dim The dimension of the immersed triangulation.
    * @tparam spacedim The dimension of the space in which the triangulation is
