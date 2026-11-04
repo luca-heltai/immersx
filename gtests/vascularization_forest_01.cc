@@ -208,9 +208,13 @@ namespace
           }
         EXPECT_EQ(b.terminals, local == 11 ? 3u : local == 12 ? 2u : 1u);
         if (local == 11)
-          EXPECT_EQ(b.parent, invalid_id);
+          {
+            EXPECT_EQ(b.parent, invalid_id);
+          }
         else
-          EXPECT_EQ(b.parent, off + (local == 12 || local == 13 ? 11 : 12));
+          {
+            EXPECT_EQ(b.parent, off + (local == 12 || local == 13 ? 11 : 12));
+          }
         if (p.reference_flow > 0.)
           {
             const double total = pair_systems ? root_demand : 21.;
@@ -424,13 +428,21 @@ TEST(VascularForest, BOTH_ChangingOneLeafUpdatesAllRadiiInItsRootButNoOtherRoot)
     {
       const auto &a = after.owned.at(id);
       if (id >= base + 100)
-        EXPECT_NEAR(a.radius / b.radius, 1., 1.e-13);
+        {
+          EXPECT_NEAR(a.radius / b.radius, 1., 1.e-13);
+        }
       else if (id == base + 11)
-        EXPECT_DOUBLE_EQ(a.radius, b.radius);
+        {
+          EXPECT_DOUBLE_EQ(a.radius, b.radius);
+        }
       else if (id == base + 13)
-        EXPECT_GT(a.radius, b.radius);
+        {
+          EXPECT_GT(a.radius, b.radius);
+        }
       else
-        EXPECT_LT(a.radius, b.radius);
+        {
+          EXPECT_LT(a.radius, b.radius);
+        }
     }
   p.minimum_radius        = .005;
   const auto incompatible = evaluate(n, p);
@@ -1996,7 +2008,9 @@ TEST(VascularForest, BOTH_DemandUpdateDirectoryTransport)
             EXPECT_EQ(value.canonical_total_demand[system].has_value(),
                       source % 3 == system);
             if (value.canonical_total_demand[system])
-              EXPECT_EQ(*value.canonical_total_demand[system], 7. + source);
+              {
+                EXPECT_EQ(*value.canonical_total_demand[system], 7. + source);
+              }
           }
       }
   EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), size());
@@ -3647,9 +3661,10 @@ TEST(VascularForest, BOTH_ExecutionReusesAncestorCapsAndAdvancesShrinkEvents)
                               Point<3>(.04, .05, .08),
                               Point<3>(.08, -.02, -.05)};
   const auto     width     = [&]() {
-    double       result = 0.;
-    unsigned int count  = 0;
-    for (const auto &[box, id] : execution.accepted_snapshot().obstacles())
+    double       result   = 0.;
+    unsigned int count    = 0;
+    const auto   snapshot = execution.accepted_snapshot();
+    for (const auto &[box, id] : snapshot.obstacles())
       if (id == base + 13)
         {
           result = box.get_boundary_points().second[2] -

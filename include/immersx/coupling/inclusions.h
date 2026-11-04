@@ -54,6 +54,7 @@
 #include <immersx/core/integration_support.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <fstream>
 #include <map>
 #include <optional>
@@ -1040,9 +1041,9 @@ namespace ImmersX
               for (unsigned int i = 0; i < N1; ++i)
                 {
                   const double X = static_cast<double>(i) * (N2 - 1) / (N1 - 1);
-                  const unsigned int j =
-                    std::min<unsigned int>(std::floor(X), N2 - 2);
-                  const double w = X - j;
+                  const auto   j =
+                    std::min(static_cast<std::size_t>(std::floor(X)), N2 - 2);
+                  const double w = X - static_cast<double>(j);
                   update_single_inclusion_data_along_normal(
                     current_inclusions[i],
                     (1 - w) * current_new_data[j] +

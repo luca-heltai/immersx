@@ -295,7 +295,6 @@ main(int argc, char *argv[])
 
                   // enter time loop
                   pb1D.iT         = 0; // not simple iteration counter !
-                  int    iter     = 0;
                   double timestep = 0.0;
                   double tEnd     = pb1D.tEnd;
                   double dt       = pb1D.dtMaxLTSLIMIT;
@@ -304,7 +303,6 @@ main(int argc, char *argv[])
                       // solve time step
                       pb1D.solveTimeStep(pb1D.dtMaxLTSLIMIT);
 
-                      iter++;
                       pb1D.iT += 1;
                       timestep += dt;
                     }

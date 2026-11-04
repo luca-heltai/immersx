@@ -168,9 +168,13 @@ TEST(VascularGrowthBatch,
   physical_controls(p);
   const auto result = select(geometry, n, local, p);
   if (rank() == a)
-    EXPECT_TRUE(result.local.at(0));
+    {
+      EXPECT_TRUE(result.local.at(0));
+    }
   if (rank() == b)
-    EXPECT_FALSE(result.local.at(1));
+    {
+      EXPECT_FALSE(result.local.at(1));
+    }
   for (const auto &[key, accepted] : result.relevant)
     EXPECT_EQ(accepted, key.second == 0);
   const auto again = select(geometry, n, local, p);
@@ -203,9 +207,13 @@ TEST(VascularGrowthBatch,
   physical_controls(p);
   const auto result = select(geometry, n, local, p);
   if (rank() == a)
-    EXPECT_FALSE(result.local.at(0));
+    {
+      EXPECT_FALSE(result.local.at(0));
+    }
   if (rank() == b)
-    EXPECT_TRUE(result.local.at(1));
+    {
+      EXPECT_TRUE(result.local.at(1));
+    }
   for (const auto &[key, accepted] : result.relevant)
     EXPECT_EQ(accepted, key.second == 1);
 }
@@ -244,7 +252,9 @@ TEST(VascularGrowthBatch, BOTH_ModifiedTopologyAndGeometryNeedTheOwnersConsent)
         }
       const auto result = select(geometry, n, local, p);
       if (rank() == proposer)
-        EXPECT_FALSE(result.local.at(0));
+        {
+          EXPECT_FALSE(result.local.at(0));
+        }
       for (const auto &[key, accepted] : result.relevant)
         EXPECT_FALSE(accepted);
     }
@@ -269,7 +279,9 @@ TEST(VascularGrowthBatch,
   physical_controls(p);
   const auto result = select(geometry, n, local, p);
   if (rank() == proposer)
-    EXPECT_TRUE(result.local.at(0));
+    {
+      EXPECT_TRUE(result.local.at(0));
+    }
   for (const auto &[key, accepted] : result.relevant)
     EXPECT_TRUE(accepted);
 }
@@ -306,14 +318,20 @@ TEST(VascularGrowthBatch,
   physical_controls(p);
   const auto alone = select(geometry, n, local, p);
   if (rank() == b)
-    EXPECT_TRUE(alone.local.at(1));
+    {
+      EXPECT_TRUE(alone.local.at(1));
+    }
   if (rank() == a)
     local.push_back(split(n, 0, targets[0]));
   const auto together = select(geometry, n, local, p);
   if (rank() == a)
-    EXPECT_TRUE(together.local.at(0));
+    {
+      EXPECT_TRUE(together.local.at(0));
+    }
   if (rank() == b)
-    EXPECT_FALSE(together.local.at(1));
+    {
+      EXPECT_FALSE(together.local.at(1));
+    }
   for (const auto &[key, accepted] : together.relevant)
     EXPECT_EQ(accepted, key.second == 0);
 }
@@ -349,7 +367,9 @@ TEST(VascularGrowthBatch,
   physical_controls(p);
   const auto result = select(geometry, n, local, p);
   if (rank() == proposer)
-    EXPECT_FALSE(result.local.at(0));
+    {
+      EXPECT_FALSE(result.local.at(0));
+    }
   for (const auto &[key, accepted] : result.relevant)
     EXPECT_FALSE(accepted);
 }
@@ -377,9 +397,12 @@ TEST(VascularGrowthBatch,
   physical_controls(p);
   EXPECT_THROW(select(geometry, n, local, p), ExceptionBase);
   if (size() > 1)
-    EXPECT_THROW(select_growth_batch(
-                   geometry, {}, {}, p, MPI_COMM_SELF, [](Id) { return .01; }),
-                 ExceptionBase);
+    {
+      EXPECT_THROW(
+        select_growth_batch(
+          geometry, {}, {}, p, MPI_COMM_SELF, [](Id) { return .01; }),
+        ExceptionBase);
+    }
 }
 TEST(VascularGrowthBatch,
      BOTH_PointSearchToleranceCannotAdmitAnExteriorThinVessel)
@@ -409,7 +432,9 @@ TEST(VascularGrowthBatch,
         }
       const auto result = select(geometry, {}, local, p);
       if (rank() == 0)
-        EXPECT_EQ(result.local.at(0), x > 0.);
+        {
+          EXPECT_EQ(result.local.at(0), x > 0.);
+        }
       for (const auto &[key, accepted] : result.relevant)
         EXPECT_EQ(accepted, x > 0.);
     }

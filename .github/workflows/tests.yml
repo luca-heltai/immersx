@@ -75,6 +75,9 @@ jobs:
       - name: CTest debug
         env:
           FULL_SUITE: ${{ needs.plan.outputs.full_suite }}
+          # Allow four-rank fixtures on two-core hosted runners (Open MPI 4/5).
+          OMPI_MCA_rmaps_base_oversubscribe: "1"
+          PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"
         run: |
           cd build_linux_debug
           ctest -N
@@ -157,6 +160,9 @@ jobs:
       - name: CTest release
         env:
           FULL_SUITE: ${{ needs.plan.outputs.full_suite }}
+          # Allow four-rank fixtures on two-core hosted runners (Open MPI 4/5).
+          OMPI_MCA_rmaps_base_oversubscribe: "1"
+          PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"
         run: |
           cd build_linux_release
           ctest -N

@@ -156,7 +156,9 @@ TEST(VascularForest, BOTH_AcceptedSelectionMatchesFullNativeGeometryVote)
             EXPECT_EQ(sparse.local, full.local);
             EXPECT_EQ(sparse.relevant, full.relevant);
             if (rank == size - 1)
-              EXPECT_EQ(sparse.local.at(20), scenario == 0);
+              {
+                EXPECT_EQ(sparse.local.at(20), scenario == 0);
+              }
             EXPECT_TRUE(accepted.current());
             for (const auto &[id, address] : addresses)
               EXPECT_EQ(&accepted.network().vessels.at(id), address);

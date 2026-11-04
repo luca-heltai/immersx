@@ -185,7 +185,9 @@ TEST(VascularCompletion, BOTH_ReloadedSharedTrunksRetainBedsInTheDesignSolve)
               {
                 ++new_venous;
                 if (expected.nodes.count(v.nodes[0]))
-                  EXPECT_NEAR(length(r.network, id), p.seed_length, 1.e-13);
+                  {
+                    EXPECT_NEAR(length(r.network, id), p.seed_length, 1.e-13);
+                  }
               }
             added_resistance += cylinder_resistance(r.network, id);
             added_volume +=

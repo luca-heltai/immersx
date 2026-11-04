@@ -10,7 +10,9 @@ subsection Lifted elasticity
   set Refinement strategy = global
   set Output directory = @TEST_OUTPUT_DIR@/lifted_elasticity/multiplier_3d
   subsection Domain
-    set Initial refinement = 2
+    set Grid generator = subdivided_hyper_rectangle
+    set Grid generator arguments = 2, 2, 4: -1, -1, -1: 1, 1, 1: false
+    set Initial refinement = 0
     set Triangulation type = distributed
   end
   subsection Immersed domain

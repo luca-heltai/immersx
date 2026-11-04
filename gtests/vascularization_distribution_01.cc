@@ -121,7 +121,9 @@ TEST(VascularDistribution,
     {
       const auto expected = owner(bg, Point<3>(i + .5, .5, .5), source);
       if (expected == rank())
-        EXPECT_EQ(output.vessels.count(base + 100 + i), 1u);
+        {
+          EXPECT_EQ(output.vessels.count(base + 100 + i), 1u);
+        }
       if (output.vessels.count(base + 100 + i))
         {
           const auto &v = output.vessels.at(base + 100 + i);
@@ -142,7 +144,9 @@ TEST(VascularDistribution,
         }
     }
   if (size() > 1)
-    EXPECT_LT(output.vessels.size(), 8u);
+    {
+      EXPECT_LT(output.vessels.size(), 8u);
+    }
   if (rank() == source)
     {
       EXPECT_EQ(input.vessels.size(), 8u);
@@ -229,7 +233,9 @@ TEST(VascularDistribution,
     Utilities::MPI::sum(static_cast<unsigned int>(wide.vessels.size()),
                         MPI_COMM_WORLD);
   if (size() >= 4)
-    EXPECT_GE(copies, 3u);
+    {
+      EXPECT_GE(copies, 3u);
+    }
   EXPECT_EQ(owned_vessels(wide), 1u);
   auto shrinking = wide;
   for (auto &[id, v] : shrinking.vessels)
@@ -277,7 +283,9 @@ TEST(VascularDistribution, BOTH_InterfaceMidpointsUseTheSmallestContainingRank)
     bg, MappingQ1<3>(), segment(3.9, 4.1, size() - 1), 0., MPI_COMM_WORLD);
   EXPECT_EQ(owned_vessels(output), 1u);
   if (output.vessels.count(base))
-    EXPECT_EQ(output.vessels.at(base).owner, expected);
+    {
+      EXPECT_EQ(output.vessels.at(base).owner, expected);
+    }
 }
 TEST(VascularDistribution, BOTH_EmptyBackgroundRanksAndEmptyNetworkParticipate)
 {
@@ -290,7 +298,9 @@ TEST(VascularDistribution, BOTH_EmptyBackgroundRanksAndEmptyNetworkParticipate)
     bg, MappingQ1<3>(), segment(.2, .3, size() - 1), 0., MPI_COMM_WORLD);
   EXPECT_EQ(owned_vessels(output), 1u);
   if (bg.n_locally_owned_active_cells() == 0)
-    EXPECT_TRUE(output.vessels.empty());
+    {
+      EXPECT_TRUE(output.vessels.empty());
+    }
 }
 TEST(VascularDistribution,
      BOTH_InvalidOwnershipFailsCollectivelyWithoutPartialResults)

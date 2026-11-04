@@ -411,6 +411,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Avoid implicit floating-point-to-index conversions in vessel-profile interpolation and its regression oracle, preserving endpoint clamping and interpolation values in Debug and Release. Apply the existing SDK preprocessor-warning policy to optional 1D client compilation probes as well. Fix a null-pointer return and remove an unused counter in the legacy 1D clients for Clang compatibility. Add explicit scopes around conditional GoogleTest macros to avoid dangling-else warnings in vascular and MetricFlowX regressions.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Link coupled applications with dimension-typed deal.II reference cells.
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Link shared libraries on macOS when the optional vascular MPI profiler is absent.
 - [PR #312](https://github.com/luca-heltai/immersx/pull/312) Include the Boost segment equality definition explicitly so persistent 3D vascular indices build with deal.II 9.7 headers.
 - [PR #311](https://github.com/luca-heltai/immersx/pull/311) Include Boost point and box equality for incremental tissue-territory indices when building with deal.II 9.7 headers.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Fix compilation of venous network generation with deal.II 9.7.1 and its Boost.Geometry headers.
@@ -427,6 +431,22 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Keep lifted elasticity application checks within 115 seconds and reduce the three-dimensional multiplier fixture while preserving two global refinement cycles, three multiplier fields and solver tolerances.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Bound coupled transient application regressions to 115 seconds and use three-point cross-section quadrature while retaining their meshes, finite-element degrees, forcing and solver tolerances.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Exercise both coupled manufactured boundary conditions with dedicated application fixtures and a 115-second test budget, preserving the resolved tutorial inputs for accuracy studies.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Avoid GMRES breakdown in the static tensor-product coupling regression by using a bulk mesh that can represent its six multiplier constraints, and check both assembled block residuals.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Initialize the vascular crossing-work fixture widths directly, preserving its nonuniform cells while avoiding GCC 13 array-bounds diagnostics from chained vector assignment.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Retain the accepted growth snapshot while traversing its obstacle index in the vascular regression, avoiding GCC 13 lifetime diagnostics.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Read the retained finite-element space directly in the lifted elasticity modal-metric regression, avoiding a temporary Field and GCC 13 lifetime diagnostics while preserving its independent quadrature check.
+
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Allow four-rank MPI regressions to launch on hosted runners with two CPU slots, supporting Open MPI 4 and 5 within the Debug and Release CTest steps.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Keep complete vascular figure campaigns as manual publication runs, use a two-terminal coupled fixture with free solid displacement DoFs, enforce a 115-second watchdog and vascular CLI limit, remove the Debug-only coupled timeout extension, and retain the independent full-forest oracle only in test support.
 

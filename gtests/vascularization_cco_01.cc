@@ -183,11 +183,13 @@ TEST(VascularCCO, WholeTreeWallsAnglesAndSkewClearances)
                               1.e-13);
                 }
           if (!incident)
-            EXPECT_GT(oracle_distance(n.nodes.at(e.nodes[0]).position,
-                                      n.nodes.at(e.nodes[1]).position,
-                                      n.nodes.at(f.nodes[0]).position,
-                                      n.nodes.at(f.nodes[1]).position),
-                      e.radii[0] + f.radii[0] + p.clearance - 1.e-13);
+            {
+              EXPECT_GT(oracle_distance(n.nodes.at(e.nodes[0]).position,
+                                        n.nodes.at(e.nodes[1]).position,
+                                        n.nodes.at(f.nodes[0]).position,
+                                        n.nodes.at(f.nodes[1]).position),
+                        e.radii[0] + f.radii[0] + p.clearance - 1.e-13);
+            }
         }
     }
 }

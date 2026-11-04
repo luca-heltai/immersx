@@ -24,7 +24,7 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
           -P "${CMAKE_CURRENT_LIST_DIR}/run_lifted_elasticity_test.cmake")
       set_tests_properties("${_name}" PROPERTIES
         LABELS "application"
-        TIMEOUT 300
+        TIMEOUT 115
         WORKING_DIRECTORY "${_working_directory}"
         RESOURCE_LOCK ImmersX.TestOutput)
       if(_ranks GREATER 1)

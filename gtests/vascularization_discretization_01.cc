@@ -224,7 +224,9 @@ TEST(VascularDiscretization, WarpedBilinearBoundaryClipsAtAnalyticalCrossing)
   EXPECT_GT(result.exterior_cells, 0u);
   for (const auto &cell : result.cells)
     if (cell.inside)
-      EXPECT_GE(cell.reference.begin, .5 - 1.e-12);
+      {
+        EXPECT_GE(cell.reference.begin, .5 - 1.e-12);
+      }
 
   // Along y=1-x the same warped face has two intersections, at
   // x=(1+-sqrt(1/2))/2. Their physical separation is exactly one metre.
@@ -418,7 +420,9 @@ TEST(VascularDiscretization,
     }
   EXPECT_EQ(Utilities::MPI::sum(owner_mismatches, comm), 0u);
   if (size > 1)
-    EXPECT_GT(Utilities::MPI::sum(remote_numerical_cells, comm), 0u);
+    {
+      EXPECT_GT(Utilities::MPI::sum(remote_numerical_cells, comm), 0u);
+    }
   EXPECT_NEAR(Utilities::MPI::sum(l, comm), 10., 1.e-12);
   const double expected_v = numbers::PI * 10. * (.0001 + .0002 + .0004) / 3.;
   const double expected_r = 8. * .004 / numbers::PI * 10. / .03 *
@@ -866,9 +870,8 @@ TEST(VascularDiscretization, BOTH_CrossingWorkTracksIntersectedCells)
   for (unsigned int count : {8u, 32u, 128u, 512u})
     {
       parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
-      std::vector<std::vector<double>>        widths(3);
-      widths[1] = widths[2] = {1.};
-      std::vector<double> endpoints{0.};
+      std::vector<std::vector<double>>        widths{{}, {1.}, {1.}};
+      std::vector<double>                     endpoints{0.};
       for (unsigned int i = 0; i < count; ++i)
         {
           widths[0].push_back(i % 2 == 0 ? .5 : 1.);
