@@ -441,12 +441,8 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             set(_coupled_mpiexec "${_immersx_mpiexec}")
             set(_coupled_labels "application;mpi")
           endif()
-          set(_coupled_timeout 600)
-          math(EXPR _coupled_application_timeout "${_coupled_timeout} - 10")
-          if(_case STREQUAL "Generated" OR _case MATCHES "^MMS")
-            set(_coupled_timeout 115)
-            set(_coupled_application_timeout 110)
-          endif()
+          set(_coupled_timeout 115)
+          set(_coupled_application_timeout 110)
           add_test(NAME "${_coupled_name}"
             COMMAND "${CMAKE_COMMAND}"
               "-DTEST_EXECUTABLE=$<TARGET_FILE:metric_flow_x_elastodynamics${${_build_type}_postfix}>"
