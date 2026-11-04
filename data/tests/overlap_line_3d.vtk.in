@@ -1,0 +1,32 @@
+# vtk DataFile Version 3.0
+Overlap regression line
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 6 double
+-0.5 0 0.5
+-0.25 0 0.5
+0.25 0 0.5
+0.75 0 0.5
+1.25 0 0.5
+1.5 0 0.5
+CELLS 5 15
+2 0 1
+2 1 2
+2 2 3
+2 3 4
+2 4 5
+CELL_TYPES 5
+3
+3
+3
+3
+3
+POINT_DATA 6
+SCALARS radius double 1
+LOOKUP_TABLE default
+0.05
+0.05
+0.05
+0.05
+0.05
+0.05

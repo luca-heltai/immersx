@@ -10,6 +10,7 @@
 #ifndef immersx_constraint_h
 #define immersx_constraint_h
 
+#include <immersx/core/overlap_integration_support.h>
 #include <immersx/core/weak_term.h>
 
 #include <algorithm>
@@ -441,19 +442,165 @@ namespace ImmersX
     return make_constraint(std::move(terms), std::forward<Rhs>(rhs));
   }
 
-  /** Build the standard equality constraint between two active fields.
+  /** Equality on located samples, with a homogeneous multiplier equation
+   * outside.
    *
-   * The multiplier field is supplied by the caller so that its finite-element
-   * space and ownership remain an explicit part of the coupling setup.
+   * The partition is fixed on construction. A reduced participant shares the
+   * multiplier mesh; two bulk participants can use an independent multiplier
+   * mesh. Physical material ids remain unchanged.
    */
+  template <typename LhsField, typename RhsField, typename MultiplierField>
+  class OverlapContinuityConstraint
+  {
+  public:
+    static constexpr int dim      = MultiplierField::dimension();
+    static constexpr int spacedim = MultiplierField::spacedimension();
+    static_assert(LhsField::spacedimension() == spacedim &&
+                    RhsField::spacedimension() == spacedim,
+                  "Continuity fields must share an embedding dimension.");
+    static_assert(LhsField::dimension() == spacedim ||
+                    RhsField::dimension() == spacedim,
+                  "An overlap constraint needs a full-dimensional background.");
+
+    OverlapContinuityConstraint(const LhsField        &lhs,
+                                const RhsField        &rhs,
+                                const MultiplierField &multiplier)
+      : lhs_(lhs)
+      , rhs_(rhs)
+      , multiplier_(multiplier)
+      , supports_(make_supports(lhs, rhs, multiplier))
+    {}
+
+    const MultiplierField &
+    multiplier() const
+    {
+      return multiplier_;
+    }
+
+    template <typename Builder>
+    auto
+    add(Builder                                       &builder,
+        const typename Builder::Model::MatrixOperator *metric = nullptr) const
+    {
+      const auto fields =
+        make_constraint(
+          weak_term(value(lhs_), test(multiplier_)).on(supports_.overlap) -
+          weak_term(value(rhs_), test(multiplier_)).on(supports_.overlap))
+          .add(builder, metric);
+      const auto lambda = fields.multiplier;
+      weak_term(-1. * value(lambda), test(lambda))
+        .on(supports_.outside)
+        .add(builder);
+      return fields;
+    }
+
+  private:
+    static OverlapIntegrationSupports<dim, spacedim>
+    make_supports(const LhsField        &lhs,
+                  const RhsField        &rhs,
+                  const MultiplierField &multiplier)
+    {
+      const auto &mesh = multiplier.dof_handler().get_triangulation();
+      const bool  matches_lhs =
+        static_cast<const void *>(&mesh) ==
+        static_cast<const void *>(&lhs.dof_handler().get_triangulation());
+      const bool matches_rhs =
+        static_cast<const void *>(&mesh) ==
+        static_cast<const void *>(&rhs.dof_handler().get_triangulation());
+      const auto degree =
+        std::max({lhs.space().finite_element().degree,
+                  rhs.space().finite_element().degree,
+                  multiplier.space().finite_element().degree});
+      const auto quadrature = compatibility::gauss_quadrature<dim>(
+        multiplier.space().finite_element().reference_cell(), degree + 1);
+      const auto against = [&](const auto &background) {
+        const dealii::GridTools::Cache<spacedim> cache(
+          background.dof_handler().get_triangulation(), background.mapping());
+        return make_overlap_supports(IntegrationSupport<dim, spacedim>(mesh),
+                                     multiplier.mapping(),
+                                     quadrature,
+                                     cache);
+      };
+      if constexpr (LhsField::dimension() == spacedim &&
+                    RhsField::dimension() == spacedim)
+        {
+          if (matches_lhs && !matches_rhs)
+            return against(rhs);
+          if (matches_rhs)
+            return against(lhs);
+          // An independent multiplier mesh must sample both participants.
+          const auto first  = against(lhs);
+          const auto second = against(rhs);
+          auto       partition =
+            std::make_shared<detail::OverlapQuadraturePartition>();
+          for (const auto &cell : mesh.active_cell_iterators())
+            if (!cell->is_artificial())
+              {
+                auto &data = (*partition)[cell->global_active_cell_index()];
+                data.inside.resize(quadrature.size());
+                data.overlap_weights.resize(quadrature.size());
+                data.total_weights.assign(quadrature.size(), 1.);
+                for (unsigned int q = 0; q < quadrature.size(); ++q)
+                  {
+                    const bool inside =
+                      first.overlap.point_weight(cell, q) != 0. &&
+                      second.overlap.point_weight(cell, q) != 0.;
+                    data.inside[q] = {static_cast<unsigned char>(inside)};
+                    data.overlap_weights[q] = inside ? 1. : 0.;
+                  }
+              }
+          const IntegrationSupport<dim, spacedim> source(mesh);
+          return {
+            source.with_quadrature_partition(quadrature, partition, false),
+            source.with_quadrature_partition(quadrature, partition, true)};
+        }
+      else if constexpr (LhsField::dimension() == spacedim)
+        {
+          AssertThrow(
+            matches_rhs,
+            dealii::ExcMessage(
+              "A mixed-dimensional continuity multiplier must share the embedded mesh."));
+          return against(lhs);
+        }
+      else if constexpr (RhsField::dimension() == spacedim)
+        {
+          AssertThrow(
+            matches_lhs,
+            dealii::ExcMessage(
+              "A mixed-dimensional continuity multiplier must share the embedded mesh."));
+          return against(rhs);
+        }
+    }
+
+    LhsField                                  lhs_;
+    RhsField                                  rhs_;
+    MultiplierField                           multiplier_;
+    OverlapIntegrationSupports<dim, spacedim> supports_;
+  };
+
+  /** Build the standard equality constraint between two active fields. */
   template <typename LhsField, typename RhsField, typename MultiplierField>
   auto
   make_continuity_constraint(const LhsField        &lhs,
                              const RhsField        &rhs,
                              const MultiplierField &multiplier)
   {
-    return make_constraint(weak_term(value(lhs), test(multiplier)) -
-                           weak_term(value(rhs), test(multiplier)));
+    if constexpr (LhsField::dimension() == LhsField::spacedimension() ||
+                  RhsField::dimension() == RhsField::spacedimension())
+      return OverlapContinuityConstraint<LhsField, RhsField, MultiplierField>(
+        lhs, rhs, multiplier);
+    else
+      return make_constraint(weak_term(value(lhs), test(multiplier)) -
+                             weak_term(value(rhs), test(multiplier)));
+  }
+
+  template <typename Builder, typename Lhs, typename Rhs, typename Multiplier>
+  auto
+  contribute(
+    Builder                                                 &builder,
+    const OverlapContinuityConstraint<Lhs, Rhs, Multiplier> &constraint)
+  {
+    return constraint.add(builder);
   }
 
   template <typename Builder, typename Term, typename Rhs>

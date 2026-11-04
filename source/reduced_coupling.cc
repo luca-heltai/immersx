@@ -170,7 +170,16 @@ background_tria.get_mpi_communicator()
                                       mode_values[q].begin(),
                                       mode_values[q].end());
       }
-    auto q_index = this->insert_points(qpoints, particle_properties);
+    auto       q_index = this->insert_points(qpoints, particle_properties);
+    const auto destinations =
+      Utilities::MPI::some_to_some(mpi_communicator, q_index);
+    located_source_points.assign(qpoints.size(), false);
+    for (const auto &[rank, indices] : destinations)
+      {
+        (void)rank;
+        for (const auto q : indices)
+          located_source_points[q] = true;
+      }
     // ParticleHandler assigns ids globally by source-rank prefix when ids
     // are omitted. Build the explicit id-to-entity map from that documented
     // assignment before any assembly uses particle ids.
@@ -326,6 +335,66 @@ background_tria.get_mpi_communicator()
     get_coupling_constraints() const
   {
     return coupling_constraints;
+  }
+
+  template <int reduced_dim, int dim, int spacedim, int n_components>
+  std::map<types::global_cell_index, std::vector<std::vector<double>>>
+  ReducedCoupling<reduced_dim, dim, spacedim, n_components>::modal_data_values()
+    const
+  {
+    std::map<types::global_cell_index, std::vector<std::vector<double>>> result;
+    const auto n_modes = this->get_reference_cross_section().n_selected_basis();
+    const auto evaluate = [&](const auto &point, const auto &inputs) {
+      std::vector<double> values(n_modes);
+      if (symbolic_coupling_rhs)
+        symbolic_coupling_rhs->evaluate_into(point, rhs_time, inputs, values);
+      else
+        {
+          Vector<double> parsed(n_modes);
+          coupling_rhs->vector_value(point, parsed);
+          std::copy(parsed.begin(), parsed.end(), values.begin());
+        }
+      return values;
+    };
+    if constexpr (reduced_dim == 0)
+      {
+        for (const auto entity : this->locally_owned_representative_entities())
+          result[entity].push_back(
+            evaluate(this->get_entity_position(entity),
+                     this->get_entity_property_values(entity)));
+      }
+    else
+      {
+        FEValues<reduced_dim, spacedim> values(this->get_dof_handler().get_fe(),
+                                               this->get_quadrature(),
+                                               update_quadrature_points);
+        ReducedFieldValues<reduced_dim, spacedim> imported(
+          this->properties_dh,
+          this->get_quadrature(),
+          this->properties,
+          this->properties_bindings);
+        std::vector<double> bound(this->get_quadrature().size() *
+                                  this->properties_bindings.size());
+        std::vector<double> inputs(this->properties_bindings.size());
+        for (const auto &cell : this->get_dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              values.reinit(cell);
+              if (!this->properties_bindings.empty())
+                imported.extract(
+                  cell->as_dof_handler_iterator(this->properties_dh), bound);
+              auto &cell_values = result[cell->global_active_cell_index()];
+              for (unsigned int q = 0; q < this->get_quadrature().size(); ++q)
+                {
+                  std::copy_n(bound.begin() + q * inputs.size(),
+                              inputs.size(),
+                              inputs.begin());
+                  cell_values.push_back(
+                    evaluate(values.quadrature_point(q), inputs));
+                }
+            }
+      }
+    return result;
   }
 
   // Explicit instantiations for ReducedCouplingParameters

@@ -231,6 +231,14 @@ namespace ImmersX
      * Build the problem from parsed parameters.
      */
     PoissonProblem(const ProblemParameters<dim, spacedim> &par);
+
+    /** Communicator-global norm of the current multiplier solution. */
+    double
+    multiplier_solution_l2_norm() const
+    {
+      return solution.block(1).l2_norm();
+    }
+
     /**
      * Create or import the computational mesh.
      */
@@ -365,6 +373,7 @@ namespace ImmersX
      */
     /// @{
     LA::MPI::SparseMatrix coupling_matrix;
+    LA::MPI::SparseMatrix outside_mass_matrix;
     LA::MPI::SparseMatrix inclusion_matrix; ///< Multiplier mass/scaling matrix.
     LA::MPI::SparseMatrix mass_matrix;      ///< Bulk mass matrix.
     /** Geometry mapping for assembly, output, and coupling points. */

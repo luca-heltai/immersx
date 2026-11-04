@@ -22,6 +22,7 @@
 #  include <immersx/core/constraint.h>
 #  include <immersx/core/domain.h>
 #  include <immersx/core/observable_lift.h>
+#  include <immersx/core/overlap_integration_support.h>
 #  include <immersx/core/sundials_ida_adapter.h>
 #  include <immersx/core/weak_term.h>
 #  include <immersx/coupling/immersed_repartitioner.h>
@@ -418,6 +419,21 @@ namespace
     solid_problem.set_initial_conditions();
     report_vessel_geometry(flow_problem.triangulation(), solid_problem);
 
+    const auto reference_radius = sqrt(A0 / numbers::PI);
+    const auto reference_wall =
+      lift(value(lambda), wall_lift, reference_radius);
+    GridTools::Cache<3> tissue_cache(solid_problem.triangulation(),
+                                     solid_problem.mapping());
+    const auto          supports =
+      make_overlap_supports(IntegrationSupport<1, 3>(
+                              flow_problem.triangulation()),
+                            lambda.mapping(),
+                            reference_wall.representative_quadrature(),
+                            reference_wall.lifted_points(),
+                            tissue_cache);
+    const auto [pressure_projection, multiplier_metric] =
+      make_metric_flow_x_pressure_projection(lambda, supports.overlap);
+
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
     adapter.set_schur_primal_coupling();
     if (linear_solver == "iterative")
@@ -436,17 +452,24 @@ namespace
                                                 lambda.locally_owned_dofs(),
                                                 lambda.locally_relevant_dofs());
         const auto multiplier  = lambda.with_id(id);
-        const auto radius      = sqrt(A0 / numbers::PI);
-        const auto lambda_wall = lift(value(multiplier), wall_lift, radius);
+        const auto radius      = reference_radius;
+        const auto lambda_wall = reference_wall.with_id(id);
         const auto negative_wall_displacement =
           lift(radius - sqrt(value(flow_fields.fields().area) / numbers::PI),
                wall_lift,
                radius);
 
         weak_term(value(solid_fields.fields().displacement), test(lambda_wall))
+          .on(supports.overlap)
           .add(builder);
-        weak_term(negative_wall_displacement, test(multiplier)).add(builder);
+        weak_term(negative_wall_displacement, test(multiplier))
+          .on(supports.overlap)
+          .add(builder);
+        weak_term(-1. * value(multiplier), test(multiplier))
+          .on(supports.outside)
+          .add(builder);
         weak_term(lambda_wall, test(solid_fields.fields().velocity))
+          .on(supports.overlap)
           .add(builder);
 
         const auto pressure      = -1. * value(multiplier);
@@ -459,7 +482,9 @@ namespace
           flow_problem.add_external_pressure_residual(
             context.time(),
             context.state(flow_id),
-            metric_flow_x_pressure_provider(pressure, context.state(id)),
+            metric_flow_x_pressure_provider(pressure,
+                                            context.state(id),
+                                            pressure_projection),
             *contribution);
           dealii::PackagedOperation<MetricFlowX::VectorType> result;
           result.reinit_vector = [&flow_problem](auto &dst, const bool) {
@@ -476,7 +501,8 @@ namespace
             return metric_flow_x_pressure_operator(flow_problem,
                                                    pressure,
                                                    context.state(flow_id),
-                                                   context.time());
+                                                   context.time(),
+                                                   pressure_projection);
           };
         pressure_term.state(id, std::move(pressure_jacobian));
         if constexpr (detail::has_external_pressure_state_jacobian<
@@ -490,18 +516,23 @@ namespace
                     pressure,
                     context.state(id),
                     context.state(flow_id),
-                    context.time());
+                    context.time(),
+                    pressure_projection);
                 };
             pressure_term.state(flow_id, std::move(pressure_state_jacobian));
           }
 
 
+        auto metric        = builder.matrix_operator(*multiplier_metric);
+        metric.materialize = [multiplier_metric] { return multiplier_metric; };
+        metric.materialize_into = [multiplier_metric](auto &destination) {
+          destination.copy_from(*multiplier_metric);
+        };
         builder.saddle_point(id,
                              {solid_fields.fields().displacement.id(),
                               solid_fields.fields().velocity.id(),
                               flow_fields.fields().state},
-                             detail::make_multiplier_metric(builder,
-                                                            multiplier));
+                             metric);
         return ConstraintFields<std::decay_t<decltype(lambda)>>{multiplier};
       },
       "vessel-wall");
@@ -529,6 +560,7 @@ namespace
                          &multiplier_output_records,
                          &flow_output_records,
                          coupling_fields,
+                         pressure_projection,
                          flow_fields,
                          flow_output_name,
                          flow_output_directory](const GlobalVector &solution,
@@ -545,7 +577,8 @@ namespace
         time,
         metric_flow_x_pressure_provider(
           -1. * value(coupling_fields.fields().multiplier),
-          adapter.field(solution, coupling_fields.fields().multiplier)));
+          adapter.field(solution, coupling_fields.fields().multiplier),
+          pressure_projection));
       flow_problem.output_results(flow_state, pressure, step);
       // MetricFlowX's native writer uses its runner's private clock. The
       // coupled adapter supplies the accepted times for this collection.

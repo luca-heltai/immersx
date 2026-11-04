@@ -52,11 +52,20 @@ namespace ImmersX
     ranks =
       Utilities::MPI::this_mpi_process(tria_background.get_mpi_communicator());
 
+    rpe.reinit(points, tria_background, mapping);
+    std::vector<bool>            located(points.size());
+    std::vector<Point<spacedim>> located_points;
+    for (unsigned int q = 0; q < points.size(); ++q)
+      {
+        located[q] = rpe.point_found(q);
+        if (located[q])
+          located_points.push_back(points[q]);
+      }
     const auto point_ranks =
       VectorTools::point_values<1>(mapping,
                                    tria_background,
                                    ranks,
-                                   points,
+                                   located_points,
                                    rpe,
                                    VectorTools::EvaluationFlags::min,
                                    0);
@@ -71,10 +80,16 @@ namespace ImmersX
     LinearAlgebra::distributed::Vector<double> partition(
       tria->global_active_cell_index_partitioner().lock());
 
-    unsigned int counter = 0;
+    unsigned int counter         = 0;
+    unsigned int located_counter = 0;
     for (const auto &cell : tria_immersed.active_cell_iterators())
       if (cell->is_locally_owned())
-        partition[cell->global_active_cell_index()] = point_ranks[counter++];
+        {
+          partition[cell->global_active_cell_index()] =
+            located[counter] ? point_ranks[located_counter++] :
+                               cell->subdomain_id();
+          ++counter;
+        }
 
     partition.update_ghost_values();
 

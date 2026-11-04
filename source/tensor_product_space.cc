@@ -1033,14 +1033,8 @@ namespace ImmersX
     representative_handler_initialized = true;
     relevant_representative_entities = locally_owned_representative_entities();
 
-    // The particle handler is now the authoritative runtime store. In
-    // particular, do not retain a replicated coordinate/property copy here.
-    point_cloud.points.clear();
-    point_cloud.properties.clear();
-    representative_properties.clear();
-    entity_properties.clear();
-    entity_thickness.clear();
-    source_entity_ids.clear();
+    // Source-owned metadata also describes representatives outside the
+    // background and is needed to integrate the complementary support.
   }
 
   template <int dim, int spacedim, int n_components>
@@ -1321,8 +1315,8 @@ namespace ImmersX
       representative_properties[entity].back() = entity_thickness[entity];
 
     // Replicated input is needed only while normalizing the source-local
-    // metadata. Keep the source copy on rank zero and discard it elsewhere;
-    // after particle insertion all ranks discard their remaining input copy.
+    // metadata. Keep the source copy on rank zero and discard it elsewhere.
+    // Located representative particles provide an additional background view.
     if (replicated && rank != 0)
       {
         point_cloud.points.clear();
@@ -1362,19 +1356,9 @@ namespace ImmersX
   TensorProductSpace<0, dim, spacedim, n_components>::
     locally_owned_representative_entities() const
   {
-    if (!representative_handler_initialized)
-      {
-        IndexSet result(n_global_representative_entities);
-        for (const auto entity : source_entity_ids)
-          result.add_index(entity);
-        result.compress();
-        return result;
-      }
-    const auto n_entities =
-      static_cast<std::size_t>(representative_particles.n_global_particles());
-    IndexSet result(n_entities);
-    for (const auto id : representative_particles.locally_owned_particle_ids())
-      result.add_index(id);
+    IndexSet result(n_global_representative_entities);
+    for (const auto entity : source_entity_ids)
+      result.add_index(entity);
     result.compress();
     return result;
   }
@@ -1441,6 +1425,7 @@ namespace ImmersX
     compute_points_and_weights()
   {
     all_qpoints.clear();
+    all_mode_values.clear();
     all_weights.clear();
     reduced_qpoints.clear();
     reduced_weights.clear();
@@ -1474,39 +1459,20 @@ namespace ImmersX
         }
     };
 
-    if (representative_handler_initialized)
+    for (unsigned int local = 0; local < source_entity_ids.size(); ++local)
       {
-        for (const auto &particle : representative_particles)
-          {
-            const auto &particle_properties = particle.get_properties();
-            AssertDimension(particle_properties.size(),
-                            properties_bindings.size() + spacedim + 1);
-            Tensor<1, spacedim> orientation;
-            for (unsigned int d = 0; d < spacedim; ++d)
-              orientation[d] =
-                particle_properties[properties_bindings.size() + d];
-            add_entity(particle.get_id(),
-                       particle.get_location(),
-                       orientation,
-                       particle_properties[particle_properties.size() - 1]);
-          }
+        Tensor<1, spacedim> orientation;
+        orientation[spacedim - 1] = 1.;
+        if (representative_properties[local].size() >=
+            properties_bindings.size() + spacedim + 1)
+          for (unsigned int d = 0; d < spacedim; ++d)
+            orientation[d] =
+              representative_properties[local][properties_bindings.size() + d];
+        add_entity(source_entity_ids[local],
+                   point_cloud.points[local],
+                   orientation,
+                   representative_properties[local].back());
       }
-    else
-      for (unsigned int local = 0; local < source_entity_ids.size(); ++local)
-        {
-          Tensor<1, spacedim> orientation;
-          orientation[spacedim - 1] = 1.;
-          if (representative_properties[local].size() >=
-              properties_bindings.size() + spacedim + 1)
-            for (unsigned int d = 0; d < spacedim; ++d)
-              orientation[d] =
-                representative_properties[local]
-                                         [properties_bindings.size() + d];
-          add_entity(source_entity_ids[local],
-                     point_cloud.points[local],
-                     orientation,
-                     representative_properties[local].back());
-        }
   }
 
   template <int dim, int spacedim, int n_components>

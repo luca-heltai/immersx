@@ -19,8 +19,12 @@
 #  include <Epetra_CrsMatrix.h>
 #  include <Epetra_Map.h>
 #  include <Epetra_RowMatrixTransposer.h>
+#  include <Epetra_Vector.h>
 #endif
 
+
+#include <memory>
+#include <type_traits>
 
 #ifndef augmented_lagrangian_prec_h
 #  define augmented_lagrangian_prec_h
@@ -96,6 +100,7 @@ namespace ImmersX
       double gamma;
     };
 
+    /** Assemble A + gamma Ct diag(scaling_vector) Ct^T with native maps. */
     template <typename MatrixType = SparseMatrix<double>,
               typename VectorType = Vector<typename MatrixType::value_type>,
               typename PreconditionerType = TrilinosWrappers::PreconditionAMG>
@@ -107,97 +112,53 @@ namespace ImmersX
                            MatrixType       &augmented_matrix)
     {
 #  ifdef DEAL_II_WITH_TRILINOS
-
-
       if constexpr (std::is_same_v<TrilinosWrappers::SparseMatrix, MatrixType>)
         {
-          Assert((std::is_same_v<TrilinosWrappers::MPI::Vector, VectorType>),
-                 ExcMessage("You must use Trilinos vectors, as you are using "
-                            "Trilinos matrices."));
-
-
-          Epetra_CrsMatrix A_trilinos   = A.trilinos_matrix();
-          Epetra_CrsMatrix Ct_trilinos  = Ct.trilinos_matrix();
-          auto             multi_vector = scaling_vector.trilinos_vector();
-
-
-          Assert((A_trilinos.NumGlobalRows() !=
-                  Ct_trilinos.DomainMap().NumGlobalElements()),
-                 ExcMessage(
-                   "Number of columns in C must match dimension of A"));
-
-
-          // Ensure the MultiVector has only one column.
-          Assert((multi_vector.NumVectors() == 1),
-                 ExcMessage("The MultiVector must have exactly one column."));
-
-
-          // Create diagonal matrix from first vector of v
-          // Explicitly cast the map to Epetra_Map
-          const Epetra_Map &map =
-            static_cast<const Epetra_Map &>(multi_vector.Map());
-
-
-          // Create a diagonal matrix with 1 nonzero entry per row
-          Epetra_CrsMatrix diag_matrix(Copy, map, 1);
-          for (int i = 0; i < multi_vector.Map().NumMyElements(); ++i)
+          static_assert(
+            std::is_same_v<TrilinosWrappers::MPI::Vector, VectorType>);
+          AssertDimension(A.m(), A.n());
+          AssertDimension(A.m(), Ct.m());
+          AssertDimension(Ct.n(), scaling_vector.size());
+          const auto         &native_A    = A.trilinos_matrix();
+          Epetra_CrsMatrix    weighted_Ct = Ct.trilinos_matrix();
+          const Epetra_Vector weights(View,
+                                      scaling_vector.trilinos_vector(),
+                                      0);
+          const int           scaling_error = weighted_Ct.RightScale(weights);
+          AssertThrow(scaling_error == 0,
+                      TrilinosWrappers::SparseMatrix::ExcTrilinosError(
+                        scaling_error));
+          Epetra_CrsMatrix product(Copy, native_A.RowMap(), 0);
+          const int        product_error = EpetraExt::MatrixMatrix::Multiply(
+            weighted_Ct, false, Ct.trilinos_matrix(), true, product);
+          AssertThrow(product_error == 0,
+                      TrilinosWrappers::SparseMatrix::ExcTrilinosError(
+                        product_error));
+          Epetra_CrsMatrix *sum       = nullptr;
+          const int         sum_error = EpetraExt::MatrixMatrix::Add(
+            native_A, false, 1., product, false, gamma, sum);
+          const std::unique_ptr<Epetra_CrsMatrix> result(sum);
+          AssertThrow(sum_error == 0,
+                      TrilinosWrappers::SparseMatrix::ExcTrilinosError(
+                        sum_error));
+          AssertThrow(result != nullptr, ExcInternalError());
+          if (!result->Filled())
             {
-              int    global_row = multi_vector.Map().GID(i);
-              double val        = multi_vector[0][i]; // Access first vector
-              diag_matrix.InsertGlobalValues(global_row, 1, &val, &global_row);
+              const int fill_error =
+                result->FillComplete(native_A.DomainMap(), native_A.RangeMap());
+              AssertThrow(fill_error == 0,
+                          TrilinosWrappers::SparseMatrix::ExcTrilinosError(
+                            fill_error));
             }
-          diag_matrix.FillComplete();
-
-
-          Epetra_CrsMatrix *W =
-            new Epetra_CrsMatrix(Copy, Ct_trilinos.RowMap(), 0);
-          EpetraExt::MatrixMatrix::Multiply(
-            Ct_trilinos, false, diag_matrix, false, *W);
-
-
-          // Compute Ct^T * W, which is equivalent to (C^T * diag(V)) * C
-          Epetra_CrsMatrix *CtT_W =
-            new Epetra_CrsMatrix(Copy, W->RangeMap(), 0);
-          EpetraExt::MatrixMatrix::Multiply(
-            *W, false /* transpose */, Ct_trilinos, true, *CtT_W);
-
-
-          // Add A to the result, scaling with gamma
-          Epetra_CrsMatrix *result =
-            new Epetra_CrsMatrix(Copy,
-                                 A_trilinos.RowMap(),
-                                 A_trilinos.MaxNumEntries());
-          EpetraExt::MatrixMatrix::Add(
-            A_trilinos, false, 1.0, *CtT_W, false, gamma, result);
-          result->FillComplete();
-
-
-          // Initialize the final Trilinos matrix
-          augmented_matrix.reinit(*result, true /*copy_values*/);
-
-
-          // Delete unnecessary objects.
-          delete W;
-          delete CtT_W;
-          delete result;
+          augmented_matrix.reinit(*result, true);
         }
       else
-        {
-          // PETSc not supported so far.
-          AssertThrow(false, ExcNotImplemented("Matrix type not supported!"));
-        }
+        AssertThrow(false, ExcNotImplemented("Matrix type not supported!"));
 #  else
-      AssertThrow(
-        false,
-        ExcMessage(
-          "This function requires deal.II to be configured with Trilinos."));
-
-
-      (void)velocity_dh;
-      (void)C;
+      AssertThrow(false, ExcMessage("This function requires Trilinos."));
+      (void)A;
       (void)Ct;
       (void)scaling_vector;
-      (void)velocity_constraints;
       (void)gamma;
       (void)augmented_matrix;
 #  endif

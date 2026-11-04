@@ -14,6 +14,9 @@
 
 #include <gtest/gtest.h>
 #include <immersx/core/domain.h>
+#include <immersx/core/overlap_integration_support.h>
+#include <immersx/coupling/detail/coupling_point.h>
+#include <immersx/coupling/particle_coupling.h>
 #include <immersx/grid/overlap_classification.h>
 
 #include <algorithm>
@@ -495,4 +498,243 @@ TEST(OverlapClassification, BOTH_TranslatedHyperBallsWithVertexQuadrature)
     {
       EXPECT_GT(Utilities::MPI::sum(ghosts, MPI_COMM_WORLD), 0u);
     }
+}
+
+TEST(OverlapClassification, BOTH_ComplementaryQuadratureSupports)
+{
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background);
+  background.refine_global(1);
+  Triangulation<1, 3> coarse;
+  make_line(coarse);
+  parallel::fullydistributed::Triangulation<1, 3> source(MPI_COMM_WORLD);
+  distribute(coarse, source);
+  MappingQ1<1, 3>     mapping;
+  MappingQ1<3>        background_mapping;
+  GridTools::Cache<3> cache(background, background_mapping);
+  const QGauss<1>     quadrature(3);
+  const auto supports = make_overlap_supports(IntegrationSupport<1, 3>(source),
+                                              mapping,
+                                              quadrature,
+                                              cache);
+  const FE_Nothing<1, 3> geometry;
+  FEValues<1, 3>         values(mapping,
+                        geometry,
+                        quadrature,
+                        update_quadrature_points | update_JxW_values);
+  unsigned int           partial = 0;
+  for (const auto &cell : source.active_cell_iterators())
+    if (!cell->is_artificial())
+      {
+        EXPECT_EQ(cell->material_id(), 99);
+        ImmersX::detail::CouplingPoint<3> material_point;
+        material_point.source_cell_id = cell->id();
+        EXPECT_TRUE((IntegrationSupport<1, 3>(source, 99)
+                       .includes_lifted_point(material_point)));
+        EXPECT_FALSE((IntegrationSupport<1, 3>(source, 7).includes_lifted_point(
+          material_point)));
+        values.reinit(cell);
+        unsigned int inside = 0;
+        for (unsigned int q = 0; q < quadrature.size(); ++q)
+          {
+            const bool located = values.quadrature_point(q)[0] >= 0. &&
+                                 values.quadrature_point(q)[0] <= 1.;
+            EXPECT_DOUBLE_EQ(supports.overlap.point_weight(cell, q),
+                             located ? 1. : 0.);
+            EXPECT_DOUBLE_EQ(supports.outside.point_weight(cell, q),
+                             located ? 0. : 1.);
+            EXPECT_DOUBLE_EQ(supports.overlap.full_point_weight(cell, q), 1.);
+            inside += located;
+          }
+        EXPECT_EQ(supports.overlap.includes_cell(cell), inside > 0);
+        EXPECT_EQ(supports.outside.includes_cell(cell),
+                  inside < quadrature.size());
+        partial +=
+          cell->is_locally_owned() && inside > 0 && inside < quadrature.size();
+      }
+  EXPECT_GT(Utilities::MPI::sum(partial, MPI_COMM_WORLD), 0u);
+}
+
+TEST(OverlapClassification, BOTH_LiftedQuadratureSupportsKeepPhysicalWeights)
+{
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background);
+  Triangulation<1, 3> coarse;
+  make_line(coarse);
+  parallel::fullydistributed::Triangulation<1, 3> source(MPI_COMM_WORLD);
+  distribute(coarse, source);
+  MappingQ1<1, 3>     mapping;
+  MappingQ1<3>        background_mapping;
+  GridTools::Cache<3> cache(background, background_mapping);
+  const QGauss<1>     quadrature(2);
+  struct Sample
+  {
+    Point<3>                 point;
+    double                   weight;
+    types::global_cell_index source_entity_id;
+    unsigned int             representative_qpoint;
+    unsigned int             section_qpoint;
+  };
+  const FE_Nothing<1, 3> geometry;
+  FEValues<1, 3>         values(mapping,
+                        geometry,
+                        quadrature,
+                        update_quadrature_points | update_JxW_values);
+  std::vector<Sample>    samples;
+  for (const auto &cell : source.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        values.reinit(cell);
+        for (unsigned int q = 0; q < quadrature.size(); ++q)
+          for (unsigned int section = 0; section < 2; ++section)
+            {
+              auto point = values.quadrature_point(q);
+              point[1]   = section == 0 ? .5 : 1.5;
+              samples.push_back({point,
+                                 values.JxW(q) * (section + 1.),
+                                 cell->global_active_cell_index(),
+                                 q,
+                                 section});
+            }
+      }
+  const auto supports = make_overlap_supports(
+    IntegrationSupport<1, 3>(source), mapping, quadrature, samples, cache);
+  for (const auto &sample : samples)
+    {
+      const bool located =
+        sample.point[0] >= 0. && sample.point[0] <= 1. && sample.point[1] <= 1.;
+      EXPECT_EQ(supports.overlap.includes_lifted_point(sample), located);
+      EXPECT_EQ(supports.outside.includes_lifted_point(sample), !located);
+    }
+  for (const auto &cell : source.active_cell_iterators())
+    if (!cell->is_artificial())
+      {
+        values.reinit(cell);
+        for (unsigned int q = 0; q < quadrature.size(); ++q)
+          {
+            const bool located = values.quadrature_point(q)[0] >= 0. &&
+                                 values.quadrature_point(q)[0] <= 1.;
+            EXPECT_DOUBLE_EQ(supports.overlap.point_weight(cell, q),
+                             located ? 1. : 0.);
+            EXPECT_DOUBLE_EQ(supports.outside.point_weight(cell, q),
+                             located ? 2. : 3.);
+            EXPECT_DOUBLE_EQ(supports.overlap.full_point_weight(cell, q), 3.);
+          }
+      }
+}
+
+TEST(OverlapClassification, BOTH_RejectIncompleteOrDuplicateQuadraturePartition)
+{
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background);
+  Triangulation<1, 3> coarse;
+  make_line(coarse);
+  parallel::fullydistributed::Triangulation<1, 3> source(MPI_COMM_WORLD);
+  distribute(coarse, source, true);
+  MappingQ1<1, 3>     mapping;
+  MappingQ1<3>        background_mapping;
+  GridTools::Cache<3> cache(background, background_mapping);
+  const QGauss<1>     quadrature(2);
+  struct Sample
+  {
+    Point<3>                 point;
+    double                   weight;
+    types::global_cell_index source_entity_id;
+    unsigned int             representative_qpoint;
+    unsigned int             section_qpoint = 0;
+  };
+  const FE_Nothing<1, 3> geometry;
+  FEValues<1, 3>         values(mapping,
+                        geometry,
+                        quadrature,
+                        update_quadrature_points | update_JxW_values);
+  std::vector<Sample>    full;
+  for (const auto &cell : source.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        values.reinit(cell);
+        for (unsigned int q = 0; q < quadrature.size(); ++q)
+          full.push_back({values.quadrature_point(q),
+                          values.JxW(q),
+                          cell->global_active_cell_index(),
+                          q,
+                          0});
+      }
+  for (unsigned int error = 0; error < 4; ++error)
+    {
+      auto samples = full;
+      if (!samples.empty())
+        {
+          if (error == 0)
+            samples.pop_back();
+          else if (error == 1)
+            samples.push_back(samples.front());
+          else if (error == 2)
+            samples.front().source_entity_id = numbers::invalid_unsigned_int;
+          else if (error == 3)
+            samples.front().section_qpoint = numbers::invalid_unsigned_int;
+        }
+      EXPECT_ANY_THROW(make_overlap_supports(
+        IntegrationSupport<1, 3>(source), mapping, quadrature, samples, cache));
+    }
+}
+
+TEST(OverlapClassification,
+     BOTH_SampledMaskMatchesParticleOwnershipNearBoundary)
+{
+  parallel::distributed::Triangulation<3> background(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(background);
+  background.refine_global(1);
+  Triangulation<1, 3> coarse;
+  make_line(coarse);
+  parallel::fullydistributed::Triangulation<1, 3> source(MPI_COMM_WORLD);
+  distribute(coarse, source);
+  MappingQ1<1, 3>             mapping;
+  MappingQ1<3>                background_mapping;
+  GridTools::Cache<3>         cache(background, background_mapping);
+  const QGauss<1>             quadrature(1);
+  const std::array<double, 9> coordinates{{-1.e-7,
+                                           -1.e-11,
+                                           -1.e-13,
+                                           0.,
+                                           .5,
+                                           1.,
+                                           1. + 1.e-13,
+                                           1. + 1.e-11,
+                                           1. + 1.e-7}};
+  std::vector<ImmersX::detail::CouplingPoint<3>> samples;
+  std::vector<Point<3>>                          positions;
+  std::vector<types::particle_index>             ids;
+  for (const auto &cell : source.active_cell_iterators())
+    if (cell->is_locally_owned())
+      for (unsigned int section = 0; section < coordinates.size(); ++section)
+        {
+          ImmersX::detail::CouplingPoint<3> sample;
+          sample.point                 = Point<3>(coordinates[section], .5, .5);
+          sample.weight                = 1.;
+          sample.source_entity_id      = cell->global_active_cell_index();
+          sample.representative_qpoint = 0;
+          sample.section_qpoint        = section;
+          sample.stable_id =
+            sample.source_entity_id * coordinates.size() + section;
+          positions.push_back(sample.point);
+          ids.push_back(sample.stable_id);
+          samples.push_back(sample);
+        }
+  const auto supports = make_overlap_supports(
+    IntegrationSupport<1, 3>(source), mapping, quadrature, samples, cache);
+  ParticleCouplingParameters<3> parameters("/Boundary ownership consistency/");
+  ParticleCoupling<3>           particles(parameters);
+  particles.initialize_particle_handler(background, background_mapping, 0);
+  particles.insert_points(positions, {}, ids);
+  std::vector<types::particle_index> local_ids;
+  for (const auto &particle : particles.get_particles())
+    local_ids.push_back(particle.get_id());
+  std::set<types::particle_index> located_ids;
+  for (const auto &rank_ids :
+       Utilities::MPI::all_gather(MPI_COMM_WORLD, local_ids))
+    located_ids.insert(rank_ids.begin(), rank_ids.end());
+  for (const auto &sample : samples)
+    EXPECT_EQ(supports.overlap.includes_lifted_point(sample),
+              located_ids.count(sample.stable_id) != 0);
 }

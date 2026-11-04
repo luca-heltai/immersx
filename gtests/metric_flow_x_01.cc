@@ -15,6 +15,7 @@
 #include <immersx/core/constraint.h>
 #include <immersx/core/domain.h>
 #include <immersx/core/observable_lift.h>
+#include <immersx/core/overlap_integration_support.h>
 #include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/coupling/immersed_repartitioner.h>
 #include <immersx/io/imported_finite_element_fields.h>
@@ -832,6 +833,124 @@ TEST(MetricFlowX, BOTH_PressureProviderPreservesDGTracesAndGhostValues)
               dual * contribution,
               1.e-11 * std::max(1., std::abs(dual * contribution)));
 }
+
+
+TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
+{
+  using namespace dealii;
+  using namespace ImmersX;
+  ParameterAcceptor::clear();
+  Problem                problem(MPI_COMM_WORLD);
+  TimeIntervalParameters time("/", false);
+  IDAParameters          ida("/MetricFlowSystem<1, 3>/IDA parameters/", &time);
+  FiniteElementSpaceParameters<1, 3> parameters("/Covered pressure space/",
+                                                "FE_DGQ(1)");
+  initialize_native_parameters(
+    problem,
+    TestPaths::parameter_path("gtests/parameters/metric_flow_x_pressure.prm"),
+    0);
+  problem.setup();
+  FiniteElementSpace<1, 3> space(problem.triangulation(), parameters);
+  const auto               view  = space.view();
+  const auto               field = view.field("pressure_jump");
+  const QGauss<1>          quadrature(2);
+  FEValues<1, 3>           values(view.mapping(),
+                        view.finite_element(),
+                        quadrature,
+                        update_JxW_values);
+  std::vector<detail::CouplingPoint<3>> samples;
+  for (const auto &cell : view.dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        values.reinit(cell);
+        for (const auto q : values.quadrature_point_indices())
+          for (unsigned int section = 0; section < 2; ++section)
+            {
+              detail::CouplingPoint<3> point;
+              point.point =
+                section == 0 ? Point<3>(.5, .5, .5) : Point<3>(2., 2., 2.);
+              point.weight                = .5 * values.JxW(q);
+              point.source_entity_id      = cell->global_active_cell_index();
+              point.representative_qpoint = q;
+              point.section_qpoint        = section;
+              samples.push_back(point);
+            }
+      }
+  parallel::distributed::Triangulation<3> tissue(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(tissue, 0., 1.);
+  tissue.refine_global(1);
+  MappingQ1<3>        tissue_mapping;
+  GridTools::Cache<3> cache(tissue, tissue_mapping);
+  const auto          supports =
+    make_overlap_supports(IntegrationSupport<1, 3>(problem.triangulation()),
+                          view.mapping(),
+                          quadrature,
+                          samples,
+                          cache);
+  const auto [projection, metric] =
+    make_metric_flow_x_pressure_projection(field, supports.overlap);
+  FieldVector coefficients;
+  coefficients.reinit(field.locally_owned_dofs(), MPI_COMM_WORLD);
+  std::vector<types::global_dof_index> indices(
+    view.finite_element().n_dofs_per_cell());
+  for (const auto &cell : view.dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        cell->get_dof_indices(indices);
+        for (unsigned int j = 0; j < indices.size(); ++j)
+          {
+            const auto point = view.mapping().transform_unit_to_real_cell(
+              cell, view.finite_element().unit_support_point(j));
+            coefficients[indices[j]] = 1. + 2. * point[0] - cell->center()[0];
+          }
+      }
+  coefficients.compress(VectorOperation::insert);
+  const auto provider = metric_flow_x_pressure_provider(-1. * value(field),
+                                                        coefficients,
+                                                        projection);
+  for (const auto &cell : view.dof_handler().active_cell_iterators())
+    if (!cell->is_artificial())
+      for (const double coordinate : {0., .5, 1.})
+        {
+          const auto point =
+            view.mapping().transform_unit_to_real_cell(cell,
+                                                       Point<1>(coordinate));
+          EXPECT_NEAR(provider({0., point, cell->material_id(), cell->id()}),
+                      .5 * (-1. - 2. * point[0] + cell->center()[0]),
+                      1.e-12);
+        }
+  auto state = problem.make_state();
+  problem.initialize_state(state, 0.);
+  auto       actual = problem.make_state(), expected = problem.make_state();
+  const auto projected_operator = metric_flow_x_pressure_operator(
+    problem, -1. * value(field), state, 0., projection);
+  const auto full_operator =
+    metric_flow_x_pressure_operator(problem, -1. * value(field), state, 0.);
+  projected_operator.view.vmult(actual, coefficients);
+  full_operator.view.vmult(expected, coefficients);
+  expected *= .5;
+  actual -= expected;
+  EXPECT_LT(actual.l2_norm(), 1.e-11 * std::max(1., expected.l2_norm()));
+  auto dual = problem.make_state();
+  for (const auto i : dual.locally_owned_elements())
+    dual[i] = 1. + .1 * i;
+  auto transpose = coefficients;
+  projected_operator.view.Tvmult(transpose, dual);
+  EXPECT_NEAR(transpose * coefficients,
+              dual * expected,
+              1.e-10 * std::max(1., std::abs(dual * expected)));
+  const auto projected_state_operator = metric_flow_x_pressure_state_operator(
+    problem, -1. * value(field), coefficients, state, 0., projection);
+  const auto full_state_operator = metric_flow_x_pressure_state_operator(
+    problem, -1. * value(field), coefficients, state, 0.);
+  projected_state_operator.view.vmult(actual, dual);
+  full_state_operator.view.vmult(expected, dual);
+  EXPECT_GT(expected.l2_norm(), 1.e-12);
+  expected *= .5;
+  actual -= expected;
+  EXPECT_LT(actual.l2_norm(), 1.e-11 * std::max(1., expected.l2_norm()));
+}
+
 
 #else
 

@@ -402,7 +402,7 @@ end
         squared_norms[2] /= max_y * max_y;
         const double radius_integral = (0.25 + 0.125) / 2.;
         auto         constant_mode = *load, metric_action = *load;
-        const auto  &dofs = view.field("multiplier").dof_handler();
+        const auto  &dofs = view.dof_handler();
         for (unsigned int slot = 0; slot < 3; ++slot)
           {
             const auto component =
@@ -603,4 +603,82 @@ TEST(LiftedElasticity, ObservableRegistrationUpdatesDependencies)
   ASSERT_EQ(expression.dependencies().size(), 1u);
   EXPECT_EQ(expression.source_field(), FieldId(7));
   EXPECT_EQ(expression.source().id(), FieldId(7));
+}
+
+TEST(LiftedElasticity, BOTH_HalfWallPressureKeepsNominalAmplitude)
+{
+  ParameterAcceptor::clear();
+  LiftedElasticityParameters<3> parameters;
+  initialize_parameters();
+  parameters.coupling                       = "pressure";
+  parameters.execution.solver               = LinearSolver::direct;
+  parameters.domain_parameters.name_of_grid = "subdivided_hyper_rectangle";
+  parameters.domain_parameters.arguments_for_grid =
+    "2, 2, 2: -1, 0, -1: 1, 1, 1: false";
+  parameters.domain_parameters.initial_refinement = 0;
+  parameters.immersed_domain.initial_refinement   = 0;
+  parameters.geometry.thickness                   = "0.1";
+  parameters.modal_data                           = {"2", "0", "0"};
+  parameters.co_refinement.lower_factor           = 0.0001;
+  parameters.co_refinement.upper_factor           = 1000.;
+  LiftedElasticity<3> problem(parameters);
+  problem.setup();
+  problem.solve();
+  EXPECT_LT(problem.residual_norm(), 1.e-10);
+  auto expected_coefficients = problem.modal_coefficients();
+  Functions::ConstantFunction<3> nominal(std::vector<double>{2., 0., 0.});
+  VectorTools::interpolate(problem.multipliers().front().dof_handler(),
+                           nominal,
+                           expected_coefficients);
+  expected_coefficients -= problem.modal_coefficients();
+  EXPECT_LT(expected_coefficients.l2_norm(), 1.e-11);
+
+  FiniteElementSpace<3>   probe_space(problem.background().triangulation(),
+                                    std::make_unique<FESystem<3>>(FE_Q<3>(1),
+                                                                  3));
+  const auto              probe_view = probe_space.view();
+  LinearAdapterParameters options("/Half pressure diagnostics/");
+  LinearAdapter<ImmersXLA::MPI::Vector, ImmersXLA::MPI::BlockVector> adapter(
+    options, MPI_COMM_WORLD);
+  const auto lambda =
+    adapter.add(algebraic_field(problem.multipliers().front())).fields();
+  const auto probe =
+    adapter
+      .add(algebraic_field(
+        probe_view.field("probe", FEValuesExtractors::Vector(0))))
+      .fields();
+  const auto          lifted = lift(value(lambda), parameters.geometry).mode(0);
+  GridTools::Cache<3> cache(problem.background().triangulation(),
+                            problem.displacement().mapping());
+  const auto          supports =
+    make_overlap_supports(problem.immersed().support(),
+                          lambda.mapping(),
+                          lifted.representative_quadrature(),
+                          lifted.lifted_points(),
+                          cache);
+  adapter.add(weak_term(lifted, test(probe)).on(supports.overlap));
+  auto state = adapter.make_state(), residual = adapter.make_state();
+  adapter.field(state, lambda) = problem.modal_coefficients();
+  adapter.evaluate_residual(state, residual);
+  double nominal_measure = 0., selected_measure = 0.;
+  for (const auto &point : lifted.lifted_points())
+    {
+      nominal_measure += point.weight;
+      if (supports.overlap.includes_lifted_point(point))
+        selected_measure += point.weight;
+    }
+  nominal_measure  = Utilities::MPI::sum(nominal_measure, MPI_COMM_WORLD);
+  selected_measure = Utilities::MPI::sum(selected_measure, MPI_COMM_WORLD);
+  EXPECT_NEAR(selected_measure, .5 * nominal_measure, 1.e-12);
+  ReferenceCrossSection<1, 3, 3> section(parameters.geometry.section);
+  Tensor<1, 3>                   tangent;
+  tangent[0]             = 1.;
+  const auto modes       = section.get_transformed_mode_values(0, tangent);
+  auto       translation = adapter.field(state, probe);
+  Functions::ConstantFunction<3> unit_mode(
+    std::vector<double>{modes[0], modes[1], modes[2]});
+  VectorTools::interpolate(probe.dof_handler(), unit_mode, translation);
+  EXPECT_NEAR(translation * adapter.field(residual, probe),
+              .5 * 2. * nominal_measure,
+              1.e-11);
 }

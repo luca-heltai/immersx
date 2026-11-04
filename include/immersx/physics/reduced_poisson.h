@@ -270,6 +270,24 @@ namespace ImmersX
     }
 
     const auto &
+    assembled_bulk() const
+    {
+      return stiffness_matrix;
+    }
+
+    const auto &
+    bulk_rhs() const
+    {
+      return system_rhs.block(0);
+    }
+
+    const LA::MPI::SparseMatrix &
+    assembled_outside_mass() const
+    {
+      return outside_mass_matrix;
+    }
+
+    const auto &
     bulk_values() const
     {
       return solution.block(0);
@@ -324,6 +342,7 @@ namespace ImmersX
     LA::MPI::SparseMatrix coupling_matrix;
     LA::MPI::SparseMatrix coupling_matrix_transpose;
     LA::MPI::SparseMatrix inclusion_matrix;
+    LA::MPI::SparseMatrix outside_mass_matrix;
     const Mapping<spacedim> &
     geometry_mapping() const
     {

@@ -316,6 +316,32 @@ namespace ImmersX
                                                relevant_dofs[0]);
 
     coupling_matrix.reinit(owned_dofs[0], owned_dofs[1], dsp, mpi_communicator);
+    DynamicSparsityPattern outside_sparsity(relevant_dofs[1]);
+    if constexpr (reduced_dim > 0)
+      DoFTools::make_sparsity_pattern(
+        reduced_coupling.get_dof_handler(),
+        outside_sparsity,
+        reduced_coupling.get_coupling_constraints(),
+        false);
+    else
+      for (const auto entity :
+           reduced_coupling.locally_owned_representative_entities())
+        {
+          const auto &indices =
+            reduced_coupling.get_representative_dof_indices(entity);
+          for (const auto i : indices)
+            for (const auto j : indices)
+              outside_sparsity.add(i, j);
+        }
+    SparsityTools::distribute_sparsity_pattern(outside_sparsity,
+                                               owned_dofs[1],
+                                               mpi_communicator,
+                                               relevant_dofs[1]);
+    outside_mass_matrix.reinit(owned_dofs[1],
+                               owned_dofs[1],
+                               outside_sparsity,
+                               mpi_communicator);
+
 
     //     DynamicSparsityPattern idsp(inclusions.n_dofs(),
     //                                 inclusions.n_dofs(),
@@ -416,6 +442,7 @@ namespace ImmersX
     assemble_coupling_system()
   {
     reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
+    reduced_coupling.assemble_outside_mass_matrix(outside_mass_matrix);
     reduced_coupling.assemble_coupling_matrix(coupling_matrix,
                                               dh,
                                               constraints,
@@ -760,7 +787,8 @@ namespace ImmersX
           {
             // Schur complement
             pcout << "   Prepare schur... ";
-            const auto S = B * invA * Bt;
+            const auto C = linear_operator<VectorType>(outside_mass_matrix);
+            const auto S = B * invA * Bt + C;
             pcout << "S was built." << std::endl;
 
             // Schur complement preconditioner
@@ -803,8 +831,15 @@ namespace ImmersX
               DoFTools::make_sparsity_pattern(
                 reduced_coupling.get_dof_handler(), dsp_reduced_mass);
             else
-              for (const auto dof : owned_dofs[1])
-                dsp_reduced_mass.add(dof, dof);
+              for (const auto entity :
+                   reduced_coupling.locally_owned_representative_entities())
+                {
+                  const auto &indices =
+                    reduced_coupling.get_representative_dof_indices(entity);
+                  for (const auto i : indices)
+                    for (const auto j : indices)
+                      dsp_reduced_mass.add(i, j);
+                }
             SparsityTools::distribute_sparsity_pattern(dsp_reduced_mass,
                                                        owned_dofs[1],
                                                        mpi_communicator,
@@ -871,8 +906,8 @@ namespace ImmersX
                                                     augmented_matrix);
                 prec_amg_augmented_block.initialize(augmented_matrix, data);
                 pcout << "done." << std::endl;
-                Aug = TrilinosWrappers::linear_operator<VectorType>(
-                  augmented_matrix);
+                // The diagonal Gram approximation is used only by the
+                // preconditioner; the row transformation keeps the full Gram.
               }
             else
               {
@@ -880,9 +915,12 @@ namespace ImmersX
               }
 
 
-            auto Zero = M * 0.0;
-            auto AA   = block_operator<2, 2, LA::MPI::BlockVector>(
-              {{{{Aug, Bt}}, {{B, Zero}}}}); //! Augmented the (1,1) block
+            const auto outside =
+              linear_operator<LA::MPI::Vector>(outside_mass_matrix);
+            const auto reaction         = Bt - gamma * Bt * invW * outside;
+            const auto negative_outside = -1. * outside;
+            auto       AA = block_operator<2, 2, LA::MPI::BlockVector>(
+              {{{{Aug, reaction}}, {{B, negative_outside}}}});
 
             LA::MPI::BlockVector solution_block;
             LA::MPI::BlockVector system_rhs_block;
@@ -907,7 +945,8 @@ namespace ImmersX
 
             SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(par.outer_control);
             UtilitiesAL::BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
-              augmented_lagrangian_preconditioner{Aug_inv, B, Bt, invW, gamma};
+              augmented_lagrangian_preconditioner{
+                Aug_inv, B, reaction, invW, gamma};
 
             solver_fgmres.solve(AA,
                                 solution_block,
