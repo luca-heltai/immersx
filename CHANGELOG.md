@@ -432,6 +432,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #326](https://github.com/luca-heltai/immersx/pull/326) Exercise both coupled manufactured boundary conditions with dedicated application fixtures and a 115-second test budget, preserving the resolved tutorial inputs for accuracy studies.
+
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Initialize the vascular crossing-work fixture widths directly, preserving its nonuniform cells while avoiding GCC 13 array-bounds diagnostics from chained vector assignment.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Retain the accepted growth snapshot while traversing its obstacle index in the vascular regression, avoiding GCC 13 lifetime diagnostics.

@@ -506,7 +506,12 @@ and the exact integrated inlet flow. Physical times come from the multiplier
 series, because the native flow writer's clock remains at zero.
 
 CTest runs both boundary variants in Debug and Release, in serial and on two
-ranks. These application tests check that integration finishes. Separate integration tests
+ranks. Its application regressions use a $4\times8\times8$ solid mesh, a
+coarser cross-section quadrature and final time $T=0.02$, with outputs at
+$0$, $0.01$ and $0.02$. They retain the manufactured forcing, solver tolerances
+and both flow cells, and must finish within 115 seconds. The tutorial templates
+above retain their resolved meshes and $T=0.1$ accuracy runs. These application
+tests check that integration finishes. Separate integration tests
 check multiplier row placement, unchanged continuity, the nonlinear
 Jacobian action by finite differences on the single-cell fixture, nonzero
 corrections for tiny right-hand sides, and rejection of failed IDA steps in
