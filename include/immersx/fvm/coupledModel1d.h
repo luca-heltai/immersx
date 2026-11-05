@@ -10,8 +10,6 @@
 #ifndef __COUPLEDMODEL1D_H
 #define __COUPLEDMODEL1D_H 1
 
-namespace ImmersX
-{
 using namespace std;
 
 
@@ -28,8 +26,13 @@ class CoupledModel1d : public Model1d
 
 };
 
-} // namespace ImmersX
 
 
+// The external library exports this class in the global namespace. Keep
+// the ImmersX spelling as an alias so calls retain the vendor ABI.
+namespace ImmersX
+{
+  using ::CoupledModel1d;
+}
 
 #endif
