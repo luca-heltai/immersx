@@ -78,33 +78,6 @@ namespace ImmersX
 
 
     bool
-    expression_depends_on_time(const ParameterHandler &prm,
-                               const unsigned int      dimension)
-    {
-      const auto variables =
-        Utilities::split_string_list(prm.get("Variable names"));
-      if (variables.size() <= dimension)
-        return false;
-      const auto &time_variable = variables[dimension];
-      const auto  expression    = prm.get("Function expression");
-      for (std::size_t i = 0; i < expression.size();)
-        if (std::isalpha(static_cast<unsigned char>(expression[i])) ||
-            expression[i] == '_')
-          {
-            const auto begin = i++;
-            while (i < expression.size() &&
-                   (std::isalnum(static_cast<unsigned char>(expression[i])) ||
-                    expression[i] == '_'))
-              ++i;
-            if (expression.substr(begin, i - begin) == time_variable)
-              return true;
-          }
-        else
-          ++i;
-      return false;
-    }
-
-    bool
     expression_is_zero(const ParameterHandler &prm)
     {
       for (const auto &component :
@@ -238,6 +211,12 @@ namespace ImmersX
     , neumann_boundary(normalize_elastodynamics_subsection(subsection) +
                          "Functions/Neumann boundary",
                        spacedim)
+    , robin_coefficient(normalize_elastodynamics_subsection(subsection) +
+                          "Functions/Robin coefficient",
+                        1)
+    , robin_rhs(normalize_elastodynamics_subsection(subsection) +
+                  "Functions/Robin boundary",
+                spacedim)
     , velocity_boundary(normalize_elastodynamics_subsection(subsection) +
                           "Functions/Velocity boundary",
                         spacedim)
@@ -261,6 +240,7 @@ namespace ImmersX
     add_parameter("Number of refinement cycles", n_refinement_cycles);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
     add_parameter("Neumann boundary ids", neumann_ids);
+    add_parameter("Robin boundary ids", robin_ids);
 
 
 
@@ -287,6 +267,8 @@ namespace ImmersX
       declare_zero_vector_function);
     neumann_boundary.declare_parameters_call_back.connect(
       declare_zero_vector_function);
+    robin_rhs.declare_parameters_call_back.connect(
+      declare_zero_vector_function);
     velocity_boundary.declare_parameters_call_back.connect(
       declare_zero_vector_function);
     initial_displacement.declare_parameters_call_back.connect(
@@ -304,7 +286,8 @@ namespace ImmersX
                                           bool &depends_on_time) {
       function.parse_parameters_call_back.connect([&depends_on_time]() {
         depends_on_time =
-          expression_depends_on_time(ParameterAcceptor::prm, spacedim);
+          robin_detail::expression_depends_on_time(ParameterAcceptor::prm,
+                                                   spacedim);
       });
     };
     body_force.parse_parameters_call_back.connect([this]() {
@@ -313,6 +296,8 @@ namespace ImmersX
     neumann_boundary.parse_parameters_call_back.connect([this]() {
       neumann_boundary_is_zero = expression_is_zero(ParameterAcceptor::prm);
     });
+    track_time_dependence(robin_coefficient, robin_coefficient_depends_on_time);
+    track_time_dependence(robin_rhs, robin_rhs_depends_on_time);
     track_time_dependence(body_force, body_force_depends_on_time);
     track_time_dependence(neumann_boundary, neumann_boundary_depends_on_time);
     track_time_dependence(displacement_boundary,
@@ -631,6 +616,14 @@ namespace ImmersX
     owned_dofs    = dh.locally_owned_dofs();
     relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
 
+    robin_detail::assert_disjoint_boundary_ids(par.robin_ids,
+                                               par.dirichlet_ids,
+                                               par.neumann_ids,
+                                               mpi_communicator);
+    robin_operator_time.reset();
+    robin_force_time.reset();
+    volume_stiffness.reset();
+    homogeneous_volume_stiffness.reset();
     spatial_operators_ready = false;
     time_preconditioner.reset();
     system_matrix_time_step.reset();
@@ -716,6 +709,8 @@ namespace ImmersX
 
     body_force_storage.reinit(owned_dofs, mpi_communicator);
     cached_body_force.reinit(owned_dofs, mpi_communicator);
+    cached_robin_force.reinit(owned_dofs, mpi_communicator);
+    previous_stiffness_action.reinit(owned_dofs, mpi_communicator);
     cached_volume_force.reinit(owned_dofs, mpi_communicator);
     cached_traction_force.reinit(owned_dofs, mpi_communicator);
     displacement_storage.reinit(owned_dofs, mpi_communicator);
@@ -872,6 +867,83 @@ namespace ImmersX
     set_constraint_diagonal(homogeneous_stiffness_matrix_storage, 0.);
     set_constraint_diagonal(homogeneous_damping_matrix_storage, 0.);
     spatial_operators_ready = true;
+    if (!par.robin_ids.empty())
+      {
+        volume_stiffness             = std::make_unique<MatrixType>();
+        homogeneous_volume_stiffness = std::make_unique<MatrixType>();
+        volume_stiffness->copy_from(stiffness_matrix_storage);
+        homogeneous_volume_stiffness->copy_from(
+          homogeneous_stiffness_matrix_storage);
+        update_boundary_operators(par.time_parameters.initial_time);
+        if (!par.robin_coefficient_depends_on_time)
+          {
+            volume_stiffness.reset();
+            homogeneous_volume_stiffness.reset();
+          }
+      }
+  }
+
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::update_boundary_operators(
+    const double time) const
+  {
+    if (par.robin_ids.empty() ||
+        (robin_operator_time && (!par.robin_coefficient_depends_on_time ||
+                                 *robin_operator_time == time)))
+      return;
+    AssertThrow(volume_stiffness,
+                ExcMessage("Assemble volume operators before Robin terms."));
+    stiffness_matrix_storage.copy_from(*volume_stiffness);
+    homogeneous_stiffness_matrix_storage.copy_from(
+      *homogeneous_volume_stiffness);
+    FEFaceValues<dim, spacedim>          values(*mapping_storage,
+                                       *fe_storage,
+                                       *face_quadrature,
+                                       update_values |
+                                         update_quadrature_points |
+                                         update_JxW_values);
+    const FEValuesExtractors::Vector     extractor(0);
+    const auto                           n = fe_storage->n_dofs_per_cell();
+    FullMatrix<double>                   matrix(n, n);
+    Vector<double>                       rhs(n);
+    std::vector<types::global_dof_index> indices(n);
+    Functions::ZeroFunction<spacedim>    zero(spacedim);
+    AffineConstraints<double>            unconstrained;
+    unconstrained.close();
+    par.robin_coefficient.set_time(time);
+    unsigned int invalid = 0;
+    for (const auto &cell : dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          matrix = 0.;
+          rhs    = 0.;
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                par.robin_ids.count(cell->face(face)->boundary_id()))
+              {
+                values.reinit(cell, face);
+                invalid |= robin_detail::add_face_terms(
+                  values, extractor, par.robin_coefficient, zero, matrix, rhs);
+              }
+          cell->get_dof_indices(indices);
+          unconstrained.distribute_local_to_global(matrix,
+                                                   indices,
+                                                   stiffness_matrix_storage);
+          displacement_constraints_storage.distribute_local_to_global(
+            matrix, indices, indices, homogeneous_stiffness_matrix_storage);
+        }
+    robin_detail::assert_valid_boundary_data(invalid, mpi_communicator);
+    stiffness_matrix_storage.compress(VectorOperation::add);
+    homogeneous_stiffness_matrix_storage.compress(VectorOperation::add);
+    for (const auto &line : displacement_constraints_storage.get_lines())
+      if (owned_dofs.is_element(line.index))
+        homogeneous_stiffness_matrix_storage.set(line.index, line.index, 0.);
+    homogeneous_stiffness_matrix_storage.compress(VectorOperation::insert);
+    robin_operator_time = time;
+    ++assembly_statistics_storage.robin_operators;
+    system_matrix_time_step.reset();
+    time_preconditioner.reset();
   }
 
 
@@ -896,7 +968,11 @@ namespace ImmersX
       !traction_force_cache_time.has_value() ||
       (!par.neumann_ids.empty() && par.neumann_boundary_depends_on_time &&
        *traction_force_cache_time != time);
-    if (!refresh_volume && !refresh_traction)
+    const bool refresh_robin =
+      !robin_force_time ||
+      (!par.robin_ids.empty() && par.robin_rhs_depends_on_time &&
+       *robin_force_time != time);
+    if (!refresh_volume && !refresh_traction && !refresh_robin)
       {
         destination = cached_body_force;
         return;
@@ -996,8 +1072,42 @@ namespace ImmersX
         cached_traction_force.compress(VectorOperation::add);
         traction_force_cache_time = time;
       }
+    if (refresh_robin)
+      {
+        cached_robin_force = 0.;
+        par.robin_rhs.set_time(time);
+        Functions::ConstantFunction<spacedim> zero(0.);
+        FullMatrix<double> ignored(dofs_per_cell, dofs_per_cell);
+        unsigned int       invalid = 0;
+        for (const auto &cell : dh.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              cell_rhs = 0.;
+              ignored  = 0.;
+              for (const auto face : cell->face_indices())
+                if (cell->face(face)->at_boundary() &&
+                    par.robin_ids.count(cell->face(face)->boundary_id()))
+                  {
+                    fe_face_values.reinit(cell, face);
+                    invalid |= robin_detail::add_face_terms(fe_face_values,
+                                                            vector_field,
+                                                            zero,
+                                                            par.robin_rhs,
+                                                            ignored,
+                                                            cell_rhs);
+                  }
+              cell->get_dof_indices(local_dof_indices);
+              no_constraints.distribute_local_to_global(cell_rhs,
+                                                        local_dof_indices,
+                                                        cached_robin_force);
+            }
+        robin_detail::assert_valid_boundary_data(invalid, mpi_communicator);
+        cached_robin_force.compress(VectorOperation::add);
+        robin_force_time = time;
+      }
     cached_body_force = cached_volume_force;
     cached_body_force += cached_traction_force;
+    cached_body_force += cached_robin_force;
     destination = cached_body_force;
   }
 
@@ -1011,6 +1121,7 @@ namespace ImmersX
     time_step_number_storage = 0;
     current_time_step        = 0.;
     update_constraints(current_time_storage);
+    update_boundary_operators(current_time_storage);
 
     par.initial_displacement.set_time(current_time_storage);
     par.initial_velocity.set_time(current_time_storage);
@@ -1070,6 +1181,7 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::initial_acceleration(
     VectorType &acceleration) const
   {
+    update_boundary_operators(current_time_storage);
     VectorType rhs;
     VectorType work;
     body_force_at_time(current_time_storage, rhs);
@@ -1206,8 +1318,7 @@ namespace ImmersX
     mass_matrix_storage.vmult(velocity_rhs, previous_velocity);
     displacement_rhs.add(1. - theta, velocity_rhs);
     velocity_rhs /= dt;
-    stiffness_matrix_storage.vmult(work, previous_displacement);
-    velocity_rhs.add(-(1. - theta), work);
+    velocity_rhs.add(-(1. - theta), previous_stiffness_action);
     damping_matrix_storage.vmult(work, previous_velocity);
     velocity_rhs.add(-(1. - theta), work);
     velocity_rhs.add(theta, body_force_storage);
@@ -1388,6 +1499,10 @@ namespace ImmersX
     const AffineConstraints<double> previous_velocity_constraints(
       velocity_constraints_storage);
     const auto next_time = current_time_storage + dt;
+    update_boundary_operators(current_time_storage);
+    stiffness_matrix_storage.vmult(previous_stiffness_action,
+                                   previous_displacement);
+    update_boundary_operators(next_time);
 
     update_constraints(next_time, false);
     if (par.fixed_step_parameters.time_step_strategy == "trapezoidal")
@@ -1692,6 +1807,7 @@ namespace ImmersX
                 ExcMessage("An accepted elastodynamics time must be finite."));
 
     update_constraints(time);
+    update_boundary_operators(time);
     displacement_storage = new_displacement;
     velocity_storage     = new_velocity;
     displacement_constraints_storage.distribute(displacement_storage);

@@ -261,6 +261,15 @@ namespace ImmersX
         dim == 3 || parameters_.coupling == "none",
         dealii::ExcMessage(
           "Codimension-two coupling in 2D needs a 0D Domain and FE space; use legacy point inclusions. Uncoupled 2D static elasticity is supported."));
+      auto essential = parameters_.dirichlet_ids;
+      essential.insert(parameters_.weak_dirichlet_ids.begin(),
+                       parameters_.weak_dirichlet_ids.end());
+      essential.insert(parameters_.normal_flux_ids.begin(),
+                       parameters_.normal_flux_ids.end());
+      robin_detail::assert_disjoint_boundary_ids(parameters_.robin_ids,
+                                                 essential,
+                                                 parameters_.neumann_ids,
+                                                 communicator_);
       for (const auto id : parameters_.dirichlet_ids)
         AssertThrow(!parameters_.weak_dirichlet_ids.count(id) &&
                       !parameters_.neumann_ids.count(id) &&

@@ -232,15 +232,17 @@ namespace ImmersX
     MatrixType fiber_effective_matrix;
     VectorType multiplier_storage;
 
-    double       current_time_storage     = 0.;
-    unsigned int time_step_number_storage = 0;
-    bool         setup_complete           = false;
-    bool         matrix_setup_complete    = false;
-    bool         fiber_setup_complete     = false;
-    bool         coupling_setup_complete  = false;
-    bool         initial_conditions_set   = false;
-    bool         effective_matrices_valid = false;
-    double       effective_time_step      = 0.;
+    double        current_time_storage     = 0.;
+    unsigned int  time_step_number_storage = 0;
+    bool          setup_complete           = false;
+    bool          matrix_setup_complete    = false;
+    bool          fiber_setup_complete     = false;
+    bool          coupling_setup_complete  = false;
+    bool          initial_conditions_set   = false;
+    bool          effective_matrices_valid = false;
+    double        effective_time_step      = 0.;
+    unsigned long matrix_robin_revision    = 0;
+    unsigned long fiber_robin_revision     = 0;
 
     FiberReinforcedElastodynamicsResiduals residuals_storage;
   };

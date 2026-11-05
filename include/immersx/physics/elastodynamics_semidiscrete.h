@@ -83,7 +83,10 @@ namespace ImmersX
     builder.second_order_pair(
       displacement_id,
       velocity_id,
-      [&problem]() { return problem.assembly_statistics().spatial_operators; },
+      [&problem]() {
+        return problem.assembly_statistics().spatial_operators +
+               problem.assembly_statistics().robin_operators;
+      },
       [&problem]() {
         SecondOrderPreconditionerData data;
         data.constrained =
@@ -126,6 +129,7 @@ namespace ImmersX
     // Coupling terms also need the boundary data at the candidate time.
     builder.context_update([&problem](const auto &context) {
       problem.update_constraints(context.time());
+      problem.update_boundary_operators(context.time());
     });
 
     auto kinematic = builder.term(displacement_id, "kinematic");

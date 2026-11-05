@@ -45,7 +45,9 @@
 #include <immersx/core/contributor.h>
 #include <immersx/core/domain.h>
 #include <immersx/core/fe_space.h>
+#include <immersx/core/robin_boundary.h>
 #include <immersx/io/utils.h>
+#include <immersx/physics/detail/robin_parameter_overrides.h>
 #include <immersx/physics/material_properties.h>
 #include <immersx/physics/modulated_parsed_function.h>
 
@@ -109,6 +111,8 @@ namespace ImmersX
       , neumann_bc(elastic_static_detail::normalize_subsection(subsection) +
                      "Functions/Neumann boundary conditions",
                    spacedim)
+      , robin_coefficient(subsection_ + "Functions/Robin coefficient", 1)
+      , robin_rhs(subsection_ + "Functions/Robin boundary conditions", spacedim)
       , solver_control(elastic_static_detail::normalize_subsection(subsection) +
                        "Solver/Control")
       , convergence_table(std::vector<std::string>(spacedim, "u"))
@@ -119,6 +123,7 @@ namespace ImmersX
         "FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
       add_parameter("Dirichlet boundary ids", dirichlet_ids);
       add_parameter("Neumann boundary ids", neumann_ids);
+      add_parameter("Robin boundary ids", robin_ids);
       add_parameter("Rhs material ids", rhs_material_ids);
       add_parameter("Output directory", output_directory);
       add_parameter("Output name", output_name);
@@ -141,7 +146,14 @@ namespace ImmersX
       this->leave_my_subsection(this->prm);
 
       parse_parameters_call_back.connect([this]() {
-        bool created_dynamic_acceptors = false;
+        bool created_dynamic_acceptors =
+          robin_detail::register_parameter_overrides(*this,
+                                                     robin_ids,
+                                                     subsection_ + "Functions/",
+                                                     robin_rhs,
+                                                     robin_coefficient_by_id,
+                                                     robin_rhs_by_id,
+                                                     robin_explicit_entries);
 
         const auto split_subsection_path = [](const std::string &path) {
           std::vector<std::string> subsections;
@@ -287,6 +299,21 @@ namespace ImmersX
       return it == neumann_bc_by_id.end() ? neumann_bc : *it->second;
     }
 
+    const Functions::ParsedFunction<spacedim> &
+    get_robin_coefficient(const types::boundary_id id) const
+    {
+      const auto found = robin_coefficient_by_id.find(id);
+      return found == robin_coefficient_by_id.end() ? robin_coefficient :
+                                                      *found->second;
+    }
+
+    const ModulatedParsedFunction<spacedim> &
+    get_robin_rhs(const types::boundary_id id) const
+    {
+      const auto found = robin_rhs_by_id.find(id);
+      return found == robin_rhs_by_id.end() ? robin_rhs : *found->second;
+    }
+
     const ModulatedParsedFunction<spacedim> &
     get_rhs(const types::material_id material_id) const
     {
@@ -304,6 +331,7 @@ namespace ImmersX
 
     std::set<types::boundary_id> dirichlet_ids{0};
     std::set<types::boundary_id> neumann_ids{};
+    std::set<types::boundary_id> robin_ids{};
     std::set<types::material_id> rhs_material_ids{};
 
 
@@ -325,6 +353,17 @@ namespace ImmersX
     std::map<types::boundary_id,
              std::shared_ptr<ModulatedParsedFunction<spacedim>>>
       neumann_bc_by_id;
+    mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+                                              robin_coefficient;
+    mutable ModulatedParsedFunction<spacedim> robin_rhs;
+    std::map<types::boundary_id,
+             std::shared_ptr<
+               ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>>>
+      robin_coefficient_by_id;
+    std::map<types::boundary_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+                                                      robin_rhs_by_id;
+    std::map<types::boundary_id, std::array<bool, 3>> robin_explicit_entries;
     /** Canonical linear solver control shared by native and adapter paths. */
     mutable ParameterAcceptorProxy<ReductionControl> solver_control;
     mutable ParsedConvergenceTable                   convergence_table;
@@ -685,8 +724,21 @@ namespace ImmersX
       std::vector<Vector<double>> values(n_q_points, Vector<double>(spacedim));
       std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
-      stiffness_matrix_ = 0.;
-      forcing_          = 0.;
+      robin_detail::assert_disjoint_boundary_ids(parameters_.robin_ids,
+                                                 parameters_.dirichlet_ids,
+                                                 parameters_.neumann_ids,
+                                                 communicator_);
+      FEFaceValues<dim, spacedim> robin_values(
+        mapping(),
+        fe_,
+        compatibility::gauss_quadrature<dim - 1>(
+          fe_.reference_cell().face_reference_cell(0), fe_.degree + 1),
+        update_values | update_quadrature_points | update_JxW_values);
+      parameters_.robin_coefficient.set_time(0.);
+      parameters_.robin_rhs.set_time(0.);
+      unsigned int invalid_robin = 0;
+      stiffness_matrix_          = 0.;
+      forcing_                   = 0.;
 
       for (const auto &cell : dof_handler().active_cell_iterators())
         if (cell->is_locally_owned())
@@ -738,6 +790,23 @@ namespace ImmersX
                     values[q][component] * fe_values.JxW(q);
                 }
 
+            for (const auto face : cell->face_indices())
+              if (cell->face(face)->at_boundary() &&
+                  parameters_.robin_ids.count(cell->face(face)->boundary_id()))
+                {
+                  robin_values.reinit(cell, face);
+                  invalid_robin |= robin_detail::add_face_terms(
+                    robin_values,
+                    displacement_,
+                    parameters_.get_robin_coefficient(
+                      cell->face(face)->boundary_id()),
+                    parameters_.get_robin_rhs(cell->face(face)->boundary_id()),
+                    cell_matrix,
+                    cell_rhs,
+                    1.,
+                    parameters_.get_robin_rhs(cell->face(face)->boundary_id())
+                      .scale(0.));
+                }
             cell->get_dof_indices(local_dof_indices);
             constraints_.distribute_local_to_global(cell_matrix,
                                                     cell_rhs,
@@ -795,6 +864,7 @@ namespace ImmersX
               }
           }
 
+      robin_detail::assert_valid_boundary_data(invalid_robin, communicator_);
       stiffness_matrix_.compress(VectorOperation::add);
       forcing_.compress(VectorOperation::add);
     }

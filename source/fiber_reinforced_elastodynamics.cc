@@ -427,6 +427,10 @@ namespace ImmersX
       parameters.schur_tolerance,
       parameters.block_tolerance,
       outside_mass_storage.get());
+    matrix_robin_revision =
+      matrix_problem_storage.assembly_statistics().robin_operators;
+    fiber_robin_revision =
+      fiber_problem_storage.assembly_statistics().robin_operators;
     effective_matrices_valid = true;
     effective_time_step      = dt;
   }
@@ -478,7 +482,14 @@ namespace ImmersX
       dt = std::min(dt, remaining);
     AssertThrow(dt > 0., ExcMessage("The coupled time step must be positive."));
 
+    const double next_time = current_time_storage + dt;
+    matrix_problem_storage.update_boundary_operators(next_time);
+    fiber_problem_storage.update_boundary_operators(next_time);
     if (!effective_matrices_valid ||
+        matrix_robin_revision !=
+          matrix_problem_storage.assembly_statistics().robin_operators ||
+        fiber_robin_revision !=
+          fiber_problem_storage.assembly_statistics().robin_operators ||
         std::abs(dt - effective_time_step) >
           10. * std::numeric_limits<double>::epsilon())
       build_effective_matrices(dt);
@@ -488,8 +499,8 @@ namespace ImmersX
     const auto previous_matrix_velocity = matrix_problem_storage.velocity();
     const auto previous_fiber_displacement =
       fiber_problem_storage.displacement();
-    const auto   previous_fiber_velocity = fiber_problem_storage.velocity();
-    const double next_time               = current_time_storage + dt;
+    const auto previous_fiber_velocity = fiber_problem_storage.velocity();
+
 
     VectorType matrix_rhs;
     VectorType fiber_rhs;

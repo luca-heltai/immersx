@@ -47,6 +47,7 @@
 
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/domain.h>
+#include <immersx/core/robin_boundary.h>
 #include <immersx/core/second_order_preconditioner.h>
 #include <immersx/core/time_parameters.h>
 
@@ -120,6 +121,7 @@ namespace ImmersX
 
     std::set<dealii::types::boundary_id> dirichlet_ids{0};
     std::set<dealii::types::boundary_id> neumann_ids;
+    std::set<dealii::types::boundary_id> robin_ids;
 
     ElastodynamicsMaterialParameters default_material;
 
@@ -157,6 +159,12 @@ namespace ImmersX
     mutable dealii::ParameterAcceptorProxy<
       dealii::Functions::ParsedFunction<spacedim>>
       neumann_boundary;
+    mutable dealii::ParameterAcceptorProxy<
+      dealii::Functions::ParsedFunction<spacedim>>
+      robin_coefficient;
+    mutable dealii::ParameterAcceptorProxy<
+      dealii::Functions::ParsedFunction<spacedim>>
+      robin_rhs;
     /**
      * Optional explicit velocity data for the semidiscrete adapter.
      *
@@ -189,6 +197,8 @@ namespace ImmersX
     template <int, int>
     friend class ElastodynamicsSolver;
 
+    bool robin_coefficient_depends_on_time     = true;
+    bool robin_rhs_depends_on_time             = true;
     bool body_force_depends_on_time            = true;
     bool neumann_boundary_depends_on_time      = true;
     bool body_force_is_zero                    = false;
@@ -381,10 +391,16 @@ namespace ImmersX
     void
     update_constraints(double time) const;
 
+    /** Update boundary stiffness at a candidate time without accepting state.
+     */
+    void
+    update_boundary_operators(double time) const;
+
     /** Counts of actual assembly/update work over this object's lifetime. */
     struct AssemblyStatistics
     {
       unsigned long spatial_operators  = 0;
+      unsigned long robin_operators    = 0;
       unsigned long body_force         = 0;
       unsigned long constraints        = 0;
       unsigned long time_system_matrix = 0;
@@ -507,19 +523,26 @@ namespace ImmersX
     mutable dealii::AffineConstraints<double> velocity_constraints_storage;
     mutable dealii::AffineConstraints<double> combined_constraints_storage;
 
-    MatrixType mass_matrix_storage;
-    MatrixType stiffness_matrix_storage;
-    MatrixType damping_matrix_storage;
-    MatrixType system_matrix_storage;
-    MatrixType homogeneous_mass_matrix_storage;
-    MatrixType homogeneous_stiffness_matrix_storage;
-    MatrixType homogeneous_damping_matrix_storage;
+    MatrixType                    mass_matrix_storage;
+    mutable MatrixType            stiffness_matrix_storage;
+    MatrixType                    damping_matrix_storage;
+    MatrixType                    system_matrix_storage;
+    MatrixType                    homogeneous_mass_matrix_storage;
+    mutable MatrixType            homogeneous_stiffness_matrix_storage;
+    std::unique_ptr<MatrixType>   volume_stiffness;
+    std::unique_ptr<MatrixType>   homogeneous_volume_stiffness;
+    mutable std::optional<double> robin_operator_time;
+    mutable VectorType            cached_robin_force;
+    mutable std::optional<double> robin_force_time;
+    VectorType                    previous_stiffness_action;
+    MatrixType                    homogeneous_damping_matrix_storage;
 
-    std::unique_ptr<SecondOrderBlockPreconditioner<VectorType, MatrixType>>
+    mutable std::unique_ptr<
+      SecondOrderBlockPreconditioner<VectorType, MatrixType>>
       time_preconditioner;
 
     bool                          spatial_operators_ready = false;
-    std::optional<double>         system_matrix_time_step;
+    mutable std::optional<double> system_matrix_time_step;
     double                        system_matrix_theta = 0.;
     mutable std::optional<double> displacement_constraints_time;
     mutable std::optional<double> velocity_constraints_time;
