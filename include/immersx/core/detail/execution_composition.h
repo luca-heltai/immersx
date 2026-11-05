@@ -1082,6 +1082,8 @@ namespace ImmersX::detail
 
       auto global_vector_memory =
         std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+      const auto owned_apply =
+        std::make_shared<const decltype(apply)>(std::move(apply));
       Operator   result;
       const auto partitions   = field_layout_.block_partitions();
       const auto communicator = communicator_;
@@ -1090,30 +1092,30 @@ namespace ImmersX::detail
           vector.reinit(partitions, communicator);
         };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [apply](GlobalVectorType       &dst,
-                             const GlobalVectorType &src) {
-        apply(dst, src, false);
+      result.vmult                = [owned_apply](GlobalVectorType       &dst,
+                                   const GlobalVectorType &src) {
+        (*owned_apply)(dst, src, false);
       };
-      result.vmult_add = [apply,
+      result.vmult_add = [owned_apply,
                           global_vector_memory](GlobalVectorType       &dst,
                                                 const GlobalVectorType &src) {
         typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
           *global_vector_memory);
         contribution->reinit(dst);
-        apply(*contribution, src, false);
+        (*owned_apply)(*contribution, src, false);
         dst += *contribution;
       };
-      result.Tvmult = [apply](GlobalVectorType       &dst,
-                              const GlobalVectorType &src) {
-        apply(dst, src, true);
+      result.Tvmult = [owned_apply](GlobalVectorType       &dst,
+                                    const GlobalVectorType &src) {
+        (*owned_apply)(dst, src, true);
       };
-      result.Tvmult_add = [apply,
+      result.Tvmult_add = [owned_apply,
                            global_vector_memory](GlobalVectorType       &dst,
                                                  const GlobalVectorType &src) {
         typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
           *global_vector_memory);
         contribution->reinit(dst);
-        apply(*contribution, src, true);
+        (*owned_apply)(*contribution, src, true);
         dst += *contribution;
       };
       return result;
