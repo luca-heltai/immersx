@@ -128,6 +128,7 @@ namespace
       {
         EXPECT_NEAR(support.measure(), face_measure, 1.e-12) << id;
       }
+    driver.solve_frequency(0.);
     if (iterative)
       {
         ASSERT_TRUE(check_shared_robin_surrogate(matrix,
@@ -136,8 +137,8 @@ namespace
         parameters.solver_parameters.solver = LinearSolver::iterative;
         parameters.solver_parameters.preconditioner =
           LinearPreconditioner::block_diagonal;
+        driver.solve_frequency(0.);
       }
-    driver.solve_frequency(0.);
     const std::complex<double> amplitude = std::polar(1., std::acos(-1.) / 6.);
     const auto                &fe        = matrix.dof_handler().get_fe();
     std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
@@ -265,6 +266,7 @@ TEST(FiberReinforcedElasticityFreq,
   EXPECT_NEAR(driver.reinforcement_measure(), .125, 1.e-12);
   EXPECT_NEAR(supports.at(0).measure(), .125, 1.e-12);
   EXPECT_NEAR(supports.at(1).measure(), .125, 1.e-12);
+  driver.solve_frequency(0.);
   EXPECT_TRUE(check_shared_robin_surrogate(matrix,
                                            supports,
                                            parameters.fiber_parameters));
