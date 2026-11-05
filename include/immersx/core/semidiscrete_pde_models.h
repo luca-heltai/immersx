@@ -192,8 +192,9 @@ namespace ImmersX
       result.materialize = [source, &constraints]() {
         auto matrix = source.matrix();
         for (const auto row : matrix->locally_owned_range_indices())
-          if (constraints.is_constrained(row))
-            for (auto entry = matrix->begin(row); entry != matrix->end(row);
+          if (constraints.is_constrained(row) && matrix->row_length(row) != 0)
+            for (auto entry = matrix->begin(row), end = matrix->end(row);
+                 entry != end;
                  ++entry)
               matrix->set(row, entry->column(), 0.);
         matrix->compress(dealii::VectorOperation::insert);
@@ -355,8 +356,10 @@ namespace ImmersX
       result.materialize = [source, &constraints, offset]() {
         auto matrix = source.matrix();
         for (const auto row : matrix->locally_owned_range_indices())
-          if (constraints.is_constrained(offset + row))
-            for (auto entry = matrix->begin(row); entry != matrix->end(row);
+          if (constraints.is_constrained(offset + row) &&
+              matrix->row_length(row) != 0)
+            for (auto entry = matrix->begin(row), end = matrix->end(row);
+                 entry != end;
                  ++entry)
               matrix->set(row, entry->column(), 0.);
         matrix->compress(dealii::VectorOperation::insert);
