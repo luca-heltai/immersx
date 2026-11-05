@@ -181,7 +181,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Reuse Schur operator graphs and lifted trial derivatives during coupled IDA Jacobian setup, preserving the equations, meshes, time intervals and solver tolerances.
+- [PR #348](https://github.com/luca-heltai/immersx/pull/348) Reuse Schur operator graphs and lifted trial derivatives during coupled IDA Jacobian setup, preserving the equations, meshes, time intervals and solver tolerances.
 
 - [PR #342](https://github.com/luca-heltai/immersx/pull/342) Reuse deal.II MeshWorker scratch data for linear weak-term cell, boundary, and affine assembly, retaining local buffers between cells and evaluating quadrature weights and face basis values once per point.
 
@@ -472,6 +472,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #344](https://github.com/luca-heltai/immersx/pull/344) Keep performance history across fast-forward merges with reordered parents, validate the current source before historical backfill, and retain historical failures without blocking a valid current revision.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Request the conservation accuracy checked by the vascular Robin regression explicitly and keep its assertions free of ambiguous-else compiler diagnostics.
 

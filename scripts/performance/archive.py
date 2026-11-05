@@ -63,6 +63,10 @@ def main():
     args = p.parse_args()
     if args.action == "publish":
         validate_publication(args)
+        # The archive checkout contains only performance data. Ancestry must
+        # be proved against the caller's complete source repository instead.
+        if git(args.repo, "rev-parse", "--is-shallow-repository") != "false":
+            raise ValueError("publication requires the full source Git history")
     for retry in range(5):
         with tempfile.TemporaryDirectory() as tmp:
             checkout(args.repo, tmp)
@@ -76,6 +80,9 @@ def main():
                     elif source.is_file():
                         shutil.copyfile(source, dest / name)
                 return
+            # A competing publisher may have measured a source commit created
+            # after this job's checkout. Fetch its ancestry without moving HEAD.
+            git(args.repo, "fetch", "--no-tags", "origin", "refs/heads/master")
             args.archive = tmp
             merge(args)
             git(tmp, "config", "user.name", "github-actions[bot]")

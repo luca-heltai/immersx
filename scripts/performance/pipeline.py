@@ -31,11 +31,54 @@ def save(path, data):
     path.write_text(dumps(data))
 
 
+def is_ancestor(repo, ancestor, descendant):
+    result = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor",
+                             ancestor, descendant], capture_output=True, text=True)
+    if result.returncode not in (0, 1):
+        raise ValueError("cannot verify source history: " + result.stderr.strip())
+    return result.returncode == 0
+
+
 def ancestry(repo, baseline, tip):
     chain = git(repo, "rev-list", "--first-parent", "--reverse", tip).splitlines()
-    if baseline not in chain:
-        raise ValueError("baseline is not on the first-parent history")
-    return chain[chain.index(baseline):]
+    if baseline in chain:
+        return chain[chain.index(baseline):]
+    if not is_ancestor(repo, baseline, tip):
+        raise ValueError("baseline is not an ancestor of the source revision")
+    # A fast-forward can incorporate the previous master as merge parent two.
+    # Keep its activation, excluding feature commits from before activation.
+    descendants = set(git(repo, "rev-list", "--ancestry-path",
+                          f"{baseline}..{tip}").splitlines())
+    return [baseline, *(sha for sha in chain if sha in descendants)]
+
+
+def merge_plan(old, new, repo=None):
+    if old["baseline"] != new["baseline"]:
+        raise ValueError("baseline conflict")
+    if repo is None:
+        # Legacy synthetic plans have no Git graph with which to prove ancestry.
+        if new["commits"][:len(old["commits"])] == old["commits"]:
+            return new
+        if old["commits"][:len(new["commits"])] == new["commits"]:
+            return old
+        raise ValueError("non-fast-forward master history; manual review required")
+    if old["source_sha"] == new["source_sha"] and old["commits"] == new["commits"]:
+        return new
+    if not is_ancestor(repo, old["source_sha"], new["source_sha"]):
+        if is_ancestor(repo, new["source_sha"], old["source_sha"]):
+            # A late run can have observed a different first-parent path.
+            # Keep that coverage too, without moving the current source back.
+            commits = list(dict.fromkeys([*old["commits"], *new["commits"]]))
+            commits.remove(old["source_sha"])
+            commits.append(old["source_sha"])
+            return {**old, "commits": commits}
+        raise ValueError("non-fast-forward master history; manual review required")
+    # First-parent coverage can change without rewriting the Git history.
+    # Retain every monitored revision, with this source remaining the endpoint.
+    commits = list(dict.fromkeys([*old["commits"], *new["commits"]]))
+    commits.remove(new["source_sha"])
+    commits.append(new["source_sha"])
+    return {**new, "commits": commits}
 
 
 def plan(args):
@@ -55,16 +98,33 @@ def plan(args):
                 raise ValueError("performance monitoring has not been activated")
             baseline = activation[0]
         commits = ancestry(args.repo, baseline, sha)
+        ledger = Path(args.archive) / "plan.json"
+        if ledger.exists():
+            combined = merge_plan(load(ledger), {"source_sha": sha,
+                "baseline": baseline, "commits": commits}, args.repo)
+            # A late run still measures its own source. Publication preserves
+            # the newer ledger and appends its immutable attempts separately.
+            if combined["source_sha"] == sha:
+                commits = combined["commits"]
     todo = pending(commits, attempts(args.archive), args.retry)
+    if sha in todo:
+        todo.remove(sha)
+        todo.insert(0, sha)
     if args.commit:
         if args.commit not in commits:
             raise ValueError("requested SHA is outside monitored history")
+        current_pending = sha in todo
         todo = [args.commit]
+        if current_pending and args.commit != sha:
+            todo.insert(0, sha)
+        if len(todo) > args.limit:
+            raise ValueError("batch limit is too small for the current source and requested commit")
+    selected = todo[:args.limit]
     config = load(HERE / "config.json")
     save(args.output, {"schema_version": SCHEMA, "source_sha": sha,
                       "harness_sha": git(args.repo, "rev-parse", "HEAD"),
                       "baseline": baseline, "commits": commits,
-                      "selected": todo[:args.limit], "configuration": config})
+                      "selected": selected, "configuration": config})
 
 
 def capture(args, output, cwd=None, timeout=1800, env=None):
@@ -244,6 +304,12 @@ def export(args):
 
 
 def merge(args):
+    p = load(args.plan)
+    state = Path(args.archive) / "baseline.json"
+    if state.exists() and load(state)["sha"] != p["baseline"]:
+        raise ValueError("baseline conflict")
+    ledger = Path(args.archive) / "plan.json"
+    combined = merge_plan(load(ledger), p, getattr(args, "repo", None)) if ledger.exists() else p
     for a in attempts(args.incoming):
         archive_attempt(args.archive, a)
     source = Path(args.incoming) / "raw"
@@ -255,20 +321,8 @@ def merge(args):
                 if dest.exists() and dest.read_bytes() != path.read_bytes():
                     raise ValueError("conflicting raw output " + str(dest))
                 shutil.copyfile(path, dest)
-    p = load(args.plan)
-    state = Path(args.archive) / "baseline.json"
-    if state.exists() and load(state)["sha"] != p["baseline"]:
-        raise ValueError("baseline conflict")
     save(state, {"sha": p["baseline"], "policy": "first-parent activation, inclusive"})
-    # A late plan may add immutable attempts, but cannot shorten coverage.
-    ledger = Path(args.archive) / "plan.json"
-    if ledger.exists():
-        old = load(ledger)
-        if p["commits"][:len(old["commits"])] != old["commits"]:
-            if old["commits"][:len(p["commits"])] == p["commits"]:
-                return
-            raise ValueError("non-fast-forward master history; manual review required")
-    save(ledger, p)
+    save(ledger, combined)
 
 
 def main():
@@ -291,6 +345,7 @@ def main():
     q.add_argument("--image", required=True)
     q.add_argument("--stable", action="store_true")
     q = sub.add_parser("merge")
+    q.add_argument("--repo", help="Full source repository for Git ancestry validation")
     q.add_argument("--archive", required=True)
     q.add_argument("--incoming", required=True)
     q.add_argument("--plan", required=True)
