@@ -14,7 +14,14 @@ viewer therefore keeps incompatible environments and configurations in separate
 series, even in ratio mode. Cases without equivalent native timings and failed
 attempts are excluded from ratio charts, not plotted as zero.
 
-The viewer initially selects the compatible series with the most measurements;
+The overview shows every recorded case/dimension/rank/build combination without
+selecting a series. Each card shows its most complete compatible history; ties
+prefer the newest commit. Expand additional series to inspect other compatible
+configurations, each in its own chart. Cases with
+failed measurements or unavailable native comparisons remain visible with an
+explanation. The filters and chart metric apply to both the overview and detail.
+
+The detailed chart initially selects the compatible series with the most measurements;
 ties prefer the series reaching the newest commit. The series selector shows
 the CPU, kernel, and point count. Hosted runners can use different CPUs or
 kernels on successive runs, so the archive can contain many commits split
@@ -41,6 +48,9 @@ Failed attempts never become timing baselines.
     <option value="ratio">ImmersX / native deal.II</option>
     <option value="absolute">Absolute timings</option>
   </select>
+  <h2>All benchmark cases</h2>
+  <div id="performance-overview"></div>
+  <h2>Selected series and measurements</h2>
   <label for="performance-series">Chart series</label>
   <select id="performance-series"></select>
   <div id="performance-chart"></div>
@@ -48,6 +58,7 @@ Failed attempts never become timing baselines.
   <h2>Attempts and validation</h2>
   <div id="performance-attempts"></div>
 </div>
+<link rel="stylesheet" href="../_static/performance.css">
 <script src="../_static/performance.js" defer></script>
 ```
 

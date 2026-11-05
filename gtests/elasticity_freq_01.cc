@@ -129,7 +129,8 @@ namespace
 {
   template <int dim, int spacedim>
   void
-  check_adapter_affine_displacement(const bool simplex = false)
+  check_adapter_affine_displacement(const bool simplex   = false,
+                                    const bool iterative = false)
   {
     SCOPED_TRACE("dim=" + std::to_string(dim) +
                  ", spacedim=" + std::to_string(spacedim));
@@ -207,7 +208,10 @@ namespace
           EXPECT_TRUE(physical_endpoints.is_element(line.index));
       }
     LinearAdapterParameters solver_parameters;
-    solver_parameters.solver = LinearSolver::direct;
+    solver_parameters.solver =
+      iterative ? LinearSolver::iterative : LinearSolver::direct;
+    solver_parameters.preconditioner = LinearPreconditioner::block_diagonal;
+    solver_parameters.tolerance      = 1.e-11;
     LinearAdapter<ImmersXLA::MPI::Vector, ImmersXLA::MPI::BlockVector> adapter(
       solver_parameters, problem.communicator());
     const auto fields = adapter.add(problem, "solid").fields();
@@ -259,6 +263,15 @@ TEST(ElasticityFreq, BOTH_SimplexAdapterAffineDisplacement)
   check_adapter_affine_displacement<2, 2>(true);
   check_adapter_affine_displacement<2, 3>(true);
   check_adapter_affine_displacement<3, 3>(true);
+}
+
+TEST(ElasticityFreq, BOTH_SurrogatePreconditionedAffineDisplacement)
+{
+  check_adapter_affine_displacement<1, 3>(false, true);
+  check_adapter_affine_displacement<2, 2>(false, true);
+  check_adapter_affine_displacement<3, 3>(false, true);
+  check_adapter_affine_displacement<2, 2>(true, true);
+  check_adapter_affine_displacement<3, 3>(true, true);
 }
 
 TEST(ElasticityFreq, BOTH_ZeroMaterialPreservesInhomogeneousConstraints)

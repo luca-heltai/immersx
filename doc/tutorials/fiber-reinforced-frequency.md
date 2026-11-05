@@ -58,6 +58,30 @@ Each example clamps the matrix's left side, applies a traction with a phase of
 Change `Formulation` to switch models. Use a separate output directory for each
 run so old datasets from another model are not mistaken for current results.
 
+## Iterative solution
+
+For shared displacement, select the positive elasticity surrogate with:
+
+```ini
+subsection Fiber Reinforced Elasticity Frequency
+  set Formulation = shared
+  subsection Solver
+    set Solver = iterative
+    set Preconditioner = block_diagonal
+  end
+end
+```
+
+The surrogate is $P_0=K+\omega^2M+\omega D$. Its AMG hierarchy uses
+elastic rigid-body modes and is shared by the real and imaginary displacement
+fields. Shared-displacement solves include both the matrix and the retained
+reinforcement material in $P_0$. Each application uses at most 30 AMG-preconditioned
+CG iterations with a relative residual target of 0.1. The outer FGMRES checks the
+residual of the original harmonic system against `Solver/Tolerance`.
+
+`Preconditioner = none` remains available. A positive surrogate does not remove
+physical resonances; weakly damped cases may need more outer iterations.
+
 ## Lift geometry and material units
 
 The `Lift` subsection is registered only for reduced reinforcement meshes.
@@ -176,6 +200,11 @@ $$
 Reinforcement stiffness, mass, and damping use the matrix displacement's full
 ambient gradients at physical reinforcement quadrature points. Its body force
 is evaluated at those same points, with its own phase and material overrides.
+Quadrature points outside the matrix domain are omitted from reinforcement
+stiffness, mass, damping, and forcing. This selection uses the physical lifted
+points, so a partially overlapping cross section retains its interior samples.
+A completely exterior reinforcement contributes no material or load.
+
 The `Fiber` boundary-id sets must be empty: essential and Neumann boundary
 conditions belong to the matrix in this formulation. The default reinforcement
 boundary-id sets are empty.
@@ -195,6 +224,7 @@ mesh and multiplier datasets under `interaction/frequency_<index>`.
 `continuity_norm()` reports the combined multiplier-row residual in the
 independent formulation and is zero when no constraint is present.
 `reinforcement_measure()` reports the integrated physical reinforcement volume.
+For shared displacement it includes only quadrature samples inside the matrix.
 These diagnostics do not estimate the discretization error.
 
 Each Problem uses one prepared mesh during the frequency sweep. Set

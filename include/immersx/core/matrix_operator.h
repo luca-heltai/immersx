@@ -260,19 +260,21 @@ namespace ImmersX
                                                   matrix.n(),
                                                   row_partition);
           for (const auto row : row_partition)
-            for (auto entry = matrix.begin(row), end = matrix.end(row);
-                 entry != end;
-                 ++entry)
-              sparsity.add(row, entry->column());
+            if (matrix.row_length(row) != 0)
+              for (auto entry = matrix.begin(row), end = matrix.end(row);
+                   entry != end;
+                   ++entry)
+                sparsity.add(row, entry->column());
 
           auto result = std::make_shared<MatrixType>();
           result->reinit(
             row_partition, column_partition, sparsity, communicator, false);
           for (const auto row : row_partition)
-            for (auto entry = matrix.begin(row), end = matrix.end(row);
-                 entry != end;
-                 ++entry)
-              result->set(row, entry->column(), entry->value());
+            if (matrix.row_length(row) != 0)
+              for (auto entry = matrix.begin(row), end = matrix.end(row);
+                   entry != end;
+                   ++entry)
+                result->set(row, entry->column(), entry->value());
           result->compress(dealii::VectorOperation::insert);
           return result;
         }
@@ -312,10 +314,11 @@ namespace ImmersX
 
           dealii::IndexSet columns(matrix->n());
           for (const auto row : col_partition)
-            for (auto entry = matrix->begin(row), end = matrix->end(row);
-                 entry != end;
-                 ++entry)
-              columns.add_index(entry->column());
+            if (matrix->row_length(row) != 0)
+              for (auto entry = matrix->begin(row), end = matrix->end(row);
+                   entry != end;
+                   ++entry)
+                columns.add_index(entry->column());
           columns.compress();
 
           const auto owners =
@@ -329,11 +332,12 @@ namespace ImmersX
 
           std::map<unsigned int, std::vector<Entry>> to_send;
           for (const auto row : col_partition)
-            for (auto entry = matrix->begin(row), end = matrix->end(row);
-                 entry != end;
-                 ++entry)
-              to_send[owner_by_column.at(entry->column())].push_back(
-                {{entry->column(), row}, entry->value()});
+            if (matrix->row_length(row) != 0)
+              for (auto entry = matrix->begin(row), end = matrix->end(row);
+                   entry != end;
+                   ++entry)
+                to_send[owner_by_column.at(entry->column())].push_back(
+                  {{entry->column(), row}, entry->value()});
 
           const auto received =
             dealii::Utilities::MPI::some_to_some(communicator, to_send);
@@ -406,11 +410,13 @@ namespace ImmersX
                                                   first->n(),
                                                   row_partition);
           const auto                     add_graph = [&](const auto &matrix) {
+            // Trilinos end(row) scans forward to the next nonempty row.
             for (const auto row : row_partition)
-              for (auto entry = matrix.begin(row), end = matrix.end(row);
-                   entry != end;
-                   ++entry)
-                sparsity.add(row, entry->column());
+              if (matrix.row_length(row) != 0)
+                for (auto entry = matrix.begin(row), end = matrix.end(row);
+                     entry != end;
+                     ++entry)
+                  sparsity.add(row, entry->column());
           };
           add_graph(*first);
           first.reset();
@@ -425,10 +431,11 @@ namespace ImmersX
             {
               const auto matrix = op.matrix();
               for (const auto row : row_partition)
-                for (auto entry = matrix->begin(row), end = matrix->end(row);
-                     entry != end;
-                     ++entry)
-                  result->add(row, entry->column(), entry->value());
+                if (matrix->row_length(row) != 0)
+                  for (auto entry = matrix->begin(row), end = matrix->end(row);
+                       entry != end;
+                       ++entry)
+                    result->add(row, entry->column(), entry->value());
             }
           result->compress(dealii::VectorOperation::add);
           return result;

@@ -299,3 +299,9 @@ recovery with a manual documentation run on current `master`; do not redeploy an
 old Pages artifact. If branch policy denies writes, an administrator must grant
 the intended branch permission or arrange a trusted writer; this implementation
 does not bypass protection or change repository settings.
+
+The performance overview draws every recorded case/dimension/rank/build combination
+without selecting a series. Each environment and timing contract remains a
+separate chart. Native-unavailable and failed measurements remain visible as
+explanations rather than zero-valued samples. The detailed table and attempt
+records retain the full validation evidence.

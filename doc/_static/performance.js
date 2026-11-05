@@ -19,8 +19,7 @@
   const fmt = (v) => v === null || v === undefined ? "N/A" : Number(v).toPrecision(5);
   const percent = (v) => v === null || v === undefined ? "N/A" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
   const svgNS = "http://www.w3.org/2000/svg";
-  function chart(rows, phase) {
-    const target = byId("chart");
+  function chart(rows, phase, target = byId("chart"), compact = false) {
     target.replaceChildren();
     const ratio = phase === "native_ratio";
     if (!rows.length) {
@@ -34,6 +33,7 @@
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("viewBox", "0 0 700 220");
     svg.setAttribute("role", "img");
+    svg.style.width = "100%";
     const title = document.createElementNS(svgNS, "title");
     title.textContent = ratio
       ? "ImmersX / native deal.II, dimensionless ratio in commit order. 1× means equal time."
@@ -50,7 +50,7 @@
       svg.appendChild(reference);
       const label = document.createElementNS(svgNS, "text");
       label.setAttribute("x", "30"); label.setAttribute("y", y(1) - 6);
-      label.setAttribute("fill", "currentColor"); label.setAttribute("font-size", "12");
+      label.setAttribute("fill", "currentColor"); label.setAttribute("font-size", compact ? "24" : "12");
       label.textContent = "1× native deal.II";
       svg.appendChild(label);
     }
@@ -69,8 +69,10 @@
       dot.appendChild(label); svg.appendChild(dot);
     });
     target.appendChild(svg);
-    element("p", `0–${fmt(max)} ${unit}; ${rows.length} valid measurements, oldest to newest. Gaps are listed above.`, target);
-    if (ratio) element("p", "Ratio of paired warm medians: 1× = equal time; 1.2× = 20% overhead; below 1× = faster than native deal.II. Ratios reduce machine-speed effects, but are not hardware-independent.", target);
+    element("p", compact
+      ? `${rows[0].sha.slice(0, 10)} → ${rows[rows.length - 1].sha.slice(0, 10)}; 0–${fmt(max)} ${unit}.`
+      : `0–${fmt(max)} ${unit}; ${rows.length} valid measurements, oldest to newest. Gaps are listed above.`, target);
+    if (ratio && !compact) element("p", "Ratio of paired warm medians: 1× = equal time; 1.2× = 20% overhead; below 1× = faster than native deal.II. Ratios reduce machine-speed effects, but are not hardware-independent.", target);
     if (rows.length === 1) element("p", "Only one compatible measurement: no historical trend yet.", target);
   }
   async function main() {
@@ -161,6 +163,47 @@
       const commitOrder = new Map(data.coverage.map((c, i) => [c.sha, i]));
       const ordered = [...groups].sort((a, b) => b[1].length - a[1].length ||
         commitOrder.get(b[1][b[1].length - 1].sha) - commitOrder.get(a[1][a[1].length - 1].sha));
+      const overview = byId("overview");
+      overview.replaceChildren();
+      const cases = new Map();
+      rows.forEach((r) => {
+        const key = JSON.stringify([r.case, r.dimension, r.ranks, r.configuration.build_type]);
+        if (!cases.has(key)) cases.set(key, []);
+        cases.get(key).push(r);
+      });
+      element("p", `${cases.size} case/dimension/rank/build combinations. Each compatible series is drawn separately; missing commits are listed in commit coverage.`, overview);
+      if (!cases.size) element("p", "No benchmark cases recorded for these filters.", overview);
+      const cards = element("div", undefined, overview);
+      cards.className = "performance-overview-grid";
+      [...cases].sort(([a], [b]) => a.localeCompare(b)).forEach(([, measurements]) => {
+        const first = measurements[0];
+        const card = element("section", undefined, cards);
+        card.className = "performance-case";
+        element("h3", `${first.case} (${first.dimension}D, ${first.ranks} ranks, ${first.configuration.build_type})`, card);
+        const failures = measurements.filter((r) => r.status !== "passed" || r.attempt_status !== "passed").length;
+        const unavailable = measurements.filter((r) => r.status === "passed" && r.attempt_status === "passed" && !(Number.isFinite(r.native_ratio) && r.native_ratio > 0));
+        if (failures) element("p", `${failures} failed measurements excluded from charts. See attempts and validation.`, card);
+        if (metric.value === "ratio" && unavailable.length) {
+          const reasons = [...new Set(unavailable.map((r) => r.native_na_reason || "No equivalent native timing recorded."))];
+          element("p", `${unavailable.length} validated measurements have no equivalent native comparison: ${reasons.join("; ")}`, card);
+        }
+        const series = ordered.filter(([, rs]) => measurements.includes(rs[0]));
+        let additional;
+        series.forEach(([key, rs], index) => {
+          if (index === 1) {
+            additional = element("details", undefined, card);
+            element("summary", `${series.length - 1} additional compatible series (kept separate)`, additional);
+          }
+          const sample = rs[0];
+          const plot = element("div", undefined, index ? additional : card);
+          plot.className = "performance-overview-series";
+          element("h4", `${metric.value === "ratio" ? "ImmersX / native deal.II" : key.split("/")[1]} — ${rs.length} points`, plot);
+          element("p", `${sample.environment.cpu || "Unknown CPU"}; ${sample.environment.os || "unknown kernel"}; configuration ${sample.series}`, plot);
+          const graph = element("div", undefined, plot);
+          chart(rs, metric.value === "ratio" ? "native_ratio" : key.split("/")[1], graph, true);
+        });
+        if (!series.length) chart([], metric.value === "ratio" ? "native_ratio" : "", element("div", undefined, card));
+      });
       ordered.forEach(([key, rs]) => {
         const first = rs[0], last = rs[rs.length - 1];
         const machine = `${first.environment.cpu || "Unknown CPU"}; ${first.environment.os || "unknown kernel"}`;

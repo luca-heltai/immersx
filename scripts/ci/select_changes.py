@@ -10,7 +10,7 @@ import subprocess
 
 
 DOC_FILES = {"README.md", "CHANGELOG.md", "doc/conf.py", "doc/Doxyfile",
-             "doc/requirements.txt"}
+             "doc/requirements.txt", "scripts/performance/tests/viewer.py"}
 DOC_SUFFIXES = {".md", ".rst", ".bib", ".css", ".js", ".png", ".jpg", ".jpeg",
                 ".svg", ".gif", ".webp", ".ico", ".woff", ".woff2"}
 
