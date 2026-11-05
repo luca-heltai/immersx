@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Support scalar Robin data on selected Poisson boundaries, including mixed Dirichlet conditions, embedded meshes and simplex cells. Add resistance boundary conditions to vascular reference solves, including pressure anchoring and collective validation. Check manufactured solutions, boundary integrals and the Neumann limit.
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Support scalar and vector Robin boundary data in Poisson, static and transient elasticity, harmonic reinforcement, lifted problems and Navier–Stokes, including their execution adapters and coupled applications. Allow spatial coefficients and per-boundary overrides, validate mixed boundary selections collectively, and expose scalar and solid Robin terms in Coral graphs. Add pressure/conductance conditions to vascular reference solves, with pressure anchoring and the prescribed-flux limit.
 
 - [PR #330](https://github.com/luca-heltai/immersx/pull/330) Show every recorded benchmark case in the performance overview, with separate compatible history charts and explicit unavailable native comparisons and failed measurements.
 
@@ -249,6 +249,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Avoid running the tissue solver twice after a legacy 3D/1D coupled run. Execute the pseudocoupled 1D update on its owning rank and reject an MPI-enabled legacy backend with multiple ranks before its incompatible collectives can hang.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Keep quadrature diagnostics on standard error so benchmark output remains valid JSON Lines.
 
 - [PR #329](https://github.com/luca-heltai/immersx/pull/329) Omit exterior reinforcement quadrature points from shared harmonic elasticity, retaining interior samples of partially overlapping fibers and reporting their retained volume.
@@ -358,6 +360,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Document the Robin condition and parameter owner for every application, with static and transient solid examples, physical fiber end sections, lifted scalar data and native terminal flow models.
+
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Start GitHub CI after a successful compilation by pushing authorized changes early, while local tests and documentation checks continue in parallel.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Register vascular pages in the current documentation sections and distinguish the linear PR stack from archived point-demand measurements.
@@ -416,6 +420,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Preserve the external 1D solver's global class symbols and expose its MPI header ABI through `IMMERSX_FVM_USE_MPI`, applying the same setting to library consumers and the cached link check.
+
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Avoid implicit floating-point-to-index conversions in vessel-profile interpolation and its regression oracle, preserving endpoint clamping and interpolation values in Debug and Release. Apply the existing SDK preprocessor-warning policy to optional 1D client compilation probes as well. Fix a null-pointer return and remove an unused counter in the legacy 1D clients for Clang compatibility. Add explicit scopes around conditional GoogleTest macros to avoid dangling-else warnings in vascular and MetricFlowX regressions.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Link coupled applications with dimension-typed deal.II reference cells.
@@ -436,6 +442,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Exercise Robin boundary conditions with manufactured scalar, solid, flow and vascular solutions, including actual Coral graphs. Bound harmonic application tests to 115 seconds and put a watchdog inside every MPI rank.
 
 - [PR #334](https://github.com/luca-heltai/immersx/pull/334) Treat changes to the performance viewer browser check as documentation inputs, avoiding numerical, Coral and benchmark jobs when no solver or runtime input changes. Keep mixed changes on the full PR path.
 
