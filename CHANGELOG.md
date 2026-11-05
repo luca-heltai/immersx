@@ -269,6 +269,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Overwrite imported native pressure-operator destinations correctly on ranks without vessel cells, preserving zero and nonzero pressure actions.
+
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Check MUMPS corrections against the retained Jacobian, preventing failed native factorizations from silently freezing a coupled trajectory. Allow an explicit workspace margin for the liver profiles.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Reject unreadable Gmsh mesh files before opening them in an existing session, so a missing input does not prevent later valid mesh imports.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Include shared reinforcement Robin springs in the positive harmonic surrogate, using their retained physical boundary support so iterative solves remain anchored without essential conditions.

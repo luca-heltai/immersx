@@ -29,6 +29,7 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -343,6 +344,22 @@ namespace ImmersX
       stop_at_output_times_ = enabled;
     }
 
+    /** Override MUMPS ICNTL(14), the extra workspace percentage.
+     * Without an override, the native MUMPS default is retained.
+     */
+    void
+    set_mumps_workspace_relaxation(const unsigned int percentage)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "Configure MUMPS workspace before solver initialization."));
+      AssertThrow(percentage <=
+                    static_cast<unsigned int>(std::numeric_limits<int>::max()),
+                  dealii::ExcMessage(
+                    "MUMPS workspace percentage exceeds its integer range."));
+      mumps_workspace_relaxation_ = static_cast<int>(percentage);
+    }
+
     /** Register native output for IDA's accepted/interpolated output states. */
     void
     set_output_step(OutputFunction output)
@@ -618,6 +635,8 @@ namespace ImmersX
               mumps_solver_,
               dealii::ExcMessage(
                 "IDA requested a MUMPS solve without a factorization."));
+            GlobalVectorType original_rhs(rhs);
+            original_rhs.compress(dealii::VectorOperation::insert);
             auto source = composition_.pack(rhs);
             source.compress(dealii::VectorOperation::insert);
             mumps_solver_->vmult(mumps_solution_, source);
@@ -630,6 +649,20 @@ namespace ImmersX
             source.compress(dealii::VectorOperation::insert);
             composition_.unpack(source, dst);
             dst.compress(dealii::VectorOperation::insert);
+            // Some supported deal.II MUMPS wrappers do not report failed
+            // factorizations. Do not let a zero correction freeze the DAE.
+            GlobalVectorType defect;
+            composition_.reinit(defect);
+            current_jacobian_->vmult(defect, dst);
+            defect -= original_rhs;
+            const double rhs_norm    = original_rhs.l2_norm();
+            const double defect_norm = defect.l2_norm();
+            AssertThrow(
+              std::isfinite(defect_norm) && defect_norm <= 1.e-8 * rhs_norm,
+              dealii::ExcMessage(
+                "MUMPS backsolve failed the retained-Jacobian residual check. "
+                "Inspect native diagnostics and the workspace relaxation."));
+
 #  else
             AssertThrow(
               false,
@@ -1011,6 +1044,8 @@ namespace ImmersX
               mumps_solver_ = std::make_unique<dealii::SparseDirectMUMPS>(
                 dealii::SparseDirectMUMPS::AdditionalData(),
                 composition_.communicator());
+              if (mumps_workspace_relaxation_)
+                mumps_solver_->get_icntl()[13] = *mumps_workspace_relaxation_;
               mumps_solver_->initialize(matrix);
               pcout << "IDAAdapter: MUMPS factorized " << matrix.m()
                     << " rows, " << matrix.n_nonzero_elements()
@@ -1112,10 +1147,11 @@ namespace ImmersX
     IDAToleranceRamp tolerance_ramp_;
     Statistics       accumulated_statistics_;
     unsigned long    jacobian_setups_ = 0, linear_solves_ = 0, restarts_ = 0,
-                  weight_evaluations_ = 0;
-    bool         ramp_stop_armed_ = false, ramp_stop_released_ = false;
-    bool         stop_at_output_times_ = false;
-    LinearSolver linear_solver_        = LinearSolver::iterative;
+                  weight_evaluations_   = 0;
+    bool               ramp_stop_armed_ = false, ramp_stop_released_ = false;
+    std::optional<int> mumps_workspace_relaxation_;
+    bool               stop_at_output_times_ = false;
+    LinearSolver       linear_solver_        = LinearSolver::iterative;
 #  ifdef DEAL_II_WITH_MUMPS
     std::unique_ptr<dealii::SparseDirectMUMPS> mumps_solver_;
     FieldVectorType                            mumps_solution_;

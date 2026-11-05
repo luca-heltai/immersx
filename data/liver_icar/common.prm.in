@@ -123,6 +123,7 @@ end
 subsection MetricFlowX coupling
   set Use native flow tolerances = true
   set Stop at output times = true
+  set MUMPS workspace relaxation = 100
   set Displacement absolute tolerance = 1e-8
   set Velocity absolute tolerance = 1e-6
   set Wall pressure absolute tolerance = .01

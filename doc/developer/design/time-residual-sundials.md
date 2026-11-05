@@ -134,6 +134,18 @@ restart IDA or tighten its error tolerances. The default remains dense output.
 Output stops also respect the startup-ramp cutoff and the configured final
 time. More frequent output can increase the number of internal steps.
 
+### MUMPS workspace and solve checks
+
+`ida.set_mumps_workspace_relaxation(100)` requests 100% extra workspace
+relative to the native estimate through MUMPS ICNTL(14). Without an override,
+the native default is retained. Configure this before initialization.
+Workspace controls allocation, not the physical model or time tolerances.
+
+Some supported deal.II wrappers do not propagate MUMPS factorization errors.
+The adapter therefore checks each MUMPS correction against its retained
+Jacobian and rejects a relative residual above `1e-8`. This prevents an
+unsuccessful factorization from returning an unnoticed zero correction.
+
 ### Local absolute tolerances and startup ramp
 
 The default error control uses one absolute tolerance and one relative

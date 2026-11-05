@@ -343,7 +343,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                              PROPERTIES LABELS "integration;quick;mpi"
                                         TIMEOUT 300 PROCESSORS 4
                                         RESOURCE_LOCK ImmersX.TestOutput
-                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal")
+                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal:MetricFlowX.BOTH_PressureOperatorOverwritesImportedDestination")
       endif()
       foreach(_ranks 1 2 4)
         if(_ranks GREATER 1 AND NOT _immersx_mpiexec)

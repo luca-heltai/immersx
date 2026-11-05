@@ -843,6 +843,131 @@ TEST(MetricFlowX, BOTH_PressureProviderPreservesDGTracesAndGhostValues)
 }
 
 
+TEST(MetricFlowX, BOTH_PressureOperatorOverwritesImportedDestination)
+{
+#  ifdef METRIC_FLOW_X_WITH_PETSC
+  GTEST_SKIP() << "Epetra Import/Insert assembly modes require Trilinos.";
+#  else
+  using namespace dealii;
+  using namespace ImmersX;
+  ParameterAcceptor::clear();
+  Problem                problem(MPI_COMM_WORLD);
+  TimeIntervalParameters time_interval("/", false);
+  IDAParameters ida("/MetricFlowSystem<1, 3>/IDA parameters/", &time_interval);
+  initialize_native_parameters(
+    problem,
+    TestPaths::parameter_path(
+      "gtests/parameters/metric_flow_x_pressure_vector_state.prm"),
+    0);
+  DomainParameters<3> background_parameters("/Pressure overwrite/background/");
+  background_parameters.arguments_for_grid = "-0.2:0.2:false";
+  background_parameters.initial_refinement = 2;
+  Domain<3> background(background_parameters);
+  background.make_grid();
+  DomainParameters<1, 3> vessel_parameters("/Pressure overwrite/vessels/");
+  vessel_parameters.name_of_grid =
+    TestPaths::data_filename("tests/metric_flow_x_two_vessels_rcr.vtk");
+  vessel_parameters.read_vtk_fields = true;
+  Domain<1, 3> vessels(vessel_parameters, problem.triangulation());
+  problem.setup([&](const auto &coarse, const unsigned int refinement) {
+    vessel_parameters.initial_refinement = refinement;
+    vessels.prepare_grid(coarse);
+    const ImmersedRepartitioner<1, 3> policy(background.triangulation());
+    vessels.finalize_grid(policy);
+  });
+  const auto ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  if (ranks > 2)
+    {
+      const auto local_cells =
+        problem.triangulation().n_locally_owned_active_cells();
+      EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(local_cells > 0),
+                                    MPI_COMM_WORLD),
+                2u);
+      EXPECT_EQ(Utilities::MPI::min(local_cells, MPI_COMM_WORLD), 0u);
+    }
+
+  FiniteElementSpaceParameters<1, 3> parameters("/Pressure overwrite/space/",
+                                                "FE_DGQ(1)");
+  FiniteElementSpace<1, 3>           space(problem.triangulation(), parameters);
+  const auto                         view  = space.view();
+  const auto                         field = view.field("pressure");
+  FieldVector                        coefficients;
+  coefficients.reinit(field.locally_owned_dofs(), MPI_COMM_WORLD);
+  for (const auto i : coefficients.locally_owned_elements())
+    coefficients[i] = 1. + .125 * i;
+  coefficients.compress(VectorOperation::insert);
+  const auto       saved_coefficients = coefficients;
+  constexpr double time               = .001;
+  auto             state              = problem.make_state();
+  problem.initialize_state(state, time);
+  const auto saved_state = state;
+  const auto pressure    = -1. * value(field);
+  const auto provider = metric_flow_x_pressure_provider(pressure, coefficients);
+  auto       expected = problem.make_state();
+  expected            = 0.;
+  problem.add_external_pressure_residual(time, state, provider, expected);
+  ASSERT_GT(expected.l2_norm(), 1.e-12);
+  const auto op =
+    metric_flow_x_pressure_operator(problem, pressure, state, time);
+  const auto check = [&](const FieldVector &actual,
+                         const FieldVector &reference) {
+    auto error = problem.make_state();
+    error.equ(1., actual);
+    error -= reference;
+    EXPECT_LE(error.l2_norm(), 1.e-13 * std::max(1., reference.l2_norm()));
+    EXPECT_FALSE(actual.has_ghost_elements());
+    EXPECT_EQ(actual.locally_owned_elements(), problem.locally_owned_dofs());
+  };
+
+  auto destination = problem.make_state();
+  op.view.vmult(destination, coefficients);
+  check(destination, expected);
+  destination = 17.;
+  op.view.vmult(destination, coefficients);
+  check(destination, expected);
+
+  // A different owned partition forces an Epetra Import/Insert. Scalar zeroing
+  // preserves that mode, including on ranks with no destination entries.
+  FieldVector source;
+  source.reinit(Utilities::MPI::create_evenly_distributed_partitioning(
+                  MPI_COMM_WORLD, state.size()),
+                MPI_COMM_WORLD);
+  source = 11.;
+  const auto different_partition =
+    source.locally_owned_elements() != destination.locally_owned_elements();
+  if (ranks > 2)
+    {
+      EXPECT_GT(Utilities::MPI::sum(static_cast<unsigned int>(
+                                      different_partition),
+                                    MPI_COMM_WORLD),
+                0u);
+    }
+  destination = source;
+  op.view.vmult(destination, coefficients);
+  check(destination, expected);
+
+  auto zero_coefficients = coefficients;
+  zero_coefficients      = 0.;
+  auto zero              = problem.make_state();
+  zero                   = 0.;
+  destination            = source;
+  op.view.vmult(destination, zero_coefficients);
+  check(destination, zero);
+  destination = source;
+  op.view.vmult(destination, coefficients);
+  check(destination, expected);
+
+  auto state_error = problem.make_state();
+  state_error.equ(1., state);
+  state_error -= saved_state;
+  EXPECT_EQ(state_error.l2_norm(), 0.);
+  auto coefficient_error = coefficients;
+  coefficient_error -= saved_coefficients;
+  EXPECT_EQ(coefficient_error.l2_norm(), 0.);
+#  endif
+}
+
+
 TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
 {
   using namespace dealii;

@@ -384,8 +384,9 @@ namespace
 
     ArchivedFlowParameters      archive_parameters;
     Vascularization::Parameters generation_parameters;
-    bool                        use_native_tolerances = false;
-    bool                        stop_at_output_times  = false;
+    bool                        use_native_tolerances      = false;
+    bool                        stop_at_output_times       = false;
+    int                         mumps_workspace_relaxation = -1;
     double displacement_tolerance = 0., velocity_tolerance = 0.,
            pressure_tolerance = 0.;
     coupling.add_parameter(
@@ -396,6 +397,12 @@ namespace
       "Stop at output times",
       stop_at_output_times,
       "Take an internal IDA step at every saved time to preserve nonlinear algebraic constraints in output.");
+    coupling.add_parameter(
+      "MUMPS workspace relaxation",
+      mumps_workspace_relaxation,
+      "Extra workspace percentage; -1 retains the MUMPS default.",
+      ParameterAcceptor::prm,
+      Patterns::Integer(-1));
     coupling.add_parameter(
       "Displacement absolute tolerance",
       displacement_tolerance,
@@ -693,6 +700,9 @@ namespace
 
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
     adapter.set_stop_at_output_times(stop_at_output_times);
+    if (mumps_workspace_relaxation >= 0)
+      adapter.set_mumps_workspace_relaxation(
+        static_cast<unsigned int>(mumps_workspace_relaxation));
     adapter.set_schur_primal_coupling();
     if (linear_solver == "iterative")
       adapter.set_linear_solver(Adapter::LinearSolver::iterative);
