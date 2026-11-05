@@ -100,13 +100,7 @@ jobs:
           path: ${{ runner.temp }}/batch
           retention-days: 30
           if-no-files-found: error
-      - name: Report numerical or execution failures
+      - name: Require current-source benchmark validation
         run: |
-          python3 - <<'PY'
-          import json, os, pathlib
-          directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'batch'
-          plan = json.loads((directory / 'plan.json').read_text())
-          results = [json.loads(p.read_text()) for p in (directory / 'attempts').glob('*.json')]
-          assert len(results) == len(plan['selected']), 'Missing measurement attempts'
-          assert all(r['status'] == 'passed' for r in results), 'Benchmark validation failed; see archived attempts'
-          PY
+          python3 scripts/performance/validate_batch.py \
+            --batch "$RUNNER_TEMP/batch" --archive "$RUNNER_TEMP/history"

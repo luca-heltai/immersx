@@ -56,6 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          # Ancestry checks need the source graph, including merge parents.
+          fetch-depth: 0
           # Only trusted master runs receive persisted write credentials.
           persist-credentials: true
       - uses: actions/download-artifact@v4
