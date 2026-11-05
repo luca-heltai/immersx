@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <sstream>
 
 #include "../source/vascularization/archive_internal.h"
 #include "../source/vascularization/reference_flow_internal.h"
@@ -533,6 +534,146 @@ namespace
     return n;
   }
 } // namespace
+
+TEST(VascularReferenceFlow, BOTH_RobinParameterFileUsesPhysicalNodeIds)
+{
+  ParameterAcceptor::clear();
+  {
+    Parameters         p("/ReferenceRobin/");
+    std::istringstream input(
+      "subsection ReferenceRobin\n"
+      "  subsection Physiology\n"
+      "    set Reference Robin conditions = 30=5e-13:2e-9,10=0:3e-9\n"
+      "  end\n"
+      "end\n");
+    ParameterAcceptor::initialize(input);
+    ASSERT_EQ(p.reference_conditions.robin.size(), 2u);
+    EXPECT_DOUBLE_EQ(p.reference_conditions.robin.at(30).first, 5.e-13);
+    EXPECT_DOUBLE_EQ(p.reference_conditions.robin.at(30).second, 2.e-9);
+    EXPECT_DOUBLE_EQ(p.reference_conditions.robin.at(10).first, 0.);
+    EXPECT_DOUBLE_EQ(p.reference_conditions.robin.at(10).second, 3.e-9);
+  }
+  ParameterAcceptor::clear();
+}
+
+TEST(VascularReferenceFlow, BOTH_RobinResistanceMatchesAnalyticSeries)
+{
+  const auto   comm       = MPI_COMM_WORLD;
+  const auto   rank       = Utilities::MPI::this_mpi_process(comm);
+  const auto   full       = chain();
+  const auto   n          = reference_partition(full);
+  const double vascular_r = taper(.03, .001, .0008) + taper(.02, .0008, .0006);
+  const double terminal_r = 2.e12;
+  const double q          = 8000. / (vascular_r + terminal_r);
+  ReferenceConditions bc;
+  // Repeated identical Robin controls are allowed, even on empty ranks.
+  bc.robin[30] = {1. / terminal_r, 4000. / terminal_r};
+  if (rank == 0)
+    bc.pressures[10] = 12000.;
+  const auto state = solve(n, bc);
+  ASSERT_TRUE(state.validation.valid());
+  for (const auto &[id, vessel] : n.vessels)
+    EXPECT_NEAR(state.vessels.at(id).flow / q, 1., 1.e-11);
+  if (state.pressures.count(30))
+    {
+      EXPECT_NEAR(state.pressures.at(30), 4000. + terminal_r * q, 1.e-8);
+    }
+  for (const auto &[id, flow] : state.boundary_inflows)
+    EXPECT_NEAR(flow / q, id == 10 ? 1. : -1., 1.e-11);
+  EXPECT_LE(state.relative_flow_defect, 1.e-9);
+  EXPECT_NEAR(state.dissipated_power / (q * q * vascular_r), 1., 1.e-11);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<Id>(n.vessels.size()), comm), 2u);
+}
+
+TEST(VascularReferenceFlow, BOTH_RobinConductanceAnchorsWithoutDirichlet)
+{
+  const auto   comm = MPI_COMM_WORLD;
+  const auto   rank = Utilities::MPI::this_mpi_process(comm);
+  const auto   n    = reference_partition(chain());
+  const double q = 2.e-9, terminal_r = 2.e12;
+  const double vascular_r = taper(.03, .001, .0008) + taper(.02, .0008, .0006);
+  ReferenceConditions bc;
+  if (rank == 0)
+    bc.inflows[10] = q;
+  bc.robin[30]     = {1. / terminal_r, 4000. / terminal_r};
+  const auto state = solve(n, bc);
+  ASSERT_TRUE(state.validation.valid());
+  for (const auto &[id, vessel] : n.vessels)
+    EXPECT_NEAR(state.vessels.at(id).flow / q, 1., 1.e-11);
+  if (state.pressures.count(10))
+    {
+      EXPECT_NEAR(state.pressures.at(10),
+                  4000. + q * (terminal_r + vascular_r),
+                  1.e-8);
+    }
+  EXPECT_LE(state.relative_flow_defect, 1.e-9);
+
+  // Both endpoints may be Robin, with distinct exterior pressures.
+  bc.inflows.clear();
+  bc.robin[10]         = {1. / terminal_r, 12000. / terminal_r};
+  const auto two_robin = solve(n, bc);
+  ASSERT_TRUE(two_robin.validation.valid());
+  const double expected = 8000. / (vascular_r + 2. * terminal_r);
+  for (const auto &[id, vessel] : n.vessels)
+    EXPECT_NEAR(two_robin.vessels.at(id).flow / expected, 1., 1.e-11);
+  EXPECT_LE(two_robin.relative_flow_defect, 1.e-9);
+}
+
+TEST(VascularReferenceFlow, BOTH_ZeroRobinConductanceIsPrescribedFlux)
+{
+  const auto          n = reference_partition(chain());
+  ReferenceConditions bc;
+  bc.pressures[30] = 5000.;
+  bc.robin[10]     = {0., 2.e-9};
+  const auto state = solve(n, bc);
+  ASSERT_TRUE(state.validation.valid());
+  for (const auto &[id, vessel] : n.vessels)
+    EXPECT_NEAR(state.vessels.at(id).flow / 2.e-9, 1., 1.e-11);
+  bc.pressures.clear();
+  EXPECT_FALSE(solve(n, bc).validation.valid());
+}
+
+TEST(VascularReferenceFlow, BOTH_RobinInvalidDataAreCollective)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  const auto n    = reference_partition(chain());
+  for (unsigned int mode = 0; mode < 6; ++mode)
+    {
+      ReferenceConditions bc;
+      bc.pressures[10] = 12000.;
+      if (rank == 0)
+        {
+          bc.robin[30] = {5.e-13, 2.e-9};
+          if (mode == 0)
+            bc.robin[30].first = -1.;
+          else if (mode == 1)
+            bc.robin[30].first = std::numeric_limits<double>::infinity();
+          else if (mode == 2)
+            bc.robin[30].second = std::numeric_limits<double>::quiet_NaN();
+          else if (mode == 3)
+            bc.pressures[30] = 4000.;
+          else if (mode == 4)
+            bc.inflows[30] = -2.e-9;
+          else
+            {
+              bc.robin.clear();
+              bc.robin[20] = {5.e-13, 2.e-9};
+            }
+        }
+      EXPECT_FALSE(solve(n, bc).validation.valid()) << mode;
+    }
+}
+
+TEST(VascularReferenceFlow, MPI_RobinConflictingCopiesAreRejected)
+{
+  const auto          rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto          n    = reference_partition(chain());
+  ReferenceConditions bc;
+  bc.pressures[10] = 12000.;
+  bc.robin[30]     = {5.e-13, rank == 0 ? 2.e-9 : 3.e-9};
+  EXPECT_FALSE(solve(n, bc).validation.valid());
+}
 
 TEST(VascularReferenceFlow, BOTH_DistributedTaperedSeriesUsesPhysicalLargeIds)
 {

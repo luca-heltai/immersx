@@ -438,6 +438,29 @@ Provide their physical root boundary data explicitly in that callback.
 
 ## Reference pressures, supply and microvascular beds
 
+Both `vascular_network` and `liver_vascular` accept reference Robin conditions
+under their vascularization `Physiology` subsection
+(`Vascularization/Physiology` and `Liver/Vascularization/Physiology`,
+respectively). Each entry maps a physical node to a conductance and a source:
+
+```prm
+set Reference Robin conditions = 30=5e-13:2e-9
+```
+
+The law is $q_{\mathrm{out}}=\beta p-g$, with outward flow in
+$\mathrm{m}^3/\mathrm{s}$, pressure in Pa, and conductance $\beta\geq0$ in
+$\mathrm{m}^3/(\mathrm{Pa}\,\mathrm{s})$. In this example the exterior pressure
+is $g/\beta=4000$ Pa and the resistance is $1/\beta=2\times10^{12}$
+$\mathrm{Pa}\,\mathrm{s}/\mathrm{m}^3$. Use commas between entries.
+Positive conductance fixes the pressure reference; each connected component
+needs either a positive Robin conductance or a prescribed pressure.
+Zero conductance is a prescribed inflow $g$ and provides no pressure anchor.
+Robin data may be assigned to ports and unpaired tissue terminals, and cannot
+be combined with prescribed pressure or inflow at the same node. Paired tissue
+terminals retain their microvascular coupling and cannot also carry external
+Robin data. The reported boundary inflows include $g-\beta p$; dissipated power
+continues to measure the physical vessels and microvascular beds.
+
 With `venous.microvascular_resistance == 0`, supply is distributed by relative
 territory demand, with total `reference_flow` through each system. The generator
 first solves the two forests under the supplied port pressures and terminal

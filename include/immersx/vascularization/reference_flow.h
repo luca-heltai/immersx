@@ -15,11 +15,15 @@ namespace ImmersX::Vascularization
    */
   struct ReferenceConditions
   {
-    /** Node id -> pressure in Pa; one pressure anchor per component is
-     * required. */
+    /** Node id -> pressure in Pa. */
     std::map<Id, double> pressures;
     /** Node id -> externally injected m^3/s; negative means extraction. */
     std::map<Id, double> inflows;
+    /** Node id -> (beta, g) in q_out = beta*p - g. Conductance beta is
+     * finite and nonnegative, in m^3/(Pa s); g is finite, in m^3/s.
+     * A positive beta anchors pressure; beta=0 prescribes outward flow -g.
+     * Each node accepts exactly one of pressure, inflow and Robin data. */
+    std::map<Id, std::pair<double, double>> robin = {};
   };
 
   struct ReferenceParameters
@@ -83,7 +87,8 @@ namespace ImmersX::Vascularization
   /**
    * Solve the steady Poiseuille reference problem on the physical graph,
    * including supplied microvascular pairs. Each component needs an explicit
-   * pressure anchor; prescribing both pressure and flow at a node is invalid.
+   * pressure anchor or a positive Robin conductance. Prescribing more than
+   * one boundary condition at a node is invalid.
    * Boundary nodes must be declared ports or unpaired tissue terminals;
    * paired tissue nodes cannot also receive external boundary conditions.
    * Unspecified nodes satisfy Kirchhoff balance with zero external inflow.

@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Support scalar Robin data on selected Poisson boundaries, including mixed Dirichlet conditions, embedded meshes and simplex cells. Validate coefficients collectively and check manufactured solutions, boundary integrals and the Neumann limit.
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Support scalar Robin data on selected Poisson boundaries, including mixed Dirichlet conditions, embedded meshes and simplex cells. Add resistance boundary conditions to vascular reference solves, including pressure anchoring and collective validation. Check manufactured solutions, boundary integrals and the Neumann limit.
 
 - [PR #330](https://github.com/luca-heltai/immersx/pull/330) Show every recorded benchmark case in the performance overview, with separate compatible history charts and explicit unavailable native comparisons and failed measurements.
 

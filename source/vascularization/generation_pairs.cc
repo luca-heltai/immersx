@@ -251,6 +251,8 @@ namespace ImmersX::Vascularization::internal
         std::map<Rank, std::vector<Id>> external_send, tissue_send;
         for (const auto &[id, flow] : p.reference_conditions.inflows)
           external_send[id % size].push_back(id);
+        for (const auto &[id, data] : p.reference_conditions.robin)
+          external_send[id % size].push_back(id);
         for (const auto &[id, writer] : selected)
           {
             const Id node = r.network.terminals.at(id).node;

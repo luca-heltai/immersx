@@ -196,6 +196,10 @@ namespace ImmersX::Vascularization
       reference_conditions.inflows,
       "Physical Node id: external m^3/s at unpaired input terminals; never prescribe pressure and flow at the same node.");
     add_parameter(
+      "Reference Robin conditions",
+      reference_conditions.robin,
+      "Physical Node id=beta:g for outward flow q=beta*p-g, beta>=0 in m^3/(Pa s), g in m^3/s. A positive beta anchors pressure. Do not combine with pressure or inflow at the same node.");
+    add_parameter(
       "Minimum radius",
       minimum_radius,
       "Minimum generated radius/H along each complete physical branch.");

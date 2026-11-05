@@ -105,7 +105,8 @@ namespace ImmersX::Vascularization
     /** Star-arm resistances in arterial, portal, venous order; zero derives
      * them. */
     std::array<double, 3> compartment_resistances{};
-    /** Explicit port pressures and optional loads on unpaired input terminals.
+    /** Explicit port pressures, Robin data and optional loads on unpaired input
+     * terminals.
      */
     ReferenceConditions reference_conditions;
     ReferenceParameters reference_parameters;

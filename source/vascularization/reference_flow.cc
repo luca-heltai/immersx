@@ -88,14 +88,21 @@ namespace ImmersX::Vascularization
     };
     struct ReferenceBoundary
     {
+      enum Kind
+      {
+        pressure,
+        inflow,
+        robin
+      };
       Id     node;
-      bool   pressure;
+      Kind   kind;
       double value;
+      double coefficient = 0.;
       template <class Archive>
       void
       serialize(Archive &ar, unsigned int)
       {
-        ar &node &pressure &value;
+        ar &node &kind &value &coefficient;
       }
     };
     struct ReferenceArc
@@ -117,11 +124,12 @@ namespace ImmersX::Vascularization
       Id          node, anchor;
       long double distance;
       double      pressure;
+      bool        robin;
       template <class Archive>
       void
       serialize(Archive &ar, unsigned int)
       {
-        ar &node &anchor &distance &pressure;
+        ar &node &anchor &distance &pressure &robin;
       }
     };
   } // namespace
@@ -509,37 +517,34 @@ namespace ImmersX::Vascularization
     // them at the node registry before forwarding one value to each owner.
     std::map<Rank, std::vector<ReferenceBoundary>> boundary_send;
     for (const auto &[id, value] : conditions.pressures)
-      boundary_send[id % size].push_back({id, true, value});
+      boundary_send[id % size].push_back(
+        {id, ReferenceBoundary::pressure, value});
     for (const auto &[id, value] : conditions.inflows)
-      boundary_send[id % size].push_back({id, false, value});
-    ReferenceConditions registered;
+      boundary_send[id % size].push_back(
+        {id, ReferenceBoundary::inflow, value});
+    for (const auto &[id, data] : conditions.robin)
+      boundary_send[id % size].push_back(
+        {id, ReferenceBoundary::robin, data.second, data.first});
+    std::map<Id, ReferenceBoundary> registered;
     for (const auto &[source, entries] :
          Utilities::MPI::some_to_some(communicator, boundary_send))
       for (const auto &b : entries)
         {
-          auto &values = b.pressure ? registered.pressures : registered.inflows;
-          const auto [it, inserted] = values.emplace(b.node, b.value);
+          const auto [it, inserted] = registered.emplace(b.node, b);
           if (!std::isfinite(b.value) || !node_registry.count(b.node) ||
-              (!inserted && it->second != b.value))
+              !std::isfinite(b.coefficient) || b.coefficient < 0. ||
+              (!inserted &&
+               (it->second.kind != b.kind || it->second.value != b.value ||
+                it->second.coefficient != b.coefficient)))
             issue(
               "boundary",
               b.node,
-              "Boundary data require a known physical node and consistent finite SI values.");
+              "Boundary data require a known physical node, one condition kind, consistent finite SI values and nonnegative Robin conductance.");
         }
     boundary_send.clear();
-    for (const auto &[id, value] : registered.pressures)
-      {
-        if (registered.inflows.count(id))
-          issue("boundary",
-                id,
-                "Prescribe either pressure or flow at a node, never both.");
-        if (node_registry.count(id))
-          boundary_send[node_registry.at(id).owner].push_back(
-            {id, true, value});
-      }
-    for (const auto &[id, value] : registered.inflows)
+    for (const auto &[id, data] : registered)
       if (node_registry.count(id))
-        boundary_send[node_registry.at(id).owner].push_back({id, false, value});
+        boundary_send[node_registry.at(id).owner].push_back(data);
     ReferenceConditions owned_bc;
     for (const auto &[source, entries] :
          Utilities::MPI::some_to_some(communicator, boundary_send))
@@ -552,8 +557,16 @@ namespace ImmersX::Vascularization
               "boundary",
               b.node,
               "External boundary data require a port or unpaired tissue terminal.");
-          auto &values = b.pressure ? owned_bc.pressures : owned_bc.inflows;
-          values.emplace(b.node, b.value);
+          if (b.kind == ReferenceBoundary::robin)
+            owned_bc.robin.emplace(b.node,
+                                   std::make_pair(b.coefficient, b.value));
+          else
+            {
+              auto &values = b.kind == ReferenceBoundary::pressure ?
+                               owned_bc.pressures :
+                               owned_bc.inflows;
+              values.emplace(b.node, b.value);
+            }
         }
     for (std::size_t i = 0; i < rows.size(); ++i)
       if (rows[i].empty())
@@ -588,7 +601,8 @@ namespace ImmersX::Vascularization
     // no global topology, hop-based lift or large pressure subtraction is used.
     std::vector<long double> distances(
       local_nodes, std::numeric_limits<long double>::infinity());
-    std::vector<Id> anchors(local_nodes, invalid_id);
+    std::vector<Id>   anchors(local_nodes, invalid_id);
+    std::vector<bool> robin_lift(local_nodes, false);
     using Entry = std::tuple<long double, Id, Index>;
     std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>>
       frontier;
@@ -599,10 +613,40 @@ namespace ImmersX::Vascularization
         anchors[i]    = id;
         frontier.emplace(0., id, i);
       }
+    for (const auto &[id, data] : owned_bc.robin)
+      if (data.first > 0.)
+        {
+          const Index  i        = nodes.at(id).index - offset;
+          const double pressure = data.second / data.first;
+          if (!std::isfinite(pressure))
+            issue("boundary",
+                  id,
+                  "Robin equilibrium pressure is not representable.");
+          distances[i]             = 1.L / data.first;
+          anchors[i]               = id;
+          robin_lift[i]            = true;
+          lifting.local_element(i) = pressure;
+          frontier.emplace(distances[i], id, i);
+        }
+    if (!phase())
+      return result;
+    // A Robin-only component uses one common equilibrium-pressure lift.
+    // Independent endpoint lifts can create artificial large interior jumps,
+    // obscuring the much smaller physical boundary flows in the CG residual.
+    // Prefer prescribed-pressure lifts when available; otherwise propagate the
+    // lowest Robin node id, keeping the choice independent of partitioning.
     const auto better = [](long double distance,
                            Id          anchor,
+                           bool        robin,
                            long double old_distance,
-                           Id          old_anchor) {
+                           Id          old_anchor,
+                           bool        old_robin) {
+      if (old_anchor == invalid_id)
+        return true;
+      if (robin != old_robin)
+        return !robin;
+      if (robin && anchor != old_anchor)
+        return anchor < old_anchor;
       return distance < old_distance ||
              (distance == old_distance && anchor < old_anchor);
     };
@@ -627,10 +671,16 @@ namespace ImmersX::Vascularization
                 if (target.owner == rank)
                   {
                     const Index j = target.index - offset;
-                    if (better(candidate, origin, distances[j], anchors[j]))
+                    if (better(candidate,
+                               origin,
+                               robin_lift[i],
+                               distances[j],
+                               anchors[j],
+                               robin_lift[j]))
                       {
                         distances[j]             = candidate;
                         anchors[j]               = origin;
+                        robin_lift[j]            = robin_lift[i];
                         lifting.local_element(j) = lifting.local_element(i);
                         frontier.emplace(candidate, origin, j);
                       }
@@ -641,12 +691,15 @@ namespace ImmersX::Vascularization
                     const auto found  = packet.find(target.id);
                     if (found == packet.end() || better(candidate,
                                                         origin,
+                                                        robin_lift[i],
                                                         found->second.distance,
-                                                        found->second.anchor))
+                                                        found->second.anchor,
+                                                        found->second.robin))
                       packet[target.id] = {target.id,
                                            origin,
                                            candidate,
-                                           lifting.local_element(i)};
+                                           lifting.local_element(i),
+                                           robin_lift[i]};
                   }
               }
           }
@@ -657,11 +710,14 @@ namespace ImmersX::Vascularization
               const Index i = nodes.at(id).index - offset;
               if (fixed.local_element(i) == 0. && better(proposal.distance,
                                                          proposal.anchor,
+                                                         proposal.robin,
                                                          distances[i],
-                                                         anchors[i]))
+                                                         anchors[i],
+                                                         robin_lift[i]))
                 {
                   distances[i]             = proposal.distance;
                   anchors[i]               = proposal.anchor;
+                  robin_lift[i]            = proposal.robin;
                   lifting.local_element(i) = proposal.pressure;
                   frontier.emplace(proposal.distance, proposal.anchor, i);
                 }
@@ -672,7 +728,7 @@ namespace ImmersX::Vascularization
         issue(
           "reference",
           owned_ids[i],
-          "Each reference component needs a pressure anchor at a representable resistive distance.");
+          "Each reference component needs a prescribed pressure or positive Robin conductance at a representable resistive distance.");
     if (!phase())
       return result;
     lifting.update_ghost_values();
@@ -688,6 +744,13 @@ namespace ImmersX::Vascularization
         double source   = owned_bc.inflows.count(owned_ids[i]) ?
                             owned_bc.inflows.at(owned_ids[i]) :
                             0.;
+        if (const auto bc = owned_bc.robin.find(owned_ids[i]);
+            bc != owned_bc.robin.end())
+          {
+            diagonal += bc->second.first;
+            source +=
+              bc->second.second - bc->second.first * lifting_values[index];
+          }
         for (const auto &arc : rows[i])
           {
             diagonal += 1. / arc.resistance;
@@ -721,11 +784,16 @@ namespace ImmersX::Vascularization
           if (fixed.local_element(i) != 0.)
             product = value;
           else
-            for (const auto &arc : rows[i])
-              product += (value - (fixed_values[arc.neighbor.index] != 0. ?
-                                                    0. :
-                                                    work_values[arc.neighbor.index])) /
-                         arc.resistance;
+            {
+              if (const auto bc = owned_bc.robin.find(owned_ids[i]);
+                  bc != owned_bc.robin.end())
+                product = bc->second.first * value;
+              for (const auto &arc : rows[i])
+                product += (value - (fixed_values[arc.neighbor.index] != 0. ?
+                                                      0. :
+                                                      work_values[arc.neighbor.index])) /
+                           arc.resistance;
+            }
           dst.local_element(i) = product;
         }
     };
@@ -865,13 +933,21 @@ namespace ImmersX::Vascularization
           result.boundary_inflows[id] = outflow;
         else
           {
-            const double prescribed =
+            double prescribed =
               owned_bc.inflows.count(id) ? owned_bc.inflows.at(id) : 0.;
+            if (const auto bc = owned_bc.robin.find(id);
+                bc != owned_bc.robin.end())
+              prescribed =
+                bc->second.second - bc->second.first * result.pressures.at(id);
+            if (!std::isfinite(prescribed))
+              issue("boundary",
+                    id,
+                    "Robin reference flux is not representable.");
             flow_scale = std::max(flow_scale, std::abs(prescribed));
             result.maximum_flow_defect =
               std::max(result.maximum_flow_defect,
                        std::abs(outflow - prescribed));
-            if (owned_bc.inflows.count(id))
+            if (owned_bc.inflows.count(id) || owned_bc.robin.count(id))
               result.boundary_inflows[id] = prescribed;
           }
       }

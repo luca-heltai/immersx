@@ -71,6 +71,7 @@ set(_public_headers
     immersx/core/matrix_operator.h
     immersx/core/observable.h
     immersx/core/observable_lift.h
+    immersx/core/robin_boundary.h
     immersx/core/weak_term.h
     immersx/core/problem_handle.h
     immersx/core/symbolic_field_evaluator.h
