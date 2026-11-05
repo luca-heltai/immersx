@@ -37,6 +37,7 @@
 #  include <cmath>
 #  include <filesystem>
 #  include <fstream>
+#  include <iomanip>
 #  include <iostream>
 #  include <memory>
 #  include <optional>
@@ -593,6 +594,36 @@ namespace
           DataOutBase::write_pvd_record(pvd, flow_output_records);
         }
       solid_problem.output_results();
+      // Raw operators retain physical Dirichlet values and include the Robin
+      // spring. Evaluate both quantities collectively before rank-zero I/O.
+      solid_problem.update_boundary_operators(time);
+      FieldVector applied_load, stiffness_action;
+      solid_problem.body_force_at_time(time, applied_load);
+      stiffness_action.reinit(solid_problem.displacement());
+      solid_problem.stiffness_matrix().vmult(stiffness_action,
+                                             solid_problem.displacement());
+      const double elastic_energy =
+        .5 * (solid_problem.displacement() * stiffness_action);
+      const double applied_work = solid_problem.displacement() * applied_load;
+      bool         energy_output_ok = true;
+      if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+        {
+          std::ofstream energy(
+            std::filesystem::path(solid_parameters.output_directory) /
+              "energies.csv",
+            step == 0 ? std::ios::out : std::ios::out | std::ios::app);
+          if (step == 0)
+            energy << "time_s,elastic_and_robin_energy_J,applied_load_work_J\n";
+          energy << std::setprecision(17) << time << ',' << elastic_energy
+                 << ',' << applied_work << '\n';
+          energy.close();
+          energy_output_ok = energy.good();
+        }
+      AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(
+                                        energy_output_ok),
+                                      MPI_COMM_WORLD) == 1,
+                  ExcMessage("Cannot write the solid energy diagnostics."));
+
       DataOut<1, 3> multiplier_output;
       multiplier_output.attach_dof_handler(lambda_view.dof_handler());
       multiplier_output.add_data_vector(

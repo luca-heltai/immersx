@@ -477,3 +477,5 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
   endforeach()
 
 endif()
+
+include("${CMAKE_SOURCE_DIR}/cmake/metric_flow_x_robin_tests.cmake")

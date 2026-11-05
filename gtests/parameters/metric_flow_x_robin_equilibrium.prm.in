@@ -1,0 +1,72 @@
+# Rigid tissue translation and a resting two-vessel RCR network. The Robin
+# spring/load vary in time while their exact equilibrium remains unchanged.
+include @IMMERSX_BINARY_DIR@/gtests/parameters/metric_flow_x_elastodynamics.prm
+
+subsection Elastodynamics
+  set Dirichlet boundary ids = 0
+  set Robin boundary ids = 1,2,3,4,5
+  subsection Domain
+    set Grid generator = hyper_cube
+    set Grid generator arguments = -0.2:0.2:true
+    set Initial refinement = 1
+  end
+  subsection Material properties
+    subsection default
+      set Density = 1
+      set Lame mu = 1
+      set Lame lambda = 1
+    end
+  end
+  subsection Functions
+    subsection Displacement boundary
+      set Function expression = 0.01;0;0
+    end
+    subsection Velocity boundary
+      set Function expression = 0;0;0
+    end
+    subsection Initial displacement
+      set Function expression = 0.01;0;0
+    end
+    subsection Initial velocity
+      set Function expression = 0;0;0
+    end
+    subsection Robin coefficient
+      set Function expression = 2+t
+    end
+    subsection Robin boundary
+      set Function expression = (2+t)*0.01;0;0
+    end
+    subsection Exact solution
+      set Function expression = 0.01;0;0
+    end
+  end
+end
+
+subsection Functions
+  set Inflow function = 0
+end
+
+subsection MetricFlowSystem<1, 3>
+  set Vtk file path for mesh input = @TEST_DATA_DIR@/tests/metric_flow_x_two_vessels_rcr.vtk
+  set Terminal parameter source = Parameters
+  set Default terminal R1 = 1e8
+  set Default terminal R2 = 2e8
+  set Default terminal C = 1e-8
+  set Default terminal P_out = 0
+  subsection IDA parameters
+    set Final time = 0.002
+    set Time interval between each output = 0.001
+    subsection Running parameters
+      set Initial step size = 1e-5
+      set Minimum step size = 1e-12
+    end
+    subsection Error control
+      set Absolute error tolerance = 1e-10
+      set Relative error tolerance = 1e-10
+    end
+  end
+end
+
+subsection MetricFlowX coupling
+  set Embedded partitioning policy = immersed
+end

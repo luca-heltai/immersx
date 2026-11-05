@@ -159,3 +159,11 @@ lifted wall points lie one radius away from the centreline, so a count of zero
 does not guarantee that the lifted wall is inside the solid. Lifted points
 outside the solid stop the assembly with "Some lifted integration points lie
 outside the background mesh".
+
+The solid output directory also contains `energies.csv`, with one row per
+accepted output time. `elastic_and_robin_energy_J` is
+$\tfrac12 u^T K(t)u$, including the elastic strain and Robin spring energy.
+`applied_load_work_J` is $u^T f(t)$ for the prescribed body, Neumann and Robin
+loads. Both quantities use the raw physical operators and have units of joules;
+they do not include kinetic energy, immersed pressure work or Dirichlet
+reaction work.

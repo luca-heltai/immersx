@@ -7,6 +7,7 @@ import csv
 import math
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -23,6 +24,53 @@ def rows(directory, name, key="id"):
     return result
 
 
+def check_robin_reference(nodes, vessels, terminals, pairs):
+    """Check exported physical data, independently of the graph solver."""
+    pressure = {i: float(row["pressure_Pa"]) for i, row in nodes.items()}
+    inflow = {i: float(row["boundary_inflow_m3_s"]) for i, row in nodes.items()}
+    assert all(math.isfinite(value) for value in [*pressure.values(), *inflow.values()])
+    balance = dict.fromkeys(nodes, 0.)
+    flows = []
+    for row in vessels.values():
+        i, j = int(row["node0"]), int(row["node1"])
+        length = math.dist(tuple(float(nodes[i][k]) for k in ("x", "y", "z")),
+                           tuple(float(nodes[j][k]) for k in ("x", "y", "z")))
+        r0, r1 = float(row["radius0"]), float(row["radius1"])
+        expected = (8 * float(row["viscosity"]) * length / math.pi *
+                    (r0*r0 + r0*r1 + r1*r1) / (3 * r0**3 * r1**3))
+        resistance, flow = float(row["resistance_Pa_s_per_m3"]), float(row["flow_m3_s"])
+        assert math.isfinite(flow) and resistance > 0
+        assert math.isclose(resistance, expected, rel_tol=1.e-12)
+        # The CSV contains rounded total pressures, whereas the solver retains
+        # high/low pressure parts. Bound subtraction of those serialized doubles
+        # explicitly; retain the requested relative physical flow accuracy.
+        rounding = 4 * (math.ulp(pressure[i]) + math.ulp(pressure[j]))
+        assert abs(pressure[i] - pressure[j] - resistance*flow) <= (rounding +
+                1.e-9 * resistance * abs(flow))
+        balance[i] += flow
+        balance[j] -= flow
+        flows.append(flow)
+    for pair in pairs.values():
+        i, j = (int(terminals[int(pair[key])]["node"]) for key in ("arterial", "venous"))
+        flow = (pressure[i] - pressure[j]) / float(pair["resistance"])
+        assert flow > 0
+        balance[i] += flow
+        balance[j] -= flow
+        flows.append(flow)
+    scale = max(abs(value) for value in [*flows, *inflow.values()])
+    assert scale > 0
+    defect = max(abs(balance[i] - inflow[i]) for i in nodes)
+    assert defect < 1.e-9 * scale, (defect, scale)
+    assert abs(sum(inflow.values())) < 1.e-9 * scale
+    # This fixture replaces the old p(0)=12000 boundary. g=9e-9 makes
+    # ignoring the new condition distinguishable from that old Dirichlet case.
+    assert abs(pressure[0] - 12000.) > 1.
+    assert math.isclose(pressure[2], 4000., rel_tol=0., abs_tol=1.e-10)
+    assert abs(inflow[0] - (9.e-9 - 5.e-13 * pressure[0])) < 1.e-9 * scale
+    print(f"Robin p0={pressure[0]:.17g}, inflow={inflow[0]:.17g}, "
+          f"maximum relative conservation defect={defect/scale:.3e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, required=True)
@@ -31,6 +79,7 @@ def main():
     parser.add_argument("--ranks", type=int, default=1)
     parser.add_argument("--mpiexec", default="mpirun")
     parser.add_argument("--portal", action="store_true")
+    parser.add_argument("--robin", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="liver-", dir=args.output) as temporary:
@@ -44,7 +93,10 @@ def main():
         prm.write_text(text)
         command = [str(args.executable.resolve()), str(prm)]
         if args.ranks > 1:
-            command = [args.mpiexec, "-np", str(args.ranks)] + command
+            watchdog = shutil.which("timeout") or shutil.which("gtimeout")
+            assert watchdog, "MPI tests require GNU timeout or gtimeout"
+            command = [args.mpiexec, "-np", str(args.ranks),
+                       watchdog, "--kill-after=2s", "105s"] + command
         process = subprocess.run(command, cwd=unrelated, text=True, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, timeout=110)
         assert process.returncode == 0, process.stdout
@@ -111,6 +163,9 @@ def main():
                       for t in (a, v)]
             assert math.isclose(math.dist(*points), .04, rel_tol=1.e-10)
             assert float(pair["resistance"]) > 0.
+        if args.robin:
+            assert not args.portal
+            check_robin_reference(nodes, vessels, terminals, pairs)
         for name in ("liver", "vessels"):
             pvtu = output / f"{name}_0.pvtu"
             pieces = ET.parse(pvtu).findall(".//Piece")
