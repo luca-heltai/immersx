@@ -537,3 +537,90 @@ TEST(Inclusion3, CheckVesselDirectionsRejectsOppositeDirections)
   EXPECT_ANY_THROW(initialize_inclusions_with_directions(
     {Tensor<1, 3>({0, 0, 1}), Tensor<1, 3>({0, 0, -1})}, {0, 0}));
 }
+
+namespace
+{
+  void
+  check_newmark_robin_translation(const bool mixed)
+  {
+    ParameterAcceptor::clear();
+    ElasticityProblemParameters<2> par;
+    par.initial_refinement = 1;
+    par.dirichlet_ids.clear();
+    par.robin_ids = {0, 1, 2, 3};
+    if (mixed)
+      {
+        par.dirichlet_ids.insert(0);
+        par.robin_ids.erase(0);
+      }
+    par.output_directory = TestPaths::output_directory("newmark-robin");
+    initialize_parameters_from_string(R"(
+    subsection Immersed Problem
+      subsection Grid generation
+        set Grid generator = hyper_cube
+        set Grid generator arguments = 0:1:true
+      end
+      subsection Time parameters
+        set Initial time = 0
+        set Final time = 0.03
+        set Time step = 0.01
+      end
+      subsection Material properties
+        subsection default
+          set Density = 1
+          set Lame mu = 1
+          set Lame lambda = 1
+          set Rayleigh beta = 0.7
+        end
+      end
+    end
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = 1+t; 2*(1+t)
+      end
+      subsection Initial displacement
+        set Function expression = 1; 2
+      end
+      subsection Initial velocity
+        set Function expression = 1; 2
+      end
+      subsection Robin coefficient
+        set Function expression = 2+t
+      end
+      subsection Robin boundary conditions
+        set Function expression = (2+t)*(1+t); 2*(2+t)*(1+t)
+      end
+    end
+  )");
+    ElasticityProblem<2> problem(par);
+    problem.run();
+    const auto                          &fe = problem.dh.get_fe();
+    std::vector<types::global_dof_index> ids(fe.n_dofs_per_cell());
+    for (const auto &cell : problem.dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          cell->get_dof_indices(ids);
+          for (unsigned i = 0; i < ids.size(); ++i)
+            if (problem.owned_dofs[0].is_element(ids[i]))
+              {
+                const double magnitude =
+                  fe.system_to_component_index(i).first + 1.;
+                EXPECT_NEAR(problem.solution.block(0)[ids[i]],
+                            1.03 * magnitude,
+                            1.e-8);
+                EXPECT_NEAR(problem.velocity.block(0)[ids[i]],
+                            magnitude,
+                            1.e-8);
+              }
+        }
+  }
+
+} // namespace
+TEST(ElasticityProblem, BOTH_NewmarkTimeDependentRobinTranslation)
+{
+  check_newmark_robin_translation(false);
+}
+TEST(ElasticityProblem, BOTH_NewmarkMixedRobinTranslation)
+{
+  check_newmark_robin_translation(true);
+}

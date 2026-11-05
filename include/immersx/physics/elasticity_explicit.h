@@ -134,7 +134,8 @@ namespace ImmersX
     LA::MPI::BlockVector                      system_rhs;
     unsigned int                              time_step = 0;
     FEValuesExtractors::Vector                displacement;
-    double                                    current_time = 0.0;
+    double                                    current_time      = 0.0;
+    double                                    robin_matrix_time = 0.0;
   };
 } // namespace ImmersX
 #endif

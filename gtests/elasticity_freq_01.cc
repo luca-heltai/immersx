@@ -349,3 +349,134 @@ TEST(ElasticityFreq, BOTH_RefinementParameterRoundTrip)
     EXPECT_EQ(parameters.initial_refinement, 1u);
   }
 }
+
+namespace
+{
+  template <int dim, int spacedim>
+  void
+  check_robin_translation(const bool adapter_path,
+                          const bool mixed   = false,
+                          const bool simplex = false)
+  {
+    using namespace ImmersX;
+    using namespace dealii;
+    ParameterAcceptor::clear();
+    ElasticityFreqProblemParameters<dim, spacedim> parameters;
+    parameters.initial_refinement = 1;
+    parameters.dirichlet_ids.clear();
+    for (unsigned id = 0; id < 2 * dim; ++id)
+      parameters.robin_ids.insert(id);
+    if (mixed)
+      {
+        parameters.dirichlet_ids.insert(0);
+        parameters.robin_ids.erase(0);
+      }
+    if (simplex)
+      {
+        parameters.initial_refinement = 0;
+        parameters.triangulation_type = "fullydistributed";
+        parameters.name_of_grid       = TestPaths::data_filename(
+          dim == 2 ? "tests/simplex_square.msh" : "tests/simplex_cube.msh");
+      }
+    parameters.frequencies                                = {0.25};
+    parameters.robin_phase                                = 30.;
+    parameters.dirichlet_phase                            = 30.;
+    parameters.rhs_phase                                  = -150.;
+    parameters.default_material_properties.rho            = 2.;
+    parameters.default_material_properties.rayleigh_alpha = 0.;
+    parameters.default_material_properties.rayleigh_beta  = .7;
+    parameters.output_directory = TestPaths::output_directory("harmonic-robin");
+    const double       omega    = .5 * std::acos(-1.);
+    std::ostringstream force, load, prescribed;
+    force << std::setprecision(17);
+    for (unsigned d = 0; d < spacedim; ++d)
+      {
+        if (d)
+          {
+            force << ';';
+            load << ';';
+            prescribed << ';';
+          }
+        force << 2. * omega * omega * (d + 1.);
+        load << "(2+x)*" << d + 1;
+        prescribed << d + 1;
+      }
+    initialize_parameters_from_string(
+      "subsection Functions\n subsection Dirichlet boundary conditions\n set Function expression = " +
+      prescribed.str() +
+      "\n end\n subsection Robin coefficient\n set Function expression = 2+x\n end\n"
+      " subsection Robin boundary conditions\n set Function expression = " +
+      load.str() +
+      "\n end\n subsection Right hand side\n set Function expression = " +
+      force.str() + "\n end\nend\n");
+    ElasticityFreqProblem<dim, spacedim> problem(parameters);
+    if (adapter_path)
+      {
+        problem.make_grid();
+        problem.setup_fe();
+        problem.setup_dofs();
+        problem.prepare_frequency(.25);
+        LinearAdapterParameters control;
+        control.solver = LinearSolver::direct;
+        LinearAdapter<ImmersXLA::MPI::Vector, ImmersXLA::MPI::BlockVector>
+                   adapter(control, MPI_COMM_WORLD);
+        const auto fields = adapter.add(problem, "solid").fields();
+        auto       state  = adapter.make_state();
+        adapter.solve(state);
+        auto residual = adapter.make_state();
+        adapter.evaluate_residual(state, residual);
+        EXPECT_LT(residual.l2_norm(), 1.e-9);
+        problem.accept_frequency_solution(adapter.field(state, fields.real),
+                                          adapter.field(state,
+                                                        fields.imaginary));
+      }
+    else
+      problem.run();
+    const auto                          &fe = problem.dof_handler().get_fe();
+    std::vector<types::global_dof_index> ids(fe.n_dofs_per_cell());
+    for (const auto &cell : problem.dof_handler().active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          cell->get_dof_indices(ids);
+          for (unsigned i = 0; i < ids.size(); ++i)
+            if (problem.locally_owned_dofs().is_element(ids[i]))
+              {
+                const double magnitude =
+                  fe.system_to_component_index(i).first + 1.;
+                EXPECT_NEAR(problem.real_displacement()[ids[i]],
+                            magnitude * std::sqrt(3.) / 2.,
+                            1.e-8);
+                EXPECT_NEAR(problem.imaginary_displacement()[ids[i]],
+                            magnitude / 2.,
+                            1.e-8);
+              }
+        }
+  }
+} // namespace
+TEST(ElasticityFreq, BOTH_RobinTranslationAndPhase)
+{
+  check_robin_translation<1, 1>(false);
+  check_robin_translation<1, 2>(false);
+  check_robin_translation<1, 3>(false);
+  check_robin_translation<2, 2>(false);
+  check_robin_translation<2, 3>(false);
+  check_robin_translation<3, 3>(false);
+}
+TEST(ElasticityFreq, BOTH_AdapterRobinTranslationAndPhase)
+{
+  check_robin_translation<1, 1>(true);
+  check_robin_translation<1, 2>(true);
+  check_robin_translation<1, 3>(true);
+  check_robin_translation<2, 2>(true);
+  check_robin_translation<2, 3>(true);
+  check_robin_translation<3, 3>(true);
+}
+
+TEST(ElasticityFreq, BOTH_MixedRobinAndSimplexTranslation)
+{
+  check_robin_translation<2, 2>(false, true);
+  check_robin_translation<3, 3>(true, true);
+  check_robin_translation<2, 2>(false, false, true);
+  check_robin_translation<2, 3>(true, false, true);
+  check_robin_translation<3, 3>(true, false, true);
+}

@@ -29,6 +29,7 @@
 #include <immersx/physics/material_properties.h>
 #include <immersx/physics/modulated_parsed_function.h>
 
+#include <array>
 #include <map>
 #include <memory>
 #include <set>
@@ -107,6 +108,12 @@ namespace ImmersX
     const ModulatedParsedFunction<spacedim> &
     get_neumann_bc(const types::boundary_id boundary_id) const;
 
+    const Functions::ParsedFunction<spacedim> &
+    get_robin_coefficient(const types::boundary_id boundary_id) const;
+
+    const ModulatedParsedFunction<spacedim> &
+    get_robin_bc(const types::boundary_id boundary_id) const;
+
     const ModulatedParsedFunction<spacedim> &
     get_rhs(const types::material_id material_id) const;
 
@@ -159,6 +166,7 @@ namespace ImmersX
     std::set<types::boundary_id> weak_dirichlet_ids{}; ///< Weak Dirichlet ids.
     std::set<types::boundary_id> neumann_ids{};        ///< Neumann ids.
     std::set<types::boundary_id> normal_flux_ids{};    ///< Flux-constraint ids.
+    std::set<types::boundary_id> robin_ids{}; ///< Full-vector Robin faces.
 
     MaterialProperties default_material_properties{
       "default"}; ///< Fallback material.
@@ -243,6 +251,16 @@ namespace ImmersX
     std::map<types::boundary_id,
              std::shared_ptr<ModulatedParsedFunction<spacedim>>>
       neumann_bc_by_id;
+    mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+      robin_coefficient;
+    std::map<types::boundary_id,
+             std::shared_ptr<
+               ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>>>
+                                              robin_coefficient_by_id;
+    mutable ModulatedParsedFunction<spacedim> robin_bc;
+    std::map<types::boundary_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+      robin_bc_by_id;
     /// @}
 
     /**
@@ -296,6 +314,10 @@ namespace ImmersX
 
     /** Canonical time-integration parameters for this Problem. */
     TimeParameters time_parameters;
+
+  private:
+    std::map<types::boundary_id, std::array<bool, 3>>
+      robin_coefficient_entries_set;
   };
 
 } // namespace ImmersX

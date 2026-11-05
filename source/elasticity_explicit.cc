@@ -1,3 +1,4 @@
+#include <immersx/physics/detail/elasticity_robin_updates.h>
 // ---------------------------------------------------------------------
 //
 // Copyright (C) 2024 by Luca Heltai
@@ -331,6 +332,8 @@ namespace ImmersX
       Utilities::MPI::max(local_has_hanging_nodes, mpi_communicator) == 0,
       ExcMessage("Lumped mass requires a mesh without hanging nodes."));
 
+    robin_matrix_time = current_time;
+    par.set_boundary_condition_times(current_time);
     stiffness_matrix = 0;
     damping_matrix   = 0;
     lumped_mass      = 0.0;
@@ -341,12 +344,18 @@ namespace ImmersX
                                  update_values | update_gradients |
                                    update_JxW_values);
 
-    const unsigned int dofs_per_cell = fe->n_dofs_per_cell();
-    const unsigned int n_q_points    = quadrature->size();
-    FullMatrix<double> cell_value(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_grad(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_div(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_damping(dofs_per_cell, dofs_per_cell);
+    FEFaceValues<spacedim>           faces(geometry_mapping(),
+                                 *fe,
+                                 *face_quadrature_formula,
+                                 update_values | update_quadrature_points |
+                                   update_JxW_values);
+    const FEValuesExtractors::Vector displacement(0);
+    const unsigned int               dofs_per_cell = fe->n_dofs_per_cell();
+    const unsigned int               n_q_points    = quadrature->size();
+    FullMatrix<double>               cell_value(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double>               cell_grad(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double>               cell_div(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double>               cell_damping(dofs_per_cell, dofs_per_cell);
     FullMatrix<double> cell_stiffness(dofs_per_cell, dofs_per_cell);
     FullMatrix<double> cell_mass(dofs_per_cell, dofs_per_cell);
     Vector<double>     cell_lumped_mass(dofs_per_cell);
@@ -355,6 +364,8 @@ namespace ImmersX
     std::vector<Tensor<1, spacedim>>     phi_u(dofs_per_cell);
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
+    unsigned int   invalid_robin_data = 0;
+    Vector<double> unused_rhs(dofs_per_cell);
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -401,6 +412,23 @@ namespace ImmersX
                            mp.neta,
                            cell_grad);
 
+          unused_rhs = 0.;
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                par.robin_ids.count(cell->face(face)->boundary_id()))
+              {
+                const auto id = cell->face(face)->boundary_id();
+                faces.reinit(cell, face);
+                invalid_robin_data |=
+                  robin_detail::add_face_terms(faces,
+                                               displacement,
+                                               par.get_robin_coefficient(id),
+                                               par.get_robin_bc(id),
+                                               cell_stiffness,
+                                               unused_rhs,
+                                               1.,
+                                               0.);
+              }
           cell_lumped_mass = 0.0;
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
             for (unsigned int j = 0; j < dofs_per_cell; ++j)
@@ -415,6 +443,8 @@ namespace ImmersX
                                                           stiffness_matrix);
         }
 
+    robin_detail::assert_valid_boundary_data(invalid_robin_data,
+                                             mpi_communicator);
     stiffness_matrix.compress(VectorOperation::add);
     damping_matrix.compress(VectorOperation::add);
     lumped_mass.compress(VectorOperation::add);
@@ -551,6 +581,9 @@ namespace ImmersX
                                            Vector<double>(spacedim));
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
+    unsigned int                     invalid_robin_data = 0;
+    FullMatrix<double>               unused(dofs_per_cell, dofs_per_cell);
+    const FEValuesExtractors::Vector displacement(0);
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -596,12 +629,32 @@ namespace ImmersX
                   }
               }
 
+          unused = 0.;
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                par.robin_ids.count(cell->face(face)->boundary_id()))
+              {
+                const auto id = cell->face(face)->boundary_id();
+                fe_face_values.reinit(cell, face);
+                invalid_robin_data |=
+                  robin_detail::add_face_terms(fe_face_values,
+                                               displacement,
+                                               par.get_robin_coefficient(id),
+                                               par.get_robin_bc(id),
+                                               unused,
+                                               cell_rhs,
+                                               0.,
+                                               par.get_robin_bc(id).scale(
+                                                 evaluation_time));
+              }
           cell->get_dof_indices(local_dof_indices);
           operator_constraints.distribute_local_to_global(cell_rhs,
                                                           local_dof_indices,
                                                           system_rhs.block(0));
         }
 
+    robin_detail::assert_valid_boundary_data(invalid_robin_data,
+                                             mpi_communicator);
     system_rhs.compress(VectorOperation::add);
   }
 
@@ -699,6 +752,20 @@ namespace ImmersX
     constraints.distribute(u);
     velocity_constraints.distribute(v);
 
+    robin_detail::update_elasticity_springs(
+      dh,
+      geometry_mapping(),
+      *fe,
+      *face_quadrature_formula,
+      operator_constraints,
+      par,
+      robin_matrix_time,
+      current_time,
+      stiffness_matrix,
+      static_cast<LA::MPI::SparseMatrix *>(nullptr),
+      0.,
+      mpi_communicator);
+    robin_matrix_time = current_time;
     assemble_forcing_terms(current_time);
 
     // Strong-boundary columns

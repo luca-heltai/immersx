@@ -787,7 +787,8 @@ namespace ImmersX
     /**
      * Current physical time for transient simulations.
      */
-    double current_time = 0.0;
+    double current_time      = 0.0;
+    double robin_matrix_time = 0.0;
 
     // Coupling representation queries.
     bool

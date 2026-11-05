@@ -18,7 +18,7 @@ namespace
 {
   template <int dim>
   void
-  check_explicit_translation(const bool simplex)
+  check_explicit_translation(const bool simplex, const bool robin = false)
   {
     ParameterAcceptor::clear();
     ElasticityProblemParameters<dim> parameters;
@@ -28,34 +28,48 @@ namespace
     const std::string                force     = dim == 2 ? "2;0" : "2;0;0";
     const auto                       directory = TestPaths::output_directory(
       "explicit-simplex-" + std::to_string(dim) + (simplex ? "p" : "q"));
-    initialize_parameters_from_string(
-      "subsection Immersed Problem\n"
-      " set FE degree = 1\n set Initial refinement = 0\n set Dirichlet boundary ids =\n set Weak Dirichlet boundary ids =\n set Neumann boundary ids =\n"
-      " set Output directory = " +
-      directory +
-      "\n set Output name = translation\n"
-      " subsection Grid generation\n set Triangulation type = fullydistributed\n"
-      " set Domain type = " +
-      std::string(simplex ? "file" : "generate") +
-      "\n"
-      " set Grid generator = " +
-      (simplex ?
-         TestPaths::data_filename(dim == 2 ? "tests/simplex_square.msh" :
-                                             "tests/simplex_cube.msh") :
-         "hyper_cube") +
-      "\n"
-      " set Grid generator arguments = 0:1:false\n end\n"
-      " subsection Material properties\n subsection default\n set Density = 1\n set Lame mu = 1\n set Lame lambda = 1\n set Rayleigh alpha = 0\n set Rayleigh beta = 0\n set Viscosity eta = 0\n end\nend\n"
-      " subsection Time parameters\n set Initial time = 0\n set Final time = 0.02\n set Time step = 0.01\n end\nend\n"
-      "subsection Functions\n"
-      " subsection Right hand side\n set Variable names = " +
-      variables + "\n set Function expression = " + force +
-      "\n end\n"
-      " subsection Initial displacement\n set Variable names = " +
-      variables + "\n set Function expression = " + initial +
-      "\n end\n"
-      " subsection Initial velocity\n set Variable names = " +
-      variables + "\n set Function expression = " + initial + "\n end\nend\n");
+    const std::string input =
+      ("subsection Immersed Problem\n"
+       " set FE degree = 1\n set Initial refinement = 0\n set Dirichlet boundary ids =\n set Weak Dirichlet boundary ids =\n set Neumann boundary ids =\n"
+       " set Output directory = " +
+       directory +
+       "\n set Output name = translation\n"
+       " subsection Grid generation\n set Triangulation type = fullydistributed\n"
+       " set Domain type = " +
+       std::string(simplex ? "file" : "generate") +
+       "\n"
+       " set Grid generator = " +
+       (simplex ?
+          TestPaths::data_filename(dim == 2 ? "tests/simplex_square.msh" :
+                                              "tests/simplex_cube.msh") :
+          "hyper_cube") +
+       "\n"
+       " set Grid generator arguments = 0:1:false\n end\n"
+       " subsection Material properties\n subsection default\n set Density = 1\n set Lame mu = 1\n set Lame lambda = 1\n set Rayleigh alpha = 0\n set Rayleigh beta = 0\n set Viscosity eta = 0\n end\nend\n"
+       " subsection Time parameters\n set Initial time = 0\n set Final time = 0.02\n set Time step = 0.01\n end\nend\n"
+       "subsection Functions\n"
+       " subsection Right hand side\n set Variable names = " +
+       variables + "\n set Function expression = " + force +
+       "\n end\n"
+       " subsection Initial displacement\n set Variable names = " +
+       variables + "\n set Function expression = " + initial +
+       "\n end\n"
+       " subsection Initial velocity\n set Variable names = " +
+       variables + "\n set Function expression = " + initial + "\n end\nend\n");
+    std::string robin_input;
+    if (robin)
+      {
+        for (unsigned id = 0; id < 2 * dim; ++id)
+          parameters.robin_ids.insert(id);
+        std::string load = "(2+t)*(1+t+t*t-.01*t)";
+        for (unsigned d = 1; d < dim; ++d)
+          load += ";0";
+        robin_input =
+          "subsection Functions\n subsection Robin coefficient\n set Function expression = 2+t\n end\n"
+          " subsection Robin boundary conditions\n set Function expression = " +
+          load + "\n end\nend\n";
+      }
+    initialize_parameters_from_string(input + robin_input);
     problem.run();
     MPI_Barrier(MPI_COMM_WORLD);
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
@@ -90,6 +104,13 @@ TEST(ElasticityExplicitValidation, BOTH_HypercubeForcedTranslation)
 {
   check_explicit_translation<2>(false);
   check_explicit_translation<3>(false);
+}
+TEST(ElasticityExplicitValidation, BOTH_TimeDependentRobinTranslation)
+{
+  check_explicit_translation<2>(false, true);
+  check_explicit_translation<3>(false, true);
+  check_explicit_translation<2>(true, true);
+  check_explicit_translation<3>(true, true);
 }
 TEST(ElasticityExplicitValidation, BOTH_RejectsHigherSimplexDegree)
 {

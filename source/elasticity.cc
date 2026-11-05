@@ -1,3 +1,5 @@
+#include <immersx/core/robin_boundary.h>
+#include <immersx/physics/detail/elasticity_robin_updates.h>
 // ---------------------------------------------------------------------
 //
 // Copyright (C) 2024 by Luca Heltai
@@ -568,9 +570,10 @@ namespace ImmersX
   ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
   {
     TimerOutput::Scope t(computing_timer, "Assemble matrices and rhs");
-    stiffness_matrix = 0;
-    coupling_matrix  = 0;
-    system_rhs       = 0;
+    robin_matrix_time = current_time;
+    stiffness_matrix  = 0;
+    coupling_matrix   = 0;
+    system_rhs        = 0;
     if (par.time_mode != TimeMode::Static)
       {
         newmark_matrix = 0;
@@ -627,6 +630,7 @@ namespace ImmersX
 
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
+    unsigned int invalid_robin_data = 0;
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -801,6 +805,24 @@ namespace ImmersX
                              mp.Lame_lambda,
                              cell_penalty_div);
 
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                par.robin_ids.count(cell->face(face)->boundary_id()) != 0)
+              {
+                const auto id = cell->face(face)->boundary_id();
+                fe_face_values.reinit(cell, face);
+                invalid_robin_data |=
+                  robin_detail::add_face_terms(fe_face_values,
+                                               displacement,
+                                               par.get_robin_coefficient(id),
+                                               par.get_robin_bc(id),
+                                               cell_stiffness,
+                                               cell_rhs,
+                                               1.0,
+                                               par.get_robin_bc(id).scale(
+                                                 current_time));
+              }
+
           cell_rhs.add(2 * mp.Lame_mu,
                        cell_penalty_grad_rhs,
                        mp.Lame_lambda,
@@ -847,6 +869,8 @@ namespace ImmersX
                                                      newmark_matrix);
             }
         }
+    robin_detail::assert_valid_boundary_data(invalid_robin_data,
+                                             mpi_communicator);
     stiffness_matrix.compress(VectorOperation::add);
     if (par.time_mode != TimeMode::Static)
       {
@@ -940,6 +964,7 @@ namespace ImmersX
                                           *fe,
                                           *face_quadrature_formula,
                                           update_values | update_gradients |
+                                            update_quadrature_points |
                                             update_JxW_values |
                                             update_normal_vectors);
 
@@ -962,6 +987,7 @@ namespace ImmersX
     std::vector<Tensor<1, spacedim>>     phi_u(dofs_per_cell);
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
+    unsigned int invalid_robin_data = 0;
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -1066,6 +1092,22 @@ namespace ImmersX
                              cell_penalty_grad,
                              mp.Lame_lambda,
                              cell_penalty_div);
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                par.robin_ids.count(cell->face(face)->boundary_id()))
+              {
+                const auto id = cell->face(face)->boundary_id();
+                fe_face_values.reinit(cell, face);
+                invalid_robin_data |=
+                  robin_detail::add_face_terms(fe_face_values,
+                                               displacement,
+                                               par.get_robin_coefficient(id),
+                                               par.get_robin_bc(id),
+                                               cell_stiffness,
+                                               zero_local_rhs,
+                                               1.,
+                                               0.);
+              }
           cell_newmark.equ(mp.rho,
                            cell_value,
                            par.time_parameters.newmark_beta *
@@ -1086,6 +1128,8 @@ namespace ImmersX
                                                               cell_newmark);
         }
 
+    robin_detail::assert_valid_boundary_data(invalid_robin_data,
+                                             mpi_communicator);
     rhs.compress(VectorOperation::add);
   }
 
@@ -1139,6 +1183,8 @@ namespace ImmersX
 
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
+    FullMatrix<double> robin_matrix(dofs_per_cell, dofs_per_cell);
+    unsigned int       invalid_robin_data = 0;
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -1250,20 +1296,47 @@ namespace ImmersX
                   }
               }
 
+          robin_matrix = 0.;
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                par.robin_ids.count(cell->face(face)->boundary_id()))
+              {
+                const auto id = cell->face(face)->boundary_id();
+                fe_face_values.reinit(cell, face);
+                invalid_robin_data |=
+                  robin_detail::add_face_terms(fe_face_values,
+                                               displacement,
+                                               par.get_robin_coefficient(id),
+                                               par.get_robin_bc(id),
+                                               robin_matrix,
+                                               cell_bc_rhs,
+                                               1.,
+                                               par.get_robin_bc(id).scale(
+                                                 evaluation_time));
+              }
+
           cell->get_dof_indices(local_dof_indices);
 
           constraints.distribute_local_to_global(cell_force_rhs,
                                                  local_dof_indices,
                                                  force_rhs.block(0));
 
-          constraints.distribute_local_to_global(cell_bc_rhs,
-                                                 local_dof_indices,
-                                                 bc_rhs.block(0));
+          if (par.time_mode == TimeMode::QuasiStatic)
+            constraints.distribute_local_to_global(cell_bc_rhs,
+                                                   local_dof_indices,
+                                                   bc_rhs.block(0),
+                                                   robin_matrix);
+          else
+            constraints.distribute_local_to_global(cell_bc_rhs,
+                                                   local_dof_indices,
+                                                   bc_rhs.block(0));
 
           constraints.distribute_local_to_global(cell_neumann_bc_rhs,
                                                  local_dof_indices,
                                                  neumann_bc_rhs.block(0));
         }
+    robin_detail::assert_valid_boundary_data(invalid_robin_data,
+                                             mpi_communicator);
     force_rhs.compress(VectorOperation::add);
     bc_rhs.compress(VectorOperation::add);
     neumann_bc_rhs.compress(VectorOperation::add);
@@ -2884,6 +2957,42 @@ namespace ImmersX
 
     pcout << "Time: " << current_time << std::endl;
 
+    const bool dynamic        = par.time_mode == TimeMode::Dynamic;
+    const bool spring_changed = robin_detail::update_elasticity_springs(
+      dh,
+      geometry_mapping(),
+      *fe,
+      *face_quadrature_formula,
+      constraints,
+      par,
+      robin_matrix_time,
+      evaluation_time,
+      stiffness_matrix,
+      dynamic ? &newmark_matrix : nullptr,
+      par.time_parameters.newmark_beta * par.time_parameters.time_step *
+        par.time_parameters.time_step,
+      mpi_communicator);
+    robin_matrix_time = evaluation_time;
+    if (spring_changed)
+      {
+        Teuchos::ParameterList options;
+        options.set("smoother: type", "Chebyshev");
+        options.set("smoother: sweeps", 2);
+        options.set("smoother: pre or post", "both");
+        options.set("coarse: type", "Amesos-KLU");
+        options.set("coarse: max size", 2000);
+        options.set("aggregation: threshold", 0.02);
+        if (dynamic)
+          {
+            prec_newmark.clear();
+            prec_newmark.initialize(newmark_matrix, options);
+          }
+        else
+          {
+            prec_A.clear();
+            prec_A.initialize(stiffness_matrix, options);
+          }
+      }
     assemble_forcing_terms(evaluation_time);
     double inclusion_scale = 1.0;
     if (!uses_tensor_product_coupling())

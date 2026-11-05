@@ -1,3 +1,4 @@
+#include <immersx/core/robin_boundary.h>
 // ---------------------------------------------------------------------
 //
 // Copyright (C) 2024 by Luca Heltai
@@ -979,6 +980,7 @@ namespace ImmersX
 
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
+    unsigned int invalid_robin_data = 0;
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
@@ -1153,6 +1155,27 @@ namespace ImmersX
                              mp.Lame_lambda,
                              cell_penalty_div);
 
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                par.robin_ids.count(cell->face(face)->boundary_id()) != 0)
+              {
+                const auto id = cell->face(face)->boundary_id();
+                fe_face_values.reinit(cell, face);
+                const auto factor = phase_factor(par.robin_phase_by_id,
+                                                 id,
+                                                 par.robin_phase,
+                                                 imaginary);
+                invalid_robin_data |=
+                  robin_detail::add_face_terms(fe_face_values,
+                                               displacement,
+                                               par.get_robin_coefficient(id),
+                                               par.get_robin_bc(id),
+                                               cell_stiffness,
+                                               cell_rhs,
+                                               1.0,
+                                               factor);
+              }
+
           cell_rhs.add(2 * mp.Lame_mu,
                        cell_penalty_grad_rhs,
                        mp.Lame_lambda,
@@ -1197,6 +1220,8 @@ namespace ImmersX
             fc.distribute_local_to_global(H, ids, matrix);
           fc.distribute_local_to_global(b, ids, rhs, H);
         }
+    robin_detail::assert_valid_boundary_data(invalid_robin_data,
+                                             mpi_communicator);
     if (build_matrix)
       matrix.compress(VectorOperation::add);
     rhs.compress(VectorOperation::add);

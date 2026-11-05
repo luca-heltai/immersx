@@ -17,6 +17,7 @@
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/utilities.h>
 
+#include <immersx/physics/detail/robin_parameter_overrides.h>
 #include <immersx/physics/elasticity_freq_problem_parameters.h>
 
 #include <cmath>
@@ -62,6 +63,8 @@ namespace ImmersX
     , rhs(function_prefix + "Right hand side", spacedim)
     , bc(function_prefix + "Dirichlet boundary conditions", spacedim)
     , Neumann_bc(function_prefix + "Neumann boundary conditions", spacedim)
+    , robin_coefficient(function_prefix + "Robin coefficient", 1)
+    , robin_bc(function_prefix + "Robin boundary conditions", spacedim)
     , displacement_solver_control(harmonic_auxiliary_section(subsection) +
                                   "Solvers/Displacement")
   {
@@ -74,6 +77,8 @@ namespace ImmersX
     add_parameter("Rhs phase", rhs_phase);
     add_parameter("Dirichlet phase by boundary id", dirichlet_phase_by_id);
     add_parameter("Neumann phase by boundary id", neumann_phase_by_id);
+    add_parameter("Robin phase", robin_phase);
+    add_parameter("Robin phase by boundary id", robin_phase_by_id);
     add_parameter("Rhs phase by material id", rhs_phase_by_id);
     add_parameter("GMRES basis size", gmres_basis_size);
     leave_subsection();
@@ -88,6 +93,7 @@ namespace ImmersX
     add_parameter("Weak Dirichlet penalty coefficient", penalty_term);
     add_parameter("Neumann boundary ids", neumann_ids);
     add_parameter("Normal flux boundary ids", normal_flux_ids);
+    add_parameter("Robin boundary ids", robin_ids);
     add_parameter("Rhs material ids", rhs_material_ids);
     enter_subsection("Grid generation");
     {
@@ -263,6 +269,16 @@ namespace ImmersX
         this->enter_my_subsection(this->prm);
       }
 
+      created_dynamic_acceptors |= robin_detail::register_parameter_overrides(
+        *this,
+        robin_ids,
+        function_prefix,
+        robin_bc,
+        robin_coefficient_by_id,
+        robin_bc_by_id,
+        robin_coefficient_entries_set,
+        true);
+
       // Ensure material properties acceptors exist when material tags are
       // provided. This is needed for the two-pass initialization strategy:
       // - pass 1: read tags, create acceptors
@@ -343,6 +359,13 @@ namespace ImmersX
                    neumann_ids,
                    "normal flux ids",
                    normal_flux_ids);
+    check_disjoint("robin ids", robin_ids, "dirichlet ids", dirichlet_ids);
+    check_disjoint("robin ids",
+                   robin_ids,
+                   "weak Dirichlet ids",
+                   weak_dirichlet_ids);
+    check_disjoint("robin ids", robin_ids, "neumann ids", neumann_ids);
+    check_disjoint("robin ids", robin_ids, "normal flux ids", normal_flux_ids);
 
     // Collect the set of materials that may be used: always include the default
     // material, and also any explicitly configured material ids.
@@ -411,6 +434,25 @@ namespace ImmersX
   }
 
   template <int dim, int spacedim>
+  const Functions::ParsedFunction<spacedim> &
+  ElasticityFreqProblemParameters<dim, spacedim>::get_robin_coefficient(
+    const types::boundary_id boundary_id) const
+  {
+    const auto entry = robin_coefficient_by_id.find(boundary_id);
+    return entry != robin_coefficient_by_id.end() ? *entry->second :
+                                                    robin_coefficient;
+  }
+
+  template <int dim, int spacedim>
+  const ModulatedParsedFunction<spacedim> &
+  ElasticityFreqProblemParameters<dim, spacedim>::get_robin_bc(
+    const types::boundary_id boundary_id) const
+  {
+    const auto entry = robin_bc_by_id.find(boundary_id);
+    return entry != robin_bc_by_id.end() ? *entry->second : robin_bc;
+  }
+
+  template <int dim, int spacedim>
   const ModulatedParsedFunction<spacedim> &
   ElasticityFreqProblemParameters<dim, spacedim>::get_rhs(
     const types::material_id material_id) const
@@ -445,6 +487,19 @@ namespace ImmersX
       {
         (void)id;
         ptr->set_time(time);
+      }
+
+    robin_coefficient.set_time(time);
+    for (const auto &[id, function] : robin_coefficient_by_id)
+      {
+        (void)id;
+        function->set_time(time);
+      }
+    robin_bc.set_time(time);
+    for (const auto &[id, function] : robin_bc_by_id)
+      {
+        (void)id;
+        function->set_time(time);
       }
 
     Neumann_bc.set_time(time);
