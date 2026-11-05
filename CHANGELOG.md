@@ -17,6 +17,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Support scalar and vector Robin boundary data in Poisson, static and transient elasticity, harmonic reinforcement, lifted problems and Navier–Stokes, including their execution adapters and coupled applications. Allow spatial coefficients and per-boundary overrides, validate mixed boundary selections collectively, and expose scalar and solid Robin terms in Coral graphs. Add pressure/conductance conditions to vascular reference solves, with pressure anchoring and the prescribed-flux limit.
 
+- [PR #339](https://github.com/luca-heltai/immersx/pull/339) Download the brain and vessel grids from release v0.3 into a gitignored data directory, verify their SHA-256 checksums, and reuse verified files.
+
 - [PR #332](https://github.com/luca-heltai/immersx/pull/332) Name multiplier load operators, vessel elasticity postprocessing and prescribed vessel pressure explicitly. Preserve the existing C++ types, matrix storage, assembly overloads and parameter spellings as compatibility interfaces.
 
 - [PR #336](https://github.com/luca-heltai/immersx/pull/336) Precondition harmonic adapter solves with the standalone elasticity surrogate, including shared reinforcement, using one elasticity AMG hierarchy for both complex components and FGMRES for tolerance-stopped block-diagonal inner solves.
