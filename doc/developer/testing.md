@@ -154,6 +154,8 @@ with a 115-second CTest timeout and its own XML report. A suite can span several
 batches. Dependencies preserve the compiled case order within each category and
 serial/MPI mode; the shared output lock remains enabled. Registry checks verify
 that batching preserves every selected case without duplication.
+Archive earlier XML when changing batch layouts; otherwise timing reports can
+include both layouts in an incremental build.
 
 For example, a focused CTest expression can select one integration suite while
 retaining its serial or MPI mode. Use `ctest -N` to obtain the exact names in the
