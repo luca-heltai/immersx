@@ -259,6 +259,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Reject unreadable Gmsh mesh files before opening them in an existing session, so a missing input does not prevent later valid mesh imports.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Include shared reinforcement Robin springs in the positive harmonic surrogate, using their retained physical boundary support so iterative solves remain anchored without essential conditions.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Preserve small vascular pressure drops next to large pressure offsets by refining the physical flow residual with a separate pressure correction. Keep the original conservation tolerance and total solver iteration budget.
