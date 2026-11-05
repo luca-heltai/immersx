@@ -528,3 +528,15 @@ a periodic coupled state. For exterior tissue support, configure the solid's
 `Robin boundary ids`, `Functions/Robin coefficient` and
 `Functions/Robin boundary` as described in the
 [Robin boundary reference](../reference/robin-boundaries.md).
+
+
+Coupled error control can use different absolute tolerances for quantities
+with different units. Set `Displacement absolute tolerance` (m),
+`Velocity absolute tolerance` (m/s), and `Wall pressure absolute tolerance`
+(Pa) under `MetricFlowX coupling`. Their zero defaults retain the common IDA
+absolute tolerance. `Use native flow tolerances = true` reuses MetricFlowX's
+`Area absolute tolerance fraction`, `Velocity absolute tolerance`, and
+`Capacitor pressure absolute tolerance` for its mixed area/velocity/pressure vector.
+This delegates component numbering and reference-area scaling to MetricFlowX.
+Choose and verify these tolerances against the spatial and temporal errors of
+the intended case.

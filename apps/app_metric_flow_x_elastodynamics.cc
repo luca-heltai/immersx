@@ -170,6 +170,29 @@ namespace
       }
   }
 
+  template <class Adapter, class Flow>
+  auto
+  set_native_flow_tolerances(Adapter      &adapter,
+                             Flow         &flow,
+                             const FieldId field,
+                             int)
+    -> decltype(flow.make_absolute_tolerances(), void())
+  {
+    adapter.set_local_tolerances(field, [&flow](auto &values) {
+      values = flow.make_absolute_tolerances();
+    });
+  }
+
+  template <class Adapter, class Flow>
+  void
+  set_native_flow_tolerances(Adapter &, Flow &, const FieldId, long)
+  {
+    AssertThrow(
+      false,
+      ExcMessage(
+        "Native flow tolerances require a compatible MetricFlowX package."));
+  }
+
   struct ArchivedFlowParameters : ParameterAcceptor
   {
     ArchivedFlowParameters()
@@ -361,7 +384,26 @@ namespace
 
     ArchivedFlowParameters      archive_parameters;
     Vascularization::Parameters generation_parameters;
-    bool                        generate_network = false;
+    bool                        use_native_tolerances = false;
+    double displacement_tolerance = 0., velocity_tolerance = 0.,
+           pressure_tolerance = 0.;
+    coupling.add_parameter(
+      "Use native flow tolerances",
+      use_native_tolerances,
+      "Use MetricFlowX area, velocity and capacitor absolute tolerances in the coupled adapter.");
+    coupling.add_parameter(
+      "Displacement absolute tolerance",
+      displacement_tolerance,
+      "Metres; zero retains the common IDA absolute tolerance.");
+    coupling.add_parameter(
+      "Velocity absolute tolerance",
+      velocity_tolerance,
+      "Metres per second; zero retains the common IDA absolute tolerance.");
+    coupling.add_parameter(
+      "Wall pressure absolute tolerance",
+      pressure_tolerance,
+      "Pascals; zero retains the common IDA absolute tolerance.");
+    bool   generate_network     = false;
     double vessel_young_modulus = 0., vessel_wall_thickness = 0.,
            vessel_reference_pressure = 0., terminal_resistance = 0.,
            outlet_pressure = 0.;
@@ -747,6 +789,25 @@ namespace
       },
       "vessel-wall");
 
+    AssertThrow(displacement_tolerance >= 0. && velocity_tolerance >= 0. &&
+                  pressure_tolerance >= 0.,
+                ExcMessage(
+                  "Coupled absolute tolerance overrides must be nonnegative."));
+    if (displacement_tolerance > 0.)
+      adapter.set_absolute_tolerance(solid_fields.fields().displacement,
+                                     displacement_tolerance);
+    if (velocity_tolerance > 0.)
+      adapter.set_absolute_tolerance(solid_fields.fields().velocity,
+                                     velocity_tolerance);
+    if (pressure_tolerance > 0.)
+      adapter.set_absolute_tolerance(coupling_fields.fields().multiplier,
+                                     pressure_tolerance);
+    if (use_native_tolerances)
+      set_native_flow_tolerances(adapter,
+                                 flow_problem,
+                                 flow_fields.fields().state,
+                                 0);
+
     auto state = adapter.make_state();
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       {
@@ -782,9 +843,11 @@ namespace
                          pressure_projection,
                          flow_fields,
                          flow_output_name,
-                         flow_output_directory](const GlobalVector &solution,
-                                                const unsigned int  step,
-                                                const double        time) {
+                         flow_output_directory](
+                          const GlobalVector &solution,
+                          const GlobalVector &solution_dot,
+                          const unsigned int  step,
+                          const double        time) {
       std::filesystem::create_directories(flow_output_directory);
       std::filesystem::create_directories(solid_parameters.output_directory);
       const auto &flow_state =
@@ -804,7 +867,9 @@ namespace
           -1. * value(coupling_fields.fields().multiplier),
           adapter.field(solution, coupling_fields.fields().multiplier),
           pressure_projection));
-      flow_problem.write_output_step(time, flow_state);
+      const auto &flow_derivative =
+        adapter.field(solution_dot, flow_fields.fields().state);
+      flow_problem.write_output_step(time, flow_state, &flow_derivative);
       flow_problem.clear_external_pressure_provider();
       // MetricFlowX's native writer uses its runner's private clock. The
       // coupled adapter supplies the accepted times for this collection.
@@ -892,8 +957,7 @@ namespace
           adapter.field(solution, solid_fields.fields().velocity),
           time,
           step);
-        output(solution, step, time);
-        (void)solution_dot;
+        output(solution, solution_dot, step, time);
       });
 
     flow_problem.open_output_files();
