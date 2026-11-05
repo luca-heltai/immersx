@@ -572,8 +572,8 @@ namespace ImmersX
     TimerOutput::Scope t(computing_timer, "Assemble matrices and rhs");
     robin_matrix_time = current_time;
     stiffness_matrix  = 0;
-    coupling_matrix   = 0;
-    system_rhs        = 0;
+    // Its assembler owns the coupling matrix and geometry/constraint cache.
+    system_rhs = 0;
     if (par.time_mode != TimeMode::Static)
       {
         newmark_matrix = 0;

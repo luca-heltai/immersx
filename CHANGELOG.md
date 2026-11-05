@@ -249,9 +249,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Preserve the multiplier right-hand-side assembly state when updating a coupled solid at a new time, avoiding a Debug assertion on the second step with nonempty inclusions.
-
 - [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
+
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Preserve the cached coupling matrix and the multiplier right-hand-side assembly state when updating a coupled solid at a new time. Keep the coupled displacement and reaction correct on subsequent steps with nonempty inclusions.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Evaluate the legacy coupled solid at the driver's physical time, refreshing Robin springs, applied loads and nonzero essential lifting at every changed time.
 
