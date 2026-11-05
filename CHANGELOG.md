@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Download the brain and vessel grids from release v0.3 into a gitignored data directory, verify their SHA-256 checksums, and reuse verified files.
+- [PR #339](https://github.com/luca-heltai/immersx/pull/339) Download the brain and vessel grids from release v0.3 into a gitignored data directory, verify their SHA-256 checksums, and reuse verified files.
 
 - [PR #330](https://github.com/luca-heltai/immersx/pull/330) Show every recorded benchmark case in the performance overview, with separate compatible history charts and explicit unavailable native comparisons and failed measurements.
 
