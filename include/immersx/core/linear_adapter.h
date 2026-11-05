@@ -480,8 +480,22 @@ namespace ImmersX
             make_preconditioner(operator_view, state, snapshot.get());
           dealii::SolverControl control(parameters_.maximum_iterations,
                                         parameters_.tolerance);
+          // A nearly exact preconditioner leaves almost dependent Arnoldi
+          // vectors. Retain modified Gram-Schmidt instead of the delayed
+          // strategy introduced by deal.II 9.8.
+#if DEAL_II_VERSION_GTE(9, 8, 0)
           const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
-                     data(30, false, false);
+            data(30,
+                 false,
+                 false,
+                 false,
+                 false,
+                 dealii::LinearAlgebra::OrthogonalizationStrategy::
+                   modified_gram_schmidt);
+#else
+          const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
+            data(30, false, false);
+#endif
           const bool flexible =
             parameters_.preconditioner ==
               LinearPreconditioner::augmented_lagrangian ||
@@ -493,8 +507,16 @@ namespace ImmersX
               !composition_.saddle_points().empty()));
           if (flexible)
             {
+#if DEAL_II_VERSION_GTE(9, 8, 0)
               const typename dealii::SolverFGMRES<
-                GlobalVectorType>::AdditionalData    right_data(100);
+                GlobalVectorType>::AdditionalData
+                right_data(100,
+                           dealii::LinearAlgebra::OrthogonalizationStrategy::
+                             modified_gram_schmidt);
+#else
+              const typename dealii::SolverFGMRES<
+                GlobalVectorType>::AdditionalData right_data(100);
+#endif
               dealii::SolverFGMRES<GlobalVectorType> solver(control,
                                                             right_data);
               solver.solve(operator_view, state, residual, preconditioner);

@@ -175,9 +175,14 @@ namespace
       "\nend\nsubsection Robin coefficient 1\nset Function expression = 3+x\nend\n"
       "subsection Robin boundary conditions 1\nset Function expression = " +
       components(spacedim, "3+x") + "\nend\nend\nend\n");
+    SCOPED_TRACE(::testing::Message() << "dim=" << dim << ", spacedim="
+                                      << spacedim << ", simplex=" << simplex);
     ElasticStaticProblem<dim, spacedim> problem(parameters);
     problem.setup();
-    problem.solve();
+    {
+      SCOPED_TRACE("native");
+      ASSERT_NO_THROW(problem.solve());
+    }
     typename ElasticStaticProblem<dim, spacedim>::VectorType expected,
       difference;
     expected.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
@@ -206,7 +211,10 @@ namespace
       control, MPI_COMM_WORLD);
     const auto fields = adapter.add(problem);
     auto       state  = adapter.make_state();
-    adapter.solve(state);
+    {
+      SCOPED_TRACE("contributor");
+      ASSERT_NO_THROW(adapter.solve(state));
+    }
     difference = adapter.field(state, fields.fields().displacement);
     difference -= expected;
     EXPECT_LT(difference.linfty_norm(), 1.e-9);
@@ -223,7 +231,10 @@ namespace
         return make_amg_preconditioner(matrix, reinit);
       });
     auto expression_state = expression_adapter.make_state();
-    expression_adapter.solve(expression_state);
+    {
+      SCOPED_TRACE("expression");
+      ASSERT_NO_THROW(expression_adapter.solve(expression_state));
+    }
     difference = expression_adapter.field(expression_state, field);
     difference -= expected;
     EXPECT_LT(difference.linfty_norm(), 1.e-9);
