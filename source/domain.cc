@@ -63,6 +63,11 @@ namespace ImmersX
     read_gmsh_file(const std::string             &filename,
                    dealii::GridIn<dim, spacedim> &grid_in)
     {
+      // A failed open leaves an existing Gmsh session unable to read later
+      // meshes.
+      std::ifstream input(filename);
+      AssertThrow(input.good(), dealii::ExcFileNotOpen(filename));
+
       // Some Gmsh API readers ignore unnamed physical groups. Make only their
       // default ids explicit, retaining the native reader's named selectors.
       // A temporary MSH4 file also retains entities with no physical group.
@@ -254,16 +259,17 @@ namespace ImmersX
 #if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
       if (extension == "msh" || extension == "stl")
         {
-          // An inaccessible input can leave Gmsh's project lock set after
-          // gmsh::open throws. Reject it before touching a caller's session.
-          {
-            std::ifstream input(filename, std::ios::binary);
-            AssertThrow(input.is_open(), dealii::ExcFileNotOpen(filename));
-          }
           if (extension == "msh")
             read_gmsh_file(filename, grid_in);
           else if (extension == "stl")
-            grid_in.read_msh(filename);
+            {
+              // Reject failed opens before entering Gmsh's project lock.
+              {
+                std::ifstream input(filename, std::ios::binary);
+                AssertThrow(input.good(), dealii::ExcFileNotOpen(filename));
+              }
+              grid_in.read_msh(filename);
+            }
           return;
         }
 #endif

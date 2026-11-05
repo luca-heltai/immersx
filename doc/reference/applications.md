@@ -153,7 +153,7 @@ collections in serial and MPI.
 The tissue component used by `coupled_elasticity` and `pseudocoupling1D` is
 available without `lib1dsolver`. Select a fully distributed tetrahedral mesh
 under `Immersed Problem/Grid generation` and refine before distribution.
-`CoupledElasticityProblem::run_timestep0()` prepares it; update displacement
+`VesselElasticityProblem::run_timestep0()` prepares it; update displacement
 data and call `run_timestep()` for each tissue solve. Pointwise data use the
 overload taking one sample count per vessel. Gather inclusion pressures on
 all ranks before calling `split_pressure_over_inclusions` on rank zero.

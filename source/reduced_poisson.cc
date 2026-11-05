@@ -317,7 +317,7 @@ namespace ImmersX
     owned_dofs[1]    = reduced_coupling.locally_owned_representative_dofs();
     relevant_dofs[1] = reduced_coupling.locally_relevant_representative_dofs();
 
-    coupling_matrix.clear();
+    multiplier_load_matrix.clear();
 
     DynamicSparsityPattern dsp(dh.n_dofs(),
                                reduced_coupling.n_representative_dofs(),
@@ -331,7 +331,10 @@ namespace ImmersX
                                                mpi_communicator,
                                                relevant_dofs[0]);
 
-    coupling_matrix.reinit(owned_dofs[0], owned_dofs[1], dsp, mpi_communicator);
+    multiplier_load_matrix.reinit(owned_dofs[0],
+                                  owned_dofs[1],
+                                  dsp,
+                                  mpi_communicator);
     DynamicSparsityPattern outside_sparsity(relevant_dofs[1]);
     if constexpr (reduced_dim > 0)
       DoFTools::make_sparsity_pattern(
@@ -400,9 +403,9 @@ namespace ImmersX
   ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
     assemble_poisson_system()
   {
-    stiffness_matrix = 0;
-    coupling_matrix  = 0;
-    system_rhs       = 0;
+    stiffness_matrix       = 0;
+    multiplier_load_matrix = 0;
+    system_rhs             = 0;
     FEValues<spacedim>     fe_values(geometry_mapping(),
                                  *fe,
                                  *quadrature,
@@ -487,10 +490,10 @@ namespace ImmersX
   {
     reduced_coupling.assemble_reduced_rhs(system_rhs.block(1));
     reduced_coupling.assemble_outside_mass_matrix(outside_mass_matrix);
-    reduced_coupling.assemble_coupling_matrix(coupling_matrix,
-                                              dh,
-                                              constraints,
-                                              system_rhs.block(1));
+    reduced_coupling.assemble_multiplier_load_matrix(multiplier_load_matrix,
+                                                     dh,
+                                                     constraints,
+                                                     system_rhs.block(1));
   }
 
 
@@ -508,7 +511,7 @@ namespace ImmersX
   ReducedPoisson<dim, spacedim, reduced_dim, cross_section_dim>::
     coupling_matrix_frobenius_norm() const
   {
-    const double local_norm = coupling_matrix.frobenius_norm();
+    const double local_norm = multiplier_load_matrix.frobenius_norm();
     return std::sqrt(
       Utilities::MPI::sum(local_norm * local_norm, mpi_communicator));
   }
@@ -643,7 +646,7 @@ namespace ImmersX
                                                    fe_dof_indices,
                                                    inclusion_constraints,
                                                    inclusion_dof_indices,
-                                                   coupling_matrix);
+                                                   multiplier_load_matrix);
             inclusion_constraints.distribute_local_to_global(
               local_rhs, inclusion_dof_indices, system_rhs.block(1));
 
@@ -653,7 +656,7 @@ namespace ImmersX
           }
         particle = pic.end();
       }
-    coupling_matrix.compress(VectorOperation::add);
+    multiplier_load_matrix.compress(VectorOperation::add);
   #ifndef MATRIX_FREE_PATH
     stiffness_matrix.compress(VectorOperation::add);
   #endif
@@ -823,7 +826,7 @@ namespace ImmersX
         const auto B = transpose_operator(Bt);
 #else
         const auto Bt =
-          TrilinosWrappers::linear_operator<VectorType>(coupling_matrix);
+          TrilinosWrappers::linear_operator<VectorType>(multiplier_load_matrix);
         const auto B = transpose_operator(Bt);
 #endif
 
@@ -944,7 +947,7 @@ namespace ImmersX
               {
                 pcout << "Building augmented matrix..." << std::endl;
                 UtilitiesAL::create_augmented_block(stiffness_matrix,
-                                                    coupling_matrix,
+                                                    multiplier_load_matrix,
                                                     inverse_squares_reduced,
                                                     gamma,
                                                     augmented_matrix);

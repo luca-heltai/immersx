@@ -659,7 +659,11 @@ TEST(ReducedCoupling0D, VectorInitializationUsesSelectedBasisCount)
   SparsityPattern sparsity;
   sparsity.copy_from(dsp);
   SparseMatrix<double> matrix(sparsity);
-  coupling.assemble_coupling_matrix(matrix, dh, constraints);
+  coupling.assemble_multiplier_load_matrix(matrix, dh, constraints);
+  SparseMatrix<double> legacy_matrix(sparsity);
+  coupling.assemble_coupling_matrix(legacy_matrix, dh, constraints);
+  legacy_matrix.add(-1., matrix);
+  EXPECT_EQ(legacy_matrix.frobenius_norm(), 0.);
   EXPECT_GT(matrix.frobenius_norm(), 0.);
 }
 
@@ -688,7 +692,11 @@ TEST(ReducedCoupling0D, MPI_AssemblyInterfaces)
   SparsityPattern sparsity;
   sparsity.copy_from(dsp);
   SparseMatrix<double> matrix(sparsity);
-  coupling.assemble_coupling_matrix(matrix, dh, constraints);
+  coupling.assemble_multiplier_load_matrix(matrix, dh, constraints);
+  SparseMatrix<double> legacy_matrix(sparsity);
+  coupling.assemble_coupling_matrix(legacy_matrix, dh, constraints);
+  legacy_matrix.add(-1., matrix);
+  EXPECT_EQ(legacy_matrix.frobenius_norm(), 0.);
   DynamicSparsityPattern mdsp(coupling.n_representative_dofs(),
                               coupling.n_representative_dofs());
   mdsp.add(0, 0);

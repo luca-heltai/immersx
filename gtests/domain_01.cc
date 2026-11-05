@@ -621,6 +621,16 @@ TEST(Domain, BOTH_GmshPhysicalTagsAndNamedOverrides)
   gmsh::option::getNumber("Mesh.SaveWithoutOrphans", orphans);
   EXPECT_DOUBLE_EQ(scaling, 2.5);
   EXPECT_DOUBLE_EQ(orphans, 1.);
+
+  ParameterAcceptor::clear();
+  DomainParameters<3> recovery("/Gmsh recovery/");
+  recovery.name_of_grid = TestPaths::data_filename("tests/simplex_cube.msh");
+  recovery.triangulation_type = "fullydistributed";
+  recovery.initial_refinement = 0;
+  recovery.mesh_input         = "volume";
+  Domain<3> recovered(recovery);
+  ASSERT_NO_THROW(recovered.make_grid());
+  EXPECT_GT(recovered.triangulation().n_global_active_cells(), 0u);
 }
 TEST(Domain, BOTH_MissingGmshInputPreservesNextImport)
 {
