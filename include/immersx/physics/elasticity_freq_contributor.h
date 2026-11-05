@@ -10,9 +10,9 @@
 #include <immersx/core/contributor.h>
 #include <immersx/core/fe_space.h>
 #include <immersx/core/known_term.h>
+#include <immersx/core/robin_term.h>
 #include <immersx/core/weak_term.h>
 #include <immersx/physics/elasticity_freq.h>
-#include <immersx/physics/static_elasticity_term.h>
 
 #include <cmath>
 #include <memory>
@@ -47,82 +47,6 @@ namespace ImmersX
                            std::acos(-1.) / 180.;
       return imaginary ? std::sin(phase) : std::cos(phase);
     }
-    template <int spacedim>
-    class RobinAmplitude : public dealii::Function<spacedim>
-    {
-    public:
-      RobinAmplitude(const dealii::Function<spacedim> &function,
-                     const double                      factor)
-        : dealii::Function<spacedim>(function.n_components)
-        , function(function)
-        , factor(factor)
-      {}
-      double
-      value(const dealii::Point<spacedim> &point,
-            const unsigned int             component = 0) const override
-      {
-        return factor * function.value(point, component);
-      }
-      double
-      scale(const double) const
-      {
-        return 1.;
-      }
-
-    private:
-      const dealii::Function<spacedim> &function;
-      const double                      factor;
-    };
-
-    template <int dim, int spacedim>
-    struct RobinParametersView
-    {
-      using Ids = std::set<dealii::types::boundary_id>;
-      const Ids                                        &robin_ids;
-      const Ids                                        &dirichlet_ids;
-      const Ids                                        &neumann_ids;
-      mutable dealii::Functions::ZeroFunction<spacedim> robin_coefficient{1};
-      mutable dealii::Functions::ZeroFunction<spacedim> robin_rhs{spacedim};
-      std::map<dealii::types::boundary_id,
-               std::unique_ptr<RobinAmplitude<spacedim>>>
-        coefficients, loads;
-      RobinParametersView(
-        const ElasticityFreqProblemParameters<dim, spacedim> &parameters,
-        const double                                          weight,
-        const bool                                            imaginary)
-        : robin_ids(parameters.robin_ids)
-        , dirichlet_ids(parameters.dirichlet_ids)
-        , neumann_ids(parameters.neumann_ids)
-      {
-        parameters.set_boundary_condition_times(0.);
-        for (const auto id : robin_ids)
-          {
-            coefficients.emplace(id,
-                                 std::make_unique<RobinAmplitude<spacedim>>(
-                                   parameters.get_robin_coefficient(id),
-                                   weight));
-            loads.emplace(id,
-                          std::make_unique<RobinAmplitude<spacedim>>(
-                            parameters.get_robin_bc(id),
-                            weight *
-                              phase_component(parameters.robin_phase_by_id,
-                                              id,
-                                              parameters.robin_phase,
-                                              imaginary)));
-          }
-      }
-      const RobinAmplitude<spacedim> &
-      get_robin_coefficient(const dealii::types::boundary_id id) const
-      {
-        return *coefficients.at(id);
-      }
-      const RobinAmplitude<spacedim> &
-      get_robin_rhs(const dealii::types::boundary_id id) const
-      {
-        return *loads.at(id);
-      }
-    };
-
     /** Add the same constitutive law on a native or independent support. */
     template <typename Builder, typename Fields, typename Support>
     void
@@ -292,12 +216,28 @@ namespace ImmersX
           known_term(traction, test(row)).on_boundary(id).add(builder);
         }
     };
-    const harmonic_detail::RobinParametersView<dim, spacedim> real_robin(
-      parameters, volume_weight, false);
-    const harmonic_detail::RobinParametersView<dim, spacedim> imaginary_robin(
-      parameters, volume_weight, true);
-    static_elasticity_robin(real, real_robin)(builder);
-    static_elasticity_robin(imaginary, imaginary_robin)(builder);
+    parameters.set_boundary_condition_times(0.);
+    const auto add_robin = [&](const auto &row, const bool imaginary_part) {
+      robin_boundary_term(
+        row,
+        parameters.robin_ids,
+        [&parameters](const auto id) -> const Function<spacedim> & {
+          return parameters.get_robin_coefficient(id);
+        },
+        [&parameters](const auto id) -> const Function<spacedim> & {
+          return parameters.get_robin_bc(id);
+        },
+        [&parameters, imaginary_part, volume_weight](const auto id) {
+          return volume_weight *
+                 harmonic_detail::phase_component(parameters.robin_phase_by_id,
+                                                  id,
+                                                  parameters.robin_phase,
+                                                  imaginary_part);
+        },
+        volume_weight)(builder);
+    };
+    add_robin(real, false);
+    add_robin(imaginary, true);
     forcing(real, false);
     forcing(imaginary, true);
     return {real, imaginary, std::move(real_space), std::move(imaginary_space)};
