@@ -13,11 +13,13 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Export the coupled solid elastic and Robin spring energy and prescribed-load work at accepted output times.
 
-- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Precondition harmonic adapter solves with the standalone elasticity surrogate, including shared reinforcement, using one elasticity AMG hierarchy for both complex components and FGMRES for tolerance-stopped block-diagonal inner solves.
-
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Export reference pressures and boundary inflows in liver node tables, and reference resistances and flows in liver vessel tables.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Support scalar and vector Robin boundary data in Poisson, static and transient elasticity, harmonic reinforcement, lifted problems and Navier–Stokes, including their execution adapters and coupled applications. Allow spatial coefficients and per-boundary overrides, validate mixed boundary selections collectively, and expose scalar and solid Robin terms in Coral graphs. Add pressure/conductance conditions to vascular reference solves, with pressure anchoring and the prescribed-flux limit.
+
+- [PR #332](https://github.com/luca-heltai/immersx/pull/332) Name multiplier load operators, vessel elasticity postprocessing and prescribed vessel pressure explicitly. Preserve the existing C++ types, matrix storage, assembly overloads and parameter spellings as compatibility interfaces.
+
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Precondition harmonic adapter solves with the standalone elasticity surrogate, including shared reinforcement, using one elasticity AMG hierarchy for both complex components and FGMRES for tolerance-stopped block-diagonal inner solves.
 
 - [PR #330](https://github.com/luca-heltai/immersx/pull/330) Show every recorded benchmark case in the performance overview, with separate compatible history charts and explicit unavailable native comparisons and failed measurements.
 
@@ -259,10 +261,6 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Include shared reinforcement Robin springs in the positive harmonic surrogate, using their retained physical boundary support so iterative solves remain anchored without essential conditions.
 
-- [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
-
-- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Keep memory use linear in the number of contributions when constructing semidiscrete operator sums, avoiding runaway allocation before harmonic fiber-reinforcement solves.
-
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Preserve small vascular pressure drops next to large pressure offsets by refining the physical flow residual with a separate pressure correction. Keep the original conservation tolerance and total solver iteration budget.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Keep LinearAdapter solves stable near Krylov breakdown with nearly exact preconditioners by selecting modified Gram–Schmidt explicitly on deal.II 9.8 and newer, preserving the requested residual tolerance.
@@ -274,6 +272,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Avoid running the tissue solver twice after a legacy 3D/1D coupled run. Execute the pseudocoupled 1D update on its owning rank and reject an MPI-enabled legacy backend with multiple ranks before its incompatible collectives can hang.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Keep quadrature diagnostics on standard error so benchmark output remains valid JSON Lines.
+
+- [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
+
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Keep memory use linear in the number of contributions when constructing semidiscrete operator sums, avoiding runaway allocation before harmonic fiber-reinforcement solves.
 
 - [PR #329](https://github.com/luca-heltai/immersx/pull/329) Omit exterior reinforcement quadrature points from shared harmonic elasticity, retaining interior samples of partially overlapping fibers and reporting their retained volume.
 - [PR #335](https://github.com/luca-heltai/immersx/pull/335) Preserve unnamed Gmsh physical material and boundary ids during Domain imports without changing named material, boundary or manifold selectors. Keep untagged entities, input files and Gmsh output settings intact.
@@ -469,11 +471,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Verify Robin pressure and flux laws through the liver application, and time-dependent solid spring energy with a native MetricFlowX RCR network, in Debug and Release with one and two MPI ranks. Bound each application run below two minutes.
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Exercise Robin boundary conditions with manufactured scalar, solid, flow and vascular solutions, including actual Coral graphs. Bound harmonic application tests to 115 seconds and put a watchdog inside every MPI rank.
+
 - [PR #340](https://github.com/luca-heltai/immersx/pull/340) Send lifted-support benchmark assembly diagnostics to stderr so its JSONL output passes strict correctness validation.
 
 - [PR #334](https://github.com/luca-heltai/immersx/pull/334) Treat changes to the performance viewer browser check as documentation inputs, avoiding numerical, Coral and benchmark jobs when no solver or runtime input changes. Keep mixed changes on the full PR path.
-
-- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Exercise Robin boundary conditions with manufactured scalar, solid, flow and vascular solutions, including actual Coral graphs. Bound harmonic application tests to 115 seconds and put a watchdog inside every MPI rank.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Keep lifted elasticity application checks within 115 seconds and reduce the three-dimensional multiplier fixture while preserving two global refinement cycles, three multiplier fields and solver tolerances.
 

@@ -440,7 +440,7 @@ namespace ImmersX
      * Assembled sparse operators and mapping.
      */
     /// @{
-    LA::MPI::SparseMatrix coupling_matrix;
+    LA::MPI::SparseMatrix multiplier_load_matrix;
     LA::MPI::SparseMatrix outside_mass_matrix;
     LA::MPI::SparseMatrix inclusion_matrix; ///< Multiplier mass/scaling matrix.
     LA::MPI::SparseMatrix mass_matrix;      ///< Bulk mass matrix.

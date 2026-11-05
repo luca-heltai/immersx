@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include <immersx/physics/coupled_elasticity.h>
+#include <immersx/physics/vessel_elasticity.h>
 
 using namespace ImmersX;
 #include <immersx/io/utils.h>
@@ -14,7 +14,7 @@ using namespace ImmersX;
 
 #include "test_paths.h"
 
-// Tests of CoupledElasticityProblem on a straight cylinder along x embedded in
+// Tests of VesselElasticityProblem on a straight cylinder along x embedded in
 // a cube: a comparison of point and tensor-product coupling, and one test per
 // member function for both coupling types. The reduced grids and inclusion
 // files are generated in the test output directory.
@@ -231,12 +231,12 @@ namespace
   // `test`. The problem is built before parsing, as in app_coupled_elasticity,
   // so that its Inclusions member reads its parameters too.
   void
-  with_problem(const std::string                                        &text,
-               const std::function<void(CoupledElasticityProblem<3> &)> &test)
+  with_problem(const std::string                                       &text,
+               const std::function<void(VesselElasticityProblem<3> &)> &test)
   {
     ParameterAcceptor::clear();
     ElasticityProblemParameters<3> par;
-    CoupledElasticityProblem<3>    problem(par);
+    VesselElasticityProblem<3>     problem(par);
     initialize_parameters();
     ParameterAcceptor::prm.parse_input_from_string(text);
     ParameterAcceptor::parse_all_parameters();

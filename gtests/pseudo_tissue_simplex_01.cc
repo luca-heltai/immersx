@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <gtest/gtest.h>
 #include <immersx/io/utils.h>
-#include <immersx/physics/coupled_elasticity.h>
+#include <immersx/physics/vessel_elasticity.h>
 
 #include "test_paths.h"
 using namespace ImmersX;
@@ -11,7 +11,7 @@ TEST(ElasticityValidation, BOTH_SimplexVesselwisePseudoExchange)
 {
   ParameterAcceptor::clear();
   ElasticityProblemParameters<3> parameters;
-  CoupledElasticityProblem<3>    problem(parameters);
+  VesselElasticityProblem<3>     problem(parameters);
   initialize_parameters(
     TestPaths::parameter_path("gtests/parameters/pseudocoupling_simplex.prm"));
   problem.run_timestep0();

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <immersx/coupling/inclusions.h>
 #include <immersx/io/utils.h>
-#include <immersx/physics/coupled_elasticity.h>
+#include <immersx/physics/vessel_elasticity.h>
 
 #include <filesystem>
 
@@ -49,7 +49,7 @@ TEST(Inclusion3, CheckVesselsRejectsMissingZero)
   EXPECT_ANY_THROW(n_vessels_of_inclusions({1, 2}));
 }
 
-// CoupledElasticityProblem, run as app_coupled_elasticity does without a 1D
+// VesselElasticityProblem, run as app_coupled_elasticity does without a 1D
 // model, must give the same solution as ElasticityProblem::run() on the same
 // input file.
 TEST(CoupledElasticity, BOTH_SameSolutionAsElasticity)
@@ -74,7 +74,7 @@ TEST(CoupledElasticity, BOTH_SameSolutionAsElasticity)
   {
     ParameterAcceptor::clear();
     ElasticityProblemParameters<3> par;
-    CoupledElasticityProblem<3>    problem(par);
+    VesselElasticityProblem<3>     problem(par);
     initialize_parameters(parameter_file);
     problem.run_timestep0();
     problem.run_timestep();

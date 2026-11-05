@@ -184,23 +184,23 @@ namespace ImmersX
       const AffineConstraints<double> &constraints) const;
 
     /**
-     * @brief Assemble the coupling matrix between background and reduced spaces.
+     * @brief Assemble the matrix mapping multiplier coefficients to background loads.
      *
-     * The entries are B_ij = int_gamma int_D(s) v_i . (psi phi_c)_j dD ds, a
-     * surface integral over the cross sections D(s) along the reduced domain
+     * The entries are (B^T)_ij = int_gamma int_D(s) v_i . (psi phi_c)_j dD ds,
+     * a surface integral over the cross sections D(s) along the reduced domain
      * gamma. Point coupling instead uses the plain average
      * 1/|S| int_S v_i . phi_j over the circle S of each inclusion, which does
      * not grow with the size of the inclusion.
      *
      * @tparam MatrixType The matrix type (e.g., SparseMatrix<double>).
-     * @param coupling_matrix The matrix to assemble.
+     * @param multiplier_load_matrix The matrix to assemble.
      * @param dh The DoFHandler for the background domain.
      * @param constraints The affine constraints to apply.
      */
     template <typename MatrixType>
     void
-    assemble_coupling_matrix(
-      MatrixType                      &coupling_matrix,
+    assemble_multiplier_load_matrix(
+      MatrixType                      &multiplier_load_matrix,
       const DoFHandler<spacedim>      &dh,
       const AffineConstraints<double> &constraints) const;
 
@@ -212,10 +212,32 @@ namespace ImmersX
      */
     template <typename MatrixType, typename VectorType>
     void
-    assemble_coupling_matrix(MatrixType                      &coupling_matrix,
+    assemble_multiplier_load_matrix(
+      MatrixType                      &multiplier_load_matrix,
+      const DoFHandler<spacedim>      &dh,
+      const AffineConstraints<double> &constraints,
+      VectorType                      &reduced_rhs) const;
+
+    /** Compatibility spelling for assemble_multiplier_load_matrix(). */
+    template <typename MatrixType>
+    void
+    assemble_coupling_matrix(MatrixType                      &matrix,
+                             const DoFHandler<spacedim>      &dh,
+                             const AffineConstraints<double> &constraints) const
+    {
+      assemble_multiplier_load_matrix(matrix, dh, constraints);
+    }
+
+    /** Compatibility overload retaining prescribed background values. */
+    template <typename MatrixType, typename VectorType>
+    void
+    assemble_coupling_matrix(MatrixType                      &matrix,
                              const DoFHandler<spacedim>      &dh,
                              const AffineConstraints<double> &constraints,
-                             VectorType &reduced_rhs) const;
+                             VectorType                      &reduced_rhs) const
+    {
+      assemble_multiplier_load_matrix(matrix, dh, constraints, reduced_rhs);
+    }
 
     /**
      * @brief Assemble the mass matrix of the multiplier space.
@@ -306,10 +328,11 @@ namespace ImmersX
 
     template <typename MatrixType, typename VectorType>
     void
-    assemble_coupling_matrix_impl(MatrixType                 &coupling_matrix,
-                                  const DoFHandler<spacedim> &dh,
-                                  const AffineConstraints<double> &constraints,
-                                  VectorType *reduced_rhs) const;
+    assemble_multiplier_load_matrix_impl(
+      MatrixType                      &multiplier_load_matrix,
+      const DoFHandler<spacedim>      &dh,
+      const AffineConstraints<double> &constraints,
+      VectorType                      *reduced_rhs) const;
 
     /**
      * @brief The MPI communicator used for parallel operations.
@@ -356,36 +379,37 @@ namespace ImmersX
   template <typename MatrixType>
   inline void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-    assemble_coupling_matrix(MatrixType                      &matrix,
-                             const DoFHandler<spacedim>      &dh,
-                             const AffineConstraints<double> &constraints) const
+    assemble_multiplier_load_matrix(
+      MatrixType                      &matrix,
+      const DoFHandler<spacedim>      &dh,
+      const AffineConstraints<double> &constraints) const
   {
-    assemble_coupling_matrix_impl(matrix,
-                                  dh,
-                                  constraints,
-                                  static_cast<Vector<double> *>(nullptr));
+    assemble_multiplier_load_matrix_impl(
+      matrix, dh, constraints, static_cast<Vector<double> *>(nullptr));
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
   template <typename MatrixType, typename VectorType>
   inline void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-    assemble_coupling_matrix(MatrixType                      &matrix,
-                             const DoFHandler<spacedim>      &dh,
-                             const AffineConstraints<double> &constraints,
-                             VectorType                      &rhs) const
+    assemble_multiplier_load_matrix(
+      MatrixType                      &matrix,
+      const DoFHandler<spacedim>      &dh,
+      const AffineConstraints<double> &constraints,
+      VectorType                      &rhs) const
   {
-    assemble_coupling_matrix_impl(matrix, dh, constraints, &rhs);
+    assemble_multiplier_load_matrix_impl(matrix, dh, constraints, &rhs);
   }
 
   template <int reduced_dim, int dim, int spacedim, int n_components>
   template <typename MatrixType, typename VectorType>
   inline void
   ReducedCoupling<reduced_dim, dim, spacedim, n_components>::
-    assemble_coupling_matrix_impl(MatrixType                 &coupling_matrix,
-                                  const DoFHandler<spacedim> &dh,
-                                  const AffineConstraints<double> &constraints,
-                                  VectorType *reduced_rhs) const
+    assemble_multiplier_load_matrix_impl(
+      MatrixType                      &multiplier_load_matrix,
+      const DoFHandler<spacedim>      &dh,
+      const AffineConstraints<double> &constraints,
+      VectorType                      *reduced_rhs) const
   {
     const auto add_affine_load =
       [&](const FullMatrix<double>                   &local,
@@ -443,7 +467,7 @@ namespace ImmersX
                                                    background_dof_indices,
                                                    coupling_constraints,
                                                    entity_dofs,
-                                                   coupling_matrix);
+                                                   multiplier_load_matrix);
           }
       }
     else
@@ -524,12 +548,12 @@ namespace ImmersX
                                                        background_dof_indices,
                                                        coupling_constraints,
                                                        immersed_dof_indices,
-                                                       coupling_matrix);
+                                                       multiplier_load_matrix);
               }
             particle = pic.end();
           }
       }
-    coupling_matrix.compress(VectorOperation::add);
+    multiplier_load_matrix.compress(VectorOperation::add);
     if (reduced_rhs != nullptr)
       reduced_rhs->compress(VectorOperation::add);
   }

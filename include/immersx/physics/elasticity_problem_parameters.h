@@ -196,16 +196,32 @@ namespace ImmersX
     /**
      * Toggle load transfer through inclusion pressure projection.
      */
-    bool pressure_coupling = false;
+    bool pressure_coupling =
+      false; ///< Compatibility storage; use the accessors below.
+
+    /** Select prescribed vessel pressure instead of a displacement constraint.
+     * This does not enable or disable exchange with an external solver.
+     */
+    bool
+    uses_prescribed_vessel_pressure() const
+    {
+      return pressure_coupling;
+    }
+
+    void
+    set_prescribed_vessel_pressure(const bool prescribed)
+    {
+      pressure_coupling = prescribed;
+    }
 
     /**
      * The elastic material also fills the vessels, so the multiplier is the
      * jump between the normal stress of the tissue and that of the material
      * inside the vessel. If this is true, the pressure computed by
-     * CoupledElasticityProblem::compute_pressure_at_immersed_surface() adds
+     * VesselElasticityProblem::compute_pressure_at_immersed_surface() adds
      * back the analytic normal stress of the interior material, so that it is
      * the normal stress of the tissue alone. See
-     * doc/concepts/vessel-pressure.md.
+     * doc/reference/coupling-names.md.
      */
     bool remove_interior_stress_from_pressure = true;
 
