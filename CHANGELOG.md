@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Select composed normal or MUMPS-BLR preconditioning for harmonic reinforcement through solver parameters, with controls for inner CG accuracy, the FGMRES basis, BLR truncation and MUMPS workspace.
+- [PR #347](https://github.com/luca-heltai/immersx/pull/347) Select composed normal or MUMPS-BLR preconditioning for harmonic reinforcement through solver parameters, with controls for inner CG accuracy, the FGMRES basis, BLR truncation and MUMPS workspace.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Export the coupled solid elastic and Robin spring energy and prescribed-load work at accepted output times.
 
