@@ -257,6 +257,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Reject inaccessible Gmsh mesh inputs before importing them, preserving subsequent valid imports when Gmsh leaves its project lock set after a missing-file error.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Include shared reinforcement Robin springs in the positive harmonic surrogate, using their retained physical boundary support so iterative solves remain anchored without essential conditions.
 
 - [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
