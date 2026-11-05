@@ -572,7 +572,8 @@ namespace ImmersX
     TimerOutput::Scope t(computing_timer, "Assemble matrices and rhs");
     robin_matrix_time = current_time;
     stiffness_matrix  = 0;
-    // Its assembler owns the multiplier load matrix and geometry/constraint cache.
+    // Its assembler owns the multiplier load matrix and geometry/constraint
+    // cache.
     system_rhs = 0;
     if (par.time_mode != TimeMode::Static)
       {
