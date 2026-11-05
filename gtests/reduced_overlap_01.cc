@@ -443,7 +443,7 @@ namespace
         integrals[i] += weights[q][0] * modes[q][i];
     for (auto &integral : integrals)
       integral = Utilities::MPI::sum(integral, MPI_COMM_WORLD);
-    coupling.assemble_coupling_matrix(matrix, dh, constraints, rhs);
+    coupling.assemble_multiplier_load_matrix(matrix, dh, constraints, rhs);
     EXPECT_LT(matrix.frobenius_norm(), 1.e-13);
     for (const auto i : owned_lambda)
       EXPECT_NEAR(rhs[i], 3. + i - integrals[i], 1.e-12);

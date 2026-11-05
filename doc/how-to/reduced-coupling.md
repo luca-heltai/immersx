@@ -42,7 +42,7 @@ the reduced datum first and pass it to the four-argument matrix overload:
 
 ```cpp
 coupling.assemble_reduced_rhs(reduced_rhs);
-coupling.assemble_coupling_matrix(matrix, bulk_dofs, bulk_constraints, reduced_rhs);
+coupling.assemble_multiplier_load_matrix(matrix, bulk_dofs, bulk_constraints, reduced_rhs);
 ```
 
 The matrix has background rows and representative columns. The overload

@@ -20,7 +20,7 @@
 #include <iomanip>
 
 #if 1
-#  include <immersx/physics/coupled_elasticity.h>
+#  include <immersx/physics/vessel_elasticity.h>
 
 using namespace ImmersX;
 #endif
@@ -85,7 +85,7 @@ main(int argc, char *argv[])
                                 TimerOutput::wall_times);
 
               ElasticityProblemParameters<3> par;
-              CoupledElasticityProblem<3>    problem3D(par);
+              VesselElasticityProblem<3>     problem3D(par);
               initialize_parameters(prm_file);
               if ((coupling_mode == 1) &&
                   (problem3D.inclusions.cluster_with_segments == true))
@@ -192,24 +192,24 @@ main(int argc, char *argv[])
 
                         if (coupling_mode == 0)
                           {
-                            Vector<double> coupling_pressure(
+                            Vector<double> vessel_wall_pressure(
                               problem3D.pressure_at_immersed_surface);
-                            coupling_pressure *= Pa_to_dyn_conversion;
-                            coupling_pressure *= -1;
+                            vessel_wall_pressure *= Pa_to_dyn_conversion;
+                            vessel_wall_pressure *= -1;
 
-                            // baseline - coupling_pressure
+                            // baseline - vessel_wall_pressure
 
                             if (Utilities::MPI::this_mpi_process(
                                   MPI_COMM_WORLD) == 0)
                               {
-                                AssertDimension(coupling_pressure.size(),
+                                AssertDimension(vessel_wall_pressure.size(),
                                                 pb1D.NV);
 
                                 for (int i = 0; i < pb1D.NV; i++)
                                   for (int j = 0; j < pb1D.vess[i].NCELLS; j++)
                                     {
                                       pb1D.vess[i].setpeconst(
-                                        j, (coupling_pressure[i]));
+                                        j, (vessel_wall_pressure[i]));
                                     }
                               }
                           }
@@ -225,18 +225,19 @@ main(int argc, char *argv[])
                                   MPI_COMM_WORLD) == 0)
                               {
                                 std::vector<std::vector<double>>
-                                  coupling_pressure_pointwise =
+                                  vessel_wall_pressure_pointwise =
                                     problem3D.split_pressure_over_inclusions(
                                       number_of_cells_per_vessel, pressure);
 
                                 AssertDimension(
-                                  coupling_pressure_pointwise.size(), pb1D.NV);
+                                  vessel_wall_pressure_pointwise.size(),
+                                  pb1D.NV);
 
                                 for (int i = 0; i < pb1D.NV; i++)
                                   for (int j = 0; j < pb1D.vess[i].NCELLS; j++)
                                     {
                                       auto pe =
-                                        coupling_pressure_pointwise[i][j] *
+                                        vessel_wall_pressure_pointwise[i][j] *
                                         Pa_to_dyn_conversion;
                                       pe *= -1;
                                       pb1D.vess[i].setpeconst(j, pe);
@@ -329,7 +330,7 @@ main(int argc, char *argv[])
           if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
             std::cout << "Running uncoupled 3D problem" << std::endl;
           ElasticityProblemParameters<3> par;
-          CoupledElasticityProblem<3>    problem3D(par);
+          VesselElasticityProblem<3>     problem3D(par);
           initialize_parameters(prm_file);
           problem3D.run_timestep0();
           problem3D.run_timestep();
@@ -339,7 +340,7 @@ main(int argc, char *argv[])
       if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
         std::cout << "Running uncoupled 3D problem" << std::endl;
       ElasticityProblemParameters<3> par;
-      CoupledElasticityProblem<3>    problem3D(par);
+      VesselElasticityProblem<3>     problem3D(par);
       initialize_parameters(prm_file);
       problem3D.run_timestep0();
       problem3D.run_timestep();

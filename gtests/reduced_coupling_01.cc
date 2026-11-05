@@ -128,7 +128,7 @@ TEST(ReducedCoupling, CheckMatrices) // NOLINT
                          coupling.get_dof_handler().locally_owned_dofs(),
                          dsp,
                          MPI_COMM_WORLD);
-  coupling.assemble_coupling_matrix(coupling_matrix, dh, constraints);
+  coupling.assemble_multiplier_load_matrix(coupling_matrix, dh, constraints);
 
   // Now build a vector
   LinearAlgebraTrilinos::MPI::Vector back_vector;
@@ -202,9 +202,9 @@ TEST(ReducedCoupling, PositiveDimensionalAssemblySeparatesRepresentativeCells)
 
   SparseMatrix<double> coupling_matrix;
   coupling_matrix.reinit(sparsity);
-  coupling.assemble_coupling_matrix(coupling_matrix,
-                                    background_dh,
-                                    constraints);
+  coupling.assemble_multiplier_load_matrix(coupling_matrix,
+                                           background_dh,
+                                           constraints);
 
   SparseMatrix<double> expected_matrix;
   expected_matrix.reinit(sparsity);

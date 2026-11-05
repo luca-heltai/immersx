@@ -9,6 +9,7 @@ Reference pages are exhaustive and factual rather than tutorial narratives.
 applications
 parameters
 robin-boundaries
+coupling-names
 verification
 C++ API <../api/library_root>
 ```

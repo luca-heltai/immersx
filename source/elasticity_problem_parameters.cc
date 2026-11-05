@@ -78,11 +78,14 @@ namespace ImmersX
     add_parameter("Rhs material ids", rhs_material_ids);
     add_parameter("Output pressure", output_pressure);
     add_parameter(
-      "Pressure coupling",
+      "Prescribed vessel pressure",
       pressure_coupling,
       "If this is true, then we do NOT solve a saddle point problem, but we use the "
       "input data as a pressure field on the vasculature network, and we solve for "
       "the displacement field directly.");
+    enter_my_subsection(this->prm);
+    this->prm.declare_alias("Prescribed vessel pressure", "Pressure coupling");
+    leave_my_subsection(this->prm);
     add_parameter(
       "Remove interior stress from pressure",
       remove_interior_stress_from_pressure,

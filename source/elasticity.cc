@@ -1416,10 +1416,10 @@ namespace ImmersX
     if (n_multiplier_dofs() == 0)
       return;
     TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
-    const bool         constraint_coupling =
-      par.time_mode == TimeMode::Static && !par.pressure_coupling;
+    const bool constraint_coupling = par.time_mode == TimeMode::Static &&
+                                     !par.uses_prescribed_vessel_pressure();
     if (rebuild_matrices)
-      coupling_matrix = 0.;
+      multiplier_load_matrix() = 0.;
     LA::MPI::Vector affine_rhs(owned_dofs[1], mpi_communicator);
     std::vector<types::global_dof_index> native_indices(fe->n_dofs_per_cell());
     auto particle = inclusions.inclusions_as_particles.begin();
@@ -1469,7 +1469,7 @@ namespace ImmersX
                                                      native_indices,
                                                      inclusion_constraints,
                                                      indices,
-                                                     coupling_matrix);
+                                                     multiplier_load_matrix());
             if (constraint_coupling)
               {
                 Vector<double> local_affine(indices.size());
@@ -1487,7 +1487,7 @@ namespace ImmersX
       }
     if (rebuild_matrices)
       {
-        coupling_matrix.compress(VectorOperation::add);
+        multiplier_load_matrix().compress(VectorOperation::add);
         inclusions.assemble_coupling_mass_matrix(inclusion_matrix);
         inclusions.assemble_outside_mass_matrix(outside_mass_matrix);
       }
@@ -1576,12 +1576,13 @@ namespace ImmersX
       }
     else
       {
-        if (par.pressure_coupling == false)
+        if (par.uses_prescribed_vessel_pressure() == false)
           {
             // Solve a saddle point problem
-            const auto Bt = linear_operator<LA::MPI::Vector>(coupling_matrix);
-            const auto B  = transpose_operator(Bt);
-            const auto M  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
+            const auto Bt =
+              linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
+            const auto B = transpose_operator(Bt);
+            const auto M = linear_operator<LA::MPI::Vector>(inclusion_matrix);
 
             if (par.estimate_condition_number)
               {
@@ -1727,10 +1728,11 @@ namespace ImmersX
           }
         else
           {
-            // pressure_coupling == true
-            const auto Bt = linear_operator<LA::MPI::Vector>(coupling_matrix);
-            const auto B  = transpose_operator(Bt);
-            const auto M  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
+            // Prescribed vessel pressure load.
+            const auto Bt =
+              linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
+            const auto B = transpose_operator(Bt);
+            const auto M = linear_operator<LA::MPI::Vector>(inclusion_matrix);
             const auto amgM = linear_operator(M, prec_M);
 
             // Solver for M
@@ -1766,7 +1768,7 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Solve (quasistatic)");
 
-    AssertThrow(par.pressure_coupling == false ||
+    AssertThrow(par.uses_prescribed_vessel_pressure() == false ||
                   uses_tensor_product_coupling() || n_multiplier_dofs() == 0,
                 ExcNotImplemented("Quasi-static pressure coupling is not "
                                   "implemented for point coupling."));
@@ -1786,7 +1788,8 @@ namespace ImmersX
       u = invA * f;
     else
       {
-        const auto Bt   = linear_operator<LA::MPI::Vector>(coupling_matrix);
+        const auto Bt =
+          linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
         const auto B    = transpose_operator(Bt);
         const auto M    = linear_operator<LA::MPI::Vector>(inclusion_matrix);
         const auto amgM = linear_operator(M, prec_M);
@@ -1814,10 +1817,10 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Solve (newmark)");
 
-    AssertThrow(par.pressure_coupling == true ||
+    AssertThrow(par.uses_prescribed_vessel_pressure() == true ||
                   uses_tensor_product_coupling() || n_multiplier_dofs() == 0,
                 ExcNotImplemented(
-                  "Dynamic solve with pressure_coupling == false "
+                  "Dynamic solve without prescribed vessel pressure "
                   "is not implemented for point coupling."));
 
     const auto A = linear_operator<LA::MPI::Vector>(stiffness_matrix);
@@ -1897,9 +1900,10 @@ namespace ImmersX
         else
           {
             // Solve the problem with input data coming from the file.
-            const auto Bt = linear_operator<LA::MPI::Vector>(coupling_matrix);
-            const auto B  = transpose_operator(Bt);
-            const auto M  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
+            const auto Bt =
+              linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
+            const auto B = transpose_operator(Bt);
+            const auto M = linear_operator<LA::MPI::Vector>(inclusion_matrix);
             const auto amgM = linear_operator(M, prec_M);
 
             // Solver for M
@@ -2823,7 +2827,8 @@ namespace ImmersX
             }
           else
             {
-              const auto Bt = linear_operator<LA::MPI::Vector>(coupling_matrix);
+              const auto Bt =
+                linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
               const auto M = linear_operator<LA::MPI::Vector>(inclusion_matrix);
               const auto amgM = linear_operator(M, prec_M);
 

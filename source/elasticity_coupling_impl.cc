@@ -92,11 +92,11 @@ namespace ImmersX
                                                    owned_dofs[0],
                                                    mpi_communicator,
                                                    relevant_dofs[0]);
-        coupling_matrix.clear();
-        coupling_matrix.reinit(owned_dofs[0],
-                               owned_dofs[1],
-                               dsp,
-                               mpi_communicator);
+        multiplier_load_matrix().clear();
+        multiplier_load_matrix().reinit(owned_dofs[0],
+                                        owned_dofs[1],
+                                        dsp,
+                                        mpi_communicator);
 
         DynamicSparsityPattern idsp(relevant_dofs[1]);
         for (const auto inclusion :
@@ -147,8 +147,11 @@ namespace ImmersX
                                                mpi_communicator,
                                                relevant_dofs[0]);
 
-    coupling_matrix.clear();
-    coupling_matrix.reinit(owned_dofs[0], owned_dofs[1], dsp, mpi_communicator);
+    multiplier_load_matrix().clear();
+    multiplier_load_matrix().reinit(owned_dofs[0],
+                                    owned_dofs[1],
+                                    dsp,
+                                    mpi_communicator);
 
     DynamicSparsityPattern               idsp(relevant_dofs[1]);
     std::vector<types::global_dof_index> tensor_product_cell_dofs(
@@ -187,31 +190,30 @@ namespace ImmersX
     AssertThrow(tensor_product_coupling,
                 ExcMessage("Tensor-product coupling not initialized"));
 
-    coupling_matrix     = 0;
-    inclusion_matrix    = 0;
-    system_rhs.block(1) = 0;
-    force_rhs.block(1)  = 0;
+    multiplier_load_matrix() = 0;
+    inclusion_matrix         = 0;
+    system_rhs.block(1)      = 0;
+    force_rhs.block(1)       = 0;
 
     // Assemble the tensor-product rhs and copy it into the system rhs. The
     // cross-section modes have maximum one, as in point coupling, so the data
     // are the amplitudes of the modes (see
     // ReducedCoupling::assemble_reduced_rhs()).
-    if (par.pressure_coupling || par.time_mode != TimeMode::Static)
+    if (par.uses_prescribed_vessel_pressure() ||
+        par.time_mode != TimeMode::Static)
       tensor_product_coupling->assemble_prescribed_rhs(force_rhs.block(1));
     else
       tensor_product_coupling->assemble_reduced_rhs(force_rhs.block(1));
     system_rhs.block(1) = force_rhs.block(1);
     // Finish the copy on every rank before adding affine constraint loads.
     system_rhs.block(1).compress(VectorOperation::insert);
-    if (par.pressure_coupling || par.time_mode != TimeMode::Static)
-      tensor_product_coupling->assemble_coupling_matrix(coupling_matrix,
-                                                        dh,
-                                                        constraints);
+    if (par.uses_prescribed_vessel_pressure() ||
+        par.time_mode != TimeMode::Static)
+      tensor_product_coupling->assemble_multiplier_load_matrix(
+        multiplier_load_matrix(), dh, constraints);
     else
-      tensor_product_coupling->assemble_coupling_matrix(coupling_matrix,
-                                                        dh,
-                                                        constraints,
-                                                        system_rhs.block(1));
+      tensor_product_coupling->assemble_multiplier_load_matrix(
+        multiplier_load_matrix(), dh, constraints, system_rhs.block(1));
 
     // Assemble the tensor-product mass matrix.
     tensor_product_coupling->assemble_coupling_mass_matrix(inclusion_matrix);
