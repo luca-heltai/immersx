@@ -535,6 +535,44 @@ namespace
   }
 } // namespace
 
+TEST(VascularReferenceFlow, BOTH_MixedRobinHighConductancePreservesLocalBalance)
+{
+  for (const double radius : {.003, .01})
+    {
+      SCOPED_TRACE(radius);
+      auto full = av();
+      for (auto &[id, vessel] : full.vessels)
+        vessel.radii = {{radius, radius}};
+      const auto   n    = reference_partition(full);
+      const auto   rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+      const double beta = 5.e-13, load = 8.e-9, pressure = 4000.;
+      const double bed_resistance = 4.e12;
+      long double  resistance     = bed_resistance;
+      for (const auto &[id, vessel] : full.vessels)
+        resistance += 8.L * vessel.viscosity * length(full, id) /
+                      (numbers::PI * std::pow(radius, 4));
+      const double expected =
+        static_cast<double>((static_cast<long double>(load) - beta * pressure) /
+                            (1.L + beta * resistance));
+      ReferenceConditions bc;
+      if (rank == 0)
+        {
+          bc.pressures[2] = pressure;
+          bc.robin[0]     = {beta, load};
+        }
+      const std::vector<TerminalPair> pairs =
+        rank == 0 ? std::vector<TerminalPair>{{99, 11, 12, bed_resistance}} :
+                    std::vector<TerminalPair>{};
+      const auto state = solve(n, bc, pairs);
+      ASSERT_TRUE(state.validation.valid());
+      for (const auto &[id, vessel] : state.vessels)
+        EXPECT_NEAR(vessel.flow / expected, id == 100 ? 1. : -1., 1.e-10);
+      if (state.territories.count(99))
+        EXPECT_NEAR(state.territories.at(99).flow / expected, 1., 1.e-12);
+      EXPECT_LE(state.relative_flow_defect, 1.e-10);
+    }
+}
+
 TEST(VascularReferenceFlow, BOTH_RobinParameterFileUsesPhysicalNodeIds)
 {
   ParameterAcceptor::clear();

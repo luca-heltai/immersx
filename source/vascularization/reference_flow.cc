@@ -820,15 +820,90 @@ namespace ImmersX::Vascularization
     work.zero_out_ghost_values();
     work.copy_locally_owned_data_from(solution);
     work.update_ghost_values();
+    // Keep the correction separate from the pressure offset. Adding it to
+    // solution would round away precisely the small differences needed for
+    // Kirchhoff balance in highly conducting vessels.
+    Vector correction(layout), correction_work(ghost_layout);
+    double defect = 0., physical_scale = 0.;
+    for (std::size_t i = 0; i < rows.size(); ++i)
+      if (fixed.local_element(i) == 0.)
+        {
+          const Index index  = offset + i;
+          long double source = owned_bc.inflows.count(owned_ids[i]) ?
+                                 owned_bc.inflows.at(owned_ids[i]) :
+                                 0.;
+          if (const auto bc = owned_bc.robin.find(owned_ids[i]);
+              bc != owned_bc.robin.end())
+            source += static_cast<long double>(bc->second.second) -
+                      static_cast<long double>(bc->second.first) *
+                        (static_cast<long double>(lifting_values[index]) +
+                         work_values[index]);
+          physical_scale =
+            std::max(physical_scale, std::abs(static_cast<double>(source)));
+          for (const auto &arc : rows[i])
+            {
+              const long double q =
+                ((static_cast<long double>(work_values[index]) -
+                  work_values[arc.neighbor.index]) +
+                 (static_cast<long double>(lifting_values[index]) -
+                  lifting_values[arc.neighbor.index])) /
+                arc.resistance;
+              source -= q;
+              physical_scale =
+                std::max(physical_scale, std::abs(static_cast<double>(q)));
+            }
+          rhs.local_element(i) = static_cast<double>(source);
+          defect = std::max(defect, std::abs(rhs.local_element(i)));
+        }
+      else
+        rhs.local_element(i) = 0.;
+    defect         = Utilities::MPI::max(defect, communicator);
+    physical_scale = Utilities::MPI::max(physical_scale, communicator);
+    if (control.last_check() == SolverControl::success &&
+        defect >
+          parameters.absolute_flow_tolerance +
+            parameters.conservation_relative_tolerance * physical_scale &&
+        result.iterations < parameters.maximum_iterations)
+      {
+        ReductionControl refinement_control(
+          parameters.maximum_iterations - result.iterations,
+          0.,
+          parameters.linear_relative_tolerance,
+          false,
+          false);
+        SolverCG<Vector> refinement(refinement_control);
+        try
+          {
+            refinement.solve(op, correction, rhs, jacobi);
+          }
+        catch (const SolverControl::NoConvergence &)
+          {
+            issue(
+              "reference",
+              invalid_id,
+              "Reference residual refinement exhausted its convergence budget.");
+          }
+        result.iterations += refinement_control.last_step();
+        result.linear_residual = refinement_control.last_value();
+        // vmult uses work as scratch, so restore the original high part.
+        work.zero_out_ghost_values();
+        work.copy_locally_owned_data_from(solution);
+        work.update_ghost_values();
+      }
+    correction_work.copy_locally_owned_data_from(correction);
+    correction_work.update_ghost_values();
+    const Vector &correction_values = correction_work;
     for (const auto &[id, n] : nodes)
       {
-        const double pressure = work_values[n.index] + lifting_values[n.index];
-        result.pressures[id]  = pressure;
+        const double pressure = work_values[n.index] + lifting_values[n.index] +
+                                correction_values[n.index];
+        result.pressures[id] = pressure;
         if (!std::isfinite(pressure))
           issue("pressure", id, "Reference pressure is not finite.");
       }
     const auto flow = [&](Index i, Index j, double r) {
       return ((work_values[i] - work_values[j]) +
+              (correction_values[i] - correction_values[j]) +
               (lifting_values[i] - lifting_values[j])) /
              r;
     };
@@ -880,10 +955,13 @@ namespace ImmersX::Vascularization
         for (unsigned int i = 0; i < 3; ++i)
           {
             const Index index = nodes.at(pair_terminals.at(ids[i]).node).index;
-            differences[i]    = static_cast<long double>(work_values[index]) -
-                             work_values[origin] +
-                             static_cast<long double>(lifting_values[index]) -
-                             lifting_values[origin];
+            differences[i] =
+              static_cast<long double>(work_values[index]) -
+              work_values[origin] +
+              static_cast<long double>(correction_values[index]) -
+              correction_values[origin] +
+              static_cast<long double>(lifting_values[index]) -
+              lifting_values[origin];
             conductance[i] = 1.L / t.resistances[i];
             sum += conductance[i];
             weighted += conductance[i] * differences[i];
@@ -893,10 +971,10 @@ namespace ImmersX::Vascularization
           static_cast<double>((differences[0] - excess) * conductance[0]);
         const double qp =
           static_cast<double>((differences[1] - excess) * conductance[1]);
-        const double qv = static_cast<double>(excess * conductance[2]);
-        const double pressure =
-          static_cast<double>(static_cast<long double>(work_values[origin]) +
-                              lifting_values[origin] + excess);
+        const double qv       = static_cast<double>(excess * conductance[2]);
+        const double pressure = static_cast<double>(
+          static_cast<long double>(work_values[origin]) +
+          lifting_values[origin] + correction_values[origin] + excess);
         const double demand             = pair_terminals.at(t.arterial).demand;
         result.territories[t.territory] = {
           qv, qv / demand, qa, qp, qv, pressure};
