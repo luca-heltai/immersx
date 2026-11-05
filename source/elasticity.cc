@@ -995,17 +995,17 @@ namespace ImmersX
     for (const auto &cell : dh.active_cell_iterators())
       if (cell->is_locally_owned())
         {
-          bool has_strong_dirichlet_face = false;
+          bool has_prescribed_face = false;
           for (const auto &f : cell->face_indices())
             if (cell->face(f)->at_boundary() &&
-                par.dirichlet_ids.find(cell->face(f)->boundary_id()) !=
-                  par.dirichlet_ids.end())
+                (par.dirichlet_ids.count(cell->face(f)->boundary_id()) != 0 ||
+                 par.normal_flux_ids.count(cell->face(f)->boundary_id()) != 0))
               {
-                has_strong_dirichlet_face = true;
+                has_prescribed_face = true;
                 break;
               }
 
-          if (!has_strong_dirichlet_face)
+          if (!has_prescribed_face)
             continue;
 
           const auto &mp     = par.get_material_properties(cell->material_id());

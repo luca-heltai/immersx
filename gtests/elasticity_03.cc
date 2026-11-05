@@ -542,7 +542,8 @@ namespace
 {
   void
   check_newmark_robin_translation(const bool mixed,
-                                  const bool quasistatic = false)
+                                  const bool quasistatic = false,
+                                  const bool normal_flux = false)
   {
     ParameterAcceptor::clear();
     ElasticityProblemParameters<2> par;
@@ -552,6 +553,11 @@ namespace
     if (mixed)
       {
         par.dirichlet_ids.insert(0);
+        par.robin_ids.erase(0);
+      }
+    if (normal_flux)
+      {
+        par.normal_flux_ids.insert(0);
         par.robin_ids.erase(0);
       }
     par.output_directory = TestPaths::output_directory("newmark-robin");
@@ -576,6 +582,9 @@ namespace
       end
     end
     subsection Functions
+      subsection Neumann boundary conditions
+        set Function expression = 1+t; 2*(1+t)
+      end
       subsection Dirichlet boundary conditions
         set Function expression = 1+t; 2*(1+t)
       end
@@ -638,4 +647,10 @@ TEST(ElasticityProblem, BOTH_QuasistaticTimeDependentRobinTranslation)
 {
   check_newmark_robin_translation(false, true);
   check_newmark_robin_translation(true, true);
+}
+
+TEST(ElasticityProblem, BOTH_RobinNormalFluxTranslation)
+{
+  check_newmark_robin_translation(false, false, true);
+  check_newmark_robin_translation(false, true, true);
 }
