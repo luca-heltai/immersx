@@ -191,6 +191,9 @@ namespace ImmersX::harmonic_detail
         weak_term(value(fields.imaginary), test(fields.imaginary))
           .on(spring)
           .add(builder);
+        // The same clipped, beta-weighted boundary support must also anchor
+        // the positive surrogate when no essential boundary is present.
+        add_surrogate_terms(fields, spring, 0., 0., 1.);
       }
   }
 } // namespace ImmersX::harmonic_detail
