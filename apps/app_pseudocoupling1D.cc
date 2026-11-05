@@ -48,6 +48,16 @@ main(int argc, char *argv[])
 
       if (argc > 5)
         {
+#  ifdef USE_MPI
+          AssertThrow(
+            Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1,
+            ExcMessage(
+              "The MPI-enabled legacy 1dsolver backend uses MPI_COMM_WORLD "
+              "but this driver executes its 1D model only on rank zero. "
+              "Use one MPI rank for this backend, or supply a matching "
+              "serial backend with IMMERSX_FVM_USE_MPI=OFF for distributed "
+              "tissue solves."));
+#  endif
           prm_file                   = argv[1];
           input_file_name            = argv[2];
           couplingSampling           = std::strtol(argv[3], NULL, 10);
@@ -123,10 +133,10 @@ main(int argc, char *argv[])
                     problem3D.run_timestep();
                     timer.leave_subsection();
 
-                    pb1D.solvePseudo3D(pseudocoupling_coefficient);
-
                     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-                      { // update the junction
+                      {
+                        pb1D.solvePseudo3D(pseudocoupling_coefficient);
+                        // Update the junction on the owner of the 1D model.
                         for (int i = 0; i < pb1D.NV; i++)
                           {
                             if (pb1D.vess[i].bcType[0] > 1)

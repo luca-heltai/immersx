@@ -56,6 +56,16 @@ main(int argc, char *argv[])
 
       if (argc > 2)
         {
+#  ifdef USE_MPI
+          AssertThrow(
+            Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1,
+            ExcMessage(
+              "The MPI-enabled legacy 1dsolver backend uses MPI_COMM_WORLD "
+              "but this driver executes its 1D model only on rank zero. "
+              "Use one MPI rank for this backend, or supply a matching "
+              "serial backend with IMMERSX_FVM_USE_MPI=OFF for distributed "
+              "tissue solves."));
+#  endif
           input_file_name = argv[2];
           if (argc > 4)
             {
