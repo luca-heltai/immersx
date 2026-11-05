@@ -325,7 +325,7 @@ main(int argc, char *argv[])
           problem3D.run_timestep();
         }
 
-#endif
+#else
       if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
         std::cout << "Running uncoupled 3D problem" << std::endl;
       ElasticityProblemParameters<3> par;
@@ -333,6 +333,7 @@ main(int argc, char *argv[])
       initialize_parameters(prm_file);
       problem3D.run_timestep0();
       problem3D.run_timestep();
+#endif
     }
   catch (std::exception &exc)
     {
