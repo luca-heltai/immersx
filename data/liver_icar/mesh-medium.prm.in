@@ -4,7 +4,9 @@ subsection Liver
   set Output directory = @TEST_OUTPUT_DIR@/liver_icar/mesh-medium
   set Only generate mesh = true
   subsection Domain
+    set Grid generator = @TEST_DATA_DIR@/liver_icar/assets/inputs/liver.stl
     subsection Surface mesh
+      set Input = surface
       set Target edge length = .0045
     end
   end

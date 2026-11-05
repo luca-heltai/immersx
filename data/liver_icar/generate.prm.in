@@ -7,9 +7,10 @@ subsection Liver
   set Write volume mesh = true
   set Only generate mesh = false
   subsection Domain
-    set Grid generator = @TEST_DATA_DIR@/liver_icar/assets/inputs/liver.stl
+    set Grid generator = @TEST_DATA_DIR@/liver_icar/assets/meshes/small.msh
     set Triangulation type = fullydistributed
     subsection Surface mesh
+      set Input = volume
       set Target edge length = .012
       set Feature angle = 60
       set Volume cells = tetrahedra
@@ -18,17 +19,17 @@ subsection Liver
   subsection Vascularization
     set Length scale = meter
     subsection Growth
-      set Seed length = .020
+      set Seed length = .035
       set Minimum vessel length = .010
       set Minimum junction angle = .1
-      set Candidate vessels = 16
-      set Local optimization steps = 5
+      set Candidate vessels = 32
+      set Local optimization steps = 10
     end
     subsection Sampling
       set Terminal count multiplier factor = none
-      set Terminal count = 1
+      set Terminal count = 2
       set Random seed = 23
-      set Sample budget per insertion = 2000
+      set Sample budget per insertion = 5000
     end
     subsection Physiology
       set Dynamic viscosity = .00371

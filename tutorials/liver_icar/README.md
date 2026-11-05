@@ -6,10 +6,11 @@ hepatic venous networks through the vessel wall. The solid exterior uses
 vascular archive is reused at every scale; its numerical intervals are rebuilt
 against the selected tissue mesh.
 
-The initial archive has three supplied interior feeder stubs and five accepted
-CCO extensions, joined through one microvascular compartment. It has **no CCO
-bifurcations** and does not resolve whole-organ vascular coverage. It is a small
-starting case, not a patient-specific physiological validation.
+The archive has 14 physical vessels: three supplied interior feeder stubs and
+11 generated vessels. Three genuine CCO bifurcations, one per vascular role,
+connect six tissue leaves through two shared microvascular compartments. Every
+tissue leaf belongs to a triplet. This small starting case does not resolve
+whole-organ vascular coverage or establish patient-specific physiological validation.
 
 ## Run from release assets
 
@@ -54,22 +55,25 @@ The default asset directory is `<build>/data/liver_icar/assets`.
 
 | Profile | Solid / native flow degree | Solid displacement + velocity DoFs | Numerical 1D cells | Coupled solver |
 | --- | --- | ---: | ---: | --- |
-| `tiny` | P1 / DG0 | 19,818 | 9 | Serial UMFPACK |
-| `small` | P2 / DG1 | 132,672 | 9 | MUMPS, four ranks by default |
-| `medium` | P2 / DG1 | 992,034 | 23 | Iterative; coupled run unvalidated |
-| `large` | P2 / DG1 | 10,206,420 | 52 | Iterative; coupled run unvalidated |
+| `tiny` | P1 / DG0 | 19,818 | 26 | Serial UMFPACK |
+| `small` | P2 / DG1 | 132,672 | 26 | MUMPS, four ranks by default |
+| `medium` | P2 / DG1 | 992,034 | 55 | Iterative; coupled run unvalidated |
+| `large` | P2 / DG1 | 10,206,420 | 128 | Iterative; coupled run unvalidated |
 
-The tiny profile has 19,881 total coupled DoFs. The other solid counts exclude
-native flow, traces, capacitors and multipliers; read the actual coupled count
-from the executable. Medium and large are preparation profiles, not completed
-large simulations or a demonstrated scalable solver. All profiles default to
+The tiny profile reports 20,000 total coupled DoFs. The other table counts
+include only solid displacement and velocity. Assuming the current native face
+unknown layout and DG1 multiplier, adding ten DoFs per numerical 1D cell gives
+derived coupled totals of 132,932, 992,584 and 10,207,700. Confirm these against
+the executable's reported block counts before using them as measurements.
+Medium and large are preparation profiles, not completed large simulations or
+a demonstrated scalable solver. All profiles default to
 the recorded 7.2–8 s interval; use `--duration` for a shorter startup check.
 Tiny requires one rank. `--ranks` overrides the other profiles' default.
 
 The native archive redistribution and discretization checks passed at four
 ranks on all three meshes. Across every crossed background cell, numerical
-edge length divided by cell diameter lies in 0.727–1.775, 0.717–1.562 and
-0.744–1.304 respectively. There are no short or exterior intervals. These
+edge length divided by cell diameter lies in 0.708–1.962, 0.635–1.768 and
+0.782–1.307 respectively. There are no short or exterior intervals. These
 geometric checks do not prove a positive discrete inf-sup constant. Do not
 refine the 1D grid independently of its background.
 
@@ -145,7 +149,7 @@ import sys
 root = Path(sys.argv[1])
 seeds = {
     'arterial': ((.100, .160, .200), (.120, .160, .200), .0022),
-    'venous': ((.150, .150, .200), (.150, .170, .200), .0065),
+    'venous': ((.150, .140, .180), (.130, .140, .180), .0065),
     'portal': ((.100, .185, .200), (.120, .185, .200), .0049),
 }
 for role, (a, b, radius) in seeds.items():
@@ -169,17 +173,6 @@ The tissue surface remains the prepared IRCAD surface. CMake configures all
 cmake -S . -B "$BUILD" -DCMAKE_BUILD_TYPE=Release \
   -DMetricFlowX_DIR=/absolute/path/to/metric-flow-x/lib/cmake/MetricFlowX
 cmake --build "$BUILD" --target liver_vascular metric_flow_x_elastodynamics -j 4
-mpirun -np 4 "$BUILD/liver_vascular" "$BUILD/data/liver_icar/generate.prm"
-micromamba run -n ircad-prep python scripts/check_liver_vascular.py "$ASSETS/inputs" \
-  "$BUILD/test_output/liver_icar/generation" --triplets 1 \
-  --separation .015 --portal-separation .015 \
-  --portal-flow-fraction .69576933619234205 --viscosity .00371
-```
-
-The generator requires a new output directory and exports `liver.msh`, the
-physical `network/` archive and diagnostics. For the selected volume levels:
-
-```bash
 mpirun -np 1 "$BUILD/liver_vascular" "$BUILD/data/liver_icar/mesh-small.prm"
 mpirun -np 1 "$BUILD/liver_vascular" "$BUILD/data/liver_icar/mesh-medium.prm"
 mpirun -np 1 "$BUILD/liver_vascular" "$BUILD/data/liver_icar/mesh-large.prm"
@@ -187,8 +180,28 @@ mkdir "$ASSETS/meshes"
 cp "$BUILD/test_output/liver_icar/mesh-small/liver.msh" "$ASSETS/meshes/small.msh"
 cp "$BUILD/test_output/liver_icar/mesh-medium/liver.msh" "$ASSETS/meshes/medium.msh"
 cp "$BUILD/test_output/liver_icar/mesh-large/liver.msh" "$ASSETS/meshes/large.msh"
+mpirun -np 1 "$BUILD/liver_vascular" "$BUILD/data/liver_icar/generate.prm"
+micromamba run -n ircad-prep python scripts/check_liver_vascular.py "$ASSETS/inputs" \
+  "$BUILD/test_output/liver_icar/generation" --triplets 2 \
+  --separation .015 --portal-separation .015 \
+  --portal-flow-fraction .69576933619234205 --viscosity .00371
 cp -a "$BUILD/test_output/liver_icar/generation/network" "$ASSETS/network"
 ```
+
+The mesh-only profiles generate each volume from the prepared STL. Physical
+network generation then reads the exact small mesh. It uses a 35 mm startup
+extension, a 10 mm minimum physical branch length, 32 candidate vessels,
+ten local optimization steps, random seed 23 and a 5,000-sample insertion
+budget. The accepted two-triplet archive was generated on one rank. The
+four-rank trial with the same seed exhausted its sampling budget; use the
+serial command above for reproduction. The saved archive was successfully
+redistributed and rediscretized on four ranks at all three mesh sizes.
+
+Every generation output directory must be new. The physical generator exports
+`liver.msh`, the `network/` archive and diagnostics. The three bifurcation nodes
+have degree three and generated provenance, as do their incident edges. There
+are no unused tissue leaves. The minimum physical branch length is 10.028 mm;
+the independent sampled wall margin is at least 5.769 mm.
 
 Retain the exact `inputs/inlet_ha.csv` and its source extraction manifest from
 the release. The coupled importer redistributes and rediscretizes this same
