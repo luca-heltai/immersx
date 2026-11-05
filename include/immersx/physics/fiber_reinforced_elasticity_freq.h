@@ -11,6 +11,7 @@
 #include <immersx/core/linear_adapter.h>
 #include <immersx/io/output_handler.h>
 #include <immersx/physics/detail/harmonic_reinforcement.h>
+#include <immersx/physics/detail/harmonic_robin_boundary.h>
 
 #include <cmath>
 #include <filesystem>
@@ -152,7 +153,7 @@ namespace ImmersX
             parameters.fiber_parameters.neumann_ids.empty() &&
             parameters.fiber_parameters.normal_flux_ids.empty(),
           dealii::ExcMessage(
-            "Shared displacement uses only matrix boundary conditions; clear the Fiber boundary ids."));
+            "Shared displacement accepts matrix constraints and Fiber Robin data; clear the other Fiber boundary ids."));
       matrix_storage.make_grid();
       matrix_storage.setup_fe();
       matrix_storage.setup_dofs();
@@ -182,6 +183,9 @@ namespace ImmersX
           dealii::GridTools::Cache<spacedim> background(
             matrix_storage.triangulation(), matrix_storage.mapping());
           *volume_support = volume_support->inside(background);
+          robin_supports =
+            harmonic_detail::make_reinforcement_boundary_supports(
+              fiber_storage, parameters.geometry.get(), background);
         }
       reinforcement_measure_storage = volume_support->measure();
       if (parameters.formulation == "shared")
@@ -233,6 +237,7 @@ namespace ImmersX
       AssertThrow(initialized, dealii::ExcNotInitialized());
       matrix_storage.prepare_frequency(frequency);
       parameters.fiber_parameters.set_rhs_times(0.);
+      parameters.fiber_parameters.set_boundary_condition_times(0.);
       Adapter    adapter(parameters.solver_parameters,
                       matrix_storage.communicator());
       const auto matrix = adapter.add(matrix_storage, "matrix").fields();
@@ -246,6 +251,10 @@ namespace ImmersX
                 parameters.fiber_parameters,
                 *volume_support,
                 2. * std::acos(-1.) * frequency);
+              harmonic_detail::add_shared_robin(builder,
+                                                matrix,
+                                                robin_supports,
+                                                parameters.fiber_parameters);
               return matrix;
             },
             "reinforcement");
@@ -404,7 +413,10 @@ namespace ImmersX
     std::unique_ptr<FiniteElementSpaceView<dim, spacedim>> multiplier_view;
     VectorType real_multiplier_storage, imaginary_multiplier_storage;
     std::unique_ptr<harmonic_detail::ReinforcementSupport<spacedim>>
-           volume_support;
+      volume_support;
+    std::map<dealii::types::boundary_id,
+             harmonic_detail::ReinforcementSupport<spacedim>>
+           robin_supports;
     bool   initialized                   = false;
     double section_measure               = 1.;
     double reinforcement_measure_storage = 0.;

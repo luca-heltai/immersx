@@ -169,8 +169,8 @@ geometry and material ids; it carries no independent displacement unknowns
 and introduces no multiplier. The equation is
 
 $$
-(H_m+H_f^{\mathrm{bulk}})\widehat u
- =\widehat f_m+\widehat f_f^{\mathrm{bulk}}.
+(H_m+H_f^{\mathrm{bulk}}+B_{\beta,f})\widehat u
+ =\widehat f_m+\widehat f_f^{\mathrm{bulk}}+\widehat g_f.
 $$
 
 Reinforcement stiffness, mass, and damping use the matrix displacement's full
@@ -181,9 +181,37 @@ stiffness, mass, damping, and forcing. This selection uses the physical lifted
 points, so a partially overlapping cross section retains its interior samples.
 A completely exterior reinforcement contributes no material or load.
 
-The `Fiber` boundary-id sets must be empty: essential and Neumann boundary
-conditions belong to the matrix in this formulation. The default reinforcement
-boundary-id sets are empty.
+`Fiber/Robin boundary ids` selects springs and applied tractions on the
+reinforcement boundary. For a reduced reinforcement, each selected representative
+face is extruded through the physical section: a rod endpoint gives an endcap,
+and a sheet edge gives an extruded edge surface. Full-dimensional reinforcement
+uses its own mesh faces. The spring term is
+
+$$
+v^T B_{\beta,f}u=\int_{\Gamma_f}\beta_f\,u\cdot v\,dS,
+\qquad
+v^T\widehat g_f=\int_{\Gamma_f}\widehat g_f\cdot v\,dS.
+$$
+
+Boundary samples outside the matrix domain are omitted, using the same physical
+point selection as the reinforcement volume. Coefficients and loads are
+evaluated at the retained physical surface points. The scalar coefficient is
+finite, nonnegative and time independent; the traction has `spacedim`
+components. Their subsections are `Fiber/Functions/Robin coefficient` and
+`Fiber/Functions/Robin boundary conditions`. A numbered suffix selects an
+override for one boundary id. `Fiber/Frequency domain/Robin phase` and
+`Robin phase by boundary id` specify load phases in degrees. The spring acts
+on both real and imaginary displacement; its coefficient has no load phase.
+
+In the independent formulation, the same entries apply to the independent
+fiber displacement. Reduced boundary data are evaluated on the representative
+mesh and weighted by the physical section measure, consistently with its
+constant normal reconstruction. Matrix Robin data use the corresponding
+subsections below `Matrix` in either formulation.
+
+Essential, normal-flux and Neumann `Fiber` boundary-id sets remain empty for
+shared displacement; those constraints and tractions belong to the matrix.
+The default reinforcement boundary-id sets are empty.
 
 This formulation allows the matrix displacement to vary across the lifted
 section. It is therefore a different reduced model from constant-extension
