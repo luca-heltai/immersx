@@ -616,15 +616,15 @@ namespace ImmersX::Vascularization
     for (const auto &[id, data] : owned_bc.robin)
       if (data.first > 0.)
         {
-          const Index  i        = nodes.at(id).index - offset;
-          const double pressure = data.second / data.first;
-          if (!std::isfinite(pressure))
-            issue("boundary",
-                  id,
-                  "Robin equilibrium pressure is not representable.");
-          distances[i]             = 1.L / data.first;
-          anchors[i]               = id;
-          robin_lift[i]            = true;
+          const Index  i           = nodes.at(id).index - offset;
+          const double equilibrium = data.second / data.first;
+          // The lift is only a numerical reference: a very small beta may
+          // have unrepresentable g/beta while another boundary anchors a
+          // perfectly finite solution. Zero is then a valid lifting value.
+          const double pressure = std::isfinite(equilibrium) ? equilibrium : 0.;
+          distances[i]          = 0.;
+          anchors[i]            = id;
+          robin_lift[i]         = true;
           lifting.local_element(i) = pressure;
           frontier.emplace(distances[i], id, i);
         }

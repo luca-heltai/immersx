@@ -625,10 +625,15 @@ TEST(VascularReferenceFlow, BOTH_ZeroRobinConductanceIsPrescribedFlux)
   ReferenceConditions bc;
   bc.pressures[30] = 5000.;
   bc.robin[10]     = {0., 2.e-9};
-  const auto state = solve(n, bc);
-  ASSERT_TRUE(state.validation.valid());
-  for (const auto &[id, vessel] : n.vessels)
-    EXPECT_NEAR(state.vessels.at(id).flow / 2.e-9, 1., 1.e-11);
+  for (const double beta : {0., std::numeric_limits<double>::denorm_min()})
+    {
+      bc.robin[10].first = beta;
+      const auto state   = solve(n, bc);
+      ASSERT_TRUE(state.validation.valid()) << beta;
+      for (const auto &[id, vessel] : n.vessels)
+        EXPECT_NEAR(state.vessels.at(id).flow / 2.e-9, 1., 1.e-11);
+    }
+  bc.robin[10].first = 0.;
   bc.pressures.clear();
   EXPECT_FALSE(solve(n, bc).validation.valid());
 }
