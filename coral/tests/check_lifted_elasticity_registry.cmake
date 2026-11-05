@@ -19,6 +19,7 @@ if(SPACEDIM EQUAL 3)
       "Isotropic elastic law|2"
       "Elasticity energy term|2"
       "Add elasticity energy|2"
+      "Add elasticity Robin boundary|3"
       "Modal coefficient field|3"
       "Vector tensor-product lift|3"
       "Lifted vector test|1"

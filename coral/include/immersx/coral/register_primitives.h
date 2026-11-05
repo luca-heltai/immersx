@@ -21,9 +21,12 @@
 #include <immersx/core/domain.h>
 #include <immersx/core/field_contributor.h>
 #include <immersx/core/known_term.h>
+#include <immersx/core/robin_term.h>
+#include <immersx/physics/poisson.h>
 
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <type_traits>
 
@@ -537,6 +540,44 @@ namespace ImmersX::Coral
         "in a linear execution.",
         "LinearExecution",
         "register_algebraic_field"));
+
+    coral::NodeObject::register_function(
+      std::function<void(AdapterHandle &,
+                         const ScalarField &,
+                         const PoissonParameters<dim, spacedim> &)>(
+        [](AdapterHandle                          &adapter,
+           const ScalarField                      &field,
+           const PoissonParameters<dim, spacedim> &parameters) {
+          robin_detail::assert_disjoint_boundary_ids(
+            parameters.robin_ids,
+            parameters.dirichlet_ids,
+            std::set<dealii::types::boundary_id>{},
+            field.space().mpi_communicator());
+          parameters.robin_coefficient.set_time(0.);
+          parameters.robin_rhs.set_time(0.);
+          const std::set<dealii::types::boundary_id> ids(
+            parameters.robin_ids.begin(), parameters.robin_ids.end());
+          adapter->add(
+            robin_boundary_term(
+              field,
+              ids,
+              [&parameters](const auto) -> const dealii::Function<spacedim> & {
+                return parameters.robin_coefficient;
+              },
+              [&parameters](const auto) -> const dealii::Function<spacedim> & {
+                return parameters.robin_rhs;
+              },
+              [](const auto) { return 1.; }),
+            "robin");
+        }),
+      {"adapter", "field", "parameters"},
+      method_metadata(
+        "Add scalar Robin boundary",
+        "Add scalar Robin boundary",
+        dimensions(dim, spacedim),
+        "Add outward flux + beta*u = g from Poisson boundary parameters.",
+        "LinearExecution",
+        "add_robin"));
 
     coral::NodeObject::register_function(
       WeakFactory([](const Gradient               &gradient,
