@@ -52,6 +52,13 @@ library filename cannot identify this ABI setting; a successful link alone
 does not prove that the backend and header layouts agree. The backend is an
 external dependency; ImmersX does not download or rebuild its sources.
 
+The legacy drivers execute the 1D model on rank zero. The MPI-enabled backend
+uses `MPI_COMM_WORLD` internally and exposes no communicator argument, so the
+drivers reject coupled runs with that backend and more than one MPI rank.
+Distributed tissue coupling requires a matching serial 1D backend with
+`IMMERSX_FVM_USE_MPI=OFF`. The uncoupled 3D mode of `coupled_elasticity` remains
+available with multiple MPI ranks.
+
 To build the published documentation, install the Python requirements and run:
 
 ```bash
