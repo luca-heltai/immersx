@@ -14,6 +14,7 @@
 #include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/solver_gmres.h>
 
+#include <immersx/core/robin_boundary.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/navier_stokes.h>
 
@@ -94,6 +95,11 @@ namespace ImmersX
     , bc(normalize_navier_stokes_subsection(subsection) +
            "Dirichlet boundary conditions",
          spacedim + 1)
+    , robin_coefficient(normalize_navier_stokes_subsection(subsection) +
+                        "Robin coefficient")
+    , robin_rhs(normalize_navier_stokes_subsection(subsection) +
+                  "Robin boundary conditions",
+                spacedim)
     , initial_condition(normalize_navier_stokes_subsection(subsection) +
                           "Initial condition",
                         spacedim + 1)
@@ -122,6 +128,7 @@ namespace ImmersX
     leave_subsection();
 
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
+    add_parameter("Robin boundary ids", robin_ids);
 
     enter_subsection("Physical properties");
     {
@@ -172,6 +179,7 @@ namespace ImmersX
     helper(rhs, zero_velocity);
     helper(bc, zero_velocity);
     helper(initial_condition, zero_velocity);
+    helper(robin_rhs, dim == 2 ? "0; 0" : "0; 0; 0");
 
     parse_parameters_call_back.connect(
       [this]() { ensure_output_directory(output_directory); });
@@ -185,6 +193,8 @@ namespace ImmersX
     rhs.set_time(time);
     bc.set_time(time);
     initial_condition.set_time(time);
+    robin_coefficient.set_time(time);
+    robin_rhs.set_time(time);
   }
 
 
@@ -302,6 +312,24 @@ namespace ImmersX
       VectorTools::interpolate_boundary_values(
         mapping(), dh, boundary_id, par.bc, constraints_storage, velocity_mask);
 
+    // A physical Robin traction boundary fixes the pressure reference even
+    // when beta is zero. A pressure pin would add an independent condition.
+    unsigned int local_has_robin_face = 0;
+    robin_detail::assert_disjoint_boundary_ids(par.robin_ids,
+                                               par.dirichlet_ids,
+                                               std::list<types::boundary_id>{},
+                                               mpi_communicator);
+    for (const auto &cell : dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        for (const auto face : cell->face_indices())
+          if (cell->face(face)->at_boundary() &&
+              std::find(par.robin_ids.begin(),
+                        par.robin_ids.end(),
+                        cell->face(face)->boundary_id()) != par.robin_ids.end())
+            local_has_robin_face = 1;
+    has_robin_boundary_storage =
+      Utilities::MPI::max(local_has_robin_face, mpi_communicator) != 0;
+
     // Component-wise renumbering places the pressure block after all velocity
     // DoFs, so this global index is the same on every MPI rank.
     const types::global_dof_index pinned_pressure_dof = dofs_per_block[0];
@@ -312,7 +340,8 @@ namespace ImmersX
 
     // Add the pressure pin on every rank on which the global DoF is relevant.
     // This is the standard distributed AffineConstraints ownership pattern.
-    if (relevant_dofs.is_element(pinned_pressure_dof))
+    if (!has_robin_boundary_storage &&
+        relevant_dofs.is_element(pinned_pressure_dof))
       constraints_storage.constrain_dof_to_zero(pinned_pressure_dof);
 
     constraints_storage.close();
@@ -549,6 +578,17 @@ namespace ImmersX
     continuous_operator_storage.compress(VectorOperation::add);
     mass_matrix_storage.compress(VectorOperation::add);
     system_rhs_storage.compress(VectorOperation::add);
+
+    if (has_robin_boundary_storage)
+      {
+        const auto boundary = robin_velocity_boundary(current_time_storage);
+        system_matrix_storage.block(0, 0).add(1., *boundary.first);
+        continuous_operator_storage.block(0, 0).add(1., *boundary.first);
+        system_rhs_storage.block(0) += *boundary.second;
+        system_matrix_storage.compress(VectorOperation::add);
+        continuous_operator_storage.compress(VectorOperation::add);
+        system_rhs_storage.compress(VectorOperation::add);
+      }
 
     LA::MPI::PreconditionAMG::AdditionalData velocity_data;
 #ifdef IMMERSX_USE_PETSC_LA
@@ -938,6 +978,84 @@ namespace ImmersX
   NavierStokesSolver<dim, spacedim>::pressure_metric_matrix() const
   {
     return mass_matrix_storage.block(1, 1);
+  }
+
+
+  template <int dim, int spacedim>
+  std::pair<std::shared_ptr<LA::MPI::SparseMatrix>,
+            std::shared_ptr<LA::MPI::Vector>>
+  NavierStokesSolver<dim, spacedim>::robin_velocity_boundary(
+    const double time) const
+  {
+    auto matrix = std::make_shared<LA::MPI::SparseMatrix>();
+    matrix->reinit(system_matrix_storage.block(0, 0));
+    *matrix   = 0.;
+    auto load = std::make_shared<LA::MPI::Vector>();
+    load->reinit(owned_dofs_by_block[0], mpi_communicator);
+    *load = 0.;
+    par.robin_coefficient.set_time(time);
+    par.robin_rhs.set_time(time);
+
+    FEFaceValues<dim, spacedim> face_values(
+      mapping(),
+      *fe,
+      compatibility::gauss_quadrature<dim - 1>(
+        fe->reference_cell().face_reference_cell(0), par.velocity_degree + 1),
+      update_values | update_quadrature_points | update_JxW_values);
+    const auto                n_dofs = fe->n_dofs_per_cell();
+    std::vector<unsigned int> velocity_positions;
+    for (unsigned int i = 0; i < n_dofs; ++i)
+      if (fe->system_to_component_index(i).first < dim)
+        velocity_positions.push_back(i);
+    const auto         n_velocity = velocity_positions.size();
+    FullMatrix<double> cell_matrix(n_dofs, n_dofs);
+    Vector<double>     cell_rhs(n_dofs);
+    FullMatrix<double> velocity_matrix(n_velocity, n_velocity);
+    Vector<double>     velocity_rhs(n_velocity);
+    std::vector<types::global_dof_index> all_indices(n_dofs);
+    std::vector<types::global_dof_index> velocity_indices(n_velocity);
+    unsigned int                         invalid_data = 0;
+    for (const auto &cell : dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          cell_matrix               = 0.;
+          cell_rhs                  = 0.;
+          unsigned int cell_invalid = 0;
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                std::find(par.robin_ids.begin(),
+                          par.robin_ids.end(),
+                          cell->face(face)->boundary_id()) !=
+                  par.robin_ids.end())
+              {
+                face_values.reinit(cell, face);
+                cell_invalid |=
+                  robin_detail::add_face_terms(face_values,
+                                               velocity,
+                                               par.robin_coefficient,
+                                               par.robin_rhs,
+                                               cell_matrix,
+                                               cell_rhs);
+              }
+          invalid_data |= cell_invalid;
+          if (cell_invalid)
+            continue;
+          cell->get_dof_indices(all_indices);
+          for (unsigned int i = 0; i < n_velocity; ++i)
+            {
+              velocity_indices[i] = all_indices[velocity_positions[i]];
+              velocity_rhs(i)     = cell_rhs(velocity_positions[i]);
+              for (unsigned int j = 0; j < n_velocity; ++j)
+                velocity_matrix(i, j) =
+                  cell_matrix(velocity_positions[i], velocity_positions[j]);
+            }
+          constraints_storage.distribute_local_to_global(
+            velocity_matrix, velocity_rhs, velocity_indices, *matrix, *load);
+        }
+    robin_detail::assert_valid_boundary_data(invalid_data, mpi_communicator);
+    matrix->compress(VectorOperation::add);
+    load->compress(VectorOperation::add);
+    return {std::move(matrix), std::move(load)};
   }
 
 

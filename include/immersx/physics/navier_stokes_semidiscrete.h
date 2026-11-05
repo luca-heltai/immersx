@@ -168,6 +168,39 @@ namespace ImmersX
                   semidiscrete_detail::constrained_matrix_operator(
                     mass, problem.constraints()));
 
+    if (problem.has_robin_boundary())
+      {
+        auto robin = builder.term(velocity_id, "robin-traction");
+        robin.residual([velocity_id, &problem](const auto &context) {
+          const auto boundary = problem.robin_velocity_boundary(context.time());
+          const auto matrix =
+            ImmersX::matrix_operator<VectorType>(boundary.first);
+          dealii::PackagedOperation<VectorType> load;
+          load.reinit_vector = [rhs = boundary.second](VectorType &vector,
+                                                       const bool  omit) {
+            vector.reinit(*rhs, omit);
+          };
+          load.apply = [rhs = boundary.second](VectorType &vector) {
+            vector = *rhs;
+          };
+          load.apply_add = [rhs = boundary.second](VectorType &vector) {
+            vector += *rhs;
+          };
+          return semidiscrete_detail::constrained_operation(
+            matrix.view * context.state(velocity_id) - load,
+            problem.constraints());
+        });
+        typename Builder::Model::MatrixOperatorFactory factory =
+          [&problem](const auto &context) {
+            const auto boundary =
+              problem.robin_velocity_boundary(context.time());
+            return semidiscrete_detail::constrained_matrix_operator(
+              ImmersX::matrix_operator<VectorType>(boundary.first),
+              problem.constraints());
+          };
+        robin.state(velocity_id, std::move(factory));
+      }
+
     weak_term(2. * problem.viscosity() * symmetric_gradient(u),
               symmetric_gradient(v))
       .add(builder);

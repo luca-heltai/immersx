@@ -96,6 +96,8 @@ namespace ImmersX
     unsigned int                          pressure_degree = 1;
     DomainParameters<dim, spacedim>       domain_parameters;
     std::list<dealii::types::boundary_id> dirichlet_ids{0};
+    /** Velocity traction (2 nu eps(u) - p I)n + beta u = g. */
+    std::list<dealii::types::boundary_id> robin_ids;
 
     double density                 = 1.0;
     double viscosity               = 1.0;
@@ -115,6 +117,12 @@ namespace ImmersX
     mutable dealii::ParameterAcceptorProxy<
       dealii::Functions::ParsedFunction<spacedim>>
       bc;
+    mutable dealii::ParameterAcceptorProxy<
+      dealii::Functions::ParsedFunction<spacedim>>
+      robin_coefficient;
+    mutable dealii::ParameterAcceptorProxy<
+      dealii::Functions::ParsedFunction<spacedim>>
+      robin_rhs;
     mutable dealii::ParameterAcceptorProxy<
       dealii::Functions::ParsedFunction<spacedim>>
       initial_condition;
@@ -141,9 +149,10 @@ namespace ImmersX
    * two-block algebraic system `[velocity, pressure]`.
    *
    * The default finite-element pair is Taylor--Hood Q_k/Q_{k-1}. The pressure
-   * is normalized by constraining one pressure degree of freedom to zero. This
-   * is a direct algebraic pressure normalization; it removes the constant
-   * nullspace without adding a third Lagrange-multiplier block.
+   * is normalized by constraining one pressure degree of freedom to zero when
+   * no Robin traction face is present. A Robin traction boundary fixes the
+   * pressure reference itself, including the zero-coefficient traction limit;
+   * it therefore uses no additional pressure pin.
    *
    * This first implementation supports full-dimensional two- and three-
    * dimensional meshes only (`dim == spacedim`). It has no elasticity,
@@ -264,6 +273,19 @@ namespace ImmersX
     void
     velocity_forcing_at_time(double time, LA::MPI::Vector &destination) const;
 
+    /** Time-dependent Robin operator and load in velocity-block numbering.
+     * Both objects own their storage, so execution callbacks may retain them.
+     */
+    std::pair<std::shared_ptr<LA::MPI::SparseMatrix>,
+              std::shared_ptr<LA::MPI::Vector>>
+    robin_velocity_boundary(double time) const;
+
+    bool
+    has_robin_boundary() const
+    {
+      return has_robin_boundary_storage;
+    }
+
     const BlockVectorType &
     system_rhs() const;
 
@@ -360,6 +382,7 @@ namespace ImmersX
 
     LA::MPI::PreconditionAMG velocity_preconditioner;
     LA::MPI::PreconditionAMG pressure_preconditioner;
+    bool                     has_robin_boundary_storage = false;
 
     dealii::FEValuesExtractors::Vector velocity;
     dealii::FEValuesExtractors::Scalar pressure;
