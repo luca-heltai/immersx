@@ -21,3 +21,22 @@ Use the [application reference](../reference/applications) to identify the
 executable and the [API reference](../api/library_root) for the
 parameter class behind a section. Tutorials show only the options needed for
 their example; they are not complete parameter manuals.
+
+## Gmsh physical identifiers
+
+For a Gmsh mesh read through `Domain`, numeric physical tags select material
+ids on cells and boundary ids on lower-dimensional entities. A physical group
+does not need a name. Named selectors such as `MaterialID:7,ManifoldID:2` or
+`BoundaryID:5,ManifoldID:3` override those defaults. Groups without a physical
+tag retain id zero.
+
+Some deal.II Gmsh API readers discard unnamed physical tags. ImmersX works
+around this during import by making only unnamed groups' numeric ids explicit
+in a temporary binary MSH 4.1 mesh, then delegating to the same deal.II reader.
+Binary coordinates retain their precision; export scaling and orphan filtering
+are disabled for this copy. Named selectors, untagged entities, and the source
+file remain unchanged. Imports
+requiring this workaround perform an extra Gmsh read/write; temporary files are
+removed and the five Gmsh mesh-output settings are restored, including on failure.
+This protects `Domain` imports, not direct calls to a separately installed
+deal.II reader.
