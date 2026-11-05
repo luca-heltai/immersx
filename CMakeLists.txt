@@ -43,6 +43,8 @@ file(GLOB _main_files CONFIGURE_DEPENDS
 
 option(ENABLE_COUPLED_PROBLEMS
   "Build applications coupled to the optional 1dsolver library." ON)
+option(IMMERSX_FVM_USE_MPI
+  "Match a lib1dsolver backend compiled with USE_MPI (changes its public class layout)." OFF)
 option(ENABLE_DEAL_II_APP_TESTING
   "Enable deal.II style tests in this application." ON)
 option(ENABLE_GOOGLE_TESTING
@@ -163,6 +165,11 @@ endif()
 
 find_package(deal.II 9.7.1 REQUIRED
   HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR})
+
+if(IMMERSX_FVM_USE_MPI AND NOT DEAL_II_WITH_MPI)
+  message(FATAL_ERROR
+    "IMMERSX_FVM_USE_MPI requires a deal.II installation with MPI enabled.")
+endif()
 
 # deal.II uses CMAKE_BUILD_TYPE to select its package configuration, while
 # ImmersX uses a single-config build tree to materialize one or both of the
@@ -372,7 +379,22 @@ int main(){ Model1d m; const std::type_info &ti = typeid(m); (void)ti; return 0;
   IF(OpenMP_CXX_FOUND AND OpenMP_CXX_FLAGS)
     SET(CMAKE_REQUIRED_FLAGS "${OpenMP_CXX_FLAGS}")
   ENDIF()
+  SET(_fvm_saved_required_definitions "${CMAKE_REQUIRED_DEFINITIONS}")
+  IF(IMMERSX_FVM_USE_MPI)
+    LIST(APPEND CMAKE_REQUIRED_DEFINITIONS -DUSE_MPI)
+  ENDIF()
+  # Recheck when the selected backend or its ABI/compiler options change.
+  SET(_fvm_link_signature
+      "${FVM_LIB}|${IMMERSX_FVM_USE_MPI}|${CMAKE_CXX_FLAGS}")
+  IF(NOT "${_IMMERSX_FVM_LINK_SIGNATURE}" STREQUAL "${_fvm_link_signature}")
+    UNSET(FVM_LIB_LINKS CACHE)
+    SET(_IMMERSX_FVM_LINK_SIGNATURE "${_fvm_link_signature}"
+        CACHE INTERNAL "1dsolver link-check configuration" FORCE)
+  ENDIF()
   CHECK_CXX_SOURCE_COMPILES("${_FVM_RTTI_TEST_SOURCE}" FVM_LIB_LINKS)
+  SET(CMAKE_REQUIRED_DEFINITIONS "${_fvm_saved_required_definitions}")
+  UNSET(_fvm_saved_required_definitions)
+  UNSET(_fvm_link_signature)
   UNSET(CMAKE_REQUIRED_INCLUDES)
   UNSET(CMAKE_REQUIRED_LIBRARIES)
   UNSET(CMAKE_REQUIRED_FLAGS)
@@ -508,6 +530,9 @@ FOREACH(_build_type ${_d2_build_types})
       #ADD_LIBRARY( STATIC )
       IF(ENABLE_COUPLED_PROBLEMS)
         TARGET_COMPILE_DEFINITIONS(${_lib} PRIVATE ENABLE_COUPLED_PROBLEMS)
+      ENDIF()
+      IF(IMMERSX_FVM_USE_MPI)
+        TARGET_COMPILE_DEFINITIONS(${_lib} PUBLIC USE_MPI)
       ENDIF()
 
       TARGET_COMPILE_OPTIONS(${_lib} PRIVATE
