@@ -93,6 +93,24 @@ namespace ImmersX::Coral
         "LinearExecution",
         "add_elasticity"));
     coral::NodeObject::register_function(
+      std::function<void(AdapterHandle &,
+                         const Bulk &,
+                         const ImmersX::ElasticStaticParameters<3> &)>(
+        [](AdapterHandle                             &adapter,
+           const Bulk                                &field,
+           const ImmersX::ElasticStaticParameters<3> &parameters) {
+          adapter->add(ImmersX::static_elasticity_robin(field, parameters),
+                       "robin");
+        }),
+      {"adapter", "displacement", "parameters"},
+      method_metadata(
+        "Add elasticity Robin boundary",
+        "Add elasticity Robin boundary",
+        "3D",
+        "Add sigma*n + beta*u = g using the static elasticity Robin parameters.",
+        "LinearExecution",
+        "add_robin"));
+    coral::NodeObject::register_function(
       std::function<Scalar(const Space &, unsigned int, const std::string &)>(
         [](const Space       &space,
            unsigned int       component,
