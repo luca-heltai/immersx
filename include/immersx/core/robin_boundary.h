@@ -109,6 +109,8 @@ namespace ImmersX::robin_detail
     AssertDimension(rhs.size(), dofs);
     AssertDimension(beta.n_components, 1);
     AssertDimension(g.n_components, scalar ? 1 : spacedim);
+    if (!std::isfinite(matrix_scale) || !std::isfinite(load_scale))
+      return 1;
     unsigned int invalid = 0;
     for (unsigned int q = 0; q < values.n_quadrature_points; ++q)
       {
