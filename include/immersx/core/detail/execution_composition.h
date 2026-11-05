@@ -2328,7 +2328,7 @@ namespace ImmersX::detail
                                               column_partition.size(),
                                               row_partition);
       for (const auto row : row_partition)
-        if (source.row_length(row) != 0)
+        if (source.in_local_range(row) && source.row_length(row) != 0)
           for (auto entry = source.begin(row), end = source.end(row);
                entry != end;
                ++entry)
@@ -2338,7 +2338,7 @@ namespace ImmersX::detail
       result.reinit(
         row_partition, column_partition, sparsity, communicator_, false);
       for (const auto row : row_partition)
-        if (source.row_length(row) != 0)
+        if (source.in_local_range(row) && source.row_length(row) != 0)
           for (auto entry = source.begin(row), end = source.end(row);
                entry != end;
                ++entry)
