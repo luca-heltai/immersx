@@ -541,7 +541,8 @@ TEST(Inclusion3, CheckVesselDirectionsRejectsOppositeDirections)
 namespace
 {
   void
-  check_newmark_robin_translation(const bool mixed)
+  check_newmark_robin_translation(const bool mixed,
+                                  const bool quasistatic = false)
   {
     ParameterAcceptor::clear();
     ElasticityProblemParameters<2> par;
@@ -592,6 +593,11 @@ namespace
       end
     end
   )");
+    if (quasistatic)
+      {
+        par.default_material_properties.rho = 0.;
+        par.check_model_consistency();
+      }
     ElasticityProblem<2> problem(par);
     problem.run();
     const auto                          &fe = problem.dh.get_fe();
@@ -608,9 +614,12 @@ namespace
                 EXPECT_NEAR(problem.solution.block(0)[ids[i]],
                             1.03 * magnitude,
                             1.e-8);
-                EXPECT_NEAR(problem.velocity.block(0)[ids[i]],
-                            magnitude,
-                            1.e-8);
+                if (!quasistatic)
+                  {
+                    EXPECT_NEAR(problem.velocity.block(0)[ids[i]],
+                                magnitude,
+                                1.e-8);
+                  }
               }
         }
   }
@@ -623,4 +632,10 @@ TEST(ElasticityProblem, BOTH_NewmarkTimeDependentRobinTranslation)
 TEST(ElasticityProblem, BOTH_NewmarkMixedRobinTranslation)
 {
   check_newmark_robin_translation(true);
+}
+
+TEST(ElasticityProblem, BOTH_QuasistaticTimeDependentRobinTranslation)
+{
+  check_newmark_robin_translation(false, true);
+  check_newmark_robin_translation(true, true);
 }

@@ -953,7 +953,11 @@ namespace ImmersX
     const AffineConstraints<double> &acceleration_constraints,
     LA::MPI::Vector                 &rhs) const
   {
-    Assert(par.time_mode == TimeMode::Dynamic, ExcInternalError());
+    Assert(par.time_mode != TimeMode::Static, ExcInternalError());
+    // Complete algebraic assignments on every rank before local affine adds.
+    // A rank without prescribed cells must join the same collective transition.
+    rhs.compress(VectorOperation::insert);
+
 
     FEValues<spacedim>     fe_values(geometry_mapping(),
                                  *fe,
@@ -1321,15 +1325,9 @@ namespace ImmersX
                                                  local_dof_indices,
                                                  force_rhs.block(0));
 
-          if (par.time_mode == TimeMode::QuasiStatic)
-            constraints.distribute_local_to_global(cell_bc_rhs,
-                                                   local_dof_indices,
-                                                   bc_rhs.block(0),
-                                                   robin_matrix);
-          else
-            constraints.distribute_local_to_global(cell_bc_rhs,
-                                                   local_dof_indices,
-                                                   bc_rhs.block(0));
+          constraints.distribute_local_to_global(cell_bc_rhs,
+                                                 local_dof_indices,
+                                                 bc_rhs.block(0));
 
           constraints.distribute_local_to_global(cell_neumann_bc_rhs,
                                                  local_dof_indices,
@@ -2957,6 +2955,13 @@ namespace ImmersX
 
     pcout << "Time: " << current_time << std::endl;
 
+    const bool robin_quasistatic =
+      par.time_mode == TimeMode::QuasiStatic && !par.robin_ids.empty();
+    if (robin_quasistatic)
+      {
+        par.set_boundary_condition_times(evaluation_time);
+        setup_constraints();
+      }
     const bool dynamic        = par.time_mode == TimeMode::Dynamic;
     const bool spring_changed = robin_detail::update_elasticity_springs(
       dh,
@@ -3012,6 +3017,18 @@ namespace ImmersX
     system_rhs.block(0).add(1.0, force_rhs.block(0));
     system_rhs.block(0).add(1.0, bc_rhs.block(0));
     system_rhs.block(0).add(1.0, neumann_bc_rhs.block(0));
+
+    if (robin_quasistatic)
+      {
+        // The cached stiffness has homogeneous essential columns. Recompute
+        // their affine contribution at the current Dirichlet/Robin time.
+        AffineConstraints<double> homogeneous;
+        homogeneous.close();
+        add_dynamic_constraint_rhs(constraints,
+                                   homogeneous,
+                                   homogeneous,
+                                   system_rhs.block(0));
+      }
 
     system_rhs.block(1) = force_rhs.block(1);
     system_rhs.block(1) *= inclusion_scale;
