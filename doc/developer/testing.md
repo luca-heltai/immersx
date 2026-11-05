@@ -149,6 +149,12 @@ once. The common output lock remains in place because generated parameter files
 and fixtures still share output paths; removing it requires isolating those
 paths first.
 
+Validation and application cases use ordered batches of at most 15 cases, each
+with a 115-second CTest timeout and its own XML report. A suite can span several
+batches. Dependencies preserve the compiled case order within each category and
+serial/MPI mode; the shared output lock remains enabled. Registry checks verify
+that batching preserves every selected case without duplication.
+
 For example, a focused CTest expression can select one integration suite while
 retaining its serial or MPI mode. Use `ctest -N` to obtain the exact names in the
 current configuration before rerunning a failed group.
