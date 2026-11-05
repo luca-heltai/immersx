@@ -435,6 +435,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #340](https://github.com/luca-heltai/immersx/pull/340) Send lifted-support benchmark assembly diagnostics to stderr so its JSONL output passes strict correctness validation.
+
 - [PR #334](https://github.com/luca-heltai/immersx/pull/334) Treat changes to the performance viewer browser check as documentation inputs, avoiding numerical, Coral and benchmark jobs when no solver or runtime input changes. Keep mixed changes on the full PR path.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Keep lifted elasticity application checks within 115 seconds and reduce the three-dimensional multiplier fixture while preserving two global refinement cycles, three multiplier fields and solver tolerances.
