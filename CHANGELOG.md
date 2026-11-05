@@ -465,6 +465,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Request the conservation accuracy checked by the vascular Robin regression explicitly and keep its assertions free of ambiguous-else compiler diagnostics.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Verify Robin pressure and flux laws through the liver application, and time-dependent solid spring energy with a native MetricFlowX RCR network, in Debug and Release with one and two MPI ranks. Bound each application run below two minutes.
 
 - [PR #340](https://github.com/luca-heltai/immersx/pull/340) Send lifted-support benchmark assembly diagnostics to stderr so its JSONL output passes strict correctness validation.

@@ -563,12 +563,16 @@ TEST(VascularReferenceFlow, BOTH_MixedRobinHighConductancePreservesLocalBalance)
       const std::vector<TerminalPair> pairs =
         rank == 0 ? std::vector<TerminalPair>{{99, 11, 12, bed_resistance}} :
                     std::vector<TerminalPair>{};
-      const auto state = solve(n, bc, pairs);
+      ReferenceParameters controls;
+      controls.conservation_relative_tolerance = 1.e-10;
+      const auto state                         = solve(n, bc, pairs, controls);
       ASSERT_TRUE(state.validation.valid());
       for (const auto &[id, vessel] : state.vessels)
         EXPECT_NEAR(vessel.flow / expected, id == 100 ? 1. : -1., 1.e-10);
       if (state.territories.count(99))
-        EXPECT_NEAR(state.territories.at(99).flow / expected, 1., 1.e-12);
+        {
+          EXPECT_NEAR(state.territories.at(99).flow / expected, 1., 1.e-12);
+        }
       EXPECT_LE(state.relative_flow_defect, 1.e-10);
     }
 }
