@@ -2,6 +2,8 @@
 // Copyright (C) 2026 by Luca Heltai
 // This file is part of ImmersX, based on the deal.II library.
 // ---------------------------------------------------------------------
+#include <deal.II/base/function_parser.h>
+
 #include <gtest/gtest.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/fiber_reinforced_elasticity_freq.h>
@@ -275,11 +277,18 @@ namespace
 
   template <int dim, int spacedim>
   void
-  check_shared_dynamic_response()
+  check_shared_dynamic_response(const bool iterative = false)
   {
     ParameterAcceptor::clear();
     FiberReinforcedElasticityFreqParameters<dim, spacedim> parameters;
-    parameters.formulation      = "shared";
+    parameters.formulation = "shared";
+    if (iterative)
+      {
+        parameters.solver_parameters.solver = LinearSolver::iterative;
+        parameters.solver_parameters.preconditioner =
+          LinearPreconditioner::block_diagonal;
+        parameters.solver_parameters.tolerance = 1.e-11;
+      }
     parameters.output_directory = TestPaths::output_directory(
       "harmonic-shared-dynamic-" + std::to_string(dim) + "-" +
       std::to_string(spacedim));
@@ -357,6 +366,83 @@ TEST(FiberReinforcedElasticityFreq, BOTH_SharedDynamicMassAndPhasedForcing)
   check_shared_dynamic_response<2, 2>();
   check_shared_dynamic_response<2, 3>();
   check_shared_dynamic_response<3, 3>();
+}
+
+TEST(FiberReinforcedElasticityFreq, BOTH_SurrogatePreconditionedSharedResponse)
+{
+  check_shared_dynamic_response<1, 1>(true);
+  check_shared_dynamic_response<1, 2>(true);
+  check_shared_dynamic_response<1, 3>(true);
+  check_shared_dynamic_response<2, 2>(true);
+  check_shared_dynamic_response<2, 3>(true);
+  check_shared_dynamic_response<3, 3>(true);
+}
+
+TEST(FiberReinforcedElasticityFreq, BOTH_SharedSurrogateIncludesFiberEnergy)
+{
+  using namespace ImmersX;
+  using namespace dealii;
+  ParameterAcceptor::clear();
+  ElasticityFreqProblemParameters<2> bulk_parameters("/Bulk/"),
+    fiber_parameters("/Fiber/");
+  bulk_parameters.dirichlet_ids.clear();
+  fiber_parameters.dirichlet_ids.clear();
+  bulk_parameters.initial_refinement  = 1;
+  fiber_parameters.initial_refinement = 0;
+  bulk_parameters.arguments_for_grid  = "-1:1:false";
+  fiber_parameters.arguments_for_grid = "-.5:.5:false";
+  for (auto *material : {&bulk_parameters.default_material_properties,
+                         &fiber_parameters.default_material_properties})
+    {
+      material->Lame_mu        = 2.;
+      material->Lame_lambda    = 3.;
+      material->rho            = 4.;
+      material->rayleigh_alpha = .2;
+      material->rayleigh_beta  = .3;
+      material->neta           = .4;
+    }
+  initialize_parameters();
+  ElasticityFreqProblem<2> bulk(bulk_parameters), fiber(fiber_parameters);
+  bulk.make_grid();
+  bulk.setup_fe();
+  bulk.setup_dofs();
+  const double frequency = .25, omega = 2. * std::acos(-1.) * frequency;
+  bulk.prepare_frequency(frequency);
+  fiber.make_grid();
+  const auto support = harmonic_detail::make_reinforcement_support(
+    fiber, static_cast<const std::monostate *>(nullptr));
+  LinearAdapterParameters                                            options;
+  LinearAdapter<ImmersXLA::MPI::Vector, ImmersXLA::MPI::BlockVector> adapter(
+    options, bulk.communicator());
+  const auto fields = adapter.add(bulk, "bulk").fields();
+  adapter.add(
+    [&](auto &builder) {
+      harmonic_detail::add_shared_reinforcement(
+        builder, fields, fiber_parameters, support, omega);
+      return fields;
+    },
+    "reinforcement");
+  const auto             matrix = fields.surrogate->matrix();
+  ImmersXLA::MPI::Vector displacement, action;
+  displacement.reinit(bulk.locally_owned_dofs(), bulk.communicator());
+  action.reinit(displacement);
+  FunctionParser<2> expression(2);
+  expression.initialize("x,y", "x;0", {});
+  VectorTools::interpolate(bulk.mapping(),
+                           bulk.dof_handler(),
+                           expression,
+                           displacement);
+  matrix->vmult(action, displacement);
+  // For u=(x,0), the strain and divergence have unit squared norm. The
+  // bulk has volume 4 and integral x^2=4/3; the fiber has 1 and 1/12.
+  const auto  &material = bulk_parameters.default_material_properties;
+  const double expected = ((1. + omega * material.rayleigh_beta) *
+                             (2. * material.Lame_mu + material.Lame_lambda) +
+                           omega * material.neta) *
+                            5. +
+                          (omega * omega + omega * material.rayleigh_alpha) *
+                            material.rho * (4. / 3. + 1. / 12.);
+  EXPECT_NEAR(displacement * action, expected, 1.e-10 * expected);
 }
 
 namespace

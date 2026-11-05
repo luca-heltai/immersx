@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Precondition harmonic adapter solves with the standalone elasticity surrogate, including shared reinforcement, using one elasticity AMG hierarchy for both complex components and FGMRES for tolerance-stopped block-diagonal inner solves.
+
 - [PR #330](https://github.com/luca-heltai/immersx/pull/330) Show every recorded benchmark case in the performance overview, with separate compatible history charts and explicit unavailable native comparisons and failed measurements.
 
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Integrate nonmatching multiplier couplings on overlapping quadrature samples and impose a homogeneous multiplier mass equation on all exterior samples, including partially covered cells. Support fixed reference geometry in continuity constraints, lifted and modal interactions, fiber dynamics, legacy point couplings, and MetricFlowX coupling while preserving physical material ids.
