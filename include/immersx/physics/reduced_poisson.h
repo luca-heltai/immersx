@@ -34,6 +34,7 @@
 
 #include <immersx/compatibility/reference_cell.h>
 #include <immersx/core/domain.h>
+#include <immersx/physics/detail/robin_parameter_overrides.h>
 // #define MATRIX_FREE_PATH
 
 #define FORCE_USE_OF_TRILINOS
@@ -144,6 +145,35 @@ namespace ImmersX
     unsigned int                  max_cells           = 20000;
     mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> rhs;
     mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>> bc;
+    /** Boundary data for outward_normal_gradient(u) + beta*u = g. */
+    std::list<types::boundary_id> robin_ids;
+    mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
+                                              robin_coefficient;
+    mutable ModulatedParsedFunction<spacedim> robin_bc;
+    std::map<types::boundary_id,
+             std::shared_ptr<
+               ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>>>
+      robin_coefficients_by_id;
+    std::map<types::boundary_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+                                                      robin_bcs_by_id;
+    std::map<types::boundary_id, std::array<bool, 3>> robin_explicit_entries;
+
+    const Functions::ParsedFunction<spacedim> &
+    robin_coefficient_for(const types::boundary_id id) const
+    {
+      const auto entry = robin_coefficients_by_id.find(id);
+      return entry == robin_coefficients_by_id.end() ? robin_coefficient :
+                                                       *entry->second;
+    }
+
+    const ModulatedParsedFunction<spacedim> &
+    robin_bc_for(const types::boundary_id id) const
+    {
+      const auto entry = robin_bcs_by_id.find(id);
+      return entry == robin_bcs_by_id.end() ? robin_bc : *entry->second;
+    }
+
     mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
       exact_solution;
 

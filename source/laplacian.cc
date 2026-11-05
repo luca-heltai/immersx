@@ -113,6 +113,11 @@ namespace ImmersX
     relevant_dofs.resize(2);
     relevant_dofs[0] = DoFTools::extract_locally_relevant_dofs(dh);
     {
+      robin_detail::assert_disjoint_boundary_ids(
+        par.robin_ids,
+        par.dirichlet_ids,
+        std::list<types::boundary_id>{},
+        mpi_communicator);
       constraints.reinit(owned_dofs[0], relevant_dofs[0]);
       DoFTools::make_hanging_node_constraints(dh, constraints);
       for (const auto id : par.dirichlet_ids)
@@ -297,12 +302,19 @@ namespace ImmersX
     stiffness_matrix = 0;
     coupling_matrix  = 0;
     system_rhs       = 0;
-    FEValues<spacedim>               fe_values(geometry_mapping(),
+    FEValues<spacedim>     fe_values(geometry_mapping(),
                                  *fe,
                                  *quadrature,
                                  update_values | update_gradients |
                                    update_quadrature_points |
                                    update_JxW_values);
+    FEFaceValues<spacedim> face_values(
+      geometry_mapping(),
+      *fe,
+      compatibility::gauss_quadrature<spacedim - 1>(
+        fe->reference_cell().face_reference_cell(0), par.fe_degree + 1),
+      update_values | update_quadrature_points | update_JxW_values);
+    unsigned int                     local_invalid = 0;
     const unsigned int               dofs_per_cell = fe->n_dofs_per_cell();
     const unsigned int               n_q_points    = quadrature->size();
     FullMatrix<double>               cell_matrix(dofs_per_cell, dofs_per_cell);
@@ -333,6 +345,26 @@ namespace ImmersX
                                  fe_values.JxW(q);
                 }
             }
+          for (const auto face : cell->face_indices())
+            if (cell->face(face)->at_boundary() &&
+                std::find(par.robin_ids.begin(),
+                          par.robin_ids.end(),
+                          cell->face(face)->boundary_id()) !=
+                  par.robin_ids.end())
+              {
+                face_values.reinit(cell, face);
+                const auto  id = cell->face(face)->boundary_id();
+                const auto &g  = par.robin_bc_for(id);
+                local_invalid |=
+                  robin_detail::add_face_terms(face_values,
+                                               scalar,
+                                               par.robin_coefficient_for(id),
+                                               g,
+                                               cell_matrix,
+                                               cell_rhs,
+                                               1.,
+                                               g.scale(g.get_time()));
+              }
           cell->get_dof_indices(local_dof_indices);
           constraints.distribute_local_to_global(cell_matrix,
                                                  cell_rhs,
@@ -340,6 +372,7 @@ namespace ImmersX
                                                  stiffness_matrix,
                                                  system_rhs.block(0));
         }
+    robin_detail::assert_valid_boundary_data(local_invalid, mpi_communicator);
     stiffness_matrix.compress(VectorOperation::add);
     system_rhs.compress(VectorOperation::add);
   }
