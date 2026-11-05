@@ -235,10 +235,11 @@ class GitPlanning(unittest.TestCase):
                 output=Path(tmp) / "plan.json", preview=False, retry=False, commit=None, limit=8)
             plan(args)
             p = json.loads(args.output.read_text())
-            self.assertEqual(p["baseline"], shas[1]); self.assertEqual(p["selected"], shas[1:])
+            self.assertEqual(p["baseline"], shas[1])
+            self.assertEqual(p["selected"], [shas[-1], *shas[1:-1]])
             archive_attempt(args.archive, attempt(shas[2]))
             plan(args)
-            self.assertEqual(json.loads(args.output.read_text())["selected"], [shas[1], shas[3]])
+            self.assertEqual(json.loads(args.output.read_text())["selected"], [shas[3], shas[1]])
             args.commit = shas[0]
             with self.assertRaises(ValueError): plan(args)
             with self.assertRaises(ValueError): ancestry(repo, "not-an-ancestor", "HEAD")
@@ -293,6 +294,199 @@ class GitPlanning(unittest.TestCase):
             self.assertEqual(git(remote, "rev-parse", "refs/heads/performance-data"), first_head)
             final = tmp / "final"; final.mkdir(); checkout(repo, final)
             self.assertEqual(len(attempts(final)), 2)
+
+
+class GitLedger(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-b", "master")
+        git(self.repo, "config", "user.name", "Test")
+        git(self.repo, "config", "user.email", "test@example.org")
+        self.pre_activation = self.commit("base")
+        save(self.repo / "scripts/performance/config.json", {})
+        self.baseline = self.commit("activation")
+        self.archive = self.root / "archive"
+        self.plan_file = self.root / "plan.json"
+        self.batch = self.root / "batch"
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def commit(self, name):
+        (self.repo / name).write_text(name)
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-m", "Synthetic " + name)
+        return git(self.repo, "rev-parse", "HEAD")
+
+    def ledger(self, commits):
+        value = {"baseline": self.baseline, "source_sha": commits[-1],
+                 "commits": commits}
+        save(self.archive / "baseline.json", {"sha": self.baseline})
+        save(self.archive / "plan.json", value)
+        return value
+
+    def planning(self, **changes):
+        args = SimpleNamespace(repo=self.repo, ref="HEAD", archive=self.archive,
+            output=self.plan_file, preview=False, retry=False, commit=None, limit=8)
+        for name, value in changes.items():
+            setattr(args, name, value)
+        plan(args)
+        return json.loads(self.plan_file.read_text())
+
+    def publication(self):
+        return SimpleNamespace(repo=self.repo, archive=self.archive,
+                               incoming=self.batch, plan=self.plan_file)
+
+    def snapshot(self):
+        return {str(p.relative_to(self.archive)): p.read_bytes()
+                for p in self.archive.rglob("*") if p.is_file()}
+
+    def test_forward_plan_prioritizes_head_and_preserves_retry_policy(self):
+        old_tip = self.commit("old-master")
+        self.ledger([self.baseline, old_tip])
+        failed = attempt(old_tip, status="failed")
+        archive_attempt(self.archive, failed)
+        tip = self.commit("new-master")
+        current = self.planning(limit=1)
+        self.assertEqual(current["commits"], [self.baseline, old_tip, tip])
+        self.assertEqual(current["selected"], [tip])
+        self.assertEqual(self.planning()["selected"], [tip, self.baseline])
+        self.assertEqual(self.planning(retry=True)["selected"], [tip, self.baseline, old_tip])
+        self.assertEqual(attempts(self.archive), [failed])
+        archive_attempt(self.archive, attempt(tip, "2"))
+        self.assertEqual(self.planning()["selected"], [self.baseline])
+
+    def test_explicit_backfill_also_measures_an_unmeasured_current_tip(self):
+        old_tip = self.commit("old-master")
+        self.ledger([self.baseline, old_tip])
+        tip = self.commit("new-master")
+        self.assertEqual(self.planning(commit=old_tip, limit=2)["selected"], [tip, old_tip])
+        with self.assertRaisesRegex(ValueError, "batch limit is too small"):
+            self.planning(commit=old_tip, limit=1)
+        archive_attempt(self.archive, attempt(tip, "2"))
+        self.assertEqual(self.planning(commit=old_tip)["selected"], [old_tip])
+        failed = attempt(tip, "3", "failed")
+        archive_attempt(self.archive, failed)
+        self.assertEqual(self.planning(commit=old_tip)["selected"], [old_tip])
+        self.assertEqual(selected_attempt(attempts(self.archive)), failed)
+        self.assertEqual(self.planning(commit=old_tip, retry=True)["selected"], [tip, old_tip])
+        self.assertEqual(self.planning(commit=tip)["selected"], [tip])
+
+    def test_second_parent_master_preserves_coverage_attempts_and_late_raw(self):
+        git(self.repo, "switch", "-c", "feature")
+        feature = self.commit("feature")
+        git(self.repo, "switch", "master")
+        old_tip = self.commit("old-master")
+        old_plan = self.ledger([self.baseline, old_tip])
+        archive_attempt(self.archive, attempt(self.baseline))
+        failed = attempt(old_tip, status="failed")
+        archive_attempt(self.archive, failed)
+        archived = self.archive / "attempts" / (failed["id"] + ".json")
+        original_attempt = archived.read_bytes()
+        old_raw = self.archive / "raw" / failed["id"] / "output.jsonl"
+        old_raw.parent.mkdir(parents=True)
+        old_raw.write_bytes(b"original failed output\n")
+        git(self.repo, "switch", "feature")
+        git(self.repo, "merge", "--no-ff", "master", "-m", "Synthetic reverse-parent merge")
+        tip = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "switch", "master")
+        git(self.repo, "merge", "--ff-only", "feature")
+        self.assertNotIn(old_tip, ancestry(self.repo, self.baseline, tip))
+        current = self.planning()
+        self.assertEqual(current["commits"], [self.baseline, old_tip, feature, tip])
+        self.assertEqual(current["selected"], [tip, feature])
+        measured = attempt(tip, "2")
+        archive_attempt(self.batch, measured)
+        raw_file = self.batch / "raw" / measured["id"] / "output.jsonl"
+        raw_file.parent.mkdir(parents=True)
+        raw_file.write_bytes(b"new output\n")
+        merge(self.publication())
+        merge(self.publication())
+        latest_ledger = (self.archive / "plan.json").read_bytes()
+        self.assertEqual(json.loads(latest_ledger)["commits"], current["commits"])
+        self.assertEqual(archived.read_bytes(), original_attempt)
+        self.assertEqual(old_raw.read_bytes(), b"original failed output\n")
+        self.assertEqual((self.archive / raw_file.relative_to(self.batch)).read_bytes(), b"new output\n")
+        coverage = report(current, attempts(self.archive))["coverage"]
+        self.assertEqual([r["status"] for r in coverage], ["passed", "failed", "missing", "passed"])
+        # An older official run may finish after this publication.
+        save(self.plan_file, old_plan)
+        late = attempt(old_tip, "3", "failed")
+        archive_attempt(self.batch, late)
+        late_raw = self.batch / "raw" / late["id"] / "output.jsonl"
+        late_raw.parent.mkdir(parents=True)
+        late_raw.write_bytes(b"late failed output\n")
+        merge(self.publication())
+        self.assertEqual((self.archive / "plan.json").read_bytes(), latest_ledger)
+        self.assertEqual(archived.read_bytes(), original_attempt)
+        self.assertEqual(old_raw.read_bytes(), b"original failed output\n")
+        self.assertEqual((self.archive / late_raw.relative_to(self.batch)).read_bytes(), b"late failed output\n")
+        self.assertEqual(len(attempts(self.archive)), 4)
+
+    def test_late_different_parent_path_adds_coverage_without_rolling_back(self):
+        git(self.repo, "switch", "-c", "feature")
+        feature = self.commit("feature")
+        git(self.repo, "switch", "master")
+        late_tip = self.commit("late-master")
+        late_plan = {"baseline": self.baseline, "source_sha": late_tip,
+                     "commits": [self.baseline, late_tip]}
+        git(self.repo, "switch", "feature")
+        git(self.repo, "merge", "--no-ff", "master", "-m", "Synthetic parent reorder")
+        tip = git(self.repo, "rev-parse", "HEAD")
+        latest = self.ledger([self.baseline, feature, tip])
+        save(self.plan_file, late_plan)
+        archive_attempt(self.batch, attempt(late_tip, "2", "failed"))
+        merge(self.publication())
+        combined = json.loads((self.archive / "plan.json").read_text())
+        self.assertEqual(combined["source_sha"], tip)
+        self.assertEqual(combined["commits"], [self.baseline, feature, late_tip, tip])
+        self.assertEqual(combined["baseline"], latest["baseline"])
+        self.assertEqual(len(attempts(self.archive)), 1)
+
+    def test_divergent_source_is_rejected_even_with_a_forged_coverage_prefix(self):
+        old_tip = self.commit("old-master")
+        old_plan = self.ledger([self.baseline, old_tip])
+        git(self.repo, "switch", "-c", "rewritten", self.baseline)
+        divergent = self.commit("divergent-master")
+        with self.assertRaisesRegex(ValueError, "non-fast-forward"):
+            self.planning()
+        save(self.plan_file, {**old_plan, "source_sha": divergent,
+                             "commits": [*old_plan["commits"], divergent]})
+        archive_attempt(self.batch, attempt(divergent, status="failed"))
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, "non-fast-forward"):
+            merge(self.publication())
+        self.assertEqual(self.snapshot(), before)
+
+    def test_retained_activation_can_be_a_second_parent(self):
+        self.ledger([self.baseline])
+        archive_attempt(self.archive, attempt(self.baseline))
+        git(self.repo, "switch", "-c", "old-feature", self.pre_activation)
+        feature = self.commit("before-activation")
+        git(self.repo, "merge", "--no-ff", "master", "-m", "Synthetic activation on parent two")
+        tip = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "switch", "master")
+        git(self.repo, "merge", "--ff-only", "old-feature")
+        self.assertEqual(ancestry(self.repo, self.baseline, tip), [self.baseline, tip])
+        current = self.planning()
+        self.assertEqual(current["baseline"], self.baseline)
+        self.assertEqual(current["commits"], [self.baseline, tip])
+        self.assertEqual(current["selected"], [tip])
+        self.assertNotIn(feature, current["commits"])
+
+    def test_shallow_publication_requires_complete_source_history(self):
+        self.commit("new-master")
+        shallow = self.root / "shallow"
+        git(self.root, "clone", "--depth=1", self.repo.as_uri(), str(shallow))
+        result = subprocess.run([sys.executable, str(HERE / "archive.py"), "publish",
+            "--repo", str(shallow), "--incoming", str(self.batch),
+            "--plan", str(self.plan_file)], text=True, capture_output=True,
+            env={**os.environ, "GITHUB_ACTIONS": "false"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("full source Git history", result.stderr)
 
 
 class Publication(unittest.TestCase):

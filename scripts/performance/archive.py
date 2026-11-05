@@ -63,6 +63,10 @@ def main():
     args = p.parse_args()
     if args.action == "publish":
         validate_publication(args)
+        # The archive checkout contains only performance data. Ancestry must
+        # be proved against the caller's complete source repository instead.
+        if git(args.repo, "rev-parse", "--is-shallow-repository") != "false":
+            raise ValueError("publication requires the full source Git history")
     for retry in range(5):
         with tempfile.TemporaryDirectory() as tmp:
             checkout(args.repo, tmp)

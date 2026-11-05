@@ -20,11 +20,18 @@ Explicit job dependencies enforce this order:
 4. Publish only if the run still describes the remote `master` head.
 
 Numerical, configuration, build, execution, timeout and missing-case failures
-make the measurement job fail **after** its artifact is uploaded. Downstream
-archive and documentation jobs still run when a batch exists, so the failure
-is visible on the site. Infrastructure failure before planning cannot invent
-an attempt: the next plan exposes and recovers the gap. A broken archive upload
-blocks documentation publication rather than publishing misleading old data.
+in the triggering source make the measurement job fail **after** its artifact
+is uploaded. Every selected commit must produce exactly one attempt. Historical
+backfill failures remain failed attempts, with their errors and raw output
+visible on the site; they do not fail validation of a newer, valid source.
+The current source must have a successful measurement, either in the batch or
+already in the archive. A newer failed attempt cannot be hidden by an older
+success.
+
+Downstream archive and documentation jobs still run when a batch exists.
+Infrastructure failure before planning cannot invent an attempt: the next plan
+exposes and recovers the gap. A broken archive upload blocks documentation
+publication rather than publishing misleading old data.
 
 PRs run on GitHub-hosted runners with read-only permissions. They get an
 experimental report artifact, but cannot publish history or Pages. The writer
@@ -38,10 +45,13 @@ are provisioned by these workflows.
 
 ## Which commits are monitored?
 
-“Every commit on master” means every commit in **first-parent order**, including
-merge commits and every first-parent commit in a multi-commit push. Individual
-commits reachable only through the second parent of a merge are not measured
-separately. This measures each successive state of the main development line.
+The planner monitors each first-parent history it observes, including merge
+commits and every first-parent commit in a multi-commit push. It retains the
+union of previously monitored commits and the current first-parent history.
+A fast-forward merge can place the previous master on its second parent and
+change the first-parent path. This does not erase earlier coverage or
+measurements. The ledger records these observed paths; Git history alone does
+not identify every past value of the master ref.
 
 The initial monitoring baseline is explicitly the first first-parent commit
 that adds `scripts/performance/config.json` to `master` (the activation commit).
@@ -51,14 +61,19 @@ repository, and it never imports the checked-in historical CP8 reports as new
 measurements. The timing baseline is different: it is the first valid result
 in each compatible environment/case series.
 
-Every plan enumerates the full monitored interval through the triggering SHA.
-It selects the oldest missing commits, at most eight per run. All remaining
-commits are still listed as missing. A daily scheduled run drains a backlog;
-pushes and manual runs do the same. Already failed commits are retained and
-require `retry=true` or an explicit SHA to retry, so a persistent failure cannot
-starve later commits. There is no deletion of pending work when a push arrives.
-A non-fast-forward change to the monitored first-parent history is rejected and
-requires human review; the pipeline never silently resets its baseline.
+Every plan enumerates the monitored interval through the triggering SHA.
+An unmeasured triggering SHA is selected first, followed by the oldest missing
+commits, at most eight per run. All remaining commits are still listed as
+missing. A daily scheduled run drains a backlog; pushes and manual runs do the
+same. Already failed commits are retained and require `retry=true` or an explicit
+SHA to retry, so a persistent historical failure cannot starve later commits.
+There is no deletion of pending work when a push arrives.
+
+The planner and publisher check actual Git ancestry between source tips.
+A genuine non-fast-forward change is rejected and requires human review; the
+pipeline never silently resets its baseline. The publishing job fetches the
+full source graph so a valid merge with reordered parents can be distinguished
+from a rewrite.
 
 The concurrency group serializes official documentation runs and does not
 cancel the running one. It is **not** a durable queue. GitHub's current
