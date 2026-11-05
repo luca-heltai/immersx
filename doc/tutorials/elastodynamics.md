@@ -100,3 +100,51 @@ force and time-dependent displacement and velocity boundary values.
 
 Next, [Reduced Poisson](reduced-poisson) introduces a lower-dimensional
 geometry and coupling.
+
+## Robin tractions
+
+A displacement spring on the boundary satisfies
+
+$$
+\sigma(u,v)n + \beta_R(x,t)u = g(x,t), \qquad \beta_R(x,t)\geq 0,
+$$
+
+where $v=\dot u$ and $\sigma(u,v)$ includes the elastic and viscous stresses
+of the material model above. The scalar Robin coefficient $\beta_R$ is
+independent of the material's Rayleigh beta. It multiplies displacement; it
+does not introduce boundary damping proportional to velocity.
+
+For a colored unit square, this example prescribes displacement on three
+faces and a time-dependent Robin traction on the right face:
+
+```ini
+subsection Elastodynamics
+  set Dirichlet boundary ids = 0, 2, 3
+  set Neumann boundary ids =
+  set Robin boundary ids = 1
+  subsection Functions
+    subsection Robin coefficient
+      set Function expression = 2+x+t
+    end
+    subsection Robin boundary
+      set Function expression = sin(t); 0
+    end
+  end
+end
+```
+
+Set `Domain/Grid generator arguments = 0: 1: true` for that face numbering.
+The vector load has one component per ambient spatial coordinate. Coefficients
+must remain finite and nonnegative, loads must be finite, and Robin ids must
+be disjoint from displacement and Neumann ids.
+
+Both the native fixed-step solver and the IDA adapter evaluate the coefficient
+and load at the requested physical time. In the native trapezoidal method,
+the previous-time elastic force uses the previous coefficient. Time-varying
+loads can be combined with a constant boundary spring. A Robin update leaves
+the mass and material damping operators unchanged.
+
+The same entries are available in the matrix and fiber `Elastodynamics`
+subsections of `fiber_reinforced_elastodynamics`, and in the solid subsection
+of `metric_flow_x_elastodynamics`. Hypercube and simplex face integration use
+the same reference-cell choice as the volume operators.
