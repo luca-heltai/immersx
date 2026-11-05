@@ -92,6 +92,9 @@ main(int argc, char **argv)
   AssertThrow(repetitions > 0,
               ExcMessage("The benchmark needs at least one repetition."));
 
+  // Keep assembly diagnostics out of the JSONL records on stdout.
+  auto *const json_output = std::cout.rdbuf(std::cerr.rdbuf());
+
   DomainParameters<1, 3> parameters("/Lifted support benchmark domain/");
   parameters.name_of_grid       = "hyper_cube";
   parameters.arguments_for_grid = "-1: 1: false";
@@ -227,6 +230,7 @@ main(int argc, char **argv)
 
   const auto [action_median_ms, action_mad_ms] = median_and_mad(action_samples);
 
+  std::cout.rdbuf(json_output);
   if (Utilities::MPI::this_mpi_process(domain.communicator()) == 0)
     std::cout << "{\"case\":\"lifted_geometry_rebuild\","
               << "\"deal_ii_version\":\"" << DEAL_II_PACKAGE_VERSION << "\","

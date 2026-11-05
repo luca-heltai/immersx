@@ -1262,9 +1262,11 @@ namespace ImmersX
     system_matrix_storage     = 0.;
     system_matrix_storage.compress(VectorOperation::add);
     for (const auto row : owned_dofs)
-      if (!displacement_constraints_storage.is_constrained(row))
-        for (auto entry = homogeneous_mass_matrix_storage.begin(row);
-             entry != homogeneous_mass_matrix_storage.end(row);
+      if (!displacement_constraints_storage.is_constrained(row) &&
+          homogeneous_mass_matrix_storage.row_length(row) != 0)
+        for (auto entry = homogeneous_mass_matrix_storage.begin(row),
+                  end   = homogeneous_mass_matrix_storage.end(row);
+             entry != end;
              ++entry)
           {
             const auto   column = entry->column();

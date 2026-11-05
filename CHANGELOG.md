@@ -249,6 +249,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Evaluate the legacy coupled solid at the driver's physical time, refreshing Robin springs, applied loads and nonzero essential lifting at every changed time.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Avoid running the tissue solver twice after a legacy 3D/1D coupled run. Execute the pseudocoupled 1D update on its owning rank and reject an MPI-enabled legacy backend with multiple ranks before its incompatible collectives can hang.
@@ -444,6 +446,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #340](https://github.com/luca-heltai/immersx/pull/340) Send lifted-support benchmark assembly diagnostics to stderr so its JSONL output passes strict correctness validation.
 
 - [PR #334](https://github.com/luca-heltai/immersx/pull/334) Treat changes to the performance viewer browser check as documentation inputs, avoiding numerical, Coral and benchmark jobs when no solver or runtime input changes. Keep mixed changes on the full PR path.
 
