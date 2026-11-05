@@ -76,7 +76,7 @@ namespace ImmersX
       if (reported.exchange(true))
         return;
 
-      std::cout << "Quadrature points retained: " << retained << " / " << total
+      std::clog << "Quadrature points retained: " << retained << " / " << total
                 << " (" << total - retained << " skipped)." << std::endl;
     }
     template <int dim, typename Support>

@@ -249,6 +249,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Keep quadrature diagnostics on standard error so benchmark output remains valid JSON Lines.
+
 - [PR #329](https://github.com/luca-heltai/immersx/pull/329) Omit exterior reinforcement quadrature points from shared harmonic elasticity, retaining interior samples of partially overlapping fibers and reporting their retained volume.
 - [PR #335](https://github.com/luca-heltai/immersx/pull/335) Preserve unnamed Gmsh physical material and boundary ids during Domain imports without changing named material, boundary or manifold selectors. Keep untagged entities, input files and Gmsh output settings intact.
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Reuse the current linearization in steady Schur and block preconditioners so each application avoids assembling the coupling again. Refresh retained matrices for every solve.
