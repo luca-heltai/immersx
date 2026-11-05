@@ -261,7 +261,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Reject unreadable Gmsh mesh files before opening them in an existing session, so a missing MSH or STL input does not prevent later valid mesh imports.
+- [PR #346](https://github.com/luca-heltai/immersx/pull/346) Reject unreadable STL inputs before entering Gmsh and verify that missing MSH or STL files preserve later valid imports in the same session.
+
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Reject unreadable Gmsh mesh files before opening them in an existing session, so a missing input does not prevent later valid mesh imports.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Include shared reinforcement Robin springs in the positive harmonic surrogate, using their retained physical boundary support so iterative solves remain anchored without essential conditions.
 
