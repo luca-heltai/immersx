@@ -622,8 +622,6 @@ namespace ImmersX
                                                mpi_communicator);
     robin_operator_time.reset();
     robin_force_time.reset();
-    volume_stiffness.reset();
-    homogeneous_volume_stiffness.reset();
     spatial_operators_ready = false;
     time_preconditioner.reset();
     system_matrix_time_step.reset();
@@ -867,20 +865,7 @@ namespace ImmersX
     set_constraint_diagonal(homogeneous_stiffness_matrix_storage, 0.);
     set_constraint_diagonal(homogeneous_damping_matrix_storage, 0.);
     spatial_operators_ready = true;
-    if (!par.robin_ids.empty())
-      {
-        volume_stiffness             = std::make_unique<MatrixType>();
-        homogeneous_volume_stiffness = std::make_unique<MatrixType>();
-        volume_stiffness->copy_from(stiffness_matrix_storage);
-        homogeneous_volume_stiffness->copy_from(
-          homogeneous_stiffness_matrix_storage);
-        update_boundary_operators(par.time_parameters.initial_time);
-        if (!par.robin_coefficient_depends_on_time)
-          {
-            volume_stiffness.reset();
-            homogeneous_volume_stiffness.reset();
-          }
-      }
+    update_boundary_operators(par.time_parameters.initial_time);
   }
 
   template <int dim, int spacedim>
@@ -892,11 +877,8 @@ namespace ImmersX
         (robin_operator_time && (!par.robin_coefficient_depends_on_time ||
                                  *robin_operator_time == time)))
       return;
-    AssertThrow(volume_stiffness,
+    AssertThrow(spatial_operators_ready,
                 ExcMessage("Assemble volume operators before Robin terms."));
-    stiffness_matrix_storage.copy_from(*volume_stiffness);
-    homogeneous_stiffness_matrix_storage.copy_from(
-      *homogeneous_volume_stiffness);
     FEFaceValues<dim, spacedim>          values(*mapping_storage,
                                        *fe_storage,
                                        *face_quadrature,
@@ -923,6 +905,20 @@ namespace ImmersX
                 par.robin_ids.count(cell->face(face)->boundary_id()))
               {
                 values.reinit(cell, face);
+                // Update only face integrals: never duplicate the volume K.
+                if (robin_operator_time)
+                  {
+                    par.robin_coefficient.set_time(*robin_operator_time);
+                    invalid |=
+                      robin_detail::add_face_terms(values,
+                                                   extractor,
+                                                   par.robin_coefficient,
+                                                   zero,
+                                                   matrix,
+                                                   rhs,
+                                                   -1.);
+                  }
+                par.robin_coefficient.set_time(time);
                 invalid |= robin_detail::add_face_terms(
                   values, extractor, par.robin_coefficient, zero, matrix, rhs);
               }

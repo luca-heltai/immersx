@@ -529,8 +529,6 @@ namespace ImmersX
     MatrixType                    system_matrix_storage;
     MatrixType                    homogeneous_mass_matrix_storage;
     mutable MatrixType            homogeneous_stiffness_matrix_storage;
-    std::unique_ptr<MatrixType>   volume_stiffness;
-    std::unique_ptr<MatrixType>   homogeneous_volume_stiffness;
     mutable std::optional<double> robin_operator_time;
     mutable VectorType            cached_robin_force;
     mutable std::optional<double> robin_force_time;
