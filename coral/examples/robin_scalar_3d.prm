@@ -1,0 +1,27 @@
+set dimension = 3
+set space dimension = 3
+subsection Robin mesh
+  set Grid generator = hyper_cube
+  set Grid generator arguments = 0:1:false
+  set Initial refinement = 1
+end
+subsection Robin space
+  set Finite element = FE_Q<3>(1)
+end
+subsection Robin execution
+  set Solver = direct
+  set Tolerance = 1.e-12
+end
+subsection Robin output
+  set Output directory = output
+end
+subsection Robin data
+  set Dirichlet boundary ids =
+  set Robin boundary ids = 0
+  subsection Robin coefficient
+    set Function expression = 2+x
+  end
+  subsection Robin boundary conditions
+    set Function expression = if(x>1-1e-10,1,if(x<1e-10,-1,0))+(2+x)*(1+x)
+  end
+end

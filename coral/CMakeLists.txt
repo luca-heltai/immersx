@@ -123,8 +123,44 @@ foreach(_build_type ${_d2_build_types})
       set_tests_properties(
         "ImmersX.Coral.Registry.${_spacedim}d${_postfix}"
         PROPERTIES LABELS "unit;quick"
-                   TIMEOUT 120
+                   TIMEOUT 115
                    ENVIRONMENT "${_coral_test_environment}")
+
+      if(IMMERSX_ENABLE_CORAL_GRAPH_TESTS AND _spacedim EQUAL 3)
+        if(NOT IMMERSX_PYTHON_EXECUTABLE)
+          message(FATAL_ERROR "Coral Robin graph checks require Python 3.")
+        endif()
+        find_program(_robin_mpiexec NAMES mpirun mpiexec)
+        set(_robin_ranks 1)
+        if(_robin_mpiexec)
+          list(APPEND _robin_ranks 2)
+        endif()
+        foreach(_family scalar elasticity)
+          foreach(_case mms overlap negative nonfinite)
+            foreach(_ranks IN LISTS _robin_ranks)
+              set(_test
+                "ImmersX.Coral.Graph.Robin.${_family}.${_case}.${_ranks}Rank${_postfix}")
+              add_test(NAME "${_test}"
+                COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+                  "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_robin_graph.py"
+                  --coral $<TARGET_FILE:coral::coral>
+                  --plugin $<TARGET_FILE:${_plugin}>
+                  --graph "${CMAKE_CURRENT_SOURCE_DIR}/examples/robin_${_family}_3d.json"
+                  --parameters "${CMAKE_CURRENT_SOURCE_DIR}/examples/robin_${_family}_3d.prm"
+                  --working-directory
+                    "${CMAKE_CURRENT_BINARY_DIR}/graph_robin_${_family}_${_case}_${_ranks}${_postfix}"
+                  --family "${_family}" --case "${_case}"
+                  --ranks "${_ranks}" --mpiexec "${_robin_mpiexec}")
+              set_tests_properties("${_test}" PROPERTIES
+                LABELS "integration;quick" TIMEOUT 115 PROCESSORS "${_ranks}"
+                ENVIRONMENT "${_coral_test_environment}")
+              if(_ranks GREATER 1)
+                set_property(TEST "${_test}" APPEND PROPERTY LABELS "mpi")
+              endif()
+            endforeach()
+          endforeach()
+        endforeach()
+      endif()
 
       if(IMMERSX_ENABLE_CORAL_GRAPH_TESTS AND _spacedim EQUAL 2)
         set(_graph_working_directory
