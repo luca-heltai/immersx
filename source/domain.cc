@@ -254,6 +254,12 @@ namespace ImmersX
 #if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
       if (extension == "msh" || extension == "stl")
         {
+          // An inaccessible input can leave Gmsh's project lock set after
+          // gmsh::open throws. Reject it before touching a caller's session.
+          {
+            std::ifstream input(filename, std::ios::binary);
+            AssertThrow(input.is_open(), dealii::ExcFileNotOpen(filename));
+          }
           if (extension == "msh")
             read_gmsh_file(filename, grid_in);
           else if (extension == "stl")
