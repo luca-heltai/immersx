@@ -14,6 +14,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Export reference pressures and boundary inflows in liver node tables, and reference resistances and flows in liver vessel tables.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Support scalar and vector Robin boundary data in Poisson, static and transient elasticity, harmonic reinforcement, lifted problems and Navier–Stokes, including their execution adapters and coupled applications. Allow spatial coefficients and per-boundary overrides, validate mixed boundary selections collectively, and expose scalar and solid Robin terms in Coral graphs. Add pressure/conductance conditions to vascular reference solves, with pressure anchoring and the prescribed-flux limit.
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Precondition harmonic adapter solves with the standalone elasticity surrogate, including shared reinforcement, using one elasticity AMG hierarchy for both complex components and FGMRES for tolerance-stopped block-diagonal inner solves.
 
 - [PR #330](https://github.com/luca-heltai/immersx/pull/330) Show every recorded benchmark case in the performance overview, with separate compatible history charts and explicit unavailable native comparisons and failed measurements.
 
@@ -266,6 +267,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Avoid running the tissue solver twice after a legacy 3D/1D coupled run. Execute the pseudocoupled 1D update on its owning rank and reject an MPI-enabled legacy backend with multiple ranks before its incompatible collectives can hang.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Keep quadrature diagnostics on standard error so benchmark output remains valid JSON Lines.
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Keep memory use linear in the number of contributions when constructing semidiscrete operator sums, avoiding runaway allocation before harmonic fiber-reinforcement solves.
 
 - [PR #329](https://github.com/luca-heltai/immersx/pull/329) Omit exterior reinforcement quadrature points from shared harmonic elasticity, retaining interior samples of partially overlapping fibers and reporting their retained volume.
 - [PR #335](https://github.com/luca-heltai/immersx/pull/335) Preserve unnamed Gmsh physical material and boundary ids during Domain imports without changing named material, boundary or manifold selectors. Keep untagged entities, input files and Gmsh output settings intact.

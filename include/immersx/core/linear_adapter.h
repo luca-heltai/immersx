@@ -498,6 +498,8 @@ namespace ImmersX
 #endif
           const bool flexible =
             parameters_.preconditioner ==
+              LinearPreconditioner::block_diagonal ||
+            parameters_.preconditioner ==
               LinearPreconditioner::augmented_lagrangian ||
             parameters_.preconditioner ==
               LinearPreconditioner::block_triangular ||

@@ -15,26 +15,181 @@
 #include <immersx/physics/elasticity_freq.h>
 
 #include <cmath>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <set>
 #include <utility>
+#include <vector>
 
 namespace ImmersX
 {
+  namespace harmonic_detail
+  {
+    /** One positive surrogate and inverse shared by the complex components. */
+    struct SurrogatePreconditioner
+    {
+      using Matrix   = ImmersXLA::MPI::SparseMatrix;
+      using Operator = dealii::LinearOperator<ImmersXLA::MPI::Vector>;
+      std::function<std::shared_ptr<Matrix>()>         make_matrix;
+      std::function<Operator(std::shared_ptr<Matrix>)> make_inverse;
+      std::vector<std::function<void(Matrix &)>>       additions;
+      std::optional<Operator>                          inverse;
+
+      std::shared_ptr<Matrix>
+      matrix() const
+      {
+        auto result = make_matrix();
+        for (const auto &add : additions)
+          add(*result);
+        return result;
+      }
+
+      Operator
+      get()
+      {
+        if (!inverse)
+          inverse = make_inverse(matrix());
+        return *inverse;
+      }
+    };
+  } // namespace harmonic_detail
+
   template <int dim, int spacedim = dim>
   struct ElasticityFreqFields
   {
     using Space = FiniteElementSpaceView<dim, spacedim>;
     using VectorField =
       Field<dim, spacedim, dealii::FEValuesExtractors::Vector>;
-    VectorField                  real;
-    VectorField                  imaginary;
-    std::shared_ptr<const Space> real_space;
-    std::shared_ptr<const Space> imaginary_space;
+    VectorField                                               real;
+    VectorField                                               imaginary;
+    std::shared_ptr<const Space>                              real_space;
+    std::shared_ptr<const Space>                              imaginary_space;
+    std::shared_ptr<harmonic_detail::SurrogatePreconditioner> surrogate =
+      nullptr;
   };
 
   namespace harmonic_detail
   {
+    template <int dim, int spacedim>
+    auto
+    make_surrogate_inverse(const ElasticityFreqProblem<dim, spacedim> &problem,
+                           std::shared_ptr<ImmersXLA::MPI::SparseMatrix> matrix)
+    {
+      using Vector                  = ImmersXLA::MPI::Vector;
+      using Operator                = dealii::LinearOperator<Vector>;
+      const auto       owned        = problem.locally_owned_dofs();
+      const auto       communicator = problem.communicator();
+      dealii::IndexSet constrained(owned.size());
+      for (const auto &line : problem.real_constraints().get_lines())
+        if (owned.is_element(line.index))
+          {
+            constrained.add_index(line.index);
+            matrix->set(line.index, line.index, 1.);
+          }
+      constrained.compress();
+      matrix->compress(dealii::VectorOperation::insert);
+      const auto amg  = problem.make_surrogate_amg(*matrix);
+      auto     memory = std::make_shared<dealii::GrowingVectorMemory<Vector>>();
+      Operator result;
+      result.reinit_range_vector = [owned, communicator](Vector &v,
+                                                         const bool) {
+        v.reinit(owned, communicator);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
+      result.vmult = [matrix, amg, constrained, memory](Vector       &dst,
+                                                        const Vector &src) {
+        typename dealii::VectorMemory<Vector>::Pointer rhs(*memory);
+        rhs->reinit(src);
+        *rhs = src;
+        for (const auto index : constrained)
+          (*rhs)[index] = 0.;
+        dst               = 0.;
+        const double norm = rhs->l2_norm();
+        AssertThrow(std::isfinite(norm),
+                    dealii::ExcMessage(
+                      "Non-finite harmonic surrogate right-hand side."));
+        if (norm > 0.)
+          {
+            // Match the standalone surrogate's reduction and iteration cap.
+            // The outer FGMRES checks convergence of the physical system.
+            dealii::IterationNumberControl control(30, .1 * norm, false, false);
+            dealii::SolverCG<Vector>       solver(control, *memory);
+            solver.solve(*matrix, dst, *rhs, *amg);
+          }
+        for (const auto index : constrained)
+          dst[index] = src[index];
+        AssertThrow(std::isfinite(dst.l2_norm()),
+                    dealii::ExcMessage(
+                      "Non-finite harmonic surrogate correction."));
+      };
+      result.Tvmult    = result.vmult;
+      result.vmult_add = [apply = result.vmult, memory](Vector       &dst,
+                                                        const Vector &src) {
+        typename dealii::VectorMemory<Vector>::Pointer temporary(*memory);
+        temporary->reinit(dst);
+        apply(*temporary, src);
+        dst += *temporary;
+      };
+      result.Tvmult_add = result.vmult_add;
+      return result;
+    }
+
+    /** Extend the surrogate on the same support as a shared material term. */
+    template <typename Fields, typename Support>
+    void
+    add_surrogate_material(const Fields             &fields,
+                           const MaterialProperties &material,
+                           const Support            &support,
+                           const double              omega)
+    {
+      const double shear =
+        2. * material.Lame_mu * (1. + omega * material.rayleigh_beta) +
+        omega * material.neta;
+      const double bulk =
+        material.Lame_lambda * (1. + omega * material.rayleigh_beta);
+      const double mass =
+        material.rho * (omega * omega + omega * material.rayleigh_alpha);
+      fields.surrogate->inverse.reset();
+      // Field holds a non-owning FE view; retain its owner for lazy assembly.
+      fields.surrogate->additions.push_back([field = fields.real,
+                                             space = fields.real_space,
+                                             support,
+                                             shear,
+                                             bulk,
+                                             mass](auto &matrix) {
+        using Vector = ImmersXLA::MPI::Vector;
+        using Matrix = ImmersXLA::MPI::SparseMatrix;
+        StateLayout                         layout;
+        SemiDiscreteModel<Vector, Matrix>   model;
+        SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+        const auto id    = builder.algebraic_field("surrogate",
+                                                field.locally_owned_dofs(),
+                                                field.locally_relevant_dofs());
+        const auto trial = field.with_id(id);
+        if (shear != 0.)
+          weak_term(shear * symmetric_gradient(trial),
+                    symmetric_gradient(test(trial)))
+            .on(support)
+            .add(builder);
+        if (bulk != 0.)
+          weak_term(bulk * divergence(trial), divergence(test(trial)))
+            .on(support)
+            .add(builder);
+        if (mass != 0.)
+          weak_term(mass * value(trial), test(trial)).on(support).add(builder);
+        Vector zero;
+        zero.reinit(field.locally_owned_dofs(),
+                    field.space().mpi_communicator());
+        StateView<Vector> state(layout, 0.);
+        state.bind(id, zero);
+        const EvaluationContext<Vector> context(0., state);
+        const auto contribution = model.state_matrix_operator(id, id, context);
+        if (contribution)
+          matrix.add(1., *contribution->matrix());
+      });
+    }
+
     template <typename Map, typename Key>
     double
     phase_component(const Map   &phases,
@@ -240,7 +395,25 @@ namespace ImmersX
     add_robin(imaginary, true);
     forcing(real, false);
     forcing(imaginary, true);
-    return {real, imaginary, std::move(real_space), std::move(imaginary_space)};
+    auto surrogate =
+      std::make_shared<harmonic_detail::SurrogatePreconditioner>();
+    surrogate->make_matrix = [&problem, volume_weight] {
+      return problem.make_surrogate_matrix(volume_weight);
+    };
+    surrogate->make_inverse = [&problem](auto matrix) {
+      return harmonic_detail::make_surrogate_inverse(problem,
+                                                     std::move(matrix));
+    };
+    const auto local_inverse = [surrogate](const auto &, const auto &) {
+      return surrogate->get();
+    };
+    builder.preconditioner(real_id, local_inverse);
+    builder.preconditioner(imaginary_id, local_inverse);
+    return {real,
+            imaginary,
+            std::move(real_space),
+            std::move(imaginary_space),
+            std::move(surrogate)};
   }
 } // namespace ImmersX
 #endif
