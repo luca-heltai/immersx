@@ -67,6 +67,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ElasticityCouplingIntegration
     ElasticityCouplingParticleOutput
     Elastodynamics
+    RobinModern
     ElasticityFreq
     FiberReinforcedElasticityFreq
     ImportedFiniteElementFields
