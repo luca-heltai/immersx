@@ -319,24 +319,45 @@ main(int argc, char **argv)
       };
       {
         auto out = table("nodes");
-        out << "id,x,y,z,port,provenance\n";
+        out << "id,x,y,z,port,provenance,pressure_Pa,boundary_inflow_m3_s\n";
         for (const auto &[id, node] : result.network.nodes)
           if (node.owner == rank)
-            out << id << ',' << node.position[0] << ',' << node.position[1]
-                << ',' << node.position[2] << ','
-                << static_cast<unsigned int>(node.port) << ','
-                << static_cast<unsigned int>(node.provenance) << '\n';
+            {
+              out << id << ',' << node.position[0] << ',' << node.position[1]
+                  << ',' << node.position[2] << ','
+                  << static_cast<unsigned int>(node.port) << ','
+                  << static_cast<unsigned int>(node.provenance) << ',';
+              if (const auto pressure = result.reference.pressures.find(id);
+                  pressure != result.reference.pressures.end())
+                out << pressure->second;
+              out << ',';
+              const auto inflow = result.reference.boundary_inflows.find(id);
+              out << (inflow == result.reference.boundary_inflows.end() ?
+                        0. :
+                        inflow->second)
+                  << '\n';
+            }
       }
       {
         auto out = table("vessels");
-        out << "id,node0,node1,radius0,radius1,viscosity,system,provenance\n";
+        out
+          << "id,node0,node1,radius0,radius1,viscosity,system,provenance,resistance_Pa_s_per_m3,flow_m3_s\n";
         for (const auto &[id, vessel] : result.network.vessels)
           if (vessel.owner == rank)
-            out << id << ',' << vessel.nodes[0] << ',' << vessel.nodes[1] << ','
-                << vessel.radii[0] << ',' << vessel.radii[1] << ','
-                << vessel.viscosity << ','
-                << static_cast<unsigned int>(vessel.system) << ','
-                << static_cast<unsigned int>(vessel.provenance) << '\n';
+            {
+              out << id << ',' << vessel.nodes[0] << ',' << vessel.nodes[1]
+                  << ',' << vessel.radii[0] << ',' << vessel.radii[1] << ','
+                  << vessel.viscosity << ','
+                  << static_cast<unsigned int>(vessel.system) << ','
+                  << static_cast<unsigned int>(vessel.provenance) << ',';
+              if (const auto reference = result.reference.vessels.find(id);
+                  reference != result.reference.vessels.end())
+                out << reference->second.resistance << ','
+                    << reference->second.flow;
+              else
+                out << ',';
+              out << '\n';
+            }
       }
       {
         auto out = table("terminals");
