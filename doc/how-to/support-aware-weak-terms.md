@@ -17,6 +17,26 @@ The standard iterative `LinearAdapter` solve materializes a matrix-based system
 once and owns that matrix for the solve. Custom solve callbacks and systems
 without complete matrix provenance keep their operator path.
 
+For a linear term whose geometry and homogeneous constraint coefficients stay
+fixed throughout a solve, retain its first assembly explicitly:
+
+```cpp
+weak_term(value(displacement), test(lifted_multiplier))
+  .on(overlap)
+  .with_cached_assembly()
+  .add(builder);
+```
+
+The first nonzero operator action or explicit matrix request assembles the
+pairing. Later residual actions, transpose actions and matrix requests reuse
+it. State values and affine constraint offsets remain current; changing them
+does not freeze the physical solution. The meshes, mappings, lifted reference
+geometry, integration support, FE spaces and homogeneous constraint coefficients
+must remain fixed. Rebuild the term when those data change. The option rejects
+nonlinear trials, including a lifted `sqrt(A)` expression; evaluate their current
+state and derivative at every solver evaluation. Without this option, weak terms
+keep their existing assembly behavior.
+
 Changing prescribed Dirichlet values with the same constraint structure does
 not change a linear operator's matrix. Affine residual contributions on matching
 cell and boundary supports are reintegrated only on cells with nonzero trial

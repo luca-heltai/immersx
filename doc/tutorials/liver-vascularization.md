@@ -540,3 +540,10 @@ absolute tolerance. `Use native flow tolerances = true` reuses MetricFlowX's
 This delegates component numbering and reference-area scaling to MetricFlowX.
 Choose and verify these tolerances against the spatial and temporal errors of
 the intended case.
+
+The [coupled IRCAD12 starting case](https://github.com/luca-heltai/immersx/blob/0a4ea15e/tutorials/liver_icar/README.md)
+provides a two-territory arterial/portal/venous archive and four run profiles.
+Its [research release](https://github.com/luca-heltai/immersx/releases/tag/liver-icar-start-2026-11-05)
+contains the generated meshes, parameters, numerical inputs/results and a
+literature report. The million and ten-million profiles are preparation cases;
+their transient solver performance is not validated.

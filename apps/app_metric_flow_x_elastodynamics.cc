@@ -713,6 +713,7 @@ namespace
 
         weak_term(value(solid_fields.fields().displacement), test(lambda_wall))
           .on(supports.overlap)
+          .with_cached_assembly()
           .add(builder);
         weak_term(negative_wall_displacement, test(multiplier))
           .on(supports.overlap)
@@ -722,6 +723,7 @@ namespace
           .add(builder);
         weak_term(lambda_wall, test(solid_fields.fields().velocity))
           .on(supports.overlap)
+          .with_cached_assembly()
           .add(builder);
 
         const auto pressure      = -1. * value(multiplier);

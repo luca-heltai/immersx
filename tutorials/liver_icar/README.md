@@ -14,6 +14,18 @@ whole-organ vascular coverage or establish patient-specific physiological valida
 
 ## Run from release assets
 
+The [research release](https://github.com/luca-heltai/immersx/releases/tag/liver-icar-start-2026-11-05)
+contains `liver-icar-case.tar.gz`, three generated liver grids, the physical
+CCO archive, parameters, scripts, provenance and numerical results. After
+extraction, use `liver-icar/assets` as `--assets-dir`. The separate
+[report](https://github.com/luca-heltai/immersx/releases/download/liver-icar-start-2026-11-05/liver-icar-report.md)
+records every literature reference, measured result and modelling assumption.
+
+Use MetricFlowX revision `129cf1107258670457acabfeb288adfea768a3bc`
+([PR #87](https://github.com/luca-heltai/metric-flow-x/pull/87)) or a revision
+containing its two physical corrections. Older builds can have wrong reversed-root
+RCR signs and missing other-terminal external pressures even when they compile.
+
 Build `metric_flow_x_elastodynamics` with compatible MetricFlowX, SUNDIALS and
 MPI libraries. Extract the liver release bundle into an asset directory with
 this layout:
@@ -60,11 +72,11 @@ The default asset directory is `<build>/data/liver_icar/assets`.
 | `medium` | P2 / DG1 | 992,034 | 55 | Iterative; coupled run unvalidated |
 | `large` | P2 / DG1 | 10,206,420 | 128 | Iterative; coupled run unvalidated |
 
-The tiny profile reports 20,000 total coupled DoFs. The other table counts
-include only solid displacement and velocity. Assuming the current native face
-unknown layout and DG1 multiplier, adding ten DoFs per numerical 1D cell gives
-derived coupled totals of 132,932, 992,584 and 10,207,700. Confirm these against
-the executable's reported block counts before using them as measurements.
+The tiny and small profiles report 20,000 and 132,932 total coupled DoFs.
+The table itself counts only solid displacement and velocity. Assuming the
+current native face unknown layout and DG1 multiplier, adding ten DoFs per numerical 1D cell gives
+derived medium/large coupled totals of 992,584 and 10,207,700. Confirm these
+against the executable's reported block counts before using them as measurements.
 Medium and large are preparation profiles, not completed large simulations or
 a demonstrated scalable solver. All profiles default to
 the recorded 7.2–8 s interval; use `--duration` for a shorter startup check.
