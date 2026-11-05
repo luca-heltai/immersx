@@ -328,6 +328,21 @@ namespace ImmersX
       return n_steps;
     }
 
+    /** Force IDA to end an internal step at each output time.
+     * Configure before initialization. The default uses IDA's dense output,
+     * which can violate nonlinear algebraic constraints between internal steps.
+     * Stop times preserve the BDF history and do not restart the solver.
+     */
+    void
+    set_stop_at_output_times(const bool enabled = true)
+    {
+      AssertThrow(
+        !connected_,
+        dealii::ExcMessage(
+          "Output stops must be configured before solver initialization."));
+      stop_at_output_times_ = enabled;
+    }
+
     /** Register native output for IDA's accepted/interpolated output states. */
     void
     set_output_step(OutputFunction output)
@@ -529,6 +544,10 @@ namespace ImmersX
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
       tolerance_ramp_ = ida_parameters_.tolerance_ramp;
       auto ida_data   = additional_data();
+      if (stop_at_output_times_)
+        AssertThrow(
+          std::isfinite(ida_data.output_period) && ida_data.output_period > 0.,
+          dealii::ExcMessage("IDA output period must be finite and positive."));
       tolerance_ramp_.validate(ida_data.initial_time,
                                ida_data.final_time,
                                ida_data.output_period);
@@ -741,7 +760,10 @@ namespace ImmersX
                                  const GlobalVectorType &state,
                                  const GlobalVectorType &state_dot,
                                  const unsigned int      step) {
-        update_ramp_stop();
+        if (stop_at_output_times_)
+          update_output_stop(time);
+        else
+          update_ramp_stop();
         if (ida_parameters_.print_statistics)
           {
             const auto info = statistics();
@@ -831,6 +853,25 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "Non-finite state or invalid IDA error weights."));
       ++weight_evaluations_;
+    }
+
+    void
+    update_output_stop(const double output_time)
+    {
+      const auto  &data = additional_data();
+      const double tolerance =
+        IDAToleranceRamp::time_tolerance(data.initial_time, data.final_time);
+      if (output_time >= data.final_time - tolerance)
+        return;
+      double next = std::min(output_time + data.output_period, data.final_time);
+      // Accumulated nonbinary output periods can approach the final time from
+      // below. Avoid creating a final interval shorter than roundoff.
+      if (next >= data.final_time - tolerance)
+        next = data.final_time;
+      if (tolerance_ramp_.enabled &&
+          output_time < tolerance_ramp_.end_time - tolerance)
+        next = std::min(next, tolerance_ramp_.end_time);
+      check_ida(IDASetStopTime(ida_->get_ida_memory(), next));
     }
 
     void
@@ -1073,7 +1114,8 @@ namespace ImmersX
     unsigned long    jacobian_setups_ = 0, linear_solves_ = 0, restarts_ = 0,
                   weight_evaluations_ = 0;
     bool         ramp_stop_armed_ = false, ramp_stop_released_ = false;
-    LinearSolver linear_solver_ = LinearSolver::iterative;
+    bool         stop_at_output_times_ = false;
+    LinearSolver linear_solver_        = LinearSolver::iterative;
 #  ifdef DEAL_II_WITH_MUMPS
     std::unique_ptr<dealii::SparseDirectMUMPS> mumps_solver_;
     FieldVectorType                            mumps_solution_;

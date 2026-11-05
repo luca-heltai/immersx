@@ -547,3 +547,9 @@ Its [research release](https://github.com/luca-heltai/immersx/releases/tag/liver
 contains the generated meshes, parameters, numerical inputs/results and a
 literature report. The million and ten-million profiles are preparation cases;
 their transient solver performance is not validated.
+
+For an archived liver case, `Stop at output times = true` under
+`/MetricFlowX coupling/` ends an internal IDA step at each saved time. The
+default remains dense output. Internal stops retain the BDF history and avoid
+interpolation defects in nonlinear hydraulic constraints. Control Newton
+convergence separately through the IDA `Nonlinear solver` subsection.

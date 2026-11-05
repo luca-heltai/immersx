@@ -385,12 +385,17 @@ namespace
     ArchivedFlowParameters      archive_parameters;
     Vascularization::Parameters generation_parameters;
     bool                        use_native_tolerances = false;
+    bool                        stop_at_output_times  = false;
     double displacement_tolerance = 0., velocity_tolerance = 0.,
            pressure_tolerance = 0.;
     coupling.add_parameter(
       "Use native flow tolerances",
       use_native_tolerances,
       "Use MetricFlowX area, velocity and capacitor absolute tolerances in the coupled adapter.");
+    coupling.add_parameter(
+      "Stop at output times",
+      stop_at_output_times,
+      "Take an internal IDA step at every saved time to preserve nonlinear algebraic constraints in output.");
     coupling.add_parameter(
       "Displacement absolute tolerance",
       displacement_tolerance,
@@ -687,6 +692,7 @@ namespace
       make_metric_flow_x_pressure_projection(lambda, supports.overlap);
 
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
+    adapter.set_stop_at_output_times(stop_at_output_times);
     adapter.set_schur_primal_coupling();
     if (linear_solver == "iterative")
       adapter.set_linear_solver(Adapter::LinearSolver::iterative);

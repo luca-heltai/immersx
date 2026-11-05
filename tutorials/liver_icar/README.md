@@ -131,6 +131,11 @@ four short profile files select the mesh, FE degree, solver and output paths.
 The IDA correction `use_y_dot` holds the initial derivative at zero and solves
 for a coupled static starting state. The first requested step is 0.001 s; IDA
 may reduce it. Maximum BDF order is two and output spacing is 0.01 s.
+Newton uses convergence coefficient `1e-4`, separate from LTE tolerances,
+to control nonlinear algebraic residuals in the mixed physical units.
+The liver recipe stops IDA at every output time. Saved states are evaluated
+at internal step endpoints, with algebraic residuals controlled by Newton
+convergence. Dense interpolation between steps need not satisfy those equations.
 
 Tolerances use displacement, velocity, pressure and native area units. The
 flow field reuses MetricFlowX's componentwise tolerance vector. For a tenfold

@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Allow IDA to stop at each output time while retaining its BDF history, so nonlinear algebraic constraints are evaluated at internal step endpoints.
+
 - [PR #345](https://github.com/luca-heltai/immersx/pull/345) Allow linear weak terms with fixed geometry, support and homogeneous constraints to retain their first assembly across residual, transpose and matrix requests while keeping state values and affine offsets current.
 
 - [PR #345](https://github.com/luca-heltai/immersx/pull/345) Configure coupled displacement, velocity and wall-pressure absolute tolerances in their physical units, and reuse native MetricFlowX component tolerances for its mixed flow state.
