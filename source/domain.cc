@@ -63,6 +63,11 @@ namespace ImmersX
     read_gmsh_file(const std::string             &filename,
                    dealii::GridIn<dim, spacedim> &grid_in)
     {
+      // A failed open leaves an existing Gmsh session unable to read later
+      // meshes.
+      std::ifstream input(filename);
+      AssertThrow(input.good(), dealii::ExcFileNotOpen(filename));
+
       // Some Gmsh API readers ignore unnamed physical groups. Make only their
       // default ids explicit, retaining the native reader's named selectors.
       // A temporary MSH4 file also retains entities with no physical group.
