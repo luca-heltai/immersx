@@ -879,7 +879,8 @@ namespace ImmersX
         newmark_matrix.compress(VectorOperation::add);
       }
 
-    system_rhs.compress(VectorOperation::add);
+    // The multiplier RHS has its own insert/add protocol in assemble_coupling.
+    system_rhs.block(0).compress(VectorOperation::add);
 
     {
       Teuchos::ParameterList amg_parameter_list;
