@@ -156,6 +156,7 @@ end
       // reassembling the bulk at the second time must compress only its block.
       problem.run_timestep(time);
       EXPECT_DOUBLE_EQ(problem.current_time, time);
+      EXPECT_GT(problem.coupling_matrix.frobenius_norm(), 0.);
       double local_error = 0.;
       for (const auto &cell : problem.dh.active_cell_iterators())
         if (cell->is_locally_owned())
