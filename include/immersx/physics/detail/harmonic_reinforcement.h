@@ -182,6 +182,10 @@ namespace ImmersX::harmonic_detail
                      parameters.get_material_properties(id),
                      support,
                      omega);
+        add_surrogate_material(fields,
+                               parameters.get_material_properties(id),
+                               support,
+                               omega);
         const auto forcing = [&](const auto &row, const bool imaginary) {
           KnownSource<dealii::Tensor<1, spacedim>, spacedim> source(
             [&parameters, id, imaginary](const auto &context) {

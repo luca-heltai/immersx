@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -479,6 +480,46 @@ namespace ImmersX
 
     using BlockKey = std::pair<std::size_t, std::size_t>;
 
+    static Operator
+    sum_operator_views(std::vector<Operator> operators)
+    {
+      Assert(!operators.empty(), dealii::ExcInternalError());
+      if (operators.size() == 1)
+        return std::move(operators.front());
+
+      // Repeated LinearOperator additions copy the entire previous sum into
+      // each action callback. Share the flat list so storage grows linearly
+      // with the number of contributions, including when the sum is copied.
+      const auto terms =
+        std::make_shared<const std::vector<Operator>>(std::move(operators));
+      Operator result;
+      result.reinit_range_vector  = terms->front().reinit_range_vector;
+      result.reinit_domain_vector = terms->front().reinit_domain_vector;
+      result.is_null_operator =
+        std::all_of(terms->begin(), terms->end(), [](const auto &op) {
+          return op.is_null_operator;
+        });
+      result.vmult = [terms](VectorType &dst, const VectorType &src) {
+        terms->front().vmult(dst, src);
+        for (std::size_t i = 1; i < terms->size(); ++i)
+          (*terms)[i].vmult_add(dst, src);
+      };
+      result.vmult_add = [terms](VectorType &dst, const VectorType &src) {
+        for (const auto &op : *terms)
+          op.vmult_add(dst, src);
+      };
+      result.Tvmult = [terms](VectorType &dst, const VectorType &src) {
+        terms->back().Tvmult(dst, src);
+        for (std::size_t i = terms->size() - 1; i > 0; --i)
+          (*terms)[i - 1].Tvmult_add(dst, src);
+      };
+      result.Tvmult_add = [terms](VectorType &dst, const VectorType &src) {
+        for (auto it = terms->rbegin(); it != terms->rend(); ++it)
+          it->Tvmult_add(dst, src);
+      };
+      return result;
+    }
+
     template <typename Registry>
     Operator
     combine_operators(const Registry &registry,
@@ -499,10 +540,7 @@ namespace ImmersX
       if (operators.empty())
         return zero_operator(range, domain);
 
-      Operator result = operators.front();
-      for (std::size_t i = 1; i < operators.size(); ++i)
-        result += operators[i];
-      return result;
+      return sum_operator_views(std::move(operators));
     }
 
     template <typename Registry>
@@ -531,10 +569,12 @@ namespace ImmersX
       if (operators.size() == 1)
         return operators.front();
 
-      MatrixOperator result;
-      result.view = operators.front().view;
-      for (std::size_t i = 1; i < operators.size(); ++i)
-        result.view += operators[i].view;
+      MatrixOperator        result;
+      std::vector<Operator> views;
+      views.reserve(operators.size());
+      for (const auto &op : operators)
+        views.push_back(op.view);
+      result.view        = sum_operator_views(std::move(views));
       result.materialize = [operators]() {
         return detail::sum_matrices(operators);
       };

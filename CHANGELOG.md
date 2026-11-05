@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Precondition harmonic adapter solves with the standalone elasticity surrogate, including shared reinforcement, using one elasticity AMG hierarchy for both complex components and FGMRES for tolerance-stopped block-diagonal inner solves.
+
 - [PR #330](https://github.com/luca-heltai/immersx/pull/330) Show every recorded benchmark case in the performance overview, with separate compatible history charts and explicit unavailable native comparisons and failed measurements.
 
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Integrate nonmatching multiplier couplings on overlapping quadrature samples and impose a homogeneous multiplier mass equation on all exterior samples, including partially covered cells. Support fixed reference geometry in continuity constraints, lifted and modal interactions, fiber dynamics, legacy point couplings, and MetricFlowX coupling while preserving physical material ids.
@@ -250,6 +252,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Fixed
 
 - [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
+
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Keep memory use linear in the number of contributions when constructing semidiscrete operator sums, avoiding runaway allocation before harmonic fiber-reinforcement solves.
 
 - [PR #329](https://github.com/luca-heltai/immersx/pull/329) Omit exterior reinforcement quadrature points from shared harmonic elasticity, retaining interior samples of partially overlapping fibers and reporting their retained volume.
 - [PR #335](https://github.com/luca-heltai/immersx/pull/335) Preserve unnamed Gmsh physical material and boundary ids during Domain imports without changing named material, boundary or manifold selectors. Keep untagged entities, input files and Gmsh output settings intact.
