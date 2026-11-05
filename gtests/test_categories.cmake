@@ -54,6 +54,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ApplicationRoadmap
     ContributorPhysics
     CoupledElasticity
+    CoupledElasticityRobin
     FoundationalApplications
     TractionParameters
     DistributedIDA
