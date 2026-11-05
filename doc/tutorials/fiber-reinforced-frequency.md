@@ -82,6 +82,81 @@ residual of the original harmonic system against `Solver/Tolerance`.
 `Preconditioner = none` remains available. A positive surrogate does not remove
 physical resonances; weakly damped cases may need more outer iterations.
 
+### Composed normal preconditioner
+
+`normal` currently requires the shared formulation. Select it with:
+
+```ini
+subsection Fiber Reinforced Elasticity Frequency
+  set Formulation = shared
+  subsection Solver
+    set Solver = iterative
+    set Preconditioner = normal
+    set Tolerance = 1e-7
+    set FGMRES basis size = 100
+    set Normal inner maximum iterations = 100
+    set Normal inner reduction = 1e-3
+  end
+end
+```
+
+Writing $\mathcal H$ for the assembled real/imaginary system and
+$\mathcal P=\operatorname{diag}(P_0,P_0)$, this applies
+$\mathcal P^{-1}\mathcal H^T\mathcal P^{-1}$ as a right preconditioner.
+Each application uses four real CG/AMG solves and one transpose matrix action.
+The constrained rows use the actual diagonal of the corresponding harmonic
+block. The physical matrix and right-hand side are unchanged.
+
+The inner CG stops at its relative reduction target or iteration cap. FGMRES
+checks the residual of the original system, including a final true-residual
+check. High material contrast can require more work in the inner solves;
+`Normal inner reduction` and `Normal inner maximum iterations` control that
+tradeoff. These two settings apply to `normal`; the existing `block_diagonal`
+policy retains its reduction of 0.1 and cap of 30.
+
+### MUMPS-BLR preconditioner
+
+With a MUMPS-enabled deal.II build and the Trilinos backend, use an approximate
+factorization of the
+complete system inside FGMRES:
+
+```ini
+subsection Fiber Reinforced Elasticity Frequency
+  subsection Solver
+    set Solver = iterative
+    set Preconditioner = mumps_blr
+    set Tolerance = 1e-7
+    set FGMRES basis size = 100
+    subsection MUMPS BLR
+      set Tolerance = 1e-5
+      set Memory limit MB per rank = 0
+      set Output details = true
+    end
+  end
+end
+```
+
+`MUMPS BLR/Tolerance` is the absolute truncation threshold after scaling frontal matrices;
+it is separate from the outer `Tolerance`. A larger threshold reduces the
+factor storage but can weaken the preconditioner. The factorization uses
+nonsymmetric real LU, MUMPS scaling 8 and UCFS; FGMRES supplies the final
+accuracy instead of internal MUMPS refinement. The factors are reused for every
+Krylov application within the solve.
+
+The memory setting is a MUMPS workspace budget in MB per rank, not a limit on
+the complete process RSS. Zero leaves that budget unrestricted. `Output details`
+enables MUMPS analysis, factorization and memory diagnostics. The outer solve
+rejects invalid corrections and checks the true residual. The current MUMPS
+vector interface requires the global system size to be at least the MPI rank
+count; the adapter redistributes its output to the semantic field partitions,
+including ranks without original field entries.
+
+The same `LinearAdapter` policies can be used by custom contributors. `normal`
+requires a registered local inverse for each field; factories receive that
+field's current diagonal matrix and vector reinitializer. It composes those
+inverses with `dealii::transpose_operator` and operator products. `mumps_blr`
+requires an assemblable global matrix and does not require local inverses.
+
 ## Lift geometry and material units
 
 The `Lift` subsection is registered only for reduced reinforcement meshes.

@@ -219,14 +219,22 @@ namespace
 {
   template <int dim, int spacedim>
   void
-  check_reinforcement_modes(const std::string &formulation)
+  check_reinforcement_modes(
+    const std::string         &formulation,
+    const LinearPreconditioner choice = LinearPreconditioner::automatic)
   {
     ParameterAcceptor::clear();
     FiberReinforcedElasticityFreqParameters<dim, spacedim> parameters;
-    parameters.formulation      = formulation;
+    parameters.formulation = formulation;
+    if (choice != LinearPreconditioner::automatic)
+      {
+        parameters.solver_parameters.solver         = LinearSolver::iterative;
+        parameters.solver_parameters.preconditioner = choice;
+        parameters.solver_parameters.tolerance      = 1.e-11;
+      }
     parameters.output_directory = TestPaths::output_directory(
       "harmonic-modes-" + std::to_string(dim) + "-" + std::to_string(spacedim) +
-      "-" + formulation);
+      "-" + formulation + "-" + std::to_string(static_cast<int>(choice)));
     auto &matrix              = parameters.matrix_parameters;
     auto &fiber               = parameters.fiber_parameters;
     matrix.initial_refinement = 0;
@@ -277,21 +285,23 @@ namespace
 
   template <int dim, int spacedim>
   void
-  check_shared_dynamic_response(const bool iterative = false)
+  check_shared_dynamic_response(
+    const bool                 iterative = false,
+    const LinearPreconditioner choice    = LinearPreconditioner::block_diagonal)
   {
     ParameterAcceptor::clear();
     FiberReinforcedElasticityFreqParameters<dim, spacedim> parameters;
     parameters.formulation = "shared";
     if (iterative)
       {
-        parameters.solver_parameters.solver = LinearSolver::iterative;
-        parameters.solver_parameters.preconditioner =
-          LinearPreconditioner::block_diagonal;
-        parameters.solver_parameters.tolerance = 1.e-11;
+        parameters.solver_parameters.solver         = LinearSolver::iterative;
+        parameters.solver_parameters.preconditioner = choice;
+        parameters.solver_parameters.tolerance      = 1.e-11;
       }
     parameters.output_directory = TestPaths::output_directory(
       "harmonic-shared-dynamic-" + std::to_string(dim) + "-" +
-      std::to_string(spacedim));
+      std::to_string(spacedim) + "-" +
+      std::to_string(static_cast<int>(choice)));
     auto &matrix              = parameters.matrix_parameters;
     auto &fiber               = parameters.fiber_parameters;
     matrix.initial_refinement = 0;
@@ -376,6 +386,54 @@ TEST(FiberReinforcedElasticityFreq, BOTH_SurrogatePreconditionedSharedResponse)
   check_shared_dynamic_response<2, 2>(true);
   check_shared_dynamic_response<2, 3>(true);
   check_shared_dynamic_response<3, 3>(true);
+}
+
+TEST(FiberReinforcedElasticityFreq, BOTH_NormalPreconditionedSharedResponse)
+{
+  check_shared_dynamic_response<1, 3>(true, LinearPreconditioner::normal);
+  check_reinforcement_modes<1, 3>("shared", LinearPreconditioner::normal);
+}
+
+#if defined(DEAL_II_WITH_MUMPS) && !defined(IMMERSX_USE_PETSC_LA)
+TEST(FiberReinforcedElasticityFreq, BOTH_MumpsBlrPreconditionedResponse)
+{
+  check_shared_dynamic_response<1, 3>(true, LinearPreconditioner::mumps_blr);
+  check_reinforcement_modes<1, 3>("shared", LinearPreconditioner::mumps_blr);
+  check_reinforcement_modes<1, 1>("independent",
+                                  LinearPreconditioner::mumps_blr);
+}
+#endif
+
+TEST(FiberReinforcedElasticityFreq, BOTH_NormalRequiresSharedFormulation)
+{
+  ParameterAcceptor::clear();
+  FiberReinforcedElasticityFreqParameters<1, 3> parameters;
+  parameters.formulation                      = "independent";
+  parameters.solver_parameters.preconditioner = LinearPreconditioner::normal;
+  initialize_parameters_from_string("");
+  FiberReinforcedElasticityFreq<1, 3> driver(parameters);
+  EXPECT_THROW(driver.setup(), ExceptionBase);
+}
+
+TEST(FiberReinforcedElasticityFreq, BOTH_PreconditionerParameters)
+{
+  ParameterAcceptor::clear();
+  FiberReinforcedElasticityFreqParameters<1, 3> parameters;
+  initialize_parameters_from_string(
+    "subsection Fiber Reinforced Elasticity Frequency\n"
+    " subsection Solver\n set Solver = iterative\n set Preconditioner = normal\n"
+    " set FGMRES basis size = 75\n set Normal inner maximum iterations = 80\n"
+    " set Normal inner reduction = 0.0002\n subsection MUMPS BLR\n"
+    " set Tolerance = 0.00001\n set Memory limit MB per rank = 12000\n"
+    " set Output details = true\n end\n end\n end\n");
+  EXPECT_EQ(parameters.solver_parameters.preconditioner,
+            LinearPreconditioner::normal);
+  EXPECT_EQ(parameters.solver_parameters.fgmres_basis_size, 75u);
+  EXPECT_EQ(parameters.normal_inner_maximum_iterations, 80u);
+  EXPECT_DOUBLE_EQ(parameters.normal_inner_reduction, 0.0002);
+  EXPECT_DOUBLE_EQ(parameters.solver_parameters.mumps_blr_tolerance, 0.00001);
+  EXPECT_EQ(parameters.solver_parameters.mumps_memory_limit_mb, 12000u);
+  EXPECT_TRUE(parameters.solver_parameters.mumps_output_details);
 }
 
 TEST(FiberReinforcedElasticityFreq, BOTH_SharedSurrogateIncludesFiberEnergy)

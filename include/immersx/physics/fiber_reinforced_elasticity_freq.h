@@ -81,6 +81,20 @@ namespace ImmersX
                     "Zero follows the fiber degree.",
                     prm,
                     dealii::Patterns::Integer(0));
+      enter_subsection("Solver");
+      add_parameter(
+        "Normal inner maximum iterations",
+        normal_inner_maximum_iterations,
+        "CG iteration cap for the harmonic local inverses used by normal preconditioning.",
+        prm,
+        dealii::Patterns::Integer(1));
+      add_parameter(
+        "Normal inner reduction",
+        normal_inner_reduction,
+        "Relative CG residual reduction for normal preconditioning.",
+        prm,
+        dealii::Patterns::Double(0., 1.));
+      leave_subsection();
       solver_parameters.solver = LinearSolver::direct;
       parse_parameters_call_back.connect([this]() {
         matrix_parameters.output_directory = output_directory + "/matrix";
@@ -103,7 +117,9 @@ namespace ImmersX
     std::unique_ptr<Lift>                               geometry;
     std::string  formulation      = "independent";
     std::string  output_directory = "./output/fiber_reinforced_elasticity_freq";
-    unsigned int multiplier_degree = 0;
+    unsigned int multiplier_degree               = 0;
+    unsigned int normal_inner_maximum_iterations = 100;
+    double       normal_inner_reduction          = 1.e-3;
   };
 
   /** Harmonic matrix reinforcement with independent or shared displacements.
@@ -146,6 +162,12 @@ namespace ImmersX
                     parameters.formulation == "shared",
                   dealii::ExcMessage(
                     "Unknown harmonic reinforcement formulation."));
+      AssertThrow(
+        parameters.solver_parameters.preconditioner !=
+            LinearPreconditioner::normal ||
+          parameters.formulation == "shared",
+        dealii::ExcMessage(
+          "Normal harmonic preconditioning currently requires Formulation = shared."));
       if (parameters.formulation == "shared")
         AssertThrow(
           parameters.fiber_parameters.dirichlet_ids.empty() &&
@@ -238,9 +260,20 @@ namespace ImmersX
       matrix_storage.prepare_frequency(frequency);
       parameters.fiber_parameters.set_rhs_times(0.);
       parameters.fiber_parameters.set_boundary_condition_times(0.);
-      Adapter    adapter(parameters.solver_parameters,
+      Adapter                           adapter(parameters.solver_parameters,
                       matrix_storage.communicator());
-      const auto matrix = adapter.add(matrix_storage, "matrix").fields();
+      harmonic_detail::SurrogateOptions inverse_options;
+      if (parameters.solver_parameters.preconditioner ==
+          LinearPreconditioner::normal)
+        {
+          inverse_options.maximum_iterations =
+            parameters.normal_inner_maximum_iterations;
+          inverse_options.relative_reduction =
+            parameters.normal_inner_reduction;
+          inverse_options.scale_constraint_rows = true;
+        }
+      const auto matrix =
+        adapter.add(matrix_storage, "matrix", inverse_options).fields();
       if (parameters.formulation == "shared")
         {
           adapter.add(
