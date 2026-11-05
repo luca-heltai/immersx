@@ -251,6 +251,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Keep LinearAdapter solves stable near Krylov breakdown with nearly exact preconditioners by selecting modified Gram–Schmidt explicitly on deal.II 9.8 and newer, preserving the requested residual tolerance.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Preserve the cached coupling matrix and the multiplier right-hand-side assembly state when updating a coupled solid at a new time. Keep the coupled displacement and reaction correct on subsequent steps with nonempty inclusions.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Evaluate the legacy coupled solid at the driver's physical time, refreshing Robin springs, applied loads and nonzero essential lifting at every changed time.
