@@ -221,6 +221,14 @@ namespace ImmersX
       return current_frequency;
     }
 
+    /** Assemble the positive harmonic surrogate K+omega^2 M+omega D. */
+    std::shared_ptr<MatrixType>
+    make_surrogate_matrix(double volume_weight = 1.) const;
+
+    /** Build the standalone solver's elasticity AMG hierarchy. */
+    std::shared_ptr<TrilinosWrappers::PreconditionAMG>
+    make_surrogate_amg(const MatrixType &matrix) const;
+
     /** Owned coefficients of the most recently solved complex displacement. */
     const VectorType &
     real_displacement() const
@@ -269,7 +277,7 @@ namespace ImmersX
                             bool                             build_matrix,
                             const AffineConstraints<double> &fc,
                             LA::MPI::SparseMatrix           &matrix,
-                            LA::MPI::Vector                 &rhs);
+                            LA::MPI::Vector                 &rhs) const;
     void
     output_frequency(const LA::MPI::Vector &real,
                      const LA::MPI::Vector &imag) const;

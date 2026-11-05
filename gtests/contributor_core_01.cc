@@ -8,6 +8,8 @@
 #include <immersx/core/contributor.h>
 #include <immersx/core/semidiscrete_pde_models.h>
 
+#include <memory>
+
 namespace
 {
   struct NonsymmetricPreconditioner
@@ -316,6 +318,108 @@ TEST(ContributorCore, MatrixOperatorPreservesCompositions)
   materialized->matrix()->vmult(materialized_action, state);
   EXPECT_DOUBLE_EQ(materialized_action[0], action[0]);
   EXPECT_DOUBLE_EQ(materialized_action[1], action[1]);
+}
+
+TEST(ContributorCore, OperatorSumsRetainEachContributionOnce)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector, Matrix>;
+
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor row_descriptor, column_descriptor;
+  row_descriptor.name    = "row";
+  column_descriptor.name = "column";
+  const auto row         = layout.add_field(row_descriptor);
+  const auto column      = layout.add_field(column_descriptor);
+  Vector     range(2), domain(3);
+  domain[0] = 1.;
+  domain[1] = 2.;
+  domain[2] = 3.;
+  ImmersX::StateView<Vector> state(layout, 0.);
+  state.bind(row, range);
+  state.bind(column, domain);
+  const ImmersX::EvaluationContext<Vector> context(0., state);
+
+  dealii::SparsityPattern sparsity(2, 3, 3);
+  sparsity.add(0, 0);
+  sparsity.add(0, 1);
+  sparsity.add(1, 1);
+  sparsity.add(1, 2);
+  sparsity.compress();
+  Matrix matrix;
+  matrix.reinit(sparsity);
+  matrix(0, 0) = 1.;
+  matrix(0, 1) = 2.;
+  matrix(1, 1) = 3.;
+  matrix(1, 2) = 4.;
+  auto leaf    = ImmersX::matrix_operator<Vector>(matrix);
+  // A reference per callback copy exposes growing operator trees without
+  // depending on allocator statistics or allocating a large physical system.
+  const auto lifetime = std::make_shared<int>(0);
+  leaf.view.vmult     = [lifetime, action = leaf.view.vmult](auto       &dst,
+                                                         const auto &src) {
+    action(dst, src);
+  };
+  Model                                        model;
+  ImmersX::SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  constexpr unsigned int                       n_terms = 8;
+  for (unsigned int i = 0; i < n_terms; ++i)
+    builder.term(row, "sum").state(column, leaf).derivative(column, leaf);
+
+  const auto check = [&](const auto &op) {
+    Vector forward, transpose, dual(2);
+    op.reinit_range_vector(forward, false);
+    op.reinit_domain_vector(transpose, false);
+    EXPECT_EQ(forward.size(), 2u);
+    EXPECT_EQ(transpose.size(), 3u);
+    op.vmult(forward, domain);
+    EXPECT_DOUBLE_EQ(forward[0], n_terms * 5.);
+    EXPECT_DOUBLE_EQ(forward[1], n_terms * 18.);
+    op.vmult_add(forward, domain);
+    EXPECT_DOUBLE_EQ(forward[0], n_terms * 10.);
+    EXPECT_DOUBLE_EQ(forward[1], n_terms * 36.);
+    dual[0] = 2.;
+    dual[1] = 3.;
+    op.Tvmult(transpose, dual);
+    EXPECT_DOUBLE_EQ(transpose[0], n_terms * 2.);
+    EXPECT_DOUBLE_EQ(transpose[1], n_terms * 13.);
+    EXPECT_DOUBLE_EQ(transpose[2], n_terms * 12.);
+    op.Tvmult_add(transpose, dual);
+    EXPECT_DOUBLE_EQ(transpose[0], n_terms * 4.);
+    EXPECT_DOUBLE_EQ(transpose[1], n_terms * 26.);
+    EXPECT_DOUBLE_EQ(transpose[2], n_terms * 24.);
+  };
+  const auto before = lifetime.use_count();
+  {
+    const auto op = model.state_operator(row, column, context);
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(op);
+    const auto copy = op;
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(copy);
+  }
+  {
+    const auto op = model.derivative_operator(row, column, context);
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(op);
+  }
+  {
+    const auto op = model.state_matrix_operator(row, column, context);
+    ASSERT_TRUE(op.has_value());
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(op->view);
+    Vector materialized(2);
+    op->matrix()->vmult(materialized, domain);
+    EXPECT_DOUBLE_EQ(materialized[0], n_terms * 5.);
+    EXPECT_DOUBLE_EQ(materialized[1], n_terms * 18.);
+  }
+  {
+    const auto op = model.derivative_matrix_operator(row, column, context);
+    ASSERT_TRUE(op.has_value());
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(op->view);
+  }
 }
 
 TEST(ContributorCore, TermsAreScopedByContributorPrefix)

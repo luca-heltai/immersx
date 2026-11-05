@@ -929,7 +929,7 @@ namespace ImmersX
     bool                             build_matrix,
     const AffineConstraints<double> &fc,
     LA::MPI::SparseMatrix           &matrix,
-    LA::MPI::Vector                 &rhs)
+    LA::MPI::Vector                 &rhs) const
   {
     const bool positive_surrogate = matrix.m() == dh.n_dofs();
     par.set_rhs_times(0.0);
@@ -1228,6 +1228,102 @@ namespace ImmersX
   }
 
   template <int dim, int spacedim>
+  std::shared_ptr<typename ElasticityFreqProblem<dim, spacedim>::MatrixType>
+  ElasticityFreqProblem<dim, spacedim>::make_surrogate_matrix(
+    const double volume_weight) const
+  {
+    AssertThrow(std::isfinite(volume_weight) && volume_weight > 0.,
+                ExcMessage(
+                  "The harmonic integration weight must be positive."));
+    const double              omega = 2. * std::acos(-1.) * frequency();
+    AffineConstraints<double> scalar_graph;
+    scalar_graph.copy_from(constraints);
+    for (const auto &line : scalar_graph.get_lines())
+      scalar_graph.set_inhomogeneity(line.index, 0.0);
+    DynamicSparsityPattern scalar_dsp(relevant_dofs[0]);
+    DoFTools::make_sparsity_pattern(dh, scalar_dsp, scalar_graph, true);
+    for (const auto i : owned_dofs[0])
+      scalar_dsp.add(i, i);
+    SparsityTools::distribute_sparsity_pattern(scalar_dsp,
+                                               owned_dofs[0],
+                                               mpi_communicator,
+                                               relevant_dofs[0]);
+    auto  result = std::make_shared<MatrixType>();
+    auto &P0     = *result;
+    P0.reinit(owned_dofs[0], owned_dofs[0], scalar_dsp, mpi_communicator);
+    LA::MPI::Vector unused_rhs;
+    unused_rhs.reinit(owned_dofs[0], mpi_communicator);
+    unused_rhs = 0.0;
+    assemble_frequency_part(omega, false, true, scalar_graph, P0, unused_rhs);
+    P0 *= volume_weight;
+    for (const auto &line : scalar_graph.get_lines())
+      if (owned_dofs[0].is_element(line.index))
+        P0.set(line.index, line.index, 1.0);
+    P0.compress(VectorOperation::insert);
+
+    return result;
+  }
+
+  template <int dim, int spacedim>
+  std::shared_ptr<TrilinosWrappers::PreconditionAMG>
+  ElasticityFreqProblem<dim, spacedim>::make_surrogate_amg(
+    const MatrixType &P0) const
+  {
+    const unsigned int n_modes = spacedim * (spacedim + 1) / 2;
+    std::vector<std::unique_ptr<LA::MPI::Vector>> modes;
+    for (unsigned int m = 0; m < n_modes; ++m)
+      {
+        auto v = std::make_unique<LA::MPI::Vector>();
+        v->reinit(owned_dofs[0], mpi_communicator);
+        VectorTools::interpolate(mapping(),
+                                 dh,
+                                 RigidBodyMotion<spacedim>(m),
+                                 *v);
+        for (const auto &line : constraints.get_lines())
+          if (owned_dofs[0].is_element(line.index))
+            (*v)[line.index] = 0.0;
+        v->compress(VectorOperation::insert);
+        for (unsigned int pass = 0; pass < 2; ++pass)
+          for (const auto &previous : modes)
+            v->add(-((*v) * (*previous)), *previous);
+        const double norm = v->l2_norm();
+        AssertThrow(std::isfinite(norm),
+                    ExcMessage("Non-finite elasticity near-nullspace mode."));
+        // Restricting ambient rotations to a curve or imposing
+        // essential data can remove or identify rigid-body modes.
+        if (norm <= 100. * std::numeric_limits<double>::epsilon())
+          continue;
+        (*v) *= 1.0 / norm;
+        modes.emplace_back(std::move(v));
+      }
+    Epetra_MultiVector near(P0.trilinos_matrix().DomainMap(), modes.size());
+    near.PutScalar(0.0);
+    for (unsigned int m = 0; m < modes.size(); ++m)
+      for (const auto i : owned_dofs[0])
+        {
+          const auto local = near.Map().LID(static_cast<int>(i));
+          AssertThrow(local >= 0, ExcInternalError());
+          near[m][local] = (*modes[m])[i];
+        }
+    Teuchos::ParameterList ml;
+    ml.set("PDE equations", spacedim);
+    ml.set("null space: type", "pre-computed");
+    ml.set("null space: dimension", static_cast<int>(modes.size()));
+    ml.set("null space: vectors", near.Values());
+    ml.set("aggregation: type", "Uncoupled");
+    ml.set("aggregation: threshold", 0.02);
+    ml.set("smoother: type", "Chebyshev");
+    ml.set("smoother: sweeps", 2);
+    ml.set("smoother: pre or post", "both");
+    ml.set("coarse: type", "symmetric Gauss-Seidel");
+    ml.set("coarse: sweeps", 10);
+    ml.set("coarse: max size", 2000);
+    auto amg = std::make_shared<TrilinosWrappers::PreconditionAMG>();
+    amg->initialize(P0, ml);
+    return amg;
+  }
+
+  template <int dim, int spacedim>
   void
   ElasticityFreqProblem<dim, spacedim>::output_frequency(
     const LA::MPI::Vector &real,
@@ -1447,90 +1543,12 @@ namespace ImmersX
 
             // control.set_log_frequency(10);
 
-            AffineConstraints<double> scalar_graph;
-            scalar_graph.copy_from(constraints);
-            for (const auto &line : scalar_graph.get_lines())
-              scalar_graph.set_inhomogeneity(line.index, 0.0);
-            DynamicSparsityPattern scalar_dsp(relevant_dofs[0]);
-            DoFTools::make_sparsity_pattern(dh, scalar_dsp, scalar_graph, true);
-            for (const auto i : owned_dofs[0])
-              scalar_dsp.add(i, i);
-            SparsityTools::distribute_sparsity_pattern(scalar_dsp,
-                                                       owned_dofs[0],
-                                                       mpi_communicator,
-                                                       relevant_dofs[0]);
-            LA::MPI::SparseMatrix P0;
-            P0.reinit(owned_dofs[0],
-                      owned_dofs[0],
-                      scalar_dsp,
-                      mpi_communicator);
-            LA::MPI::Vector unused_rhs;
-            unused_rhs.reinit(owned_dofs[0], mpi_communicator);
-            unused_rhs = 0.0;
-            assemble_frequency_part(
-              omega, false, true, scalar_graph, P0, unused_rhs);
-            for (const auto &line : scalar_graph.get_lines())
-              if (owned_dofs[0].is_element(line.index))
-                P0.set(line.index, line.index, 1.0);
-            P0.compress(VectorOperation::insert);
-
-            const unsigned int n_modes = spacedim * (spacedim + 1) / 2;
-            std::vector<std::unique_ptr<LA::MPI::Vector>> modes;
-            for (unsigned int m = 0; m < n_modes; ++m)
-              {
-                auto v = std::make_unique<LA::MPI::Vector>();
-                v->reinit(owned_dofs[0], mpi_communicator);
-                VectorTools::interpolate(mapping(),
-                                         dh,
-                                         RigidBodyMotion<spacedim>(m),
-                                         *v);
-                for (const auto &line : scalar_graph.get_lines())
-                  if (owned_dofs[0].is_element(line.index))
-                    (*v)[line.index] = 0.0;
-                v->compress(VectorOperation::insert);
-                for (unsigned int pass = 0; pass < 2; ++pass)
-                  for (const auto &previous : modes)
-                    v->add(-((*v) * (*previous)), *previous);
-                const double norm = v->l2_norm();
-                AssertThrow(std::isfinite(norm),
-                            ExcMessage(
-                              "Non-finite elasticity near-nullspace mode."));
-                // Restricting ambient rotations to a curve or imposing
-                // essential data can remove or identify rigid-body modes.
-                if (norm <= 100. * std::numeric_limits<double>::epsilon())
-                  continue;
-                (*v) *= 1.0 / norm;
-                modes.emplace_back(std::move(v));
-              }
-            Epetra_MultiVector near(P0.trilinos_matrix().DomainMap(),
-                                    modes.size());
-            near.PutScalar(0.0);
-            for (unsigned int m = 0; m < modes.size(); ++m)
-              for (const auto i : owned_dofs[0])
-                {
-                  const auto local = near.Map().LID(static_cast<int>(i));
-                  AssertThrow(local >= 0, ExcInternalError());
-                  near[m][local] = (*modes[m])[i];
-                }
-            Teuchos::ParameterList ml;
-            ml.set("PDE equations", spacedim);
-            ml.set("null space: type", "pre-computed");
-            ml.set("null space: dimension", static_cast<int>(modes.size()));
-            ml.set("null space: vectors", near.Values());
-            ml.set("aggregation: type", "Uncoupled");
-            ml.set("aggregation: threshold", 0.02);
-            ml.set("smoother: type", "Chebyshev");
-            ml.set("smoother: sweeps", 2);
-            ml.set("smoother: pre or post", "both");
-            ml.set("coarse: type", "symmetric Gauss-Seidel");
-            ml.set("coarse: sweeps", 10);
-            ml.set("coarse: max size", 2000);
-            TrilinosWrappers::PreconditionAMG amg;
-            amg.initialize(P0, ml);
+            const auto P0  = make_surrogate_matrix();
+            const auto amg = make_surrogate_amg(*P0);
             SplitDisplacementAppl<LA::MPI::SparseMatrix> doubled_P(
-              P0, owned_dofs[0], mpi_communicator);
+              *P0, owned_dofs[0], mpi_communicator);
             SplitDisplacementAppl<TrilinosWrappers::PreconditionAMG>
-              doubled_amg(amg, owned_dofs[0], mpi_communicator);
+              doubled_amg(*amg, owned_dofs[0], mpi_communicator);
             SurrogateInverse<decltype(doubled_P), decltype(doubled_amg)>
               preconditioner(doubled_P,
                              doubled_amg,

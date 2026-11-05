@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Precondition harmonic adapter solves with the standalone elasticity surrogate, including shared reinforcement, using one elasticity AMG hierarchy for both complex components and FGMRES for tolerance-stopped block-diagonal inner solves.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Export reference pressures and boundary inflows in liver node tables, and reference resistances and flows in liver vessel tables.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Support scalar and vector Robin boundary data in Poisson, static and transient elasticity, harmonic reinforcement, lifted problems and Navier–Stokes, including their execution adapters and coupled applications. Allow spatial coefficients and per-boundary overrides, validate mixed boundary selections collectively, and expose scalar and solid Robin terms in Coral graphs. Add pressure/conductance conditions to vascular reference solves, with pressure anchoring and the prescribed-flux limit.
@@ -254,6 +256,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Fixed
 
 - [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
+
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Keep memory use linear in the number of contributions when constructing semidiscrete operator sums, avoiding runaway allocation before harmonic fiber-reinforcement solves.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Preserve small vascular pressure drops next to large pressure offsets by refining the physical flow residual with a separate pressure correction. Keep the original conservation tolerance and total solver iteration budget.
 
