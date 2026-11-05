@@ -443,7 +443,7 @@ under their vascularization `Physiology` subsection
 (`Vascularization/Physiology` and `Liver/Vascularization/Physiology`,
 respectively). Each entry maps a physical node to a conductance and a source:
 
-```prm
+```text
 set Reference Robin conditions = 30=5e-13:2e-9
 ```
 
