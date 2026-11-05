@@ -1,0 +1,55 @@
+# Three interior feeder stubs on the tutorial's IRCAD12 surface, in metres.
+subsection Liver
+  set Arterial grid = @TEST_DATA_DIR@/liver_icar/assets/inputs/arterial.vtk
+  set Venous grid = @TEST_DATA_DIR@/liver_icar/assets/inputs/venous.vtk
+  set Portal grid = @TEST_DATA_DIR@/liver_icar/assets/inputs/portal.vtk
+  set Output directory = @TEST_OUTPUT_DIR@/liver_icar/generation
+  set Write volume mesh = true
+  set Only generate mesh = false
+  subsection Domain
+    set Grid generator = @TEST_DATA_DIR@/liver_icar/assets/inputs/liver.stl
+    set Triangulation type = fullydistributed
+    subsection Surface mesh
+      set Target edge length = .012
+      set Feature angle = 60
+      set Volume cells = tetrahedra
+    end
+  end
+  subsection Vascularization
+    set Length scale = meter
+    subsection Growth
+      set Seed length = .020
+      set Minimum vessel length = .010
+      set Minimum junction angle = .1
+      set Candidate vessels = 16
+      set Local optimization steps = 5
+    end
+    subsection Sampling
+      set Terminal count multiplier factor = none
+      set Terminal count = 1
+      set Random seed = 23
+      set Sample budget per insertion = 2000
+    end
+    subsection Physiology
+      set Dynamic viscosity = .00371
+      set Total new-tissue reference flow = 2.0836421871998312e-5
+      set Reference pressures = 0:10064.536060032478,2:629.59739556,4:1066.57909932
+      set Minimum radius = .0001
+    end
+    subsection Venous network
+      set Enabled = true
+      set Terminal separation = .015
+    end
+    subsection Portal network
+      set Enabled = true
+      set Terminal separation = .015
+      set Flow fraction = .69576933619234205
+    end
+    subsection Discretization
+      set Target length factor = 1
+      set Lower length factor = .5
+      set Upper length factor = 2
+      set Numerical cell budget = 1000000
+    end
+  end
+end

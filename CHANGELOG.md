@@ -11,9 +11,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Configure coupled displacement, velocity and wall-pressure absolute tolerances in their physical units, and reuse native MetricFlowX component tolerances for its mixed flow state.
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Configure coupled displacement, velocity and wall-pressure absolute tolerances in their physical units, and reuse native MetricFlowX component tolerances for its mixed flow state.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Load archived arterial, portal and venous CCO networks in the coupled flow–tissue application, retain their common microvascular compartments, and discretize their edges against the final tissue mesh. Report block DoFs, local mesh scales and physical terminal diagnostics. Save exact generated liver volume meshes and support mesh-only preparation.
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Load archived arterial, portal and venous CCO networks in the coupled flow–tissue application, retain their common microvascular compartments, and discretize their edges against the final tissue mesh. Report block DoFs, local mesh scales and physical terminal diagnostics. Save exact generated liver volume meshes and support mesh-only preparation.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Export the coupled solid elastic and Robin spring energy and prescribed-load work at accepted output times.
 
@@ -431,6 +431,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
 
 ### Tutorial
+
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Provide IRCAD12 liver parameter profiles, bounded MOX arterial input, shared physical vascular archives and reproducible mesh-generation and run commands for a tiny pilot and three problem sizes.
 
 - [PR #314](https://github.com/luca-heltai/immersx/pull/314) Add optional portal-tree preparation and growth to the liver workflow, with a common-compartment diagram, independent checks and rendering for three networks. Preserve the published 1,000-pair arterial–venous reference.
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Use project-relative examples in the liver tutorial without machine names or installation-specific paths.

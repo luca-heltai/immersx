@@ -1,0 +1,19 @@
+# Medium and large are preparation profiles; their coupled solves are unvalidated.
+include @TEST_DATA_DIR@/liver_icar/common.prm
+
+subsection Elastodynamics
+  set FE degree = 2
+  set Output directory = @TEST_OUTPUT_DIR@/liver_icar/medium/solid
+  subsection Domain
+    set Grid generator = @TEST_DATA_DIR@/liver_icar/assets/meshes/medium.msh
+  end
+end
+subsection MetricFlowSystem<1, 3>
+  set Finite element degree = 1
+  set Output directory = @TEST_OUTPUT_DIR@/liver_icar/medium/flow
+  subsection IDA parameters
+    subsection Linear solver
+      set Type = iterative
+    end
+  end
+end
