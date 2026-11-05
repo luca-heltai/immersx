@@ -169,6 +169,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #342](https://github.com/luca-heltai/immersx/pull/342) Reuse deal.II MeshWorker scratch data for linear weak-term cell, boundary, and affine assembly, retaining local buffers between cells and evaluating quadrature weights and face basis values once per point.
+
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Release vascular bootstrap and generated-input data after native preparation, retain only live topology in incremental branch records, and construct selected tissue flow conditions without copying the physical graph.
 
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Avoid spatial assembly for zero harmonic material coefficients while retaining essential boundary equations, including zero and purely viscous materials.

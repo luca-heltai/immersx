@@ -13,6 +13,7 @@
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_system.h>
 
 #include <deal.II/grid/grid_generator.h>
 
@@ -29,6 +30,92 @@
 
 using namespace dealii;
 using namespace ImmersX;
+
+TEST(WeakTerm, BOTH_VectorCellAssemblyMatchesMatrixCreatorOnHangingMesh)
+{
+  parallel::distributed::Triangulation<2> mesh(MPI_COMM_WORLD);
+  GridGenerator::hyper_rectangle(mesh, Point<2>(0., 0.), Point<2>(2., 1.));
+  mesh.refine_global(2);
+  for (const auto &cell : mesh.active_cell_iterators())
+    if (cell->is_locally_owned() && cell->center()[0] < .5 &&
+        cell->center()[1] < .5)
+      cell->set_refine_flag();
+  mesh.execute_coarsening_and_refinement();
+  for (const unsigned int degree : {1u, 2u})
+    {
+      SCOPED_TRACE(degree);
+      FESystem<2>   fe(FE_Q<2>(degree), 2);
+      DoFHandler<2> dofs(mesh);
+      dofs.distribute_dofs(fe);
+      const auto owned    = dofs.locally_owned_dofs();
+      const auto relevant = DoFTools::extract_locally_relevant_dofs(dofs);
+      AffineConstraints<double> constraints(owned, relevant);
+      DoFTools::make_hanging_node_constraints(dofs, constraints);
+      constraints.close();
+      EXPECT_GT(Utilities::MPI::sum(constraints.n_constraints(),
+                                    MPI_COMM_WORLD),
+                0u);
+      const auto &mapping = StaticMappingQ1<2>::mapping;
+      const auto  space   = fe_space(dofs, mapping, constraints, &relevant);
+      StateLayout layout;
+      const auto  u = space.field(layout, "u", FEValuesExtractors::Vector(0));
+      using V       = ImmersXLA::MPI::Vector;
+      using M       = ImmersXLA::MPI::SparseMatrix;
+      const StateView<V>         view(layout, 0.);
+      const EvaluationContext<V> context(0., view);
+      DynamicSparsityPattern sparsity(dofs.n_dofs(), dofs.n_dofs(), relevant);
+      DoFTools::make_sparsity_pattern(dofs, sparsity, constraints, true);
+      SparsityTools::distribute_sparsity_pattern(sparsity,
+                                                 owned,
+                                                 MPI_COMM_WORLD,
+                                                 relevant);
+      const QGauss<2> quadrature(degree + 1);
+      for (const bool gradient_term : {false, true})
+        {
+          SCOPED_TRACE(gradient_term);
+          SemiDiscreteModel<V, M>   model;
+          SemidiscreteBuilder<V, M> builder(layout, model);
+          if (gradient_term)
+            weak_term(gradient(u), gradient(test(u))).add(builder);
+          else
+            weak_term(value(u), test(u)).add(builder);
+          const auto op = model.state_matrix_operator(u.id(), u.id(), context);
+          ASSERT_TRUE(op.has_value());
+          const auto actual = op->matrix();
+          M          expected;
+          expected.reinit(owned, owned, sparsity, MPI_COMM_WORLD);
+          if (gradient_term)
+            MatrixCreator::create_laplace_matrix(
+              mapping,
+              dofs,
+              quadrature,
+              expected,
+              static_cast<const Function<2> *>(nullptr),
+              constraints);
+          else
+            MatrixCreator::create_mass_matrix(mapping,
+                                              dofs,
+                                              quadrature,
+                                              expected,
+                                              static_cast<const Function<2> *>(
+                                                nullptr),
+                                              constraints);
+          V probe, result, reference;
+          probe.reinit(owned, MPI_COMM_WORLD);
+          result.reinit(probe);
+          reference.reinit(probe);
+          for (unsigned int sample = 1; sample <= 3; ++sample)
+            {
+              for (const auto i : owned)
+                probe[i] = std::sin(sample * (i + 1.));
+              actual->vmult(result, probe);
+              expected.vmult(reference, probe);
+              result -= reference;
+              EXPECT_LE(result.l2_norm(), 1.e-11 * reference.l2_norm());
+            }
+        }
+    }
+}
 
 TEST(WeakTerm, BoundaryMassMatchesMatrixCreator)
 {

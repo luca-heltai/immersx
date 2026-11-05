@@ -31,6 +31,13 @@
 #include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/vector.h>
 
+// ScratchData includes Sacado, whose Handle type conflicts with OpenCASCADE's
+// macro when a geometry header has already been included.
+#pragma push_macro("Handle")
+#undef Handle
+#include <deal.II/meshworker/scratch_data.h>
+#pragma pop_macro("Handle")
+
 #include <deal.II/non_matching/coupling.h>
 
 #include <boost/signals2/connection.hpp>
@@ -491,6 +498,58 @@ namespace ImmersX
       template <typename VectorType, typename MatrixType>
       using AffineData = WeakAffineAssembly<VectorType, MatrixType>;
 
+      struct ScratchData : dealii::MeshWorker::ScratchData<dim, spacedim>
+      {
+        using dealii::MeshWorker::ScratchData<dim, spacedim>::ScratchData;
+
+        template <typename TrialField>
+        void
+        prepare(
+          const TrialField                                   &source,
+          const std::vector<dealii::types::global_dof_index> &source_indices,
+          const TargetField                                  &target,
+          const std::vector<dealii::types::global_dof_index> &target_indices)
+        {
+          source_positions.clear();
+          target_positions.clear();
+          source_execution_indices.clear();
+          target_execution_indices.clear();
+          source_positions.reserve(source_indices.size());
+          target_positions.reserve(target_indices.size());
+          source_execution_indices.reserve(source_indices.size());
+          target_execution_indices.reserve(target_indices.size());
+          for (unsigned int j = 0; j < source_indices.size(); ++j)
+            {
+              const auto index = source.execution_index(source_indices[j]);
+              if (index != dealii::numbers::invalid_dof_index)
+                {
+                  source_positions.push_back(j);
+                  source_execution_indices.push_back(index);
+                }
+            }
+          for (unsigned int i = 0; i < target_indices.size(); ++i)
+            {
+              const auto index = target.execution_index(target_indices[i]);
+              if (index != dealii::numbers::invalid_dof_index)
+                {
+                  target_positions.push_back(i);
+                  target_execution_indices.push_back(index);
+                }
+            }
+          local_matrix.reinit(target_positions.size(), source_positions.size());
+          trial_values.resize(source_positions.size());
+          test_values.resize(target_positions.size());
+        }
+
+        std::vector<unsigned int>                    source_positions;
+        std::vector<unsigned int>                    target_positions;
+        std::vector<dealii::types::global_dof_index> source_execution_indices;
+        std::vector<dealii::types::global_dof_index> target_execution_indices;
+        dealii::FullMatrix<double>                   local_matrix;
+        std::vector<typename ObservableType::value_type>   trial_values;
+        std::vector<typename TargetExpression::value_type> test_values;
+      };
+
       template <typename MatrixType>
       struct MatrixStorage
       {
@@ -574,26 +633,23 @@ namespace ImmersX
                            observable.update_flags() | target.update_flags();
         const auto volume_flags = static_cast<dealii::UpdateFlags>(
           flags & ~dealii::update_normal_vectors);
-        dealii::FEValues<dim, spacedim> source_values(
-          source.mapping(),
-          source.space().finite_element(),
-          quadrature,
-          volume_flags);
-        dealii::FEValues<dim, spacedim> target_values(
-          row.mapping(),
-          row.space().finite_element(),
-          quadrature,
-          volume_flags);
-        dealii::FEFaceValues<dim, spacedim> source_face(
-          source.mapping(),
-          source.space().finite_element(),
-          face_quadrature,
-          flags | dealii::update_normal_vectors);
-        dealii::FEFaceValues<dim, spacedim> target_face(
-          row.mapping(),
-          row.space().finite_element(),
-          face_quadrature,
-          flags | dealii::update_normal_vectors);
+        ScratchData source_scratch(source.mapping(),
+                                   source.space().finite_element(),
+                                   quadrature,
+                                   volume_flags,
+                                   face_quadrature,
+                                   flags | dealii::update_normal_vectors);
+        ScratchData target_scratch(row.mapping(),
+                                   row.space().finite_element(),
+                                   quadrature,
+                                   volume_flags,
+                                   face_quadrature,
+                                   flags | dealii::update_normal_vectors);
+        const bool  shared_values =
+          &source.dof_handler() == &row.dof_handler() &&
+          &source.mapping() == &row.mapping();
+        std::vector<dealii::types::global_dof_index> indices(
+          source.space().finite_element().n_dofs_per_cell());
         for (const auto &cell : source.dof_handler().active_cell_iterators())
           {
             if (!cell->is_locally_owned())
@@ -603,12 +659,12 @@ namespace ImmersX
                             BoundaryIntegrationSupport<dim, spacedim>>)
               if (!support_includes(support, cell))
                 continue;
-            std::vector<dealii::types::global_dof_index> indices(
-              cell->get_fe().n_dofs_per_cell());
             cell->get_dof_indices(indices);
             bool has_offset = false;
-            for (const auto i : execution_indices(source, indices))
-              if (source.constraints().get_inhomogeneity(i) != 0.)
+            for (const auto native : indices)
+              if (const auto i = source.execution_index(native);
+                  i != dealii::numbers::invalid_dof_index &&
+                  source.constraints().get_inhomogeneity(i) != 0.)
                 {
                   has_offset = true;
                   break;
@@ -627,37 +683,45 @@ namespace ImmersX
                       (boundary_ids.empty() ||
                        boundary_ids.count(cell->face(f)->boundary_id())))
                     {
-                      source_face.reinit(cell, f);
-                      target_face.reinit(target_cell, f);
-                      assemble_face_cell<VectorType>(observable,
-                                                     source,
-                                                     source_face,
-                                                     target,
-                                                     target_face,
-                                                     cell,
-                                                     target_cell,
-                                                     face_quadrature,
-                                                     static_cast<MatrixType *>(
-                                                       nullptr),
-                                                     &data);
+                      const auto &source_face = source_scratch.reinit(cell, f);
+                      const auto &target_face =
+                        shared_values ? source_face :
+                                        target_scratch.reinit(target_cell, f);
+                      assemble_face_cell<VectorType>(
+                        observable,
+                        source,
+                        source_face,
+                        target,
+                        target_face,
+                        source_scratch.get_local_dof_indices(),
+                        shared_values ? source_scratch.get_local_dof_indices() :
+                                        target_scratch.get_local_dof_indices(),
+                        source_scratch,
+                        static_cast<MatrixType *>(nullptr),
+                        &data);
                     }
               }
             else
               {
-                source_values.reinit(cell);
-                target_values.reinit(target_cell);
-                assemble_cell<VectorType>(observable,
-                                          source,
-                                          source_values,
-                                          target,
-                                          target_values,
-                                          cell,
-                                          target_cell,
-                                          quadrature,
-                                          static_cast<MatrixType *>(nullptr),
-                                          &data,
-                                          nullptr,
-                                          support);
+                const auto &source_values = source_scratch.reinit(cell);
+                const auto &target_values =
+                  shared_values ? source_values :
+                                  target_scratch.reinit(target_cell);
+                assemble_cell<VectorType>(
+                  observable,
+                  source,
+                  source_values,
+                  target,
+                  target_values,
+                  source_scratch.get_local_dof_indices(),
+                  shared_values ? source_scratch.get_local_dof_indices() :
+                                  target_scratch.get_local_dof_indices(),
+                  target_cell,
+                  source_scratch,
+                  static_cast<MatrixType *>(nullptr),
+                  &data,
+                  nullptr,
+                  support);
               }
           }
         auto rhs = std::make_shared<VectorType>();
@@ -1023,16 +1087,22 @@ namespace ImmersX
           target_field.locally_owned_dofs().size(),
           source.locally_owned_dofs().size(),
           target_field.locally_relevant_dofs());
+        // Physical point sets vary per cell; their FEValues are rebuilt below,
+        // while the local integration buffers remain shared across cells.
+        ScratchData                                  scratch(source.mapping(),
+                            source.space().finite_element(),
+                            dealii::Quadrature<dim>(),
+                            dealii::update_default);
+        std::vector<dealii::types::global_dof_index> source_indices(
+          source.space().finite_element().n_dofs_per_cell());
+        std::vector<dealii::types::global_dof_index> target_indices(
+          target_field.space().finite_element().n_dofs_per_cell());
         for (const auto &[cell_id, cell_quadrature] : cell_quadratures)
           {
             (void)cell_id;
             const auto target_cell =
               cell_quadrature.source_cell->as_dof_handler_iterator(
                 target_field.dof_handler());
-            std::vector<dealii::types::global_dof_index> source_indices(
-              cell_quadrature.source_cell->get_fe().n_dofs_per_cell());
-            std::vector<dealii::types::global_dof_index> target_indices(
-              target_cell->get_fe().n_dofs_per_cell());
             cell_quadrature.source_cell->get_dof_indices(source_indices);
             target_cell->get_dof_indices(target_indices);
             const auto source_execution_indices =
@@ -1096,14 +1166,17 @@ namespace ImmersX
               flags);
             source_values.reinit(cell_quadrature.source_cell);
             target_values.reinit(target_cell);
+            cell_quadrature.source_cell->get_dof_indices(source_indices);
+            target_cell->get_dof_indices(target_indices);
             assemble_cell<VectorType>(observable,
                                       source,
                                       source_values,
                                       target,
                                       target_values,
-                                      cell_quadrature.source_cell,
+                                      source_indices,
+                                      target_indices,
                                       target_cell,
-                                      point_quadrature,
+                                      scratch,
                                       matrix.get(),
                                       affine_data != nullptr ?
                                         affine_data->get() :
@@ -1429,11 +1502,10 @@ namespace ImmersX
 
             if (&source.dof_handler() == &target_field.dof_handler())
               {
-                dealii::FEValues<dim, spacedim> values(
-                  target_field.mapping(),
-                  target_field.space().finite_element(),
-                  quadrature,
-                  update_flags);
+                ScratchData scratch(target_field.mapping(),
+                                    target_field.space().finite_element(),
+                                    quadrature,
+                                    update_flags);
                 for (const auto &cell :
                      target_field.dof_handler().active_cell_iterators())
                   {
@@ -1441,15 +1513,16 @@ namespace ImmersX
                       continue;
                     if (!support_includes(support, cell))
                       continue;
-                    values.reinit(cell);
+                    const auto &values = scratch.reinit(cell);
                     assemble_cell<VectorType>(observable,
                                               source,
                                               values,
                                               target,
                                               values,
+                                              scratch.get_local_dof_indices(),
+                                              scratch.get_local_dof_indices(),
                                               cell,
-                                              cell,
-                                              quadrature,
+                                              scratch,
                                               matrix.get(),
                                               affine_data != nullptr &&
                                                   *affine_data != nullptr ?
@@ -1461,12 +1534,11 @@ namespace ImmersX
               }
             else
               {
-                dealii::FEValues<dim, spacedim> source_values(
-                  source.mapping(),
-                  source.space().finite_element(),
-                  quadrature,
-                  update_flags);
-                dealii::FEValues<dim, spacedim> target_values(
+                ScratchData source_scratch(source.mapping(),
+                                           source.space().finite_element(),
+                                           quadrature,
+                                           update_flags);
+                ScratchData target_scratch(
                   target_field.mapping(),
                   target_field.space().finite_element(),
                   quadrature,
@@ -1480,23 +1552,26 @@ namespace ImmersX
                     if (!target_cell->is_locally_owned() ||
                         !support_includes(support, source_cell))
                       continue;
-                    source_values.reinit(source_cell);
-                    target_values.reinit(target_cell);
-                    assemble_cell<VectorType>(observable,
-                                              source,
-                                              source_values,
-                                              target,
-                                              target_values,
-                                              source_cell,
-                                              target_cell,
-                                              quadrature,
-                                              matrix.get(),
-                                              affine_data != nullptr &&
-                                                  *affine_data != nullptr ?
-                                                affine_data->get() :
-                                                nullptr,
-                                              nullptr,
-                                              support);
+                    const auto &source_values =
+                      source_scratch.reinit(source_cell);
+                    const auto &target_values =
+                      target_scratch.reinit(target_cell);
+                    assemble_cell<VectorType>(
+                      observable,
+                      source,
+                      source_values,
+                      target,
+                      target_values,
+                      source_scratch.get_local_dof_indices(),
+                      target_scratch.get_local_dof_indices(),
+                      target_cell,
+                      source_scratch,
+                      matrix.get(),
+                      affine_data != nullptr && *affine_data != nullptr ?
+                        affine_data->get() :
+                        nullptr,
+                      nullptr,
+                      support);
                   }
               }
             if (affine_rhs != nullptr && affine_data != nullptr &&
@@ -1606,11 +1681,12 @@ namespace ImmersX
                     target_field.locally_owned_dofs(),
                     target_field.space().mpi_communicator());
               }
-            dealii::FEFaceValues<dim, spacedim> values(
-              target_field.mapping(),
-              target_field.space().finite_element(),
-              quadrature,
-              flags);
+            ScratchData scratch(target_field.mapping(),
+                                target_field.space().finite_element(),
+                                dealii::Quadrature<dim>(),
+                                dealii::update_default,
+                                quadrature,
+                                flags);
             for (const auto &cell :
                  target_field.dof_handler().active_cell_iterators())
               if (cell->is_locally_owned())
@@ -1618,21 +1694,20 @@ namespace ImmersX
                   if (cell->face(face)->at_boundary() &&
                       boundary_ids.count(cell->face(face)->boundary_id()))
                     {
-                      values.reinit(cell, face);
-                      assemble_face_cell<VectorType>(observable,
-                                                     source,
-                                                     values,
-                                                     target,
-                                                     values,
-                                                     cell,
-                                                     cell,
-                                                     quadrature,
-                                                     matrix.get(),
-                                                     affine_data != nullptr &&
-                                                         *affine_data !=
-                                                           nullptr ?
-                                                       affine_data->get() :
-                                                       nullptr);
+                      const auto &values = scratch.reinit(cell, face);
+                      assemble_face_cell<VectorType>(
+                        observable,
+                        source,
+                        values,
+                        target,
+                        values,
+                        scratch.get_local_dof_indices(),
+                        scratch.get_local_dof_indices(),
+                        scratch,
+                        matrix.get(),
+                        affine_data != nullptr && *affine_data != nullptr ?
+                          affine_data->get() :
+                          nullptr);
                     }
             if (affine_rhs != nullptr && affine_data != nullptr &&
                 *affine_data != nullptr)
@@ -2268,62 +2343,49 @@ namespace ImmersX
                 typename SourceField,
                 typename SourceValues,
                 typename TargetValues,
-                typename SourceCell,
                 typename TargetCell,
                 typename MatrixType,
                 typename Support = InferredIntegrationSupport>
       static void
-      assemble_cell(const ObservableType               &observable,
-                    const SourceField                  &source,
-                    const SourceValues                 &source_values,
-                    const TargetExpression             &target,
-                    const TargetValues                 &target_values,
-                    const SourceCell                   &source_cell,
-                    const TargetCell                   &target_cell,
-                    const dealii::Quadrature<dim>      &quadrature,
-                    MatrixType                         *matrix,
-                    AffineData<VectorType, MatrixType> *affine_data,
-                    const std::vector<double> *physical_weights = nullptr,
-                    const Support             &support          = {})
+      assemble_cell(
+        const ObservableType                               &observable,
+        const SourceField                                  &source,
+        const SourceValues                                 &source_values,
+        const TargetExpression                             &target,
+        const TargetValues                                 &target_values,
+        const std::vector<dealii::types::global_dof_index> &source_indices,
+        const std::vector<dealii::types::global_dof_index> &target_indices,
+        const TargetCell                                   &target_cell,
+        ScratchData                                        &scratch,
+        MatrixType                                         *matrix,
+        AffineData<VectorType, MatrixType>                 *affine_data,
+        const std::vector<double> *physical_weights = nullptr,
+        const Support             &support          = {})
       {
         const auto &target_field = target.source();
-        std::vector<dealii::types::global_dof_index> source_indices(
-          source_cell->get_fe().n_dofs_per_cell());
-        std::vector<dealii::types::global_dof_index> target_indices(
-          target_cell->get_fe().n_dofs_per_cell());
-        source_cell->get_dof_indices(source_indices);
-        target_cell->get_dof_indices(target_indices);
-
-        std::vector<unsigned int>                    source_positions;
-        std::vector<unsigned int>                    target_positions;
-        std::vector<dealii::types::global_dof_index> source_execution_indices;
-        std::vector<dealii::types::global_dof_index> target_execution_indices;
-        for (unsigned int j = 0; j < source_indices.size(); ++j)
-          if (source.has_execution_index(source_indices[j]))
-            {
-              source_positions.push_back(j);
-              source_execution_indices.push_back(
-                source.execution_index(source_indices[j]));
-            }
-        for (unsigned int i = 0; i < target_indices.size(); ++i)
-          if (target_field.has_execution_index(target_indices[i]))
-            {
-              target_positions.push_back(i);
-              target_execution_indices.push_back(
-                target_field.execution_index(target_indices[i]));
-            }
-
+        scratch.prepare(source, source_indices, target_field, target_indices);
+        const auto &source_positions         = scratch.source_positions;
+        const auto &target_positions         = scratch.target_positions;
+        const auto &source_execution_indices = scratch.source_execution_indices;
+        const auto &target_execution_indices = scratch.target_execution_indices;
+        auto       &local                    = scratch.local_matrix;
+        auto       &trial_values             = scratch.trial_values;
+        auto       &test_values              = scratch.test_values;
         const auto &trial_view = source_values[source.extractor()];
         const auto &test_view  = target_values[target_field.extractor()];
-        dealii::FullMatrix<double> local(target_positions.size(),
-                                         source_positions.size());
-        std::vector<typename ObservableType::value_type> trial_values(
-          source_positions.size());
-        std::vector<typename TargetExpression::value_type> test_values(
-          target_positions.size());
+        AssertDimension(source_values.n_quadrature_points,
+                        target_values.n_quadrature_points);
+        if (physical_weights != nullptr)
+          AssertDimension(physical_weights->size(),
+                          target_values.n_quadrature_points);
         const double scale = observable.scale() * target.scale();
-        for (unsigned int q = 0; q < quadrature.size(); ++q)
+        for (unsigned int q = 0; q < target_values.n_quadrature_points; ++q)
           {
+            const double weight =
+              scale *
+              (physical_weights == nullptr ? target_values.JxW(q) :
+                                             (*physical_weights)[q]) *
+              support_point_weight(support, target_cell, q);
             for (unsigned int j = 0; j < source_positions.size(); ++j)
               trial_values[j] =
                 observable.operation()(trial_view, source_positions[j], q);
@@ -2332,12 +2394,8 @@ namespace ImmersX
                 target.operation()(test_view, target_positions[i], q);
             for (unsigned int i = 0; i < target_positions.size(); ++i)
               for (unsigned int j = 0; j < source_positions.size(); ++j)
-                local(i, j) +=
-                  scale *
-                  detail::natural_pairing(trial_values[j], test_values[i]) *
-                  (physical_weights == nullptr ? target_values.JxW(q) :
-                                                 (*physical_weights)[q]) *
-                  support_point_weight(support, target_cell, q);
+                local(i, j) += weight * detail::natural_pairing(trial_values[j],
+                                                                test_values[i]);
           }
 
         const bool use_square_constraints =
@@ -2372,75 +2430,55 @@ namespace ImmersX
                 typename SourceField,
                 typename SourceValues,
                 typename TargetValues,
-                typename SourceCell,
-                typename TargetCell,
                 typename MatrixType>
       static void
-      assemble_face_cell(const ObservableType               &observable,
-                         const SourceField                  &source,
-                         const SourceValues                 &source_values,
-                         const TargetExpression             &target,
-                         const TargetValues                 &target_values,
-                         const SourceCell                   &source_cell,
-                         const TargetCell                   &target_cell,
-                         const dealii::Quadrature<dim - 1>  &quadrature,
-                         MatrixType                         *matrix,
-                         AffineData<VectorType, MatrixType> *affine_data)
+      assemble_face_cell(
+        const ObservableType                               &observable,
+        const SourceField                                  &source,
+        const SourceValues                                 &source_values,
+        const TargetExpression                             &target,
+        const TargetValues                                 &target_values,
+        const std::vector<dealii::types::global_dof_index> &source_indices,
+        const std::vector<dealii::types::global_dof_index> &target_indices,
+        ScratchData                                        &scratch,
+        MatrixType                                         *matrix,
+        AffineData<VectorType, MatrixType>                 *affine_data)
       {
         const auto &target_field = target.source();
-        std::vector<dealii::types::global_dof_index> source_indices(
-          source_cell->get_fe().n_dofs_per_cell());
-        std::vector<dealii::types::global_dof_index> target_indices(
-          target_cell->get_fe().n_dofs_per_cell());
-        source_cell->get_dof_indices(source_indices);
-        target_cell->get_dof_indices(target_indices);
-
-        std::vector<unsigned int>                    source_positions;
-        std::vector<unsigned int>                    target_positions;
-        std::vector<dealii::types::global_dof_index> source_execution_indices;
-        std::vector<dealii::types::global_dof_index> target_execution_indices;
-        for (unsigned int j = 0; j < source_indices.size(); ++j)
-          if (source.has_execution_index(source_indices[j]))
-            {
-              source_positions.push_back(j);
-              source_execution_indices.push_back(
-                source.execution_index(source_indices[j]));
-            }
-        for (unsigned int i = 0; i < target_indices.size(); ++i)
-          if (target_field.has_execution_index(target_indices[i]))
-            {
-              target_positions.push_back(i);
-              target_execution_indices.push_back(
-                target_field.execution_index(target_indices[i]));
-            }
-
+        scratch.prepare(source, source_indices, target_field, target_indices);
+        const auto &source_positions         = scratch.source_positions;
+        const auto &target_positions         = scratch.target_positions;
+        const auto &source_execution_indices = scratch.source_execution_indices;
+        const auto &target_execution_indices = scratch.target_execution_indices;
+        auto       &local                    = scratch.local_matrix;
+        auto       &trial_values             = scratch.trial_values;
+        auto       &test_values              = scratch.test_values;
         const auto &trial_view = source_values[source.extractor()];
         const auto &test_view  = target_values[target_field.extractor()];
-        dealii::FullMatrix<double> local(target_positions.size(),
-                                         source_positions.size());
-        for (unsigned int q = 0; q < quadrature.size(); ++q)
-          for (unsigned int i = 0; i < target_positions.size(); ++i)
+        AssertDimension(source_values.n_quadrature_points,
+                        target_values.n_quadrature_points);
+        const double scale = observable.scale() * target.scale();
+        for (unsigned int q = 0; q < target_values.n_quadrature_points; ++q)
+          {
+            const double weight = scale * target_values.JxW(q);
             for (unsigned int j = 0; j < source_positions.size(); ++j)
               {
-                const auto trial_value = [&] {
-                  if constexpr (detail::is_boundary_normal_observable<
-                                  ObservableType>::value)
-                    return observable.evaluate_face(trial_view,
-                                                    source_positions[j],
-                                                    q,
-                                                    target_values);
-                  else
-                    return observable.operation()(trial_view,
-                                                  source_positions[j],
-                                                  q);
-                }();
-                local(i, j) +=
-                  observable.scale() * target.scale() *
-                  detail::natural_pairing(
-                    trial_value,
-                    target.operation()(test_view, target_positions[i], q)) *
-                  target_values.JxW(q);
+                if constexpr (detail::is_boundary_normal_observable<
+                                ObservableType>::value)
+                  trial_values[j] = observable.evaluate_face(
+                    trial_view, source_positions[j], q, target_values);
+                else
+                  trial_values[j] =
+                    observable.operation()(trial_view, source_positions[j], q);
               }
+            for (unsigned int i = 0; i < target_positions.size(); ++i)
+              test_values[i] =
+                target.operation()(test_view, target_positions[i], q);
+            for (unsigned int i = 0; i < target_positions.size(); ++i)
+              for (unsigned int j = 0; j < source_positions.size(); ++j)
+                local(i, j) += weight * detail::natural_pairing(trial_values[j],
+                                                                test_values[i]);
+          }
 
         if (affine_data != nullptr)
           affine_data->add(local,
