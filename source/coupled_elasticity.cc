@@ -21,6 +21,7 @@
 #include <immersx/physics/coupled_elasticity.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 
 namespace ImmersX
@@ -716,7 +717,8 @@ namespace ImmersX
         this->inclusions.setup_inclusions_particles(*this->tria);
       }
 
-    this->cycle = 0;
+    this->cycle        = 0;
+    this->current_time = this->par.time_parameters.initial_time;
     this->setup_dofs();
     if (this->uses_tensor_product_coupling())
       {
@@ -731,6 +733,24 @@ namespace ImmersX
   void
   CoupledElasticityProblem<dim, spacedim>::run_timestep()
   {
+    run_timestep(this->current_time);
+  }
+
+
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::run_timestep(
+    const double physical_time)
+  {
+    AssertThrow(std::isfinite(physical_time),
+                ExcMessage("The coupled mechanical time must be finite."));
+    const bool time_changed = physical_time != this->current_time;
+    this->current_time      = physical_time;
+    if (time_changed)
+      {
+        this->par.set_boundary_condition_times(physical_time);
+        this->setup_constraints();
+      }
     if (this->cycle == 0) // at first timestep we refine
       {
         if (this->par.refinement_strategy == "inclusions")
@@ -759,6 +779,10 @@ namespace ImmersX
       }
     else
       {
+        // Reassemble the constrained mechanical operator and load together:
+        // cached essential columns cannot supply a new affine lifting.
+        if (time_changed)
+          this->assemble_elasticity_system();
         this->assemble_coupling();
         this->solve();
       }

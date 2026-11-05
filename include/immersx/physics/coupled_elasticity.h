@@ -23,6 +23,11 @@ namespace ImmersX
     void
     run_timestep();
 
+    /** Solve at the supplied physical time, refreshing mechanical boundary
+     * data and affine lifting when that time changes. */
+    void
+    run_timestep(const double physical_time);
+
     /**
      * Compute tissue pressure from physical wall samples with fixed overlap
      * flags. Missing tissue contributes zero; normalization always uses the

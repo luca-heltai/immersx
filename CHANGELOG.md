@@ -249,6 +249,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Evaluate the legacy coupled solid at the driver's physical time, refreshing Robin springs, applied loads and nonzero essential lifting at every changed time.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Avoid running the tissue solver twice after a legacy 3D/1D coupled run. Execute the pseudocoupled 1D update on its owning rank and reject an MPI-enabled legacy backend with multiple ranks before its incompatible collectives can hang.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Keep quadrature diagnostics on standard error so benchmark output remains valid JSON Lines.
@@ -443,9 +445,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Exercise Robin boundary conditions with manufactured scalar, solid, flow and vascular solutions, including actual Coral graphs. Bound harmonic application tests to 115 seconds and put a watchdog inside every MPI rank.
-
 - [PR #334](https://github.com/luca-heltai/immersx/pull/334) Treat changes to the performance viewer browser check as documentation inputs, avoiding numerical, Coral and benchmark jobs when no solver or runtime input changes. Keep mixed changes on the full PR path.
+
+- [PR #331](https://github.com/luca-heltai/immersx/pull/331) Exercise Robin boundary conditions with manufactured scalar, solid, flow and vascular solutions, including actual Coral graphs. Bound harmonic application tests to 115 seconds and put a watchdog inside every MPI rank.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Keep lifted elasticity application checks within 115 seconds and reduce the three-dimensional multiplier fixture while preserving two global refinement cycles, three multiplier fields and solver tolerances.
 

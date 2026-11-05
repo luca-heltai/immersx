@@ -165,5 +165,10 @@ belong to the tissue problem and do not overwrite those flow terminal data.
 These applications require the optional `1dsolver` library; the solid Problem
 can also be used and tested independently of that library.
 
+Both legacy coupled drivers pass the physical flow time to the tissue solve.
+Changing the time refreshes the mechanical boundary coefficient, applied load
+and essential lifting together. This preserves time-dependent Robin data even
+when the tissue is solved as a sequence of static problems.
+
 See [Elasticity](../tutorials/elasticity) and
 [Elastodynamics](../tutorials/elastodynamics) for the solid formulations.

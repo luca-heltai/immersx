@@ -186,7 +186,7 @@ main(int argc, char *argv[])
                               }
                           }
                         timer.enter_subsection("3 3d timestep");
-                        problem3D.run_timestep();
+                        problem3D.run_timestep(tIni + timestep + dt);
                         // problem3D.compute_pressure_at_immersed_surface();
                         timer.leave_subsection();
 

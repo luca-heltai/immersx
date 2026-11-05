@@ -130,7 +130,7 @@ main(int argc, char *argv[])
                       problem3D.update_vessel_radius_data(
                         new_displacement_data);
                     timer.enter_subsection("3 3d timestep");
-                    problem3D.run_timestep();
+                    problem3D.run_timestep(tIni + timestep + dt);
                     timer.leave_subsection();
 
                     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
