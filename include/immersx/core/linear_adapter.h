@@ -495,22 +495,13 @@ namespace ImmersX
             operator_view, state, snapshot.get(), iterative_matrix.get());
           dealii::SolverControl control(parameters_.maximum_iterations,
                                         parameters_.tolerance);
-          // A nearly exact preconditioner leaves almost dependent Arnoldi
-          // vectors. Retain modified Gram-Schmidt instead of the delayed
-          // strategy introduced by deal.II 9.8.
-#if DEAL_II_VERSION_GTE(9, 8, 0)
-          const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
-            data(30,
-                 false,
-                 false,
-                 false,
-                 false,
-                 dealii::LinearAlgebra::OrthogonalizationStrategy::
-                   modified_gram_schmidt);
-#else
-          const typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData
-            data(30, false, false);
-#endif
+          // Delayed Gram-Schmidt can divide by zero when the Krylov space
+          // closes exactly. Use the same modified strategy as IDA and Schur
+          // solves, including with deal.II 9.7.
+          typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData data(
+            30, false, false);
+          data.orthogonalization_strategy = dealii::LinearAlgebra::
+            OrthogonalizationStrategy::modified_gram_schmidt;
           const bool flexible =
             parameters_.preconditioner ==
               LinearPreconditioner::block_diagonal ||
@@ -529,16 +520,10 @@ namespace ImmersX
               AssertThrow(parameters_.fgmres_basis_size > 0,
                           dealii::ExcMessage(
                             "FGMRES basis size must be positive."));
-#if DEAL_II_VERSION_GTE(9, 8, 0)
-              const typename dealii::SolverFGMRES<
-                GlobalVectorType>::AdditionalData
-                right_data(parameters_.fgmres_basis_size,
-                           dealii::LinearAlgebra::OrthogonalizationStrategy::
-                             modified_gram_schmidt);
-#else
-              const typename dealii::SolverFGMRES<GlobalVectorType>::
-                AdditionalData right_data(parameters_.fgmres_basis_size);
-#endif
+              typename dealii::SolverFGMRES<GlobalVectorType>::AdditionalData
+                right_data(parameters_.fgmres_basis_size);
+              right_data.orthogonalization_strategy = dealii::LinearAlgebra::
+                OrthogonalizationStrategy::modified_gram_schmidt;
               dealii::SolverFGMRES<GlobalVectorType> solver(control,
                                                             right_data);
               solver.solve(operator_view, state, residual, preconditioner);
