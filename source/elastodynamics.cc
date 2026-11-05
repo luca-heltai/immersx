@@ -965,9 +965,9 @@ namespace ImmersX
       (!par.neumann_ids.empty() && par.neumann_boundary_depends_on_time &&
        *traction_force_cache_time != time);
     const bool refresh_robin =
-      !robin_force_time ||
-      (!par.robin_ids.empty() && par.robin_rhs_depends_on_time &&
-       *robin_force_time != time);
+      !par.robin_ids.empty() &&
+      (!robin_force_time ||
+       (par.robin_rhs_depends_on_time && *robin_force_time != time));
     if (!refresh_volume && !refresh_traction && !refresh_robin)
       {
         destination = cached_body_force;
@@ -1103,7 +1103,8 @@ namespace ImmersX
       }
     cached_body_force = cached_volume_force;
     cached_body_force += cached_traction_force;
-    cached_body_force += cached_robin_force;
+    if (!par.robin_ids.empty())
+      cached_body_force += cached_robin_force;
     destination = cached_body_force;
   }
 
