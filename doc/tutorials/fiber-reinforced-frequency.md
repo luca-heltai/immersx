@@ -176,6 +176,11 @@ $$
 Reinforcement stiffness, mass, and damping use the matrix displacement's full
 ambient gradients at physical reinforcement quadrature points. Its body force
 is evaluated at those same points, with its own phase and material overrides.
+Quadrature points outside the matrix domain are omitted from reinforcement
+stiffness, mass, damping, and forcing. This selection uses the physical lifted
+points, so a partially overlapping cross section retains its interior samples.
+A completely exterior reinforcement contributes no material or load.
+
 The `Fiber` boundary-id sets must be empty: essential and Neumann boundary
 conditions belong to the matrix in this formulation. The default reinforcement
 boundary-id sets are empty.
@@ -195,6 +200,7 @@ mesh and multiplier datasets under `interaction/frequency_<index>`.
 `continuity_norm()` reports the combined multiplier-row residual in the
 independent formulation and is zero when no constraint is present.
 `reinforcement_measure()` reports the integrated physical reinforcement volume.
+For shared displacement it includes only quadrature samples inside the matrix.
 These diagnostics do not estimate the discretization error.
 
 Each Problem uses one prepared mesh during the frequency sweep. Set

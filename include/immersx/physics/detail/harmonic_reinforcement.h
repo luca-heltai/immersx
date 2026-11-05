@@ -3,6 +3,8 @@
 #ifndef immersx_detail_harmonic_reinforcement_h
 #define immersx_detail_harmonic_reinforcement_h
 
+#include <deal.II/base/mpi_remote_point_evaluation.h>
+
 #include <deal.II/fe/fe_nothing.h>
 
 #include <immersx/core/lifted_integration_support.h>
@@ -52,6 +54,34 @@ namespace ImmersX::harmonic_detail
         if (p.material_id == id)
           points.push_back(p);
       return {std::move(points), communicator_};
+    }
+    /** Retain the material quadrature lying in the background domain. */
+    ReinforcementSupport
+    inside(const dealii::GridTools::Cache<spacedim> &background) const
+    {
+      int relation = MPI_UNEQUAL;
+      MPI_Comm_compare(communicator_,
+                       background.get_triangulation().get_mpi_communicator(),
+                       &relation);
+      AssertThrow(
+        relation == MPI_IDENT || relation == MPI_CONGRUENT,
+        dealii::ExcMessage(
+          "Reinforcement and background require congruent communicators."));
+      std::vector<dealii::Point<spacedim>> positions;
+      positions.reserve(points_->size());
+      for (const auto &point : *points_)
+        positions.push_back(point.point);
+      using Search =
+        dealii::Utilities::MPI::RemotePointEvaluation<spacedim, spacedim>;
+      // Exterior samples are expected, including on ranks with no overlap.
+      Search search(typename Search::AdditionalData(1.e-10, false));
+      search.reinit(background, positions);
+      std::vector<Point> retained;
+      retained.reserve(points_->size());
+      for (unsigned int q = 0; q < positions.size(); ++q)
+        if (search.point_found(q))
+          retained.push_back((*points_)[q]);
+      return {std::move(retained), communicator_};
     }
     std::set<dealii::types::material_id>
     material_ids() const
