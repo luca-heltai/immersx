@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------
 
 #include <deal.II/base/exceptions.h>
+#include <deal.II/base/scope_exit.h>
 
 #include <deal.II/lac/block_linear_operator.h>
 #include <deal.II/lac/linear_operator.h>
@@ -647,11 +648,44 @@ namespace ImmersX
                  solution_storage,
                  system_rhs_storage,
                  block_preconditioner);
+    // As in LinearAdapter, an inexact saddle-point preconditioner may give a
+    // small Hessenberg residual before the original equations are satisfied.
+    const double true_tolerance =
+      std::max(par.solver_control.tolerance(),
+               par.solver_control.reduction() *
+                 par.solver_control.initial_value());
+    const auto      maximum_iterations = par.solver_control.max_steps();
+    const ScopeExit restore_iteration_limit(
+      [&]() { par.solver_control.set_max_steps(maximum_iterations); });
+    unsigned int    iterations = par.solver_control.last_step();
+    BlockVectorType defect;
+    defect.reinit(solution_storage);
+    const auto true_residual = [&]() {
+      system.vmult(defect, solution_storage);
+      defect.sadd(-1., 1., system_rhs_storage);
+      return defect.l2_norm();
+    };
+    for (unsigned int correction_step = 0;
+         correction_step < 3 && iterations < maximum_iterations;
+         ++correction_step)
+      {
+        if (true_residual() <= true_tolerance)
+          break;
+        BlockVectorType correction;
+        correction.reinit(solution_storage);
+        par.solver_control.set_max_steps(maximum_iterations - iterations);
+        solver.solve(system, correction, defect, block_preconditioner);
+        iterations += par.solver_control.last_step();
+        solution_storage += correction;
+      }
+    AssertThrow(
+      true_residual() <= true_tolerance,
+      ExcMessage(
+        "Navier-Stokes FGMRES did not satisfy the true residual tolerance."));
     constraints_storage.distribute(solution_storage);
     update_locally_relevant_solution();
 
-    pcout << "   FGMRES iterations: " << par.solver_control.last_step()
-          << std::endl;
+    pcout << "   FGMRES iterations: " << iterations << std::endl;
   }
 
 
@@ -851,6 +885,20 @@ namespace ImmersX
     residual.reinit(solution_storage);
     system_matrix_storage.vmult(residual, solution_storage);
     residual -= system_rhs_storage;
+    // The stored solution has already been distributed. Condensed algebraic
+    // rows are replaced by their actual essential or hanging-node equation.
+    for (const auto index : owned_dofs)
+      if (constraints_storage.is_constrained(index))
+        {
+          double violation = locally_relevant_solution_storage(index) -
+                             constraints_storage.get_inhomogeneity(index);
+          if (const auto *entries =
+                constraints_storage.get_constraint_entries(index))
+            for (const auto &entry : *entries)
+              violation -=
+                entry.second * locally_relevant_solution_storage(entry.first);
+          residual(index) = violation;
+        }
     return residual.l2_norm();
   }
 
