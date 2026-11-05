@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Load archived arterial, portal and venous CCO networks in the coupled flow–tissue application, retain their common microvascular compartments, and discretize their edges against the final tissue mesh. Report block DoFs, local mesh scales and physical terminal diagnostics. Save exact generated liver volume meshes and support mesh-only preparation.
+
 - [PR #332](https://github.com/luca-heltai/immersx/pull/332) Name multiplier load operators, vessel elasticity postprocessing and prescribed vessel pressure explicitly. Preserve the existing C++ types, matrix storage, assembly overloads and parameter spellings as compatibility interfaces.
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Export the coupled solid elastic and Robin spring energy and prescribed-load work at accepted output times.
 

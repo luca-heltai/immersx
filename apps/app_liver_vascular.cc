@@ -6,6 +6,8 @@
 #include <deal.II/fe/mapping_fe.h>
 #include <deal.II/fe/mapping_q1.h>
 
+#include <deal.II/grid/grid_out.h>
+
 #include <deal.II/numerics/data_out.h>
 
 #include <immersx/core/domain.h>
@@ -49,6 +51,14 @@ namespace
         portal_grid,
         "Optional rooted 1D VTK tree; required when Portal network/Enabled is true.");
       add_parameter("Output directory", output_directory);
+      add_parameter(
+        "Write volume mesh",
+        write_volume_mesh,
+        "Save the prepared volume as liver.msh before partitioning.");
+      add_parameter(
+        "Only generate mesh",
+        only_generate_mesh,
+        "Stop after writing the volume mesh; requires Write volume mesh.");
       domain.triangulation_type               = "fullydistributed";
       domain.surface_mesh_size                = .012;
       domain.surface_feature_angle            = 60.;
@@ -65,6 +75,7 @@ namespace
       growth.venous.terminal_separation       = .003;
     }
     std::string arterial_grid, venous_grid, portal_grid, output_directory;
+    bool        write_volume_mesh = false, only_generate_mesh = false;
     ImmersX::DomainParameters<3> domain;
     V::Parameters                growth;
   };
@@ -252,7 +263,40 @@ main(int argc, char **argv)
       settings.growth.portal.selected_terminals =
         Utilities::MPI::broadcast(comm, portal, 0);
       ImmersX::Domain<3> domain(settings.domain, comm);
-      domain.make_grid();
+      AssertThrow(!settings.only_generate_mesh || settings.write_volume_mesh,
+                  ExcMessage("Only generate mesh requires Write volume mesh."));
+      domain.prepare_grid();
+      if (settings.write_volume_mesh)
+        {
+          bool mesh_written = true;
+          if (rank == 0)
+            try
+              {
+                std::ofstream mesh(
+                  std::filesystem::path(settings.output_directory) /
+                  "liver.msh");
+                mesh.precision(17);
+                GridOut().write_msh(domain.refinement_triangulation(), mesh);
+                mesh_written = mesh.good();
+              }
+            catch (const std::exception &error)
+              {
+                std::cerr << error.what() << '\n';
+                mesh_written = false;
+              }
+          AssertThrow(Utilities::MPI::min(mesh_written ? 1u : 0u, comm) == 1,
+                      ExcMessage(
+                        "Cannot write the prepared liver volume mesh."));
+        }
+      if (settings.only_generate_mesh)
+        {
+          if (rank == 0)
+            std::cout << "Prepared liver volume cells: "
+                      << domain.refinement_triangulation().n_active_cells()
+                      << std::endl;
+          return 0;
+        }
+      domain.finalize_grid();
       const auto reference_cell =
         ImmersX::detail::uniform_reference_cell(domain.triangulation());
       AssertThrow(reference_cell.has_value(),
