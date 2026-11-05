@@ -17,6 +17,7 @@
 #include <immersx/core/known_term.h>
 #include <immersx/core/linear_adapter.h>
 #include <immersx/core/modal_lift.h>
+#include <immersx/core/robin_term.h>
 #include <immersx/core/symbolic_field_evaluator.h>
 #include <immersx/grid/local_co_refinement.h>
 #include <immersx/io/output_handler.h>
@@ -41,12 +42,15 @@ namespace ImmersX
       , output("/Lifted Poisson/Output/")
       , forcing("/Lifted Poisson/Forcing/")
       , boundary("/Lifted Poisson/Boundary/")
+      , robin_coefficient("/Lifted Poisson/Robin coefficient/", 1)
+      , robin_rhs("/Lifted Poisson/Robin boundary/", 1)
       , exact_solution("/Lifted Poisson/Exact solution/")
     {
       add_parameter("Modal data", modal_data);
       add_parameter("Modal data fields", modal_data_fields);
       add_parameter("Radius field", radius_field);
       add_parameter("Dirichlet boundary ids", dirichlet_ids);
+      add_parameter("Robin boundary ids", robin_ids);
       add_parameter("Refinement cycles",
                     refinement_cycles,
                     "",
@@ -81,12 +85,17 @@ namespace ImmersX
     LinearAdapterParameters            solver;
     OutputHandlerParameters            output;
     dealii::ParameterAcceptorProxy<dealii::Functions::ParsedFunction<3>>
-                                         forcing, boundary, exact_solution;
+      forcing, boundary;
+    mutable dealii::ParameterAcceptorProxy<dealii::Functions::ParsedFunction<3>>
+      robin_coefficient, robin_rhs;
+    dealii::ParameterAcceptorProxy<dealii::Functions::ParsedFunction<3>>
+                                         exact_solution;
     bool                                 compute_errors = false;
     std::string                          modal_data     = "1";
     std::string                          radius_field;
     std::string                          modal_data_fields;
     std::set<dealii::types::boundary_id> dirichlet_ids{0};
+    std::set<dealii::types::boundary_id> robin_ids;
     unsigned int                         refinement_cycles   = 1;
     std::string                          refinement_strategy = "fixed_fraction";
     double       refinement_fraction = .3, coarsening_fraction = 0.;
@@ -223,6 +232,12 @@ namespace ImmersX
   run_lifted_poisson(const LiftedPoissonParameters &parameters)
   {
     using namespace dealii;
+    robin_detail::assert_disjoint_boundary_ids(parameters.robin_ids,
+                                               parameters.dirichlet_ids,
+                                               std::set<types::boundary_id>{},
+                                               MPI_COMM_WORLD);
+    parameters.robin_coefficient.set_time(0.);
+    parameters.robin_rhs.set_time(0.);
     Domain<3>    bulk(parameters.bulk);
     Domain<1, 3> representative(parameters.representative);
     LocalCoRefinement<3, 1, 3>(parameters.co_refinement)
@@ -259,6 +274,17 @@ namespace ImmersX
                                                                     reinit);
                                    });
         adapter.add(weak_term(gradient(u), gradient(test(u))), "Poisson");
+        adapter.add(robin_boundary_term(
+                      u,
+                      parameters.robin_ids,
+                      [&parameters](const auto) -> const dealii::Function<3> & {
+                        return parameters.robin_coefficient;
+                      },
+                      [&parameters](const auto) -> const dealii::Function<3> & {
+                        return parameters.robin_rhs;
+                      },
+                      [](const auto) { return 1.; }),
+                    "Robin");
         const KnownSource<double, 3> negative_forcing(
           [&parameters](const auto &context) {
             return -parameters.forcing.value(context.point);
