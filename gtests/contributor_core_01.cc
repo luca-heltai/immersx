@@ -539,6 +539,81 @@ TEST(ContributorCore, BOTH_DistributedMatrixCloneOwnsRectangularSnapshot)
     EXPECT_DOUBLE_EQ(result[i], (2. + i) * (i + 1.) - .5 * (i + 2.));
 }
 
+TEST(ContributorCore, BOTH_DistributedTransposeWithLongEmptyRowRanges)
+{
+  using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
+  using Vector     = ImmersX::ImmersXLA::MPI::Vector;
+  const auto rank  = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  dealii::IndexSet rows(2048 * ranks), columns(3 * ranks);
+  rows.add_range(2048 * rank, 2048 * (rank + 1));
+  columns.add_range(3 * rank, 3 * (rank + 1));
+  rows.compress();
+  columns.compress();
+  dealii::DynamicSparsityPattern sparsity(rows.size(), columns.size(), rows);
+  if (rows.is_element(0))
+    sparsity.add(0, columns.size() - 1);
+  auto matrix = std::make_shared<Matrix>();
+  matrix->reinit(rows, columns, sparsity, MPI_COMM_WORLD);
+  if (rows.is_element(0))
+    matrix->set(0, columns.size() - 1, 2.);
+  matrix->compress(dealii::VectorOperation::insert);
+
+  const auto transposed = ImmersX::detail::transpose_matrix(matrix);
+  EXPECT_EQ(transposed->m(), columns.size());
+  EXPECT_EQ(transposed->n(), rows.size());
+  EXPECT_EQ(transposed->locally_owned_range_indices(), columns);
+  EXPECT_EQ(transposed->locally_owned_domain_indices(), rows);
+  Vector source, result;
+  source.reinit(rows, MPI_COMM_WORLD);
+  result.reinit(columns, MPI_COMM_WORLD);
+  source = 1.;
+  transposed->vmult(result, source);
+  for (const auto column : columns)
+    EXPECT_DOUBLE_EQ(result[column], column + 1 == columns.size() ? 2. : 0.);
+}
+
+TEST(ContributorCore, BOTH_ConstrainedMatrixWithLongEmptyRowRanges)
+{
+  using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
+  using Vector     = ImmersX::ImmersXLA::MPI::Vector;
+  const auto rank  = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  dealii::IndexSet rows(2048 * ranks);
+  rows.add_range(2048 * rank, 2048 * (rank + 1));
+  rows.compress();
+  dealii::DynamicSparsityPattern sparsity(rows.size(), rows.size(), rows);
+  if (rows.is_element(0))
+    sparsity.add(0, 0);
+  if (rows.is_element(rows.size() - 1))
+    sparsity.add(rows.size() - 1, rows.size() - 1);
+  Matrix matrix;
+  matrix.reinit(rows, rows, sparsity, MPI_COMM_WORLD);
+  if (rows.is_element(0))
+    matrix.set(0, 0, 2.);
+  if (rows.is_element(rows.size() - 1))
+    matrix.set(rows.size() - 1, rows.size() - 1, 3.);
+  matrix.compress(dealii::VectorOperation::insert);
+  dealii::AffineConstraints<double> constraints;
+  constraints.reinit(rows, rows);
+  for (const auto row : rows)
+    if (row + 1 != rows.size())
+      constraints.add_line(row);
+  constraints.close();
+
+  const auto projected =
+    ImmersX::semidiscrete_detail::constrained_matrix_operator(
+      ImmersX::matrix_operator<Vector>(matrix), constraints)
+      .matrix();
+  Vector source, result;
+  source.reinit(rows, MPI_COMM_WORLD);
+  result.reinit(rows, MPI_COMM_WORLD);
+  source = 1.;
+  projected->vmult(result, source);
+  for (const auto row : rows)
+    EXPECT_DOUBLE_EQ(result[row], row + 1 == rows.size() ? 3. : 0.);
+}
+
 TEST(ContributorCore, BOTH_DistributedSumReplaysOperandsForGraphAndValues)
 {
   using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
@@ -591,6 +666,44 @@ TEST(ContributorCore, BOTH_DistributedSumReplaysOperandsForGraphAndValues)
   for (const auto i : rows)
     EXPECT_DOUBLE_EQ(result[i],
                      (2. + i) * (i + 1.) - .5 * ((i + 1) % size + 1.));
+}
+
+TEST(ContributorCore, BOTH_DistributedSumWithLongEmptyRowRanges)
+{
+  using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
+  using Vector     = ImmersX::ImmersXLA::MPI::Vector;
+  const auto rank  = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  const unsigned int size = 2048 * ranks;
+  dealii::IndexSet   rows(size);
+  rows.add_range(2048 * rank, 2048 * (rank + 1));
+  rows.compress();
+  dealii::DynamicSparsityPattern diagonal(size, size, rows),
+    sparse(size, size, rows);
+  for (const auto row : rows)
+    diagonal.add(row, row);
+  if (rows.is_element(size - 1))
+    sparse.add(size - 1, 0);
+  Matrix a, b;
+  a.reinit(rows, rows, diagonal, MPI_COMM_WORLD);
+  b.reinit(rows, rows, sparse, MPI_COMM_WORLD);
+  for (const auto row : rows)
+    a.set(row, row, 2.);
+  if (rows.is_element(size - 1))
+    b.set(size - 1, 0, -.5);
+  a.compress(dealii::VectorOperation::insert);
+  b.compress(dealii::VectorOperation::insert);
+  const auto sum = ImmersX::detail::sum_matrices(
+    std::vector<ImmersX::MaterializedOperator<Vector, Matrix>>{
+      ImmersX::matrix_operator<Vector>(a),
+      ImmersX::matrix_operator<Vector>(b)});
+  Vector source, result;
+  source.reinit(rows, MPI_COMM_WORLD);
+  result.reinit(rows, MPI_COMM_WORLD);
+  source = 1.;
+  sum->vmult(result, source);
+  for (const auto row : rows)
+    EXPECT_DOUBLE_EQ(result[row], row == size - 1 ? 1.5 : 2.);
 }
 
 TEST(ContributorCore, ReplayingScaledSharedMatrixLeavesSourceUnchanged)

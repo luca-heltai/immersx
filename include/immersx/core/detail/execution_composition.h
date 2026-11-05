@@ -1491,10 +1491,12 @@ namespace ImmersX::detail
             const auto &block = augmented_matrix.block(participant_blocks[i],
                                                        participant_blocks[j]);
             for (const auto row : partitions[participant_blocks[i]])
-              for (auto entry = block.begin(row); entry != block.end(row);
-                   ++entry)
-                primal_sparsity.add(participant_offsets[i] + row,
-                                    participant_offsets[j] + entry->column());
+              if (block.row_length(row) != 0)
+                for (auto entry = block.begin(row), end = block.end(row);
+                     entry != end;
+                     ++entry)
+                  primal_sparsity.add(participant_offsets[i] + row,
+                                      participant_offsets[j] + entry->column());
           }
 
       auto primal_matrix = std::make_shared<MatrixType>();
@@ -1509,11 +1511,13 @@ namespace ImmersX::detail
             const auto &block = augmented_matrix.block(participant_blocks[i],
                                                        participant_blocks[j]);
             for (const auto row : partitions[participant_blocks[i]])
-              for (auto entry = block.begin(row); entry != block.end(row);
-                   ++entry)
-                primal_matrix->set(participant_offsets[i] + row,
-                                   participant_offsets[j] + entry->column(),
-                                   entry->value());
+              if (block.row_length(row) != 0)
+                for (auto entry = block.begin(row), end = block.end(row);
+                     entry != end;
+                     ++entry)
+                  primal_matrix->set(participant_offsets[i] + row,
+                                     participant_offsets[j] + entry->column(),
+                                     entry->value());
           }
       primal_matrix->compress(dealii::VectorOperation::insert);
 
@@ -2324,15 +2328,21 @@ namespace ImmersX::detail
                                               column_partition.size(),
                                               row_partition);
       for (const auto row : row_partition)
-        for (auto entry = source.begin(row); entry != source.end(row); ++entry)
-          sparsity.add(row, entry->column());
+        if (source.row_length(row) != 0)
+          for (auto entry = source.begin(row), end = source.end(row);
+               entry != end;
+               ++entry)
+            sparsity.add(row, entry->column());
 
       MatrixType result;
       result.reinit(
         row_partition, column_partition, sparsity, communicator_, false);
       for (const auto row : row_partition)
-        for (auto entry = source.begin(row); entry != source.end(row); ++entry)
-          result.set(row, entry->column(), entry->value());
+        if (source.row_length(row) != 0)
+          for (auto entry = source.begin(row), end = source.end(row);
+               entry != end;
+               ++entry)
+            result.set(row, entry->column(), entry->value());
       result.compress(dealii::VectorOperation::insert);
       return result;
     }
@@ -2350,11 +2360,16 @@ namespace ImmersX::detail
                                               row_partition);
       for (const auto row : row_partition)
         {
-          for (auto entry = base.begin(row); entry != base.end(row); ++entry)
-            sparsity.add(row, entry->column());
-          for (auto entry = increment.begin(row); entry != increment.end(row);
-               ++entry)
-            sparsity.add(row, entry->column());
+          if (base.row_length(row) != 0)
+            for (auto entry = base.begin(row), end = base.end(row);
+                 entry != end;
+                 ++entry)
+              sparsity.add(row, entry->column());
+          if (increment.row_length(row) != 0)
+            for (auto entry = increment.begin(row), end = increment.end(row);
+                 entry != end;
+                 ++entry)
+              sparsity.add(row, entry->column());
         }
 
       MatrixType result;
@@ -2363,11 +2378,16 @@ namespace ImmersX::detail
       for (const auto row : row_partition)
         {
           std::map<size_type, double> values;
-          for (auto entry = base.begin(row); entry != base.end(row); ++entry)
-            values[entry->column()] += entry->value();
-          for (auto entry = increment.begin(row); entry != increment.end(row);
-               ++entry)
-            values[entry->column()] += factor * entry->value();
+          if (base.row_length(row) != 0)
+            for (auto entry = base.begin(row), end = base.end(row);
+                 entry != end;
+                 ++entry)
+              values[entry->column()] += entry->value();
+          if (increment.row_length(row) != 0)
+            for (auto entry = increment.begin(row), end = increment.end(row);
+                 entry != end;
+                 ++entry)
+              values[entry->column()] += factor * entry->value();
           for (const auto &[column, value] : values)
             result.set(row, column, value);
         }

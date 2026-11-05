@@ -174,11 +174,12 @@ namespace ImmersX
       for (const auto row : matrix.locally_owned_range_indices())
         {
           const bool constrained_row = constrained_.is_element(row);
-          for (auto entry = matrix.begin(row), end = matrix.end(row);
-               entry != end;
-               ++entry)
-            if (constrained_row || constrained_.is_element(entry->column()))
-              matrix.set(row, entry->column(), 0.);
+          if (matrix.row_length(row) != 0)
+            for (auto entry = matrix.begin(row), end = matrix.end(row);
+                 entry != end;
+                 ++entry)
+              if (constrained_row || constrained_.is_element(entry->column()))
+                matrix.set(row, entry->column(), 0.);
           if (constrained_row)
             matrix.set(row, row, constrained_diagonal);
         }

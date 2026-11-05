@@ -154,10 +154,12 @@ namespace ImmersX
       for (const auto row : owned_rows)
         {
           std::vector<types::global_dof_index> constrained_columns;
-          for (auto entry = matrix.begin(row); entry != matrix.end(row);
-               ++entry)
-            if (constraints.is_constrained(entry->column()))
-              constrained_columns.push_back(entry->column());
+          if (matrix.row_length(row) != 0)
+            for (auto entry = matrix.begin(row), end = matrix.end(row);
+                 entry != end;
+                 ++entry)
+              if (constraints.is_constrained(entry->column()))
+                constrained_columns.push_back(entry->column());
           for (const auto column : constrained_columns)
             matrix.set(row, column, 0.);
         }
