@@ -177,6 +177,12 @@ namespace ImmersX
         std::make_unique<harmonic_detail::ReinforcementSupport<spacedim>>(
           harmonic_detail::make_reinforcement_support(
             fiber_storage, parameters.geometry.get()));
+      if (parameters.formulation == "shared")
+        {
+          dealii::GridTools::Cache<spacedim> background(
+            matrix_storage.triangulation(), matrix_storage.mapping());
+          *volume_support = volume_support->inside(background);
+        }
       reinforcement_measure_storage = volume_support->measure();
       if (parameters.formulation == "shared")
         {

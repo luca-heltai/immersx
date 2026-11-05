@@ -9,6 +9,7 @@
 
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/patterns.h>
+#include <deal.II/base/scope_exit.h>
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
@@ -43,13 +44,104 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+
+#if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
+#  include <gmsh.h>
+#  include <unistd.h>
+#endif
 
 namespace ImmersX
 {
   namespace
   {
+#if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
+    template <int dim, int spacedim>
+    void
+    read_gmsh_file(const std::string             &filename,
+                   dealii::GridIn<dim, spacedim> &grid_in)
+    {
+      // Some Gmsh API readers ignore unnamed physical groups. Make only their
+      // default ids explicit, retaining the native reader's named selectors.
+      // A temporary MSH4 file also retains entities with no physical group.
+      const bool owns_gmsh = gmsh::isInitialized() == 0;
+      if (owns_gmsh)
+        gmsh::initialize();
+      const dealii::ScopeExit finalize_gmsh([owns_gmsh]() {
+        if (owns_gmsh && gmsh::isInitialized())
+          gmsh::finalize();
+      });
+      double version = 0., save_all = 0., binary = 0., scaling = 0.,
+             orphans = 0.;
+      gmsh::option::getNumber("Mesh.MshFileVersion", version);
+      gmsh::option::getNumber("Mesh.SaveAll", save_all);
+      gmsh::option::getNumber("Mesh.Binary", binary);
+      gmsh::option::getNumber("Mesh.ScalingFactor", scaling);
+      gmsh::option::getNumber("Mesh.SaveWithoutOrphans", orphans);
+      const dealii::ScopeExit restore_options(
+        [version, save_all, binary, scaling, orphans]() {
+          // Older native readers finalize the Gmsh session they use.
+          if (!gmsh::isInitialized())
+            gmsh::initialize();
+          gmsh::option::setNumber("Mesh.MshFileVersion", version);
+          gmsh::option::setNumber("Mesh.SaveAll", save_all);
+          gmsh::option::setNumber("Mesh.Binary", binary);
+          gmsh::option::setNumber("Mesh.ScalingFactor", scaling);
+          gmsh::option::setNumber("Mesh.SaveWithoutOrphans", orphans);
+        });
+      gmsh::option::setNumber("General.Verbosity", 0);
+      gmsh::clear();
+      gmsh::open(filename);
+      gmsh::vectorpair groups;
+      gmsh::model::getPhysicalGroups(groups);
+      bool changed = false;
+      for (const auto &[dimension, tag] : groups)
+        {
+          std::string name;
+          gmsh::model::getPhysicalName(dimension, tag, name);
+          if (name.empty())
+            {
+              gmsh::model::setPhysicalName(dimension,
+                                           tag,
+                                           std::string(dimension == dim ?
+                                                         "MaterialID:" :
+                                                         "BoundaryID:") +
+                                             std::to_string(tag));
+              changed = true;
+            }
+        }
+      if (!changed)
+        {
+          grid_in.read_msh(filename);
+          return;
+        }
+
+      auto pattern =
+        (std::filesystem::temp_directory_path() / "immersx-gmsh-XXXXXX.msh")
+          .string();
+      std::vector<char> temporary_name(pattern.begin(), pattern.end());
+      temporary_name.push_back('\0');
+      const int descriptor = mkstemps(temporary_name.data(), 4);
+      AssertThrow(descriptor != -1,
+                  dealii::ExcMessage("Cannot create a temporary Gmsh mesh."));
+      close(descriptor);
+      const std::string       temporary_file(temporary_name.data());
+      const dealii::ScopeExit remove_file([&temporary_file]() {
+        std::error_code ignored;
+        std::filesystem::remove(temporary_file, ignored);
+      });
+      gmsh::option::setNumber("Mesh.MshFileVersion", 4.1);
+      gmsh::option::setNumber("Mesh.SaveAll", 1);
+      gmsh::option::setNumber("Mesh.Binary", 1);
+      gmsh::option::setNumber("Mesh.ScalingFactor", 1);
+      gmsh::option::setNumber("Mesh.SaveWithoutOrphans", 0);
+      gmsh::write(temporary_file);
+      grid_in.read_msh(temporary_file);
+    }
+#endif
+
     template <int dim, int spacedim, typename TriangulationType>
     void
     read_vtk_file(const std::string &filename,
@@ -162,7 +254,10 @@ namespace ImmersX
 #if defined(DEAL_II_WITH_GMSH_API) || defined(DEAL_II_GMSH_WITH_API)
       if (extension == "msh" || extension == "stl")
         {
-          grid_in.read_msh(filename);
+          if (extension == "msh")
+            read_gmsh_file(filename, grid_in);
+          else if (extension == "stl")
+            grid_in.read_msh(filename);
           return;
         }
 #endif

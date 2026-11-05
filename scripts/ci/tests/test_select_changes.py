@@ -74,6 +74,23 @@ class GitSelection(unittest.TestCase):
         self.commit()
         self.assert_all_pr_jobs(self.plan())
 
+    def test_viewer_browser_checks_only_exclude_jobs_without_solver_changes(self):
+        self.write("scripts/performance/tests/viewer.py")
+        self.commit()
+        plan = self.plan()
+        self.assertEqual(plan["mode"], "docs-only")
+        for key in ("run_numeric", "run_coral", "run_benchmarks"):
+            self.assertFalse(plan[key], key)
+
+        self.write("source/solver.cc")
+        self.commit()
+        self.assert_all_pr_jobs(self.plan())
+
+        for path in ("scripts/performance/collect.py",
+                     "scripts/performance/tests/test_report.py"):
+            with self.subTest(path=path):
+                self.assertFalse(selector.documentation_path(path))
+
     def test_cpp_selection_is_observation_only(self):
         self.write("include/immersx/physics/elasticity.h")
         self.commit()
