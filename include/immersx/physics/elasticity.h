@@ -181,7 +181,8 @@ namespace ImmersX
    * - a pure displacement problem (no inclusions), or
    * - a saddle-point problem for displacement and Lagrange multipliers, or
    * - a displacement problem driven by inclusion "pressure" data (when
-   *   `ElasticityProblemParameters::pressure_coupling` is enabled).
+   *   `ElasticityProblemParameters::uses_prescribed_vessel_pressure()` is
+   * enabled).
    *
    * The intent of this documentation is to state *exactly* which continuous and
    * discrete equations correspond to `source/elasticity.cc` (primarily
@@ -223,8 +224,8 @@ namespace ImmersX
    * - `stiffness_matrix` \f$\equiv A\f$
    * - `mass_matrix` \f$\equiv C\f$
    * - `damping_matrix` \f$\equiv D\f$
-   * - `coupling_matrix` \f$\equiv B^T\f$ (maps \f$\lambda\f$ to displacement
-   * dofs)
+   * - `multiplier_load_matrix()` \f$\equiv B^T\f$ (maps \f$\lambda\f$ to
+   * displacement dofs)
    * - `inclusion_matrix` \f$\equiv M\f$ (multiplier mass / scaling matrix)
    *
    * Right-hand side blocks are:
@@ -349,16 +350,14 @@ namespace ImmersX
    * quadrature points; tensor-product coupling uses the basis from
    * `ReducedCoupling`. In the code, `assemble_coupling()` builds:
    *
-   * - Coupling matrix \f$B^T\f$ (`coupling_matrix`, size \f$N_u\times
+   * - Coupling matrix \f$B^T\f$ (`multiplier_load_matrix()`, size \f$N_u\times
    * N_\lambda\f$),
    * - Inclusion matrix \f$M\f$ (`inclusion_matrix`, size \f$N_\lambda\times
    * N_\lambda\f$, assembled *diagonally*),
    * - Multiplier right-hand side \f$g\f$ (`system_rhs.block(1)`).
    *
-   * Conceptually, the saddle-point branch (`pressure_coupling == false`) solves
-   * the discrete constrained system
-   * \f[
-   * \begin{bmatrix}
+   * Conceptually, the saddle-point branch (`uses_prescribed_vessel_pressure()
+   * == false`) solves the discrete constrained system \f[ \begin{bmatrix}
    *   A & B^T \\
    *   B & 0
    * \end{bmatrix}
@@ -373,10 +372,10 @@ namespace ImmersX
    * \end{bmatrix}.
    * \f]
    *
-   * The `pressure_coupling == true` branch does *not* solve the saddle-point
-   * problem. Instead it computes
-   * \f$\lambda \approx M^{-1}g\f$ and then forms an additional load
-   * \f$f_f = B^T\lambda\f$ (stored in `system_rhs_f.block(0)`).
+   * The `uses_prescribed_vessel_pressure() == true` branch does *not* solve the
+   * saddle-point problem. Instead it computes \f$\lambda \approx M^{-1}g\f$ and
+   * then applies the additional load \f$f_f = B^T\lambda\f$ to the bulk
+   * equation.
    *
    * Multiplier right-hand side \f$g\f$ (as assembled in `assemble_coupling()`)
    * is a normalized quadrature projection of the inclusion boundary data onto
@@ -389,9 +388,8 @@ namespace ImmersX
    * `source/elasticity.cc`, `assemble_coupling()`).
    *
    * @note In the stationary case (`initial_time == final_time`) with
-   * `pressure_coupling == true`, the stationary path computes
-   * \f$f_f=B^T\lambda\f$ but then solves \f$A u = f\f$ (i.e., \f$f_f\f$ is not
-   * used in the stationary solve path).
+   * `uses_prescribed_vessel_pressure() == true`, the stationary path computes
+   * \f$\lambda=M^{-1}g\f$ and solves \f$A u = f+B^T\lambda\f$.
    *
    * @section elasticity_time Time integration (Newmark predictor/corrector)
    *
@@ -401,8 +399,9 @@ namespace ImmersX
    * \f[
    *   C\,\ddot u + D\,\dot u + A\,u = \big(f + f_f\big)\,\sin(t),
    * \f]
-   * where \f$f_f=B^T\lambda\f$ is present only in the `pressure_coupling ==
-   * true` branch (as implemented in `solve()`).
+   * where \f$f_f=B^T\lambda\f$ is present only in the
+   * `uses_prescribed_vessel_pressure() == true` branch (as implemented in
+   * `solve()`).
    *
    * Given \f$u^n, v^n=\dot u^n, a^n=\ddot u^n\f$, the code computes:
    * Predictor:
@@ -446,6 +445,21 @@ namespace ImmersX
      * Build the elasticity problem from parsed parameters.
      */
     ElasticityProblem(const ElasticityProblemParameters<dim, spacedim> &par);
+
+    /** Matrix B^T mapping multiplier coefficients to bulk loads.
+     * The historical public coupling_matrix member refers to the same storage.
+     */
+    LA::MPI::SparseMatrix &
+    multiplier_load_matrix()
+    {
+      return coupling_matrix;
+    }
+
+    const LA::MPI::SparseMatrix &
+    multiplier_load_matrix() const
+    {
+      return coupling_matrix;
+    }
 
     /**
      * Create or import computational mesh and manifolds.
@@ -721,8 +735,9 @@ namespace ImmersX
     LA::MPI::SparseMatrix
       newmark_matrix;                  ///< Effective matrix for Newmark solves.
     LA::MPI::SparseMatrix mass_matrix; ///< Bulk mass matrix.
-    LA::MPI::SparseMatrix coupling_matrix; ///< Coupling matrix B^T.
-    LA::MPI::SparseMatrix damping_matrix;  ///< Viscous/Rayleigh damping matrix.
+    LA::MPI::SparseMatrix
+      coupling_matrix; ///< Compatibility storage for multiplier_load_matrix().
+    LA::MPI::SparseMatrix damping_matrix; ///< Viscous/Rayleigh damping matrix.
     /// @}
 
     /**

@@ -8,6 +8,7 @@ Reference pages are exhaustive and factual rather than tutorial narratives.
 
 applications
 parameters
+coupling-names
 verification
 C++ API <../api/library_root>
 ```

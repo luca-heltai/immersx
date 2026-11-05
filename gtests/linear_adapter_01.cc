@@ -471,6 +471,78 @@ TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
               1.e-12);
 }
 
+TEST(LinearAdapter, BOTH_SparseAugmentedMatrixPreservesRemoteCoupling)
+{
+  using Matrix = ImmersX::ImmersXLA::MPI::SparseMatrix;
+  using Vector = ImmersX::ImmersXLA::MPI::Vector;
+  using Adapter =
+    ImmersX::LinearAdapter<Vector, ImmersX::ImmersXLA::MPI::BlockVector>;
+  const auto rank  = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  dealii::IndexSet primal(2048 * ranks), multiplier(2 * ranks);
+  primal.add_range(2048 * rank, 2048 * (rank + 1));
+  multiplier.add_range(2 * rank, 2 * (rank + 1));
+  primal.compress();
+  multiplier.compress();
+  dealii::DynamicSparsityPattern a_graph(primal.size(), primal.size(), primal);
+  dealii::DynamicSparsityPattern b_graph(multiplier.size(),
+                                         primal.size(),
+                                         multiplier);
+  dealii::DynamicSparsityPattern metric_graph(multiplier.size(),
+                                              multiplier.size(),
+                                              multiplier);
+  for (const auto row : primal)
+    a_graph.add(row, row);
+  for (const auto row : multiplier)
+    metric_graph.add(row, row);
+  if (multiplier.is_element(multiplier.size() - 1))
+    b_graph.add(multiplier.size() - 1, 0);
+  Matrix a, b, metric;
+  a.reinit(primal, primal, a_graph, MPI_COMM_WORLD);
+  b.reinit(multiplier, primal, b_graph, MPI_COMM_WORLD);
+  metric.reinit(multiplier, multiplier, metric_graph, MPI_COMM_WORLD);
+  for (const auto row : primal)
+    a.set(row, row, 2.);
+  for (const auto row : multiplier)
+    metric.set(row, row, 2.);
+  if (multiplier.is_element(multiplier.size() - 1))
+    b.set(multiplier.size() - 1, 0, 3.);
+  a.compress(dealii::VectorOperation::insert);
+  b.compress(dealii::VectorOperation::insert);
+  metric.compress(dealii::VectorOperation::insert);
+
+  ImmersX::LinearAdapterParameters parameters;
+  Adapter                          adapter(parameters, MPI_COMM_WORLD);
+  const auto                       fields =
+    adapter
+      .add(
+        [&](auto &builder) {
+          const auto u      = builder.algebraic_field("primal", primal);
+          const auto lambda = builder.algebraic_field("multiplier", multiplier);
+          const auto coupling = builder.matrix_operator(b);
+          builder.term(u, "diagonal").state(u, builder.matrix_operator(a));
+          builder.term(lambda, "coupling").state(u, coupling);
+          builder.term(u, "reaction")
+            .state(lambda, ImmersX::transpose_operator(coupling));
+          builder.saddle_point(lambda, {u}, builder.matrix_operator(metric));
+          return std::make_pair(u, lambda);
+        },
+        "sparse")
+      .fields();
+  auto state                          = adapter.make_state();
+  adapter.field(state, fields.first)  = 1.;
+  adapter.field(state, fields.second) = 0.;
+  const auto augmented = adapter.augmented_lagrangian_matrix(state, 4.);
+  auto       action    = adapter.make_state();
+  augmented.vmult(action, state);
+  for (const auto row : primal)
+    EXPECT_DOUBLE_EQ(adapter.field(action, fields.first)[row],
+                     row == 0 ? 20. : 2.);
+  for (const auto row : multiplier)
+    EXPECT_DOUBLE_EQ(adapter.field(action, fields.second)[row],
+                     row + 1 == multiplier.size() ? 3. : 0.);
+}
+
 TEST(LinearAdapter, ParameterAcceptorControlsSolverOptions)
 {
   dealii::ParameterAcceptor::clear();

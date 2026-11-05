@@ -71,12 +71,12 @@ namespace ImmersX
         // additive contribution; make that contract explicit before applying
         // the Schur operator.
         dst = 0.;
-        solver.coupling_matrix.vmult(bulk_coupling, src);
+        solver.multiplier_load_matrix.vmult(bulk_coupling, src);
         solver.solve_block(bulk_inverse,
                            bulk_coupling,
                            solver.bulk_matrix,
                            solver.bulk_preconditioner);
-        solver.coupling_matrix.Tvmult(dst, bulk_inverse);
+        solver.multiplier_load_matrix.Tvmult(dst, bulk_inverse);
 
         solver.mass_matrix.Tvmult(embedded_coupling, src);
         solver.solve_block(embedded_inverse,
@@ -113,10 +113,10 @@ namespace ImmersX
      * The optional positive outside mass contributes -M_out to the multiplier
      * diagonal. Its lifetime must include all calls to solve().
      */
-    LagrangeMultiplierSchurSolver(const MatrixType       &bulk_matrix,
-                                  const MatrixType       &embedded_matrix,
-                                  const MatrixType       &coupling_matrix,
-                                  const MatrixType       &mass_matrix,
+    LagrangeMultiplierSchurSolver(const MatrixType &bulk_matrix,
+                                  const MatrixType &embedded_matrix,
+                                  const MatrixType &multiplier_load_matrix,
+                                  const MatrixType &mass_matrix,
                                   const dealii::IndexSet &bulk_owned_dofs,
                                   const dealii::IndexSet &embedded_owned_dofs,
                                   const dealii::IndexSet &multiplier_owned_dofs,
@@ -127,7 +127,7 @@ namespace ImmersX
                                   const MatrixType *outside_mass    = nullptr)
       : bulk_matrix(bulk_matrix)
       , embedded_matrix(embedded_matrix)
-      , coupling_matrix(coupling_matrix)
+      , multiplier_load_matrix(multiplier_load_matrix)
       , mass_matrix(mass_matrix)
       , outside_mass(outside_mass)
       , bulk_owned_dofs(bulk_owned_dofs)
@@ -167,7 +167,7 @@ namespace ImmersX
                   embedded_matrix,
                   embedded_preconditioner);
 
-      coupling_matrix.Tvmult(multiplier_rhs, bulk_inverse_rhs);
+      multiplier_load_matrix.Tvmult(multiplier_rhs, bulk_inverse_rhs);
       mass_matrix.vmult(multiplier_correction, embedded_inverse_rhs);
       multiplier_rhs -= multiplier_correction;
 
@@ -191,7 +191,7 @@ namespace ImmersX
       dealii::PreconditionIdentity    identity;
       schur_solver.solve(schur_operator, multiplier, multiplier_rhs, identity);
 
-      coupling_matrix.vmult(bulk_correction, multiplier);
+      multiplier_load_matrix.vmult(bulk_correction, multiplier);
       bulk_correction *= -1.;
       bulk_correction += bulk_rhs;
       solve_block(bulk_solution,
@@ -237,7 +237,7 @@ namespace ImmersX
 
     const MatrixType &bulk_matrix;
     const MatrixType &embedded_matrix;
-    const MatrixType &coupling_matrix;
+    const MatrixType &multiplier_load_matrix;
     const MatrixType &mass_matrix;
     const MatrixType *outside_mass;
 

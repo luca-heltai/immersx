@@ -923,10 +923,11 @@ namespace ImmersX
               dealii::DynamicSparsityPattern sparsity(matrix.m(), matrix.n());
               for (dealii::types::global_dof_index row = 0; row < matrix.m();
                    ++row)
-                for (auto entry = matrix.begin(row), end = matrix.end(row);
-                     entry != end;
-                     ++entry)
-                  sparsity.add(row, entry->column());
+                if (matrix.row_length(row) != 0)
+                  for (auto entry = matrix.begin(row), end = matrix.end(row);
+                       entry != end;
+                       ++entry)
+                    sparsity.add(row, entry->column());
               dealii::SparsityPattern pattern;
               pattern.copy_from(sparsity);
               dealii::SparseMatrix<double> serial_matrix(pattern);
@@ -935,10 +936,11 @@ namespace ImmersX
 #  else
               for (dealii::types::global_dof_index row = 0; row < matrix.m();
                    ++row)
-                for (auto entry = matrix.begin(row), end = matrix.end(row);
-                     entry != end;
-                     ++entry)
-                  serial_matrix.set(row, entry->column(), entry->value());
+                if (matrix.row_length(row) != 0)
+                  for (auto entry = matrix.begin(row), end = matrix.end(row);
+                       entry != end;
+                       ++entry)
+                    serial_matrix.set(row, entry->column(), entry->value());
 #  endif
               direct_timer.stop();
               dealii::TimerOutput::Scope factor_timer(computing_timer,

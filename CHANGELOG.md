@@ -13,6 +13,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #339](https://github.com/luca-heltai/immersx/pull/339) Download the brain and vessel grids from release v0.3 into a gitignored data directory, verify their SHA-256 checksums, and reuse verified files.
 
+- [PR #332](https://github.com/luca-heltai/immersx/pull/332) Name multiplier load operators, vessel elasticity postprocessing and prescribed vessel pressure explicitly. Preserve the existing C++ types, matrix storage, assembly overloads and parameter spellings as compatibility interfaces.
+
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Precondition harmonic adapter solves with the standalone elasticity surrogate, including shared reinforcement, using one elasticity AMG hierarchy for both complex components and FGMRES for tolerance-stopped block-diagonal inner solves.
+
 - [PR #330](https://github.com/luca-heltai/immersx/pull/330) Show every recorded benchmark case in the performance overview, with separate compatible history charts and explicit unavailable native comparisons and failed measurements.
 
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Integrate nonmatching multiplier couplings on overlapping quadrature samples and impose a homogeneous multiplier mass equation on all exterior samples, including partially covered cells. Support fixed reference geometry in continuity constraints, lifted and modal interactions, fiber dynamics, legacy point couplings, and MetricFlowX coupling while preserving physical material ids.
@@ -171,6 +175,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #342](https://github.com/luca-heltai/immersx/pull/342) Reuse deal.II MeshWorker scratch data for linear weak-term cell, boundary, and affine assembly, retaining local buffers between cells and evaluating quadrature weights and face basis values once per point.
+
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Release vascular bootstrap and generated-input data after native preparation, retain only live topology in incremental branch records, and construct selected tissue flow conditions without copying the physical graph.
 
 - [PR #324](https://github.com/luca-heltai/immersx/pull/324) Avoid spatial assembly for zero harmonic material coefficients while retaining essential boundary equations, including zero and purely viscous materials.
@@ -248,6 +254,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #340](https://github.com/luca-heltai/immersx/pull/340) Skip empty sparse rows throughout distributed matrix transformations and solver setup, avoiding repeated scans of later rows.
+
+- [PR #336](https://github.com/luca-heltai/immersx/pull/336) Keep memory use linear in the number of contributions when constructing semidiscrete operator sums, avoiding runaway allocation before harmonic fiber-reinforcement solves.
 
 - [PR #329](https://github.com/luca-heltai/immersx/pull/329) Omit exterior reinforcement quadrature points from shared harmonic elasticity, retaining interior samples of partially overlapping fibers and reporting their retained volume.
 - [PR #335](https://github.com/luca-heltai/immersx/pull/335) Preserve unnamed Gmsh physical material and boundary ids during Domain imports without changing named material, boundary or manifold selectors. Keep untagged entities, input files and Gmsh output settings intact.
@@ -434,6 +444,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #340](https://github.com/luca-heltai/immersx/pull/340) Send lifted-support benchmark assembly diagnostics to stderr so its JSONL output passes strict correctness validation.
 
 - [PR #334](https://github.com/luca-heltai/immersx/pull/334) Treat changes to the performance viewer browser check as documentation inputs, avoiding numerical, Coral and benchmark jobs when no solver or runtime input changes. Keep mixed changes on the full PR path.
 

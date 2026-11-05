@@ -769,7 +769,7 @@ namespace ImmersX
 
     pressure_at_immersed_surface.clear();
     pressure_at_immersed_surface_by_inclusion.clear();
-    // coupling_pressure =
+    // vessel_wall_pressure =
     // output_pressure(cycle == 0 ? true : false);
     compute_pressure_at_immersed_surface();
     output_pressure_at_immersed_surface(this->cycle == 0 ? true : false);

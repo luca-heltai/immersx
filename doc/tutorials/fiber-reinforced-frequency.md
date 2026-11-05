@@ -58,6 +58,30 @@ Each example clamps the matrix's left side, applies a traction with a phase of
 Change `Formulation` to switch models. Use a separate output directory for each
 run so old datasets from another model are not mistaken for current results.
 
+## Iterative solution
+
+For shared displacement, select the positive elasticity surrogate with:
+
+```ini
+subsection Fiber Reinforced Elasticity Frequency
+  set Formulation = shared
+  subsection Solver
+    set Solver = iterative
+    set Preconditioner = block_diagonal
+  end
+end
+```
+
+The surrogate is $P_0=K+\omega^2M+\omega D$. Its AMG hierarchy uses
+elastic rigid-body modes and is shared by the real and imaginary displacement
+fields. Shared-displacement solves include both the matrix and the retained
+reinforcement material in $P_0$. Each application uses at most 30 AMG-preconditioned
+CG iterations with a relative residual target of 0.1. The outer FGMRES checks the
+residual of the original harmonic system against `Solver/Tolerance`.
+
+`Preconditioner = none` remains available. A positive surrogate does not remove
+physical resonances; weakly damped cases may need more outer iterations.
+
 ## Lift geometry and material units
 
 The `Lift` subsection is registered only for reduced reinforcement meshes.

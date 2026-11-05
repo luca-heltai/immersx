@@ -284,12 +284,12 @@ Here:
 - $M$ is a reduced mass or scaling matrix;
 - $r(\mu)$ is the reduced right-hand side assembled from lower-dimensional data.
 
-From the implementation point of view, this means that the assembled coupling operator is never the unreduced $B$ alone. The matrix called `coupling_matrix` in the repository should always be interpreted as the reduced operator, namely $RB$, or equivalently through its transpose action $B^T R^T$ depending on which block of the saddle-point system is being assembled or applied.
+From the implementation point of view, this means that the assembled coupling operator is never the unreduced $B$ alone. The constraint operator acts as $RB$ on the bulk field. Its transpose $B^T R^T$ maps multiplier coefficients to bulk loads; the implementation calls this block the multiplier load matrix.
 
 This abstract form explains several implementation details in the current
 reduced-coupling code:
 
-- assembly of a `coupling_matrix`;
+- assembly of a multiplier load matrix;
 - assembly of a reduced mass matrix for the multiplier basis;
 - use of cross-sectional quadrature and basis functions;
 - explicit right-hand side assembly on the reduced space.

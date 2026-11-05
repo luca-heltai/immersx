@@ -154,10 +154,12 @@ namespace ImmersX
       for (const auto row : owned_rows)
         {
           std::vector<types::global_dof_index> constrained_columns;
-          for (auto entry = matrix.begin(row); entry != matrix.end(row);
-               ++entry)
-            if (constraints.is_constrained(entry->column()))
-              constrained_columns.push_back(entry->column());
+          if (matrix.row_length(row) != 0)
+            for (auto entry = matrix.begin(row), end = matrix.end(row);
+                 entry != end;
+                 ++entry)
+              if (constraints.is_constrained(entry->column()))
+                constrained_columns.push_back(entry->column());
           for (const auto column : constrained_columns)
             matrix.set(row, column, 0.);
         }
@@ -631,9 +633,9 @@ namespace ImmersX
         .fields()
         .multiplier;
 
-    auto       state           = adapter.make_state();
-    auto       state_dot       = adapter.make_state();
-    const auto coupling_matrix = [&](const auto &row, const auto &column) {
+    auto       state            = adapter.make_state();
+    auto       state_dot        = adapter.make_state();
+    const auto constraint_block = [&](const auto &row, const auto &column) {
       const auto block =
         adapter.state_matrix_operator(state, row.id(), column.id());
       AssertThrow(
@@ -641,11 +643,11 @@ namespace ImmersX
         ExcMessage("The fiber Constraint needs matrix-based coupling blocks."));
       return block->matrix();
     };
-    matrix_to_multiplier_storage = coupling_matrix(lambda, matrix.velocity);
-    matrix_coupling_storage      = coupling_matrix(matrix.velocity, lambda);
+    matrix_to_multiplier_storage = constraint_block(lambda, matrix.velocity);
+    matrix_coupling_storage      = constraint_block(matrix.velocity, lambda);
     fiber_to_multiplier_storage  = std::make_shared<MatrixType>();
     fiber_to_multiplier_storage->copy_from(
-      *coupling_matrix(lambda, fiber.velocity));
+      *constraint_block(lambda, fiber.velocity));
     *fiber_to_multiplier_storage *= -1.;
     const auto exterior =
       adapter.state_matrix_operator(state, lambda.id(), lambda.id());

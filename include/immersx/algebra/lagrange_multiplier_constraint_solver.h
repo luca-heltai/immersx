@@ -57,13 +57,13 @@ namespace ImmersX
       vmult(VectorType &dst, const VectorType &src) const
       {
         background_coupling = 0.;
-        solver.coupling_matrix.vmult(background_coupling, src);
+        solver.multiplier_load_matrix.vmult(background_coupling, src);
         solver.solve_block(background_inverse,
                            background_coupling,
                            solver.background_matrix,
                            solver.background_preconditioner);
         dst = 0.;
-        solver.coupling_matrix.Tvmult(dst, background_inverse);
+        solver.multiplier_load_matrix.Tvmult(dst, background_inverse);
         if (solver.outside_mass != nullptr)
           solver.outside_mass->vmult_add(dst, src);
       }
@@ -93,7 +93,7 @@ namespace ImmersX
      */
     LagrangeMultiplierConstraintSolver(
       const MatrixType       &background_matrix,
-      const MatrixType       &coupling_matrix,
+      const MatrixType       &multiplier_load_matrix,
       const dealii::IndexSet &background_owned_dofs,
       const dealii::IndexSet &multiplier_owned_dofs,
       const MPI_Comm          mpi_communicator,
@@ -102,7 +102,7 @@ namespace ImmersX
       const double            block_tolerance = 1.e-12,
       const MatrixType       *outside_mass    = nullptr)
       : background_matrix(background_matrix)
-      , coupling_matrix(coupling_matrix)
+      , multiplier_load_matrix(multiplier_load_matrix)
       , outside_mass(outside_mass)
       , background_owned_dofs(background_owned_dofs)
       , multiplier_owned_dofs(multiplier_owned_dofs)
@@ -133,7 +133,7 @@ namespace ImmersX
                   background_preconditioner);
 
       multiplier_rhs = 0.;
-      coupling_matrix.Tvmult(multiplier_rhs, background_inverse_rhs);
+      multiplier_load_matrix.Tvmult(multiplier_rhs, background_inverse_rhs);
       multiplier_rhs -= constraint_rhs;
 
       multiplier.reinit(multiplier_owned_dofs, mpi_communicator);
@@ -143,7 +143,7 @@ namespace ImmersX
       dealii::PreconditionIdentity identity;
       schur_solver.solve(schur_operator, multiplier, multiplier_rhs, identity);
 
-      coupling_matrix.vmult(background_correction, multiplier);
+      multiplier_load_matrix.vmult(background_correction, multiplier);
       background_correction *= -1.;
       background_correction += background_rhs;
       solve_block(background_solution,
@@ -182,7 +182,7 @@ namespace ImmersX
     }
 
     const MatrixType &background_matrix;
-    const MatrixType &coupling_matrix;
+    const MatrixType &multiplier_load_matrix;
     const MatrixType *outside_mass;
 
     const dealii::IndexSet background_owned_dofs;

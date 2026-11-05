@@ -8,6 +8,8 @@
 #include <immersx/core/contributor.h>
 #include <immersx/core/semidiscrete_pde_models.h>
 
+#include <memory>
+
 namespace
 {
   struct NonsymmetricPreconditioner
@@ -318,6 +320,108 @@ TEST(ContributorCore, MatrixOperatorPreservesCompositions)
   EXPECT_DOUBLE_EQ(materialized_action[1], action[1]);
 }
 
+TEST(ContributorCore, OperatorSumsRetainEachContributionOnce)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector, Matrix>;
+
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor row_descriptor, column_descriptor;
+  row_descriptor.name    = "row";
+  column_descriptor.name = "column";
+  const auto row         = layout.add_field(row_descriptor);
+  const auto column      = layout.add_field(column_descriptor);
+  Vector     range(2), domain(3);
+  domain[0] = 1.;
+  domain[1] = 2.;
+  domain[2] = 3.;
+  ImmersX::StateView<Vector> state(layout, 0.);
+  state.bind(row, range);
+  state.bind(column, domain);
+  const ImmersX::EvaluationContext<Vector> context(0., state);
+
+  dealii::SparsityPattern sparsity(2, 3, 3);
+  sparsity.add(0, 0);
+  sparsity.add(0, 1);
+  sparsity.add(1, 1);
+  sparsity.add(1, 2);
+  sparsity.compress();
+  Matrix matrix;
+  matrix.reinit(sparsity);
+  matrix(0, 0) = 1.;
+  matrix(0, 1) = 2.;
+  matrix(1, 1) = 3.;
+  matrix(1, 2) = 4.;
+  auto leaf    = ImmersX::matrix_operator<Vector>(matrix);
+  // A reference per callback copy exposes growing operator trees without
+  // depending on allocator statistics or allocating a large physical system.
+  const auto lifetime = std::make_shared<int>(0);
+  leaf.view.vmult     = [lifetime, action = leaf.view.vmult](auto       &dst,
+                                                         const auto &src) {
+    action(dst, src);
+  };
+  Model                                        model;
+  ImmersX::SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  constexpr unsigned int                       n_terms = 8;
+  for (unsigned int i = 0; i < n_terms; ++i)
+    builder.term(row, "sum").state(column, leaf).derivative(column, leaf);
+
+  const auto check = [&](const auto &op) {
+    Vector forward, transpose, dual(2);
+    op.reinit_range_vector(forward, false);
+    op.reinit_domain_vector(transpose, false);
+    EXPECT_EQ(forward.size(), 2u);
+    EXPECT_EQ(transpose.size(), 3u);
+    op.vmult(forward, domain);
+    EXPECT_DOUBLE_EQ(forward[0], n_terms * 5.);
+    EXPECT_DOUBLE_EQ(forward[1], n_terms * 18.);
+    op.vmult_add(forward, domain);
+    EXPECT_DOUBLE_EQ(forward[0], n_terms * 10.);
+    EXPECT_DOUBLE_EQ(forward[1], n_terms * 36.);
+    dual[0] = 2.;
+    dual[1] = 3.;
+    op.Tvmult(transpose, dual);
+    EXPECT_DOUBLE_EQ(transpose[0], n_terms * 2.);
+    EXPECT_DOUBLE_EQ(transpose[1], n_terms * 13.);
+    EXPECT_DOUBLE_EQ(transpose[2], n_terms * 12.);
+    op.Tvmult_add(transpose, dual);
+    EXPECT_DOUBLE_EQ(transpose[0], n_terms * 4.);
+    EXPECT_DOUBLE_EQ(transpose[1], n_terms * 26.);
+    EXPECT_DOUBLE_EQ(transpose[2], n_terms * 24.);
+  };
+  const auto before = lifetime.use_count();
+  {
+    const auto op = model.state_operator(row, column, context);
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(op);
+    const auto copy = op;
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(copy);
+  }
+  {
+    const auto op = model.derivative_operator(row, column, context);
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(op);
+  }
+  {
+    const auto op = model.state_matrix_operator(row, column, context);
+    ASSERT_TRUE(op.has_value());
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(op->view);
+    Vector materialized(2);
+    op->matrix()->vmult(materialized, domain);
+    EXPECT_DOUBLE_EQ(materialized[0], n_terms * 5.);
+    EXPECT_DOUBLE_EQ(materialized[1], n_terms * 18.);
+  }
+  {
+    const auto op = model.derivative_matrix_operator(row, column, context);
+    ASSERT_TRUE(op.has_value());
+    EXPECT_LE(lifetime.use_count() - before, 8 * n_terms);
+    check(op->view);
+  }
+}
+
 TEST(ContributorCore, TermsAreScopedByContributorPrefix)
 {
   using Vector = dealii::Vector<double>;
@@ -539,6 +643,81 @@ TEST(ContributorCore, BOTH_DistributedMatrixCloneOwnsRectangularSnapshot)
     EXPECT_DOUBLE_EQ(result[i], (2. + i) * (i + 1.) - .5 * (i + 2.));
 }
 
+TEST(ContributorCore, BOTH_DistributedTransposeWithLongEmptyRowRanges)
+{
+  using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
+  using Vector     = ImmersX::ImmersXLA::MPI::Vector;
+  const auto rank  = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  dealii::IndexSet rows(2048 * ranks), columns(3 * ranks);
+  rows.add_range(2048 * rank, 2048 * (rank + 1));
+  columns.add_range(3 * rank, 3 * (rank + 1));
+  rows.compress();
+  columns.compress();
+  dealii::DynamicSparsityPattern sparsity(rows.size(), columns.size(), rows);
+  if (rows.is_element(0))
+    sparsity.add(0, columns.size() - 1);
+  auto matrix = std::make_shared<Matrix>();
+  matrix->reinit(rows, columns, sparsity, MPI_COMM_WORLD);
+  if (rows.is_element(0))
+    matrix->set(0, columns.size() - 1, 2.);
+  matrix->compress(dealii::VectorOperation::insert);
+
+  const auto transposed = ImmersX::detail::transpose_matrix(matrix);
+  EXPECT_EQ(transposed->m(), columns.size());
+  EXPECT_EQ(transposed->n(), rows.size());
+  EXPECT_EQ(transposed->locally_owned_range_indices(), columns);
+  EXPECT_EQ(transposed->locally_owned_domain_indices(), rows);
+  Vector source, result;
+  source.reinit(rows, MPI_COMM_WORLD);
+  result.reinit(columns, MPI_COMM_WORLD);
+  source = 1.;
+  transposed->vmult(result, source);
+  for (const auto column : columns)
+    EXPECT_DOUBLE_EQ(result[column], column + 1 == columns.size() ? 2. : 0.);
+}
+
+TEST(ContributorCore, BOTH_ConstrainedMatrixWithLongEmptyRowRanges)
+{
+  using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
+  using Vector     = ImmersX::ImmersXLA::MPI::Vector;
+  const auto rank  = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  dealii::IndexSet rows(2048 * ranks);
+  rows.add_range(2048 * rank, 2048 * (rank + 1));
+  rows.compress();
+  dealii::DynamicSparsityPattern sparsity(rows.size(), rows.size(), rows);
+  if (rows.is_element(0))
+    sparsity.add(0, 0);
+  if (rows.is_element(rows.size() - 1))
+    sparsity.add(rows.size() - 1, rows.size() - 1);
+  Matrix matrix;
+  matrix.reinit(rows, rows, sparsity, MPI_COMM_WORLD);
+  if (rows.is_element(0))
+    matrix.set(0, 0, 2.);
+  if (rows.is_element(rows.size() - 1))
+    matrix.set(rows.size() - 1, rows.size() - 1, 3.);
+  matrix.compress(dealii::VectorOperation::insert);
+  dealii::AffineConstraints<double> constraints;
+  constraints.reinit(rows, rows);
+  for (const auto row : rows)
+    if (row + 1 != rows.size())
+      constraints.add_line(row);
+  constraints.close();
+
+  const auto projected =
+    ImmersX::semidiscrete_detail::constrained_matrix_operator(
+      ImmersX::matrix_operator<Vector>(matrix), constraints)
+      .matrix();
+  Vector source, result;
+  source.reinit(rows, MPI_COMM_WORLD);
+  result.reinit(rows, MPI_COMM_WORLD);
+  source = 1.;
+  projected->vmult(result, source);
+  for (const auto row : rows)
+    EXPECT_DOUBLE_EQ(result[row], row + 1 == rows.size() ? 3. : 0.);
+}
+
 TEST(ContributorCore, BOTH_DistributedSumReplaysOperandsForGraphAndValues)
 {
   using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
@@ -591,6 +770,44 @@ TEST(ContributorCore, BOTH_DistributedSumReplaysOperandsForGraphAndValues)
   for (const auto i : rows)
     EXPECT_DOUBLE_EQ(result[i],
                      (2. + i) * (i + 1.) - .5 * ((i + 1) % size + 1.));
+}
+
+TEST(ContributorCore, BOTH_DistributedSumWithLongEmptyRowRanges)
+{
+  using Matrix     = ImmersX::ImmersXLA::MPI::SparseMatrix;
+  using Vector     = ImmersX::ImmersXLA::MPI::Vector;
+  const auto rank  = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  const unsigned int size = 2048 * ranks;
+  dealii::IndexSet   rows(size);
+  rows.add_range(2048 * rank, 2048 * (rank + 1));
+  rows.compress();
+  dealii::DynamicSparsityPattern diagonal(size, size, rows),
+    sparse(size, size, rows);
+  for (const auto row : rows)
+    diagonal.add(row, row);
+  if (rows.is_element(size - 1))
+    sparse.add(size - 1, 0);
+  Matrix a, b;
+  a.reinit(rows, rows, diagonal, MPI_COMM_WORLD);
+  b.reinit(rows, rows, sparse, MPI_COMM_WORLD);
+  for (const auto row : rows)
+    a.set(row, row, 2.);
+  if (rows.is_element(size - 1))
+    b.set(size - 1, 0, -.5);
+  a.compress(dealii::VectorOperation::insert);
+  b.compress(dealii::VectorOperation::insert);
+  const auto sum = ImmersX::detail::sum_matrices(
+    std::vector<ImmersX::MaterializedOperator<Vector, Matrix>>{
+      ImmersX::matrix_operator<Vector>(a),
+      ImmersX::matrix_operator<Vector>(b)});
+  Vector source, result;
+  source.reinit(rows, MPI_COMM_WORLD);
+  result.reinit(rows, MPI_COMM_WORLD);
+  source = 1.;
+  sum->vmult(result, source);
+  for (const auto row : rows)
+    EXPECT_DOUBLE_EQ(result[row], row == size - 1 ? 1.5 : 2.);
 }
 
 TEST(ContributorCore, ReplayingScaledSharedMatrixLeavesSourceUnchanged)

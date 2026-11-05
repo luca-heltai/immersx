@@ -61,7 +61,7 @@ namespace
       {
         EXPECT_EQ(problem.n_reduced_dofs(), refine ? 5u : 3u);
       }
-    EXPECT_GT(problem.coupling_matrix_frobenius_norm(), 0.);
+    EXPECT_GT(problem.multiplier_load_matrix_frobenius_norm(), 0.);
     EXPECT_LT(problem.multiplier_solution_l2_norm(), 1.e-8);
     const auto snapshot =
       parameters.output_directory + "/" + problem.output_solution();
