@@ -10,10 +10,52 @@
 
 namespace
 {
+  template <typename Problem, typename Supports, typename Parameters>
+  bool
+  check_shared_robin_surrogate(const Problem    &problem,
+                               const Supports   &supports,
+                               const Parameters &parameters)
+  {
+    using namespace ImmersX;
+    using V = ImmersXLA::MPI::Vector;
+    using B = ImmersXLA::MPI::BlockVector;
+    LinearAdapterParameters options("/Shared spring oracle/");
+    LinearAdapter<V, B>     adapter(options, problem.communicator());
+    const auto              fields = adapter.add(problem, "matrix").fields();
+    adapter.add(
+      [&](auto &builder) {
+        harmonic_detail::add_shared_robin(builder,
+                                          fields,
+                                          supports,
+                                          parameters);
+        return fields;
+      },
+      "spring");
+    const auto surrogate = fields.surrogate->matrix();
+    V          translation, action;
+    translation.reinit(problem.locally_owned_dofs(), problem.communicator());
+    action.reinit(translation);
+    translation = 1.;
+    surrogate->vmult(action, translation);
+    double local = 0.;
+    for (const auto &[id, support] : supports)
+      for (const auto &point : support.locally_owned_quadrature_points())
+        local += point.weight *
+                 parameters.get_robin_coefficient(id).value(point.point);
+    const double expected =
+      dealii::Utilities::MPI::sum(local, problem.communicator()) *
+      std::decay_t<decltype(fields.real)>::spacedimension();
+    EXPECT_GT(expected, 0.);
+    const double energy = translation * action;
+    EXPECT_NEAR(energy, expected, 1.e-10 * expected);
+    return expected > 0. && std::abs(energy - expected) <= 1.e-10 * expected;
+  }
+
   template <int dim, int spacedim>
   void
   shared_robin_translation(const unsigned int refinement   = 0,
-                           const bool         per_id_phase = false)
+                           const bool         per_id_phase = false,
+                           const bool         iterative    = false)
   {
     using namespace ImmersX;
     using namespace dealii;
@@ -86,6 +128,15 @@ namespace
       {
         EXPECT_NEAR(support.measure(), face_measure, 1.e-12) << id;
       }
+    if (iterative)
+      {
+        ASSERT_TRUE(check_shared_robin_surrogate(matrix,
+                                                 supports,
+                                                 parameters.fiber_parameters));
+        parameters.solver_parameters.solver = LinearSolver::iterative;
+        parameters.solver_parameters.preconditioner =
+          LinearPreconditioner::block_diagonal;
+      }
     driver.solve_frequency(0.);
     const std::complex<double> amplitude = std::polar(1., std::acos(-1.) / 6.);
     const auto                &fe        = matrix.dof_handler().get_fe();
@@ -119,6 +170,13 @@ TEST(FiberReinforcedElasticityFreq, BOTH_SharedRobinPhysicalBoundaryTranslation)
   shared_robin_translation<2, 2>();
   shared_robin_translation<2, 3>();
   shared_robin_translation<3, 3>();
+}
+
+TEST(FiberReinforcedElasticityFreq, BOTH_SharedRobinIterativeSurrogate)
+{
+  shared_robin_translation<1, 1>(0, false, true);
+  shared_robin_translation<1, 3>(0, true, true);
+  shared_robin_translation<2, 2>(0, true, true);
 }
 
 TEST(FiberReinforcedElasticityFreq, BOTH_SharedRobinAcrossRefinedMatrix)
@@ -190,7 +248,12 @@ TEST(FiberReinforcedElasticityFreq,
   parameters.fiber_parameters.robin_ids           = {0, 1};
   parameters.geometry->thickness                  = "0.25";
   parameters.geometry->section.n_q_points         = 2;
-  initialize_parameters_from_string("");
+  parameters.matrix_parameters.dirichlet_ids.clear();
+  parameters.matrix_parameters.default_material_properties.rho = 0.;
+  initialize_parameters_from_string(
+    "subsection Fiber Reinforced Elasticity Frequency\n"
+    " subsection Fiber\n subsection Functions\n subsection Robin coefficient\n"
+    " set Function expression = 2+x\n end\n end\n end\n end\n");
   FiberReinforcedElasticityFreq<1, 3> driver(parameters);
   driver.setup();
   const auto         &matrix = driver.matrix_problem();
@@ -202,4 +265,7 @@ TEST(FiberReinforcedElasticityFreq,
   EXPECT_NEAR(driver.reinforcement_measure(), .125, 1.e-12);
   EXPECT_NEAR(supports.at(0).measure(), .125, 1.e-12);
   EXPECT_NEAR(supports.at(1).measure(), .125, 1.e-12);
+  EXPECT_TRUE(check_shared_robin_surrogate(matrix,
+                                           supports,
+                                           parameters.fiber_parameters));
 }

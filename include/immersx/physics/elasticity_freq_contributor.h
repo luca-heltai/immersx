@@ -135,21 +135,15 @@ namespace ImmersX
       return result;
     }
 
-    /** Extend the surrogate on the same support as a shared material term. */
+    /** Add positive bilinear terms on their physical integration support. */
     template <typename Fields, typename Support>
     void
-    add_surrogate_material(const Fields             &fields,
-                           const MaterialProperties &material,
-                           const Support            &support,
-                           const double              omega)
+    add_surrogate_terms(const Fields  &fields,
+                        const Support &support,
+                        const double   shear,
+                        const double   bulk,
+                        const double   mass)
     {
-      const double shear =
-        2. * material.Lame_mu * (1. + omega * material.rayleigh_beta) +
-        omega * material.neta;
-      const double bulk =
-        material.Lame_lambda * (1. + omega * material.rayleigh_beta);
-      const double mass =
-        material.rho * (omega * omega + omega * material.rayleigh_alpha);
       fields.surrogate->inverse.reset();
       // Field holds a non-owning FE view; retain its owner for lazy assembly.
       fields.surrogate->additions.push_back([field = fields.real,
@@ -188,6 +182,24 @@ namespace ImmersX
         if (contribution)
           matrix.add(1., *contribution->matrix());
       });
+    }
+
+    /** Extend the surrogate on the same support as a shared material term. */
+    template <typename Fields, typename Support>
+    void
+    add_surrogate_material(const Fields             &fields,
+                           const MaterialProperties &material,
+                           const Support            &support,
+                           const double              omega)
+    {
+      const double shear =
+        2. * material.Lame_mu * (1. + omega * material.rayleigh_beta) +
+        omega * material.neta;
+      const double bulk =
+        material.Lame_lambda * (1. + omega * material.rayleigh_beta);
+      const double mass =
+        material.rho * (omega * omega + omega * material.rayleigh_alpha);
+      add_surrogate_terms(fields, support, shear, bulk, mass);
     }
 
     template <typename Map, typename Key>
