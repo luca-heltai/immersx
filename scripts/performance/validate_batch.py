@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from history import attempts, load, selected_attempt
+from history import attempts, expected_cases, load, normalize, selected_attempt
 
 
 def validate_batch(batch, archive):
@@ -30,6 +30,21 @@ def validate_batch(batch, archive):
             current.get("missing_cases") or not current.get("records") or
             any(record["status"] != "passed" for record in current["records"])):
         raise ValueError("Current source benchmark validation failed; see archived attempts")
+    configuration = plan["configuration"]
+    if current.get("configuration") != configuration:
+        raise ValueError("Current source benchmark configuration differs from the plan")
+    try:
+        records = [normalize(record["raw"], configuration)
+                   for record in current["records"]]
+        keys = [(record["case"], record["dimension"], record["ranks"])
+                for record in records]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Current source benchmark records are invalid") from exc
+    if (records != current["records"] or
+            any(record["status"] != "passed" for record in records) or
+            len(keys) != len(set(keys)) or
+            set(keys) != set(expected_cases(configuration))):
+        raise ValueError("Current source benchmark cases are incomplete or inconsistent")
     print(f"Current source benchmark validation passed: {plan['source_sha']}")
 
 

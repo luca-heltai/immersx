@@ -25,8 +25,9 @@ is uploaded. Every selected commit must produce exactly one attempt. Historical
 backfill failures remain failed attempts, with their errors and raw output
 visible on the site; they do not fail validation of a newer, valid source.
 The current source must have a successful measurement, either in the batch or
-already in the archive. A newer failed attempt cannot be hidden by an older
-success.
+already in the archive. Reused results must match the plan's configuration and
+complete case/rank set; their original records undergo the same numerical
+validation again. A newer failed attempt cannot be hidden by an older success.
 
 Downstream archive and documentation jobs still run when a batch exists.
 Infrastructure failure before planning cannot invent an attempt: the next plan

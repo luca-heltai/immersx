@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE))
-from history import (archive_attempt, attempts, normalize, parse_jsonl, pending,
+from history import (archive_attempt, attempts, load, normalize, parse_jsonl, pending,
                      report, selected_attempt, series_key)
 from pipeline import ancestry, export, git, measure, merge, plan, save
 from archive import checkout, validate_publication
@@ -271,8 +271,17 @@ class GitPlanning(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp); remote = tmp / "remote.git"; remote.mkdir()
             git(remote, "init", "--bare")
-            repo = tmp / "repo"; repo.mkdir(); git(repo, "init")
+            repo = tmp / "repo"; repo.mkdir(); git(repo, "init", "-b", "master")
+            git(repo, "config", "user.name", "Test")
+            git(repo, "config", "user.email", "test@example.org")
             git(repo, "remote", "add", "origin", str(remote))
+            (repo / "source").write_text("baseline")
+            git(repo, "add", "."); git(repo, "commit", "-m", "Synthetic source")
+            source_baseline = git(repo, "rev-parse", "HEAD")
+            (repo / "source").write_text("updated")
+            git(repo, "commit", "-am", "Synthetic source update")
+            source_tip = git(repo, "rev-parse", "HEAD")
+            git(repo, "push", "origin", "master")
             archive = tmp / "first"; archive.mkdir()
             self.assertFalse(checkout(repo, archive))
             git(archive, "config", "user.name", "Test"); git(archive, "config", "user.email", "test@example.org")
@@ -282,7 +291,8 @@ class GitPlanning(unittest.TestCase):
             other = tmp / "second"; other.mkdir()
             self.assertTrue(checkout(repo, other)); self.assertEqual(len(attempts(other)), 1)
             plan_file = tmp / "plan.json"
-            save(plan_file, {"baseline": "a", "source_sha": "b", "commits": ["a", "b"]})
+            save(plan_file, {"baseline": source_baseline, "source_sha": source_tip,
+                             "commits": [source_baseline, source_tip]})
             batch = tmp / "batch"
             archive_attempt(batch, attempt("b", "2", "failed"))
             publish = [sys.executable, str(HERE / "archive.py"), "publish", "--repo", str(repo),
@@ -476,6 +486,49 @@ class GitLedger(unittest.TestCase):
         self.assertEqual(current["commits"], [self.baseline, tip])
         self.assertEqual(current["selected"], [tip])
         self.assertNotIn(feature, current["commits"])
+
+    def test_late_publisher_fetches_new_source_without_moving_its_head(self):
+        remote = self.root / "remote.git"
+        remote.mkdir(); git(remote, "init", "--bare")
+        git(self.repo, "remote", "add", "origin", str(remote))
+        old_tip = self.commit("old-master")
+        git(self.repo, "push", "origin", "master")
+        old_publisher = self.root / "old-publisher"
+        git(self.root, "clone", "--branch", "master", remote.as_uri(), str(old_publisher))
+        self.assertEqual(git(old_publisher, "rev-parse", "--is-shallow-repository"), "false")
+        tip = self.commit("new-master")
+        git(self.repo, "push", "origin", "master")
+        self.assertNotEqual(subprocess.run(
+            ["git", "-C", str(old_publisher), "cat-file", "-e", tip],
+            capture_output=True).returncode, 0)
+        local_env = {**os.environ, "GITHUB_ACTIONS": "false"}
+
+        def publish(repo, sha, commits, run):
+            batch = self.root / ("batch-" + run)
+            measured = attempt(sha, run)
+            archive_attempt(batch, measured)
+            raw = batch / "raw" / measured["id"] / "output.jsonl"
+            raw.parent.mkdir(parents=True); raw.write_bytes((sha + " raw output\n").encode())
+            plan_file = batch / "plan.json"
+            save(plan_file, {"baseline": self.baseline, "source_sha": sha,
+                             "commits": commits})
+            subprocess.run([sys.executable, str(HERE / "archive.py"), "publish",
+                "--repo", str(repo), "--incoming", str(batch), "--plan", str(plan_file)],
+                check=True, capture_output=True, env=local_env)
+            return measured, raw
+
+        newer, newer_raw = publish(self.repo, tip, [self.baseline, old_tip, tip], "2")
+        late, late_raw = publish(old_publisher, old_tip, [self.baseline, old_tip], "1")
+        self.assertEqual(git(old_publisher, "rev-parse", "HEAD"), old_tip)
+        final = self.root / "final-archive"; final.mkdir()
+        checkout(old_publisher, final)
+        ledger = load(final / "plan.json")
+        self.assertEqual(ledger["source_sha"], tip)
+        self.assertEqual(ledger["commits"], [self.baseline, old_tip, tip])
+        self.assertEqual({a["id"] for a in attempts(final)}, {newer["id"], late["id"]})
+        for measured, raw in ((newer, newer_raw), (late, late_raw)):
+            self.assertEqual((final / "raw" / measured["id"] / "output.jsonl").read_bytes(),
+                             raw.read_bytes())
 
     def test_shallow_publication_requires_complete_source_history(self):
         self.commit("new-master")

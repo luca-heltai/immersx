@@ -80,6 +80,9 @@ def main():
                     elif source.is_file():
                         shutil.copyfile(source, dest / name)
                 return
+            # A competing publisher may have measured a source commit created
+            # after this job's checkout. Fetch its ancestry without moving HEAD.
+            git(args.repo, "fetch", "--no-tags", "origin", "refs/heads/master")
             args.archive = tmp
             merge(args)
             git(tmp, "config", "user.name", "github-actions[bot]")

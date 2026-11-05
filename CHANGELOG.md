@@ -471,7 +471,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep performance history across fast-forward merges with reordered parents, validate the current source before historical backfill, and retain historical failures without blocking a valid current revision.
+- [PR #344](https://github.com/luca-heltai/immersx/pull/344) Keep performance history across fast-forward merges with reordered parents, validate the current source before historical backfill, and retain historical failures without blocking a valid current revision.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Request the conservation accuracy checked by the vascular Robin regression explicitly and keep its assertions free of ambiguous-else compiler diagnostics.
 
