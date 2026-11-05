@@ -224,3 +224,48 @@ This path does not implement the legacy zero-dimensional representative
 backend, moving geometry, or representative adaptivity after initial
 co-refinement. It does not establish large-network performance parity or make
 the legacy application obsolete.
+
+## Robin boundary data
+
+The bulk boundary can impose
+
+$$
+\nabla u\cdot n + \beta(x)u = g_R(x), \qquad \beta(x)\geq 0.
+$$
+
+Robin data apply to the exterior bulk boundary. The prescribed modal data on
+the immersed surface remain independent. For a colored unit cube, the right
+face can use a Robin condition while the other faces prescribe the scalar
+field value:
+
+```ini
+subsection Lifted Poisson
+  set Dirichlet boundary ids = 0, 2, 3, 4, 5
+  set Robin boundary ids = 1
+  subsection Background
+    set Grid generator arguments = 0: 1: true
+  end
+  subsection Boundary
+    set Function expression = 1+x
+  end
+  subsection Robin coefficient
+    set Function expression = 2+x
+  end
+  subsection Robin boundary
+    set Function expression = 1+(2+x)*(1+x)
+  end
+end
+```
+
+The example gives the boundary flux of the affine bulk field $u=1+x$.
+A compatible modal constraint still has to be supplied for the chosen
+representative geometry. Both Robin functions are scalar parsed functions
+evaluated at time zero. Robin and Dirichlet ids must be disjoint; coefficients
+must be finite and nonnegative, and loads must be finite. Hypercube and
+simplex bulk meshes use the same boundary weak term.
+
+In a Coral graph, **Add scalar Robin boundary** adds the boundary term to a
+registered scalar Field and a linear execution. Its Poisson parameter object
+supplies the boundary ids and functions. Use the same Dirichlet ids as the
+graph's essential boundary conditions. **Add elasticity Robin boundary**
+provides the corresponding vector operation for lifted elasticity graphs.
