@@ -30,10 +30,19 @@ if(DIM EQUAL SPACEDIM)
 endif()
 file(WRITE "${WORKING_DIRECTORY}/parameters.prm" "${_parameters}")
 set(_command "${EXECUTABLE}" "${WORKING_DIRECTORY}/parameters.prm")
+# Put the watchdog after mpiexec so each MPI rank owns its time limit.
+# Coreutils gtimeout (macOS) and timeout support the portable short -k option.
+if(UNIX)
+  find_program(_harmonic_fiber_timeout NAMES gtimeout timeout)
+  if(_harmonic_fiber_timeout)
+    list(PREPEND _command "${_harmonic_fiber_timeout}" -k 2 105)
+  endif()
+endif()
 if(RANKS GREATER 1)
   list(PREPEND _command "${MPIEXEC}" -np "${RANKS}")
 endif()
 execute_process(COMMAND ${_command} WORKING_DIRECTORY "${WORKING_DIRECTORY}"
+  TIMEOUT 110
   RESULT_VARIABLE _result OUTPUT_VARIABLE _stdout ERROR_VARIABLE _stderr)
 if(NOT _result EQUAL 0)
   message(FATAL_ERROR "Harmonic reinforcement tutorial failed (${_result}):\n${_stdout}\n${_stderr}")

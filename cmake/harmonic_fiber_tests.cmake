@@ -27,7 +27,7 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
             "-DRANKS=${_ranks}" "-DMPIEXEC=${_harmonic_fiber_mpiexec}"
             -P "${CMAKE_CURRENT_LIST_DIR}/run_harmonic_fiber_test.cmake")
         set_tests_properties("${_name}" PROPERTIES
-          LABELS application TIMEOUT 300 WORKING_DIRECTORY "${_working_directory}")
+          LABELS application TIMEOUT 115 WORKING_DIRECTORY "${_working_directory}")
         if(_ranks GREATER 1)
           set_property(TEST "${_name}" APPEND PROPERTY LABELS mpi)
           set_property(TEST "${_name}" PROPERTY PROCESSORS "${_ranks}")
