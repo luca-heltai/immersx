@@ -269,7 +269,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Use the same fixed primal actions in positive-weight Schur construction, elimination and recovery, preserving the physical multiplier row when AMG is approximate.
+- [PR #350](https://github.com/luca-heltai/immersx/pull/350) Use the same fixed primal actions in positive-weight Schur construction, elimination and recovery, preserving the physical multiplier row when AMG is approximate.
 
 - [PR #349](https://github.com/luca-heltai/immersx/pull/349) Retain the coupled displacement–velocity inverse when IDA computes consistent initial conditions with zero derivative weight, avoiding singular diagonal AMG setup in coupled elasticity. Use the same fixed pair action in Schur construction and primal recovery so the multiplier row remains consistent when AMG is approximate.
 
