@@ -197,7 +197,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Index CCO candidate obstacles with their own radius envelopes while retaining the existing trial-radius, taper and clearance checks.
+- [PR #362](https://github.com/luca-heltai/immersx/pull/362) Index CCO candidate obstacles with their own radius envelopes while retaining the existing trial-radius, taper and clearance checks.
 
 - [PR #348](https://github.com/luca-heltai/immersx/pull/348) Reuse Schur operator graphs and lifted trial derivatives during coupled IDA Jacobian setup, preserving the equations, meshes, time intervals and solver tolerances.
 - [PR #351](https://github.com/luca-heltai/immersx/pull/351) Set durations, output periods and MPI defaults for each liver profile, reject time increments that cannot advance the start time, and distinguish audited startup intervals from the earlier full beat in run metadata and the tutorial.
