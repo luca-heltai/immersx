@@ -469,7 +469,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Explain global liver terminal-count scaling, local mesh coverage distances, per-cell terminal counts and the separate numerical interval-length checks.
+- [PR #363](https://github.com/luca-heltai/immersx/pull/363) Explain global liver terminal-count scaling, local mesh coverage distances, per-cell terminal counts and the separate numerical interval-length checks.
 
 - [PR #345](https://github.com/luca-heltai/immersx/pull/345) Provide IRCAD12 liver parameter profiles, bounded MOX arterial input, a two-territory physical vascular archive with CCO bifurcations in all three networks, and reproducible mesh-generation and run commands for a tiny pilot and three problem sizes.
 
