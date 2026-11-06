@@ -1,3 +1,4 @@
+from collections import defaultdict
 import fnmatch
 import json
 from pathlib import Path
@@ -18,14 +19,35 @@ KnownTerm.
   Serial
 Validation.
   BOTH_Oracle
+ValidationTyped/0.  # TypeParam = double
+  BOTH_Oracle
+ValidationMany.
+""" + "".join(f"  BOTH_Oracle{i}\n" for i in range(18)) + """  MPI_Distributed
+  DISABLED_BOTH_Held
+Values/ParameterizedValidation.
+  BOTH_Oracle/Value0
 Application.
   Run
+OtherApplication.
+  BOTH_Run
 """
 CASES = {
     "Typed/0.Unit", "BoundaryConditions.Serial",
     "BoundaryConditions.MPI_Distributed", "BoundaryConditions.BOTH_Shared",
-    "KnownTerm.Serial", "Validation.BOTH_Oracle", "Application.Run",
-}
+    "KnownTerm.Serial", "Validation.BOTH_Oracle", "ValidationTyped/0.BOTH_Oracle",
+    "Application.Run", "OtherApplication.BOTH_Run",
+    "ValidationMany.MPI_Distributed", "ValidationMany.DISABLED_BOTH_Held",
+    "Values/ParameterizedValidation.BOTH_Oracle/Value0",
+} | {f"ValidationMany.BOTH_Oracle{i}" for i in range(18)}
+ORDERED_CASES = [
+    "Typed/0.Unit", "BoundaryConditions.Serial",
+    "BoundaryConditions.MPI_Distributed", "BoundaryConditions.BOTH_Shared",
+    "KnownTerm.Serial", "Validation.BOTH_Oracle", "ValidationTyped/0.BOTH_Oracle",
+] + [f"ValidationMany.BOTH_Oracle{i}" for i in range(18)] + [
+    "ValidationMany.MPI_Distributed", "ValidationMany.DISABLED_BOTH_Held",
+    "Values/ParameterizedValidation.BOTH_Oracle/Value0",
+    "Application.Run", "OtherApplication.BOTH_Run",
+]
 
 
 def matches(name, expression):
@@ -49,8 +71,9 @@ class Discovery(unittest.TestCase):
                 "set(IMMERSX_TEST_PRIMARY_CATEGORIES unit integration validation application)\n"
                 "set(IMMERSX_UNIT_TEST_SUITES Typed/*)\n"
                 "set(IMMERSX_INTEGRATION_TEST_SUITES BoundaryConditions KnownTerm)\n"
-                "set(IMMERSX_VALIDATION_TEST_SUITES Validation)\n"
-                "set(IMMERSX_APPLICATION_TEST_SUITES Application)\n"
+                "set(IMMERSX_VALIDATION_TEST_SUITES Validation ValidationTyped/* "
+                "ValidationMany Values/ParameterizedValidation)\n"
+                "set(IMMERSX_APPLICATION_TEST_SUITES Application OtherApplication)\n"
             )
             groups = directory / "groups.cmake"
             command = ["cmake", f"-DTEST_EXECUTABLE={executable}",
@@ -68,16 +91,34 @@ class Discovery(unittest.TestCase):
             manifest = json.loads(subprocess.check_output(
                 ["ctest", "--test-dir", str(directory / "build"), "--show-only=json-v1"],
                 text=True))
-            serial, mpi = [], []
+            serial, mpi, outputs = [], [], []
+            batches = defaultdict(list)
+            previous = {}
             for group in manifest["tests"]:
                 expression = next(a.split("=", 1)[1] for a in group["command"]
                                   if a.startswith("GTEST_FILTER="))
-                selected = {name for name in CASES if matches(name, expression)}
+                selected = [name for name in ORDERED_CASES if matches(name, expression)]
                 self.assertTrue(selected, group["name"])
                 labels = next(p["value"] for p in group["properties"] if p["name"] == "LABELS")
                 self.assertIn("ImmersX.TestOutput", next(p["value"] for p in group["properties"]
                                                        if p["name"] == "RESOURCE_LOCK"))
                 (mpi if "mpi" in labels else serial).extend(selected)
+                outputs.extend(a for a in group["command"] if a.startswith("GTEST_OUTPUT="))
+                if "integration" in labels:
+                    self.assertEqual(len({name.split(".", 1)[0] for name in selected}), 1)
+                    self.assertTrue(any(label.startswith("suite:") for label in labels))
+                if "validation" in labels or "application" in labels:
+                    self.assertLessEqual(len(selected), 15)
+                    self.assertEqual(next(p["value"] for p in group["properties"]
+                                          if p["name"] == "TIMEOUT"), 115)
+                    category = "validation" if "validation" in labels else "application"
+                    mode = "MPI" if "mpi" in labels else "Serial"
+                    key = category, mode
+                    batches[key].extend(selected)
+                    dependencies = next((p["value"] for p in group["properties"]
+                                         if p["name"] == "DEPENDS"), [])
+                    self.assertEqual(dependencies, [previous[key]] if key in previous else [])
+                    previous[key] = group["name"]
                 if ".integration." in group["name"]:
                     self.assertIn("quick", labels)
                     self.assertTrue(any(label.startswith("suite:") for label in labels))
@@ -87,6 +128,16 @@ class Discovery(unittest.TestCase):
             self.assertEqual(len(serial), len(expected_serial))
             self.assertEqual(set(mpi), expected_mpi)
             self.assertEqual(len(mpi), len(expected_mpi))
+            self.assertEqual(len(outputs), len(manifest["tests"]))
+            self.assertEqual(len(set(outputs)), len(outputs))
+            self.assertEqual(set(ORDERED_CASES), CASES)
+            category_prefixes = {"validation": ("Validation", "Values/"),
+                                 "application": ("Application.", "OtherApplication.")}
+            for (category, mode), selected in batches.items():
+                expected = [name for name in ORDERED_CASES
+                            if name.startswith(category_prefixes[category])
+                            and name in (expected_mpi if mode == "MPI" else expected_serial)]
+                self.assertEqual(selected, expected)
 
 
 if __name__ == "__main__":

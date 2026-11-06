@@ -189,7 +189,9 @@ namespace ImmersX
     /** Select the coupled linear solver before initialization.
      * Direct solvers reuse their factorization until IDA requests a new
      * Jacobian setup. UMFPACK requires one rank; MUMPS uses the composition's
-     * communicator and distributed matrix.
+     * communicator and distributed matrix. A MUMPS backsolve may use up to
+     * three corrections with the same factorization to satisfy the retained
+     * Jacobian residual check; the relative tolerance remains 1e-8.
      */
     void
     set_linear_solver(const LinearSolver solver)
@@ -659,26 +661,45 @@ namespace ImmersX
                 "IDA requested a MUMPS solve without a factorization."));
             GlobalVectorType original_rhs(rhs);
             original_rhs.compress(dealii::VectorOperation::insert);
-            auto source = composition_.pack(rhs);
-            source.compress(dealii::VectorOperation::insert);
-            mumps_solver_->vmult(mumps_solution_, source);
-            dealii::LinearAlgebra::ReadWriteVector<double> imported(
-              source.locally_owned_elements());
-            imported.import_elements(mumps_solution_,
-                                     dealii::VectorOperation::insert);
-            for (const auto index : source.locally_owned_elements())
-              source[index] = imported[index];
-            source.compress(dealii::VectorOperation::insert);
-            composition_.unpack(source, dst);
-            dst.compress(dealii::VectorOperation::insert);
-            // Some supported deal.II MUMPS wrappers do not report failed
-            // factorizations. Do not let a zero correction freeze the DAE.
+            const auto backsolve = [this](const GlobalVectorType &input,
+                                          GlobalVectorType       &output) {
+              auto source = composition_.pack(input);
+              source.compress(dealii::VectorOperation::insert);
+              mumps_solver_->vmult(mumps_solution_, source);
+              dealii::LinearAlgebra::ReadWriteVector<double> imported(
+                source.locally_owned_elements());
+              imported.import_elements(mumps_solution_,
+                                       dealii::VectorOperation::insert);
+              for (const auto index : source.locally_owned_elements())
+                source[index] = imported[index];
+              source.compress(dealii::VectorOperation::insert);
+              composition_.unpack(source, output);
+              output.compress(dealii::VectorOperation::insert);
+            };
+            backsolve(original_rhs, dst);
+            // MUMPS disables its internal refinement for distributed right-hand
+            // sides. Reuse the factorization for at most three corrections,
+            // measuring each defect with the retained Jacobian action.
             GlobalVectorType defect;
             composition_.reinit(defect);
-            current_jacobian_->vmult(defect, dst);
-            defect -= original_rhs;
             const double rhs_norm    = original_rhs.l2_norm();
-            const double defect_norm = defect.l2_norm();
+            double       defect_norm = 0.;
+            for (unsigned int refinement = 0;; ++refinement)
+              {
+                current_jacobian_->vmult(defect, dst);
+                defect -= original_rhs;
+                defect_norm = defect.l2_norm();
+                if (!std::isfinite(defect_norm) ||
+                    defect_norm <= 1.e-8 * rhs_norm || refinement == 3)
+                  break;
+                GlobalVectorType correction;
+                composition_.reinit(correction);
+                backsolve(defect, correction);
+                dst -= correction;
+                dst.compress(dealii::VectorOperation::insert);
+              }
+            // Some supported deal.II MUMPS wrappers do not report failed
+            // factorizations. Do not let a zero correction freeze the DAE.
             AssertThrow(
               std::isfinite(defect_norm) && defect_norm <= 1.e-8 * rhs_norm,
               dealii::ExcMessage(

@@ -129,8 +129,11 @@ namespace
 {
   template <int dim, int spacedim>
   void
-  check_adapter_affine_displacement(const bool simplex   = false,
-                                    const bool iterative = false)
+  check_adapter_affine_displacement(
+    const bool                          simplex   = false,
+    const bool                          iterative = false,
+    const ImmersX::LinearPreconditioner choice =
+      ImmersX::LinearPreconditioner::block_diagonal)
   {
     SCOPED_TRACE("dim=" + std::to_string(dim) +
                  ", spacedim=" + std::to_string(spacedim));
@@ -210,11 +213,18 @@ namespace
     LinearAdapterParameters solver_parameters;
     solver_parameters.solver =
       iterative ? LinearSolver::iterative : LinearSolver::direct;
-    solver_parameters.preconditioner = LinearPreconditioner::block_diagonal;
+    solver_parameters.preconditioner = choice;
     solver_parameters.tolerance      = 1.e-11;
     LinearAdapter<ImmersXLA::MPI::Vector, ImmersXLA::MPI::BlockVector> adapter(
       solver_parameters, problem.communicator());
-    const auto fields = adapter.add(problem, "solid").fields();
+    harmonic_detail::SurrogateOptions inverse_options;
+    if (choice == LinearPreconditioner::normal)
+      {
+        inverse_options.maximum_iterations    = 100;
+        inverse_options.relative_reduction    = 1.e-3;
+        inverse_options.scale_constraint_rows = true;
+      }
+    const auto fields = adapter.add(problem, "solid", inverse_options).fields();
     auto       state  = adapter.make_state();
     adapter.solve(state);
     auto residual = adapter.make_state();
@@ -272,6 +282,14 @@ TEST(ElasticityFreq, BOTH_SurrogatePreconditionedAffineDisplacement)
   check_adapter_affine_displacement<3, 3>(false, true);
   check_adapter_affine_displacement<2, 2>(true, true);
   check_adapter_affine_displacement<3, 3>(true, true);
+}
+
+TEST(ElasticityFreq, BOTH_NormalPreconditionedDynamicAffineDisplacement)
+{
+  check_adapter_affine_displacement<2, 2>(
+    false, true, ImmersX::LinearPreconditioner::normal);
+  check_adapter_affine_displacement<3, 3>(
+    false, true, ImmersX::LinearPreconditioner::normal);
 }
 
 TEST(ElasticityFreq, BOTH_ZeroMaterialPreservesInhomogeneousConstraints)

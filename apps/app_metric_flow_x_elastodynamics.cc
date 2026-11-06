@@ -66,9 +66,9 @@ namespace
   // Print the solid boundary ids and the number of vessel cells with a vertex
   // outside the solid mesh. This only checks the centreline vertices. The
   // lifted wall points lie one radius away from the centreline, so a count of
-  // zero does not guarantee that the lifted wall is inside the solid. Lifted
-  // points outside the solid stop the assembly with "Some lifted integration
-  // points lie outside the background mesh".
+  // zero does not guarantee that the lifted wall is inside the solid. The
+  // interaction integrates wall terms on the overlap and sets lambda to zero
+  // on the exterior support.
   template <typename FlowTriangulation, typename SolidProblem>
   void
   report_vessel_geometry(const FlowTriangulation &flow_triangulation,
@@ -224,15 +224,20 @@ namespace
         "Root resistance",
         root_resistance,
         "Positive root reservoir resistance in Pa s/m^3; saved tissue compartments supply their own resistances.");
+      add_parameter(
+        "Sealed input terminal ids",
+        sealed_input_terminals,
+        "Physical Terminal ids explicitly closed to flow; every other tissue leaf must belong to a saved microvascular bed.");
       add_parameter("Redistribution halo",
                     halo,
                     "Physical archive halo in metres.");
     }
 
-    std::string         directory;
-    std::vector<double> young_moduli{0., 0., 0.};
-    std::vector<double> thickness_ratios{0., 0., 0.};
-    std::vector<double> reference_pressures{0., 0., 0.};
+    std::vector<Vascularization::Id> sealed_input_terminals;
+    std::string                      directory;
+    std::vector<double>              young_moduli{0., 0., 0.};
+    std::vector<double>              thickness_ratios{0., 0., 0.};
+    std::vector<double>              reference_pressures{0., 0., 0.};
     double portal_pressure = 0., venous_pressure = 0., root_resistance = 0.,
            halo = 0.;
   };
@@ -267,8 +272,12 @@ namespace
       ExcMessage(
         "Archived root pressures must be finite and reservoir resistance positive."));
 
-    // Every tissue leaf must connect through a saved bed. Independent outlet
-    // resistances would introduce additional drains beside those compartments.
+    // Unselected anatomical ends need an explicit zero-flow declaration.
+    // Independent outlet resistances would add drains beside the saved beds.
+    const std::set<V::Id> sealed(parameters.sealed_input_terminals.begin(),
+                                 parameters.sealed_input_terminals.end());
+    AssertThrow(sealed.size() == parameters.sealed_input_terminals.size(),
+                ExcMessage("A sealed input terminal id is repeated."));
     std::set<V::Id>    linked;
     const auto         comm = flow.mpi_communicator();
     std::vector<V::Id> owned_linked;
@@ -282,12 +291,14 @@ namespace
     unsigned int unlinked = 0;
     const auto   rank     = Utilities::MPI::this_mpi_process(comm);
     for (const auto &[id, terminal] : generation.network.terminals)
-      if (terminal.owner == rank && linked.count(id) == 0)
+      if (terminal.owner == rank &&
+          ((linked.count(id) == 0 && sealed.count(id) == 0) ||
+           (linked.count(id) != 0 && sealed.count(id) != 0)))
         ++unlinked;
     AssertThrow(
       Utilities::MPI::sum(unlinked, comm) == 0,
       ExcMessage(
-        "The archived network contains tissue leaves without microvascular connections."));
+        "Every archived tissue leaf must have exactly one microvascular connection or explicit sealed declaration."));
 
     if constexpr (V::has_metric_flow_x_network_input<Flow>)
       return V::prepare_metric_flow_x(
@@ -328,7 +339,8 @@ namespace
             AssertThrow(
               false, ExcMessage("Unsupported real port in archived network."));
           return result;
-        });
+        },
+        sealed);
     else
       {
         AssertThrow(

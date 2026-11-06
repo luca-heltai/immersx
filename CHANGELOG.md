@@ -11,6 +11,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #356](https://github.com/luca-heltai/immersx/pull/356) Allow explicit zero-flow declarations for unpaired anatomical archive ends while retaining strict checks for missing or conflicting microvascular connections.
+
+- [PR #347](https://github.com/luca-heltai/immersx/pull/347) Select composed normal or MUMPS-BLR preconditioning for harmonic reinforcement through solver parameters, with controls for inner CG accuracy, the FGMRES basis, BLR truncation and MUMPS workspace.
+
 - [PR #353](https://github.com/luca-heltai/immersx/pull/353) Add the ParaView Area Tube plugin to visualize line datasets with radius computed from cross-sectional area.
 
 - [PR #351](https://github.com/luca-heltai/immersx/pull/351) Select bounded replicated direct inverses for coupled flow fields and materialize small Schur operators per Jacobian snapshot while checking every inner solve against the original action. Configure these policies in the IRCAD liver profiles without changing physical parameters or solver tolerances.
@@ -193,6 +197,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #348](https://github.com/luca-heltai/immersx/pull/348) Reuse Schur operator graphs and lifted trial derivatives during coupled IDA Jacobian setup, preserving the equations, meshes, time intervals and solver tolerances.
 - [PR #351](https://github.com/luca-heltai/immersx/pull/351) Set durations, output periods and MPI defaults for each liver profile, reject time increments that cannot advance the start time, and distinguish audited startup intervals from the earlier full beat in run metadata and the tutorial.
 
 - [PR #342](https://github.com/luca-heltai/immersx/pull/342) Reuse deal.II MeshWorker scratch data for linear weak-term cell, boundary, and affine assembly, retaining local buffers between cells and evaluating quadrature weights and face basis values once per point.
@@ -275,8 +280,12 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Certify separation of flat-ended vascular tubes when their rounded bounding capsules overlap, preserving clearance, junction-angle and domain checks for densely sampled anatomical inputs.
+- [PR #358](https://github.com/luca-heltai/immersx/pull/358) Certify separation of flat-ended vascular tubes when their rounded bounding capsules overlap, preserving clearance, junction-angle and domain checks for densely sampled anatomical inputs.
 
+- [PR #357](https://github.com/luca-heltai/immersx/pull/357) Apply up to three MUMPS refinement corrections in IDA using the retained Jacobian action and the existing residual tolerance, so small right-hand sides do not fail solely because the first backsolve is insufficiently accurate.
+
+- [PR #347](https://github.com/luca-heltai/immersx/pull/347) Handle exact Krylov-space closure in LinearAdapter on deal.II 9.7 as well as newer versions, so exact preconditioners converge without NaN residuals.
+- [PR #346](https://github.com/luca-heltai/immersx/pull/346) Reject unreadable STL inputs before entering Gmsh and verify that missing MSH or STL files preserve later valid imports in the same session.
 - [PR #355](https://github.com/luca-heltai/immersx/pull/355) Rebalance vascular mesh cuts when adjacent intervals can satisfy the existing background length bounds without changing physical vessel geometry.
 
 - [PR #350](https://github.com/luca-heltai/immersx/pull/350) Use the same fixed primal actions in positive-weight Schur construction, elimination and recovery, preserving the physical multiplier row when AMG is approximate.
@@ -498,6 +507,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #348](https://github.com/luca-heltai/immersx/pull/348) Run validation and application GoogleTests in ordered batches of at most 15 cases with a 115-second CTest timeout, preserving serial and MPI coverage and exclusive access to shared output files.
 
 - [PR #344](https://github.com/luca-heltai/immersx/pull/344) Keep performance history across fast-forward merges with reordered parents, validate the current source before historical backfill, and retain historical failures without blocking a valid current revision.
 

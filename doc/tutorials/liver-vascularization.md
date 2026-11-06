@@ -509,9 +509,15 @@ separate pressure reservoirs with the stated positive series resistance.
 This requires a backend with orientation-correct RCR conditions at both vessel
 ends. The saved common microvascular compartments connect the tissue leaves;
 they do not acquire extra independent outlet resistances. An archive with
-unconnected tissue leaves is rejected. In particular, the anatomical growth
-example above retains unused input leaves and needs an explicit physiological
-closure before it can be adopted by this path.
+unconnected tissue leaves is rejected by default. In particular, the anatomical
+growth example above retains unused input leaves. To declare selected ends
+closed, set `Sealed input terminal ids` under the same `Archived network`
+subsection to their comma-separated physical **Terminal IDs**. Every remaining
+tissue leaf must belong to a saved bed, and a bed terminal cannot also be
+sealed. This needs the native sealed-endpoint API from
+[MetricFlowX #88](https://github.com/luca-heltai/metric-flow-x/pull/88) and a
+matching rebuild. A sealed end has exactly zero flow and adds no reservoir;
+it is an explicit model assumption and must not count as a perfused terminal.
 
 The coupled output reports each block's DoFs and the total. Per-rank
 `mesh_scale-*.csv` files retain each numerical interval's length and the
