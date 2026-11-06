@@ -783,8 +783,8 @@ namespace ImmersX::detail
       terms.reserve(metadata->participants.size());
       for (const auto participant : metadata->participants)
         {
-          // A Schur matrix action must remain linear. Residual-stopped CG
-          // is reserved for the outer flexible block preconditioner.
+          // Use the same fixed actions in Schur construction, elimination
+          // and recovery to preserve the multiplier row.
           const auto inverse = local_preconditioner(
             participant, state, context, alpha, true, prepared_model);
           AssertThrow(inverse.has_value(),
@@ -842,7 +842,7 @@ namespace ImmersX::detail
 
     /** Build a global block-factorization preconditioner using a Schur solve.
      * The inner solve uses tolerance as a relative residual reduction.
-     * Static second-order pairs use the same fixed AMG actions in Schur
+     * Registered second-order pairs use the same fixed AMG actions in Schur
      * construction, elimination and recovery.
      */
     Operator
@@ -905,7 +905,7 @@ namespace ImmersX::detail
       for (const auto field : metadata->participants)
         {
           const auto inverse = local_preconditioner(
-            field, state, context, alpha, false, prepared_model);
+            field, state, context, alpha, true, prepared_model);
           AssertThrow(inverse.has_value(),
                       dealii::ExcMessage(
                         "Schur preconditioning requires local inverses for "
