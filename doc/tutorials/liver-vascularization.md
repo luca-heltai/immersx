@@ -344,6 +344,72 @@ capillaries, or guarantee that every point of the liver is adequately served.
 Use the existing [coverage and calibration controls](../how-to/vascular-generation)
 when imposing a service distance or a volume objective.
 
+(liver-terminal-density)=
+## Set terminal density and coverage
+
+Generate a coarse tissue volume first and record its global active-cell count.
+The [mesh-only workflow](#save-the-volume-and-reuse-the-physical-network) lets
+you inspect that grid before starting CCO. A Gmsh target edge length does not
+determine the exact number of cells.
+
+To start with one new tissue terminal per global background cell in each
+enabled network, use:
+
+```text
+subsection Liver
+  subsection Vascularization
+    subsection Sampling
+      set Terminal count = 1
+      set Terminal count multiplier factor = background cell count
+    end
+  end
+end
+```
+
+The multiplier uses the global cell count once; it is not a count per MPI rank.
+For a grid of 4,245 cells, the initial target is 4,245 common tissue territories,
+with one new arterial, portal and venous terminal per territory when all three
+roles are enabled. Imported ports and retained input ends are separate records.
+
+Allow modest flexibility through `Objectives/Minimum new terminals` and
+`Objectives/Maximum new terminals`. These bounds are absolute counts, not
+additional multipliers. For the 4,245-cell example, bounds of 3,820 and 4,670
+allow approximately ten percent variation. Recompute them when the background
+changes. `Calibration attempt budget` limits the number of trials; exhausting
+it does not prove that the requested geometry or physiology is impossible.
+
+With `Length scale = local mesh size`, set `Objectives/Maximum service distance`
+to `2` for a maximum tissue-to-terminal distance of twice the diameter of the
+tissue cell containing the evaluation point. It is not a minimum spacing
+between terminals. `Objectives/Minimum tissue coverage = .95` requests at
+least 95 percent volume-weighted quadrature coverage. With portal inflow
+enabled, this criterion uses the points served by all three systems, rather
+than the average of their separate coverages.
+
+Changing `Length scale` also changes the units of length-valued growth controls,
+including seed length, minimum vessel length, clearance, minimum radius and
+terminal separation. Re-express those controls in units of the local cell
+diameter. For example, a seed length of `.5` then means half a local cell
+diameter. Imported coordinates and radii, pressures, flow rates and exported
+physical data retain their SI units. See the
+[generation controls](../how-to/vascular-generation) for the complete list.
+
+One terminal per global cell is a total-count target, not an occupancy cap.
+Inspect the number of generated terminals in each cell, separately for each
+role, together with the service-distance coverage. Cells can contain zero or
+several terminals while satisfying a distance criterion. Geometric coverage
+does not establish perfusion or a feasible reference-pressure solve.
+
+After growth and after every change of the tissue grid, rediscretize the
+physical networks and inspect the numerical 1D interval lengths against the
+local background diameter. The discretization target and lower/upper length
+factors control those numerical intervals; they do not change the physical
+terminal count. Record the actual coupled block DoFs and interval-length
+diagnostics before increasing the problem size. Comparable mesh lengths are
+an important check, but do not by themselves establish a discrete inf-sup
+condition.
+
+
 (liver-portal-inflow)=
 ## Add portal inflow
 
