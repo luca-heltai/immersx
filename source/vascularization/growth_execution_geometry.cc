@@ -390,6 +390,8 @@ namespace ImmersX::Vascularization::internal
                               physical,
                               parameters.minimum_angle,
                               pair_clearance,
+                              {{a.radius, a.radius}},
+                              actual.records.at(id).endpoint_radii,
                               work))
                 valid = false;
               else

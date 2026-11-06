@@ -69,7 +69,7 @@ namespace
       }
     const auto result =
       select_growth_batch(geometry, {}, proposed, p, MPI_COMM_WORLD, [](Id) {
-        return 0.;
+        return std::array<double, 2>{};
       });
     unsigned int accepted = 0;
     for (const auto &[id, valid] : result.local)

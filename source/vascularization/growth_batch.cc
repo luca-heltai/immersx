@@ -60,7 +60,7 @@ namespace ImmersX::Vascularization::internal
                       const std::vector<BatchProposal> &submitted,
                       const Parameters                 &parameters,
                       MPI_Comm                          comm,
-                      const std::function<double(Id)>  &radius,
+                      const std::function<std::array<double, 2>(Id)> &radii,
                       bool check_snapshot_obstacles)
   {
     auto *work = geometry.counts;
@@ -337,7 +337,8 @@ namespace ImmersX::Vascularization::internal
           leaves.emplace_back(Segment<3>(network.nodes.at(v.nodes[0]).position,
                                          network.nodes.at(v.nodes[1]).position),
                               id);
-          max_radius = std::max(max_radius, radius(id));
+          const auto profile = radii(id);
+          max_radius         = std::max({max_radius, profile[0], profile[1]});
         }
     const auto obstacles = pack_rtree(leaves);
     count_work(work, GrowthOperation::network_index_builds);
@@ -413,17 +414,23 @@ namespace ImmersX::Vascularization::internal
                 if (check_snapshot_obstacles && !p.owners.count(id))
                   {
                     const auto &v = network.vessels.at(id);
-                    vote.valid =
-                      vote.valid &&
-                      compatible(
-                        e,
-                        {id, v.nodes, {{s.first, s.second}}, radius(id)},
-                        parameters.minimum_angle,
-                        physical_clearance(std::max(p.clearance_scales.at(e.id),
-                                                    parameters.clearance > 0. ?
-                                                      obstacle_scales.at(id) :
-                                                      0.)),
-                        work);
+                    vote.valid    = vote.valid && [&]() {
+                      const auto profile = radii(id);
+                      return compatible(e,
+                                           {id,
+                                         v.nodes,
+                                         {{s.first, s.second}},
+                                         std::max(profile[0], profile[1])},
+                                        parameters.minimum_angle,
+                                        physical_clearance(
+                                          std::max(p.clearance_scales.at(e.id),
+                                                   parameters.clearance > 0. ?
+                                                        obstacle_scales.at(id) :
+                                                        0.)),
+                                           {{e.radius, e.radius}},
+                                        profile,
+                                        work);
+                    }();
                   }
               }
           }

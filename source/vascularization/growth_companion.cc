@@ -598,7 +598,7 @@ namespace ImmersX::Vascularization::internal
         const auto selection = select_growth_batch(
           geometry, snapshot, proposals, p, comm, [&](Id id) {
             const auto &v = snapshot.vessels.at(id);
-            return std::max(v.radii[0], v.radii[1]);
+            return v.radii;
           });
         auto                             trial = snapshot;
         std::vector<Id>                  accepted;

@@ -571,13 +571,20 @@ namespace ImmersX::Vascularization::internal
     }
   };
   inline bool
-  compatible(const Edge &a,
-             const Edge &b,
-             double      minimum_angle,
-             double      clearance,
-             GrowthWork *counts = nullptr)
+  compatible(const Edge                  &a,
+             const Edge                  &b,
+             double                       minimum_angle,
+             double                       clearance,
+             const std::array<double, 2> &radii_a,
+             const std::array<double, 2> &radii_b,
+             GrowthWork                  *counts = nullptr)
   {
     count_work(counts, GrowthOperation::pair_checks);
+    for (unsigned int end = 0; end < 2; ++end)
+      if (!std::isfinite(radii_a[end]) || !(radii_a[end] > 0.) ||
+          radii_a[end] > a.radius || !std::isfinite(radii_b[end]) ||
+          !(radii_b[end] > 0.) || radii_b[end] > b.radius)
+        return false;
     for (unsigned int i = 0; i < 2; ++i)
       for (unsigned int j = 0; j < 2; ++j)
         if (a.nodes[i] == b.nodes[j])
@@ -606,7 +613,7 @@ namespace ImmersX::Vascularization::internal
       return true;
 
     // Rounded capsules bound flat-ended vessels conservatively. A positive
-    // support-plane gap between the containing flat cylinders also certifies
+    // support-plane gap between the actual linear-taper frusta also certifies
     // separation, including near densely sampled degree-two continuations.
     const auto   da = a.points[1] - a.points[0];
     const auto   db = b.points[1] - b.points[0];
@@ -634,17 +641,21 @@ namespace ImmersX::Vascularization::internal
       if (!(norm > 0.) || !std::isfinite(norm))
         return false;
       axis /= norm;
-      const double radial_a = a.radius * cross_product_3d(axis, ua).norm();
-      const double radial_b = b.radius * cross_product_3d(axis, ub).norm();
+      const double radial_a = cross_product_3d(axis, ua).norm();
+      const double radial_b = cross_product_3d(axis, ub).norm();
       // Project from one common origin to avoid subtracting large absolute
       // support values after the interval bounds have been rounded.
-      const double a1   = axis * da;
-      const double b0   = axis * (b.points[0] - a.points[0]);
-      const double b1   = axis * (b.points[1] - a.points[0]);
-      const double lo_a = std::min(0., a1) - radial_a;
-      const double hi_a = std::max(0., a1) + radial_a;
-      const double lo_b = std::min(b0, b1) - radial_b;
-      const double hi_b = std::max(b0, b1) + radial_b;
+      const double a1 = axis * da;
+      const double b0 = axis * (b.points[0] - a.points[0]);
+      const double b1 = axis * (b.points[1] - a.points[0]);
+      const double lo_a =
+        std::min(-radii_a[0] * radial_a, a1 - radii_a[1] * radial_a);
+      const double hi_a =
+        std::max(radii_a[0] * radial_a, a1 + radii_a[1] * radial_a);
+      const double lo_b =
+        std::min(b0 - radii_b[0] * radial_b, b1 - radii_b[1] * radial_b);
+      const double hi_b =
+        std::max(b0 + radii_b[0] * radial_b, b1 + radii_b[1] * radial_b);
       if (!std::isfinite(lo_a) || !std::isfinite(hi_a) ||
           !std::isfinite(lo_b) || !std::isfinite(hi_b))
         return false;
@@ -657,8 +668,44 @@ namespace ImmersX::Vascularization::internal
       for (const auto &pb : b.points)
         if (separated(pa - pb))
           return true;
+    // Lateral cone normals can separate a tapered obstacle where its
+    // containing maximum-radius cylinder overlaps the proposed vessel.
+    const auto lateral = [](const Edge                  &edge,
+                            const std::array<double, 2> &radii,
+                            const Tensor<1, 3>          &direction,
+                            double                       length,
+                            const Point<3>              &point) {
+      const auto   delta  = point - edge.points[0];
+      auto         radial = delta - (delta * direction) * direction;
+      const double norm   = radial.norm();
+      if (!(norm > 0.) || !std::isfinite(norm))
+        return Tensor<1, 3>();
+      return radial / norm - ((radii[1] - radii[0]) / length) * direction;
+    };
+    for (const auto &point : b.points)
+      if (separated(lateral(a, radii_a, ua, la, point)))
+        return true;
+    for (const auto &point : a.points)
+      if (separated(lateral(b, radii_b, ub, lb, point)))
+        return true;
     // The finite axis set is sufficient only when it finds a witness.
     return false;
+  }
+
+  inline bool
+  compatible(const Edge &a,
+             const Edge &b,
+             double      minimum_angle,
+             double      clearance,
+             GrowthWork *counts = nullptr)
+  {
+    return compatible(a,
+                      b,
+                      minimum_angle,
+                      clearance,
+                      {{a.radius, a.radius}},
+                      {{b.radius, b.radius}},
+                      counts);
   }
 
 } // namespace ImmersX::Vascularization::internal
