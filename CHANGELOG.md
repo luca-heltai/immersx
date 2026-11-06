@@ -269,7 +269,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Retain the coupled displacement–velocity inverse when IDA computes consistent initial conditions with zero derivative weight, avoiding singular diagonal AMG setup in coupled elasticity.
+- [PR #349](https://github.com/luca-heltai/immersx/pull/349) Retain the coupled displacement–velocity inverse when IDA computes consistent initial conditions with zero derivative weight, avoiding singular diagonal AMG setup in coupled elasticity.
 
 - [PR #345](https://github.com/luca-heltai/immersx/pull/345) Overwrite imported native pressure-operator destinations correctly on ranks without vessel cells, preserving zero and nonzero pressure actions.
 
