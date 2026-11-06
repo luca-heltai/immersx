@@ -42,13 +42,15 @@ namespace ImmersX::Vascularization
     // changed by a proposal or a vote. Disabling snapshot obstacle checks is
     // only for preliminary votes after candidate-radius geometry checks; it
     // requires subsequent joint-state certification before adoption.
+    // Obstacle profiles must describe the current physical state, not stale
+    // materialized radii of mutable branches.
     BatchSelection
     select_growth_batch(BackgroundGeometry               &geometry,
                         const NetworkData                &network,
                         const std::vector<BatchProposal> &local,
                         const Parameters                 &parameters,
                         MPI_Comm                          communicator,
-                        const std::function<double(Id)>  &radius,
+                        const std::function<std::array<double, 2>(Id)> &radii,
                         bool check_snapshot_obstacles = true);
   } // namespace internal
 } // namespace ImmersX::Vascularization

@@ -12,6 +12,10 @@
 #include <immersx/vascularization/distribution.h>
 #include <immersx/vascularization/generation.h>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 #include "../source/vascularization/growth_batch.h"
 
 using namespace dealii;
@@ -108,7 +112,7 @@ namespace
     return select_growth_batch(
       geometry, n, p, controls, MPI_COMM_WORLD, [&](Id id) {
         const auto &v = n.vessels.at(id);
-        return std::max(v.radii[0], v.radii[1]);
+        return v.radii;
       });
   }
 } // namespace
@@ -411,8 +415,14 @@ TEST(VascularGrowthBatch,
   if (size() > 1)
     {
       EXPECT_THROW(
-        select_growth_batch(
-          geometry, {}, {}, p, MPI_COMM_SELF, [](Id) { return .01; }),
+        select_growth_batch(geometry,
+                            {},
+                            {},
+                            p,
+                            MPI_COMM_SELF,
+                            [](Id) {
+                              return std::array<double, 2>{{.01, .01}};
+                            }),
         ExceptionBase);
     }
 }
@@ -745,4 +755,232 @@ TEST(VascularGrowthBatch, BOTH_FlatCylinderVoteKeepsRemoteAndEmptyOwners)
       for (const auto &[key, accepted] : result.relevant)
         EXPECT_EQ(accepted, expected);
     }
+}
+
+
+namespace
+{
+  // The convex hull of these circumscribed endpoint polygons contains the
+  // true linear-taper frustum. Its vertex projections are an independent
+  // separation oracle; they do not use the production support function.
+  std::pair<double, double>
+  outer_frustum_projection(const std::array<Point<3>, 2> &points,
+                           const std::array<double, 2>   &radii,
+                           const Tensor<1, 3>            &normal,
+                           const Point<3>                &origin)
+  {
+    constexpr unsigned int sides     = 128;
+    auto                   direction = points[1] - points[0];
+    direction /= direction.norm();
+    Tensor<1, 3> reference;
+    reference[std::abs(direction[0]) < .9 ? 0 : 1] = 1.;
+    auto first = cross_product_3d(direction, reference);
+    first /= first.norm();
+    const auto second = cross_product_3d(direction, first);
+    double     lower  = std::numeric_limits<double>::infinity();
+    double     upper  = -lower;
+    for (unsigned int end = 0; end < 2; ++end)
+      for (unsigned int i = 0; i < sides; ++i)
+        {
+          const double angle = 2. * numbers::PI * i / sides;
+          const auto   vertex =
+            points[end] +
+            radii[end] / std::cos(numbers::PI / sides) *
+              (std::cos(angle) * first + std::sin(angle) * second);
+          const double value = normal * (vertex - origin);
+          lower              = std::min(lower, value);
+          upper              = std::max(upper, value);
+        }
+    return {lower, upper};
+  }
+} // namespace
+
+TEST(VascularGrowthBatch, BOTH_NativeTaperedAttachmentKeepsTrueSeparation)
+{
+  Triangulation<3> serial;
+  GridGenerator::subdivided_hyper_rectangle(serial,
+                                            {2, 1, 1},
+                                            Point<3>(.14, .11, .20),
+                                            Point<3>(.18, .15, .24));
+  for (const auto &cell : serial.active_cell_iterators())
+    cell->set_subdomain_id(cell->center()[0] < .16 ? 0 : size() - 1);
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial, MPI_COMM_WORLD);
+  parallel::fullydistributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  bg.create_triangulation(description);
+  MappingQ1<3> mapping;
+  if (size() > 2)
+    {
+      EXPECT_EQ(Utilities::MPI::sum(bg.n_locally_owned_active_cells() == 0 ?
+                                      1u :
+                                      0u,
+                                    MPI_COMM_WORLD),
+                size() - 2);
+    }
+
+  const Point<3> p121(.16105571389, .12534973025, .21835261583);
+  const Point<3> p169(.15844026208, .12357060611, .22041496634);
+  const Point<3> original(.15807075799, .12433482707, .22056400776);
+  const Point<3> knee(.1526197896255688, .1356087057336848, .22276268454706896);
+  const std::array<double, 2> old_radii{{.0013626601474, .00073727190304}};
+  constexpr double            tip_radius = .00038278414048;
+  const Tensor<1, 3>          normal{
+             {-.554320947064179, .7858657958471155, .27412267064847345}};
+  const auto old_projection =
+    outer_frustum_projection({{p121, p169}}, old_radii, normal, original);
+  const auto new_projection = outer_frustum_projection(
+    {{original, knee}}, {{tip_radius, tip_radius}}, normal, original);
+  EXPECT_GT(new_projection.first - old_projection.second, 4.e-5);
+
+  for (const bool intersecting : {false, true})
+    {
+      Point<3> start = original;
+      if (intersecting)
+        {
+          auto         axis      = p169 - p121;
+          const double parameter = ((start - p121) * axis) / axis.norm_square();
+          auto         radial    = start - p121 - parameter * axis;
+          radial /= radial.norm();
+          start -= .00015 * radial;
+          auto ray = knee - start;
+          ray /= ray.norm();
+          const auto   witness = start + 1.e-5 * ray;
+          const double t       = ((witness - p121) * axis) / axis.norm_square();
+          EXPECT_GT(t, 0.);
+          EXPECT_LT(t, 1.);
+          EXPECT_LT((witness - p121 - t * axis).norm(),
+                    (1. - t) * old_radii[0] + t * old_radii[1]);
+          EXPECT_GT((witness - start) * ray, 0.);
+          EXPECT_LT((witness - start) * ray, start.distance(knee));
+          EXPECT_LT((witness - start - ((witness - start) * ray) * ray).norm(),
+                    tip_radius);
+        }
+      NetworkData input;
+      if (rank() == size() - 1)
+        {
+          input.nodes[121] = {p121, rank()};
+          input.nodes[169] = {p169, rank()};
+          input.nodes[170] = {start, rank()};
+          Vessel old;
+          old.nodes          = {{121, 169}};
+          old.radii          = old_radii;
+          old.viscosity      = .00371;
+          old.system         = System::venous;
+          old.owner          = rank();
+          input.vessels[151] = old;
+          old.nodes          = {{169, 170}};
+          old.radii          = {{old_radii[1], tip_radius}};
+          input.vessels[168] = old;
+        }
+      const auto native = redistribute(bg, mapping, input, .02, MPI_COMM_WORLD);
+      std::vector<BatchProposal> proposals;
+      if (rank() == size() - 1)
+        {
+          BatchProposal p;
+          p.id      = 2020;
+          p.changed = {{2020, {{170, 2023}}, {{start, knee}}, tip_radius}};
+          proposals.push_back(p);
+        }
+      BackgroundGeometry geometry(bg, mapping);
+      Parameters         p;
+      physical_controls(p);
+      p.minimum_angle      = 15.;
+      const auto selection = select(geometry, native, proposals, p);
+      if (rank() == size() - 1)
+        {
+          EXPECT_EQ(selection.local.at(2020), !intersecting);
+        }
+      for (const auto &[key, accepted] : selection.relevant)
+        EXPECT_EQ(accepted, !intersecting);
+      for (const auto &[id, vessel] : native.vessels)
+        if (id == 151)
+          {
+            EXPECT_EQ(vessel.radii, old_radii);
+          }
+    }
+}
+
+
+TEST(VascularGrowthBatch, BOTH_CurrentRadiusCannotUseNarrowSnapshotProfile)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_cube(bg, 2);
+  MappingQ1<3> mapping;
+  NetworkData  input;
+  if (rank() == size() - 1)
+    {
+      input.nodes[0] = {{.3, .5, .5}, rank(), Port::arterial_inlet};
+      input.nodes[1] = {{.7, .5, .5}, rank()};
+      Vessel vessel;
+      vessel.nodes     = {{0, 1}};
+      vessel.radii     = {{.005, .005}};
+      vessel.viscosity = .004;
+      vessel.owner     = rank();
+      input.vessels[0] = vessel;
+    }
+  const auto native = redistribute(bg, mapping, input, .1, MPI_COMM_WORLD);
+  std::vector<BatchProposal> proposals;
+  if (rank() == size() - 1)
+    {
+      BatchProposal proposal;
+      proposal.id      = 10;
+      proposal.changed = {{10,
+                           {{10, 11}},
+                           {{Point<3>(.3, .55, .5), Point<3>(.7, .55, .5)}},
+                           .04}};
+      proposals.push_back(proposal);
+    }
+  BackgroundGeometry geometry(bg, mapping);
+  Parameters         p;
+  physical_controls(p);
+  const auto snapshot = select(geometry, native, proposals, p);
+  const auto current =
+    select_growth_batch(geometry, native, proposals, p, MPI_COMM_WORLD, [](Id) {
+      return std::array<double, 2>{{.04, .04}};
+    });
+  // (.5,.525,.5) is strictly inside both current cylinders. The narrow
+  // materialized snapshot would separate them and must not replace the live
+  // radius supplied after a demand update.
+  EXPECT_LT(.025, .04);
+  EXPECT_GT(.05, .04 + .005);
+  if (rank() == size() - 1)
+    {
+      EXPECT_TRUE(snapshot.local.at(10));
+      EXPECT_FALSE(current.local.at(10));
+    }
+  for (const auto &[key, accepted] : current.relevant)
+    EXPECT_FALSE(accepted);
+  for (const auto &[id, vessel] : native.vessels)
+    EXPECT_EQ(vessel.radii, (std::array<double, 2>{{.005, .005}}));
+}
+
+
+TEST(VascularGrowthBatch, BOTH_TaperedClearanceRequiresStrictSeparation)
+{
+  const Edge a{0, {{0, 1}}, {{Point<3>(), Point<3>(1., 0., 0.)}}, .1};
+  Edge b{1, {{2, 3}}, {{Point<3>(0., .15, 0.), Point<3>(1., .15, 0.)}}, .1};
+  const std::array<double, 2> ra{{.1, .01}}, rb{{.01, .1}};
+  // The facing generatrices are parallel lines y=.1-.09x and
+  // y=.14-.09x. These interior points attain their exact separation.
+  const Point<3>     first(.5, .1 - .09 * .5, 0.);
+  const Tensor<1, 3> normal{{.09, 1., 0.}};
+  const Point<3>     second = first + normal * (.04 / (1. + .09 * .09));
+  const double       gap    = first.distance(second);
+  EXPECT_NEAR(second[1], .14 - .09 * second[0], 1.e-16);
+  EXPECT_GT(second[0], 0.);
+  EXPECT_LT(second[0], 1.);
+  EXPECT_FALSE(compatible(a, b, 15., 0.));
+  EXPECT_TRUE(compatible(a, b, 15., gap - 1.e-8, ra, rb));
+  EXPECT_TRUE(compatible(b, a, 15., gap - 1.e-8, rb, ra));
+  EXPECT_FALSE(compatible(a, b, 15., gap + 1.e-8, ra, rb));
+  EXPECT_FALSE(compatible(b, a, 15., gap + 1.e-8, rb, ra));
+  for (const double invalid : {0.,
+                               -.1,
+                               .10001,
+                               std::numeric_limits<double>::infinity(),
+                               std::numeric_limits<double>::quiet_NaN()})
+    EXPECT_FALSE(compatible(a, b, 15., 0., {{invalid, ra[1]}}, rb));
+  b.points = {{Point<3>(0., .11, 0.), Point<3>(1., .11, 0.)}};
+  EXPECT_FALSE(compatible(a, b, 15., 0., ra, rb));
 }

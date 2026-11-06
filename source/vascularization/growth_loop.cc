@@ -970,10 +970,17 @@ namespace ImmersX::Vascularization::internal
                                       (*radii)(id,
                                                obstacles.at(id).root,
                                                obstacle.radius);
+                                    const auto profile =
+                                      obstacles.at(id).root == invalid_id ?
+                                        obstacles.at(id).endpoint_radii :
+                                        std::array<double, 2>{
+                                          {obstacle.radius, obstacle.radius}};
                                     if (!compatible(e,
                                                     obstacle,
                                                     p.minimum_angle,
                                                     clearance_lower,
+                                                    {{e.radius, e.radius}},
+                                                    profile,
                                                     work))
                                       return false;
                                   }

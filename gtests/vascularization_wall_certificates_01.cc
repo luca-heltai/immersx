@@ -124,7 +124,7 @@ namespace
         const auto full =
           ImmersX::Vascularization::internal::select_growth_batch(
             geometry, network, proposals, oracle, MPI_COMM_WORLD, [](Id) {
-              return 0.;
+              return std::array<double, 2>{};
             });
         if (rank == size - 1)
           {

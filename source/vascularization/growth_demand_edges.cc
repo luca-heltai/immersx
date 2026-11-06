@@ -138,12 +138,13 @@ namespace ImmersX::Vascularization::internal
               continue;
             }
           GrowthDemandEdge value;
-          value.edge   = {id,
-                          v->second.nodes,
-                          {{network.nodes.at(v->second.nodes[0]).position,
-                            network.nodes.at(v->second.nodes[1]).position}},
-                          std::max(v->second.radii[0], v->second.radii[1])};
-          const auto b = branches.find(id);
+          value.edge           = {id,
+                                  v->second.nodes,
+                                  {{network.nodes.at(v->second.nodes[0]).position,
+                                    network.nodes.at(v->second.nodes[1]).position}},
+                                  std::max(v->second.radii[0], v->second.radii[1])};
+          value.endpoint_radii = v->second.radii;
+          const auto b         = branches.find(id);
           if (b != branches.end())
             {
               value.root   = b->second.topology.root;
@@ -189,6 +190,7 @@ namespace ImmersX::Vascularization::internal
               static_cast<double>(
                 root.radius *
                 std::pow(value.demand / value.root_demand, 1.L / root.gamma));
+          value.endpoint_radii = {{value.edge.radius, value.edge.radius}};
         }
     for (const auto &[id, value] : result.records)
       valid =

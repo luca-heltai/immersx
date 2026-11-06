@@ -151,7 +151,7 @@ TEST(VascularForest, BOTH_AcceptedSelectionMatchesFullNativeGeometryVote)
                                   [&](Id id) {
                                     const auto &v =
                                       initial.network.vessels.at(id);
-                                    return std::max(v.radii[0], v.radii[1]);
+                                    return v.radii;
                                   });
             EXPECT_EQ(sparse.local, full.local);
             EXPECT_EQ(sparse.relevant, full.relevant);

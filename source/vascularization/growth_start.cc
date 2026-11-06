@@ -275,7 +275,7 @@ namespace ImmersX::Vascularization::internal
           }
         const auto selected =
           select_growth_batch(geometry, port, proposals, p, comm, [](Id) {
-            return 0.;
+            return std::array<double, 2>{};
           });
         const bool accepted = selected.local.count(0) && selected.local.at(0);
         if (Utilities::MPI::max(static_cast<unsigned int>(accepted), comm) == 0)
@@ -615,7 +615,7 @@ namespace ImmersX::Vascularization::internal
         const auto selection = select_growth_batch(
           geometry, snapshot, proposals, p, comm, [&](Id id) {
             const auto &v = snapshot.vessels.at(id);
-            return std::max(v.radii[0], v.radii[1]);
+            return v.radii;
           });
         std::vector<Id> accepted;
         auto            trial = snapshot;

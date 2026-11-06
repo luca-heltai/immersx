@@ -1443,7 +1443,7 @@ TEST(VascularForest, BOTH_PreliminaryVotesCannotAdoptAnAncestorRadiusCollision)
     proposals,
     p,
     MPI_COMM_WORLD,
-    [&](Id id) { return n.vessels.at(id).radii[0]; },
+    [&](Id id) { return n.vessels.at(id).radii; },
     false);
   for (const auto &[id, selected] : preliminary.local)
     EXPECT_TRUE(selected);
@@ -2582,11 +2582,16 @@ TEST(VascularForest, BOTH_DemandEdgePreviewIncludesOtherRootsAndFrozenInput)
           {
             EXPECT_EQ(edge.root, invalid_id);
             EXPECT_EQ(edge.edge.radius, .009);
+            EXPECT_EQ(edge.endpoint_radii,
+                      (std::array<double, 2>{{.009, .006}}));
           }
         else
           {
             EXPECT_NE(edge.root, invalid_id);
             EXPECT_GT(edge.demand, 0.);
+            EXPECT_EQ(edge.endpoint_radii,
+                      (std::array<double, 2>{
+                        {edge.edge.radius, edge.edge.radius}}));
           }
       }
   // Provenance is not mutability. The same generated input rows stay frozen
@@ -2605,6 +2610,10 @@ TEST(VascularForest, BOTH_DemandEdgePreviewIncludesOtherRootsAndFrozenInput)
     {
       EXPECT_EQ(frozen_edges.records.at(base + 13).root, invalid_id);
       EXPECT_EQ(frozen_edges.records.at(base + 13).edge.radius, .006);
+      EXPECT_EQ(frozen_edges.records.at(base + 10).endpoint_radii,
+                (std::array<double, 2>{{.009, .006}}));
+      EXPECT_EQ(frozen_edges.records.at(base + 13).endpoint_radii,
+                (std::array<double, 2>{{.006, .006}}));
     }
   auto stale = preview;
   --stale.snapshot_revision;

@@ -16,12 +16,15 @@ collective terminal-count calibration. Arterio-venous generation starts from
 real venous outlets or selected input venous leaves and uses the same MPI
 path with one or several processes. Use a first-order mapping on an
 all-tetrahedral or all-hexahedral physical background.
-Geometry checks include the vessel wall and clearance. Nonincident tapered
-vessels are bounded by flat-ended cylinders with their maximum endpoint radius.
-Rounded capsules provide a fast separation test; when they overlap, a strictly
-positive support-plane gap can still certify cylinder separation. An unresolved
-pair remains rejected. This avoids rejecting a continuous anatomical tube merely
-because its degree-two samples are close together. Shared-node angle and domain
+Geometry checks include the vessel wall and clearance. Nonincident vessels
+first use rounded maximum-radius capsules for a fast
+separation test. When these overlap, a strictly positive support-plane gap can
+still certify separation of their flat-ended linear-taper frusta. Frozen input
+vessels retain their native endpoint radii; generated mutable vessels use the
+current Murray radii, including trial demand updates. A finite set of candidate
+planes supplies separation witnesses only: an unresolved pair remains rejected.
+This avoids rejecting separated anatomical tubes merely because their containing
+maximum-radius cylinders overlap. Shared-node angle and domain
 checks still apply. An ambiguous boundary
 separation at the finite geometry budget fails conservatively. Explicit planar inlet/outlet sections
 are supported; a warped boundary face is not replaced by a planar aperture.

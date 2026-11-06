@@ -102,14 +102,17 @@ namespace ImmersX::Vascularization::internal
 
   struct GrowthDemandEdge
   {
-    Edge        edge;
-    Id          root   = invalid_id;
-    long double demand = 0., root_demand = 0.;
+    Edge edge;
+    // Frozen native taper or mutable radii from this demand preview. A later
+    // candidate overlay must replace both mutable endpoint values together.
+    std::array<double, 2> endpoint_radii{};
+    Id                    root   = invalid_id;
+    long double           demand = 0., root_demand = 0.;
     template <class Archive>
     void
     serialize(Archive &ar, unsigned int)
     {
-      ar &edge &root &demand &root_demand;
+      ar &edge &endpoint_radii &root &demand &root_demand;
     }
   };
   struct GrowthDemandEdges

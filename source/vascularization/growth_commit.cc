@@ -324,10 +324,7 @@ namespace ImmersX::Vascularization::internal
       checks,
       p,
       comm,
-      [&](Id id) {
-        return std::max(trial.vessels.at(id).radii[0],
-                        trial.vessels.at(id).radii[1]);
-      },
+      [&](Id id) { return trial.vessels.at(id).radii; },
       true);
     for (const auto &[id, accepted] : certified.local)
       valid = valid && accepted;
