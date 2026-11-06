@@ -28,7 +28,7 @@ namespace
   using Matrix      = ImmersXLA::MPI::SparseMatrix;
   using Dense       = std::array<std::array<double, 3>, 3>;
   const Dense values{{{{4., 1., 0.}}, {{2., 5., -1.}}, {{0., 3., 6.}}}};
-  const Dense identity{{{{1., 0., 0.}}, {{0., 1., 0.}}, {{0., 0., 1.}}}};
+  const Dense unit_entries{{{{1., 0., 0.}}, {{0., 1., 0.}}, {{0., 0., 1.}}}};
 
   IndexSet
   partition()
@@ -265,7 +265,7 @@ TEST(ReplicatedOperators, BOTH_SchurRefinesAgainstOriginalAction)
 {
   const auto owned = partition();
   Matrix     unit, coupling;
-  initialize(unit, owned, identity);
+  initialize(unit, owned, unit_entries);
   Dense coupling_values = values;
   for (auto &row : coupling_values)
     for (auto &value : row)
@@ -312,7 +312,7 @@ TEST(ReplicatedOperators, BOTH_IDAPublicSchurLimitAndOriginalActionGuard)
 {
   const auto owned = partition();
   Matrix     unit;
-  initialize(unit, owned, identity);
+  initialize(unit, owned, unit_entries);
   auto applications = std::make_shared<unsigned int>(0);
   ParameterAcceptor::clear();
   TimeIntervalParameters time("/replicated/time");
