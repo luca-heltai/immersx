@@ -280,7 +280,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Apply up to three MUMPS refinement corrections in IDA using the retained Jacobian action and the existing residual tolerance, so small right-hand sides do not fail solely because the first backsolve is insufficiently accurate.
+- [PR #357](https://github.com/luca-heltai/immersx/pull/357) Apply up to three MUMPS refinement corrections in IDA using the retained Jacobian action and the existing residual tolerance, so small right-hand sides do not fail solely because the first backsolve is insufficiently accurate.
 
 - [PR #347](https://github.com/luca-heltai/immersx/pull/347) Handle exact Krylov-space closure in LinearAdapter on deal.II 9.7 as well as newer versions, so exact preconditioners converge without NaN residuals.
 - [PR #346](https://github.com/luca-heltai/immersx/pull/346) Reject unreadable STL inputs before entering Gmsh and verify that missing MSH or STL files preserve later valid imports in the same session.
