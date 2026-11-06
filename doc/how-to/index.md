@@ -18,5 +18,6 @@ support-aware-weak-terms
 lifted-integration
 local-co-refinement
 vascular-generation
+paraview-area-tube
 surface-domains
 ```
