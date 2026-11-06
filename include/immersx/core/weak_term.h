@@ -4034,14 +4034,21 @@ namespace ImmersX
                     support_lifted_point(support, points[q]))
                   {
                     const auto basis = target_basis(target, cell, points[q]);
-                    for (unsigned int row = 0; row < active_rows.size(); ++row)
-                      for (unsigned int j = 0; j < active_columns.size(); ++j)
-                        local(row, j) +=
-                          target.scale() *
+                    if (active_rows.empty())
+                      continue;
+                    for (unsigned int j = 0; j < active_columns.size(); ++j)
+                      {
+                        // The trial derivative is shared by all test rows.
+                        const auto derivative =
                           radial_value(observable.linearize_point(
                                          context, field, q, active_columns[j]),
-                                       points[q]) *
-                          basis[active_rows[row]] * points[q].weight;
+                                       points[q]);
+                        for (unsigned int row = 0; row < active_rows.size();
+                             ++row)
+                          local(row, j) += target.scale() * derivative *
+                                           basis[active_rows[row]] *
+                                           points[q].weight;
+                      }
                   }
               target_field.constraints().distribute_local_to_global(
                 local,

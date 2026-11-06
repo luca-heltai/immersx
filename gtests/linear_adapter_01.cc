@@ -702,6 +702,23 @@ TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
                             fields.fields().primal)[1],
               3. * (1. - 2. * transpose_multiplier),
               1.e-10);
+
+  const auto copied_preconditioner = [&]() {
+    const auto temporary =
+      adapter.schur_preconditioner(fields.fields().multiplier, state);
+    auto copy = temporary;
+    return copy;
+  }();
+  auto accumulated = state;
+  copied_preconditioner.vmult_add(accumulated, state);
+  accumulated -= state;
+  accumulated -= preconditioned;
+  EXPECT_LT(accumulated.l2_norm(), 1.e-10);
+  accumulated = state;
+  copied_preconditioner.Tvmult_add(accumulated, state);
+  accumulated -= state;
+  accumulated -= transposed_preconditioned;
+  EXPECT_LT(accumulated.l2_norm(), 1.e-10);
 }
 
 

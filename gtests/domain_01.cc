@@ -632,4 +632,38 @@ TEST(Domain, BOTH_GmshPhysicalTagsAndNamedOverrides)
   ASSERT_NO_THROW(recovered.make_grid());
   EXPECT_GT(recovered.triangulation().n_global_active_cells(), 0u);
 }
+TEST(Domain, BOTH_MissingGmshInputPreservesNextImport)
+{
+  const bool owns_gmsh = gmsh::isInitialized() == 0;
+  if (owns_gmsh)
+    gmsh::initialize();
+  const ScopeExit finalize([owns_gmsh]() {
+    if (owns_gmsh && gmsh::isInitialized())
+      gmsh::finalize();
+  });
+  for (const std::string extension : {"msh", "stl"})
+    {
+      SCOPED_TRACE(extension);
+      ParameterAcceptor::clear();
+      DomainParameters<2> parameters("/Gmsh missing input recovery/" +
+                                     extension);
+      parameters.triangulation_type = "fullydistributed";
+      parameters.initial_refinement = 0;
+      parameters.name_of_grid =
+        TestPaths::data_filename("tests/missing-gmsh-recovery." + extension);
+      const int initialized = gmsh::isInitialized();
+      {
+        Domain<2> missing(parameters);
+        EXPECT_ANY_THROW(missing.make_grid());
+      }
+      EXPECT_EQ(gmsh::isInitialized(), initialized);
+      parameters.name_of_grid =
+        TestPaths::data_filename("tests/gmsh_physical_named.msh");
+      Domain<2> valid(parameters);
+      ASSERT_NO_THROW(valid.make_grid());
+      EXPECT_EQ(valid.triangulation().n_global_active_cells(), 2u);
+      EXPECT_EQ(gmsh::isInitialized(), initialized);
+    }
+}
+
 #endif
