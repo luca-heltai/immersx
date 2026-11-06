@@ -72,10 +72,93 @@ namespace ImmersX
       auto mass_amg_data = amg_data_;
       mass_amg_data.constant_modes.clear();
       mass_amg_data.constant_modes_values.clear();
-      mass_amg_         = make_amg_preconditioner<VectorType>(*mass_,
+      mass_amg_             = make_amg_preconditioner<VectorType>(*mass_,
                                                       reinit_vector_,
                                                       mass_amg_data);
+      static_stiffness_amg_ = dealii::LinearOperator<VectorType>();
+      static_stiffness_.reset();
       coefficients_set_ = false;
+    }
+
+    /** Prepare the row-swapped factorization of [0, -M; K, D].
+     * The free stiffness block must be invertible, as with Robin support.
+     * D need not be invertible. The M/K AMG cycles must be symmetric, as for
+     * the CG solves with positive derivative weights. Their fixed actions
+     * are reused as local adjoints; the complete pair transpose reverses
+     * their order. Positive weights retain their separate factorization.
+     */
+    void
+    prepare_static_inverse()
+    {
+      AssertThrow(mass_, dealii::ExcNotInitialized());
+      if (static_stiffness_)
+        return;
+      static_stiffness_ = detail::clone_matrix(*stiffness_);
+      project(*static_stiffness_, 1.);
+      static_stiffness_amg_ =
+        make_amg_preconditioner<VectorType>(*static_stiffness_,
+                                            reinit_vector_,
+                                            amg_data_);
+    }
+
+    /** Apply the complete static pair inverse, with identity constrained rows.
+     * A fixed AMG action is linear and can be used inside a Schur operator;
+     * residual-stopped CG is reserved for a flexible outer preconditioner.
+     */
+    void
+    static_vmult(VectorType       &destination_displacement,
+                 VectorType       &destination_velocity,
+                 const VectorType &source_displacement,
+                 const VectorType &source_velocity,
+                 const bool        fixed_linear_action = false) const
+    {
+      AssertThrow(static_stiffness_, dealii::ExcNotInitialized());
+      static_spatial_inverse(*mass_,
+                             mass_amg_,
+                             destination_velocity,
+                             source_displacement,
+                             fixed_linear_action);
+      destination_velocity *= -1.;
+      typename dealii::VectorMemory<VectorType>::Pointer right_hand_side(
+        vector_memory_);
+      right_hand_side->reinit(prototype_, true);
+      damping_->vmult(*right_hand_side, destination_velocity);
+      right_hand_side->sadd(-1., 1., source_velocity);
+      static_spatial_inverse(*static_stiffness_,
+                             static_stiffness_amg_,
+                             destination_displacement,
+                             *right_hand_side,
+                             fixed_linear_action);
+      restore_constrained(destination_displacement, source_displacement);
+      restore_constrained(destination_velocity, source_velocity);
+    }
+
+    /** Transposed static inverse; the M, D and K actions reverse order. */
+    void
+    static_Tvmult(VectorType       &destination_displacement,
+                  VectorType       &destination_velocity,
+                  const VectorType &source_displacement,
+                  const VectorType &source_velocity,
+                  const bool        fixed_linear_action = false) const
+    {
+      AssertThrow(static_stiffness_, dealii::ExcNotInitialized());
+      static_spatial_inverse(*static_stiffness_,
+                             static_stiffness_amg_,
+                             destination_velocity,
+                             source_displacement,
+                             fixed_linear_action);
+      typename dealii::VectorMemory<VectorType>::Pointer right_hand_side(
+        vector_memory_);
+      right_hand_side->reinit(prototype_, true);
+      damping_->Tvmult(*right_hand_side, destination_velocity);
+      *right_hand_side -= source_velocity;
+      static_spatial_inverse(*mass_,
+                             mass_amg_,
+                             destination_displacement,
+                             *right_hand_side,
+                             fixed_linear_action);
+      restore_constrained(destination_displacement, source_displacement);
+      restore_constrained(destination_velocity, source_velocity);
     }
 
     /** Configure one time-discrete Jacobian without spatial quadrature. */
@@ -198,7 +281,8 @@ namespace ImmersX
     apply_projected_amg(const dealii::LinearOperator<VectorType> &amg,
                         VectorType                               &destination,
                         const VectorType                         &source,
-                        const double                              scale) const
+                        const double                              scale,
+                        const bool restore_identity = true) const
     {
       typename dealii::VectorMemory<VectorType>::Pointer right_hand_side(
         vector_memory_);
@@ -209,7 +293,29 @@ namespace ImmersX
           (*right_hand_side)(index) = 0.;
       amg.vmult(destination, *right_hand_side);
       destination *= scale;
-      restore_constrained(destination, source);
+      if (restore_identity)
+        restore_constrained(destination, source);
+      else
+        for (const auto index : source.locally_owned_elements())
+          if (constrained_.is_element(index))
+            destination(index) = 0.;
+    }
+
+    void
+    static_spatial_inverse(const MatrixType                         &matrix,
+                           const dealii::LinearOperator<VectorType> &amg,
+                           VectorType       &destination,
+                           const VectorType &source,
+                           const bool        fixed_linear_action) const
+    {
+      if (fixed_linear_action)
+        // M, K and their AMG cycles are symmetric, as required by inner CG.
+        // ML does not provide a transpose apply; reverse the pair factors in
+        // static_Tvmult rather than requesting an unsupported local action.
+        apply_projected_amg(amg, destination, source, 1., false);
+      else
+        // The physical M and K are symmetric; only the factor order changes.
+        solve(matrix, amg, destination, source);
     }
 
     void
@@ -239,7 +345,9 @@ namespace ImmersX
     VectorType                         prototype_;
     AMGData                            amg_data_;
     std::shared_ptr<MatrixType>        mass_, stiffness_, damping_, schur_;
+    std::shared_ptr<MatrixType>        static_stiffness_;
     dealii::LinearOperator<VectorType> mass_amg_, schur_amg_;
+    dealii::LinearOperator<VectorType> static_stiffness_amg_;
     std::array<double, 4>              coefficients_{};
     bool                               coefficients_set_ = false;
     mutable dealii::GrowingVectorMemory<VectorType> vector_memory_;

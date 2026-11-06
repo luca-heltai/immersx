@@ -16,10 +16,20 @@ import sys
 
 
 PROFILES = {
-    'tiny': ('small', 1),
-    'small': ('small', 4),
-    'medium': ('medium', 4),
-    'large': ('large', 4),
+    'tiny': ('small', 1, .8, .01),
+    'small': ('small', 4, .8, .01),
+    'medium': ('medium', 8, .002, .002),
+    'large': ('large', 112, .002, .002),
+}
+AUDITED_DURATIONS = {
+    'tiny': .002, 'small': .002, 'medium': .02, 'large': .002,
+}
+AUDITED_CONFIGURATIONS = {
+    'tiny': ('iterative solver on 4 MPI ranks with manual flow direct limit 2048 '
+             'and Schur limit 512, overriding the serial UMFPACK default'),
+    'small': 'MUMPS on 4 MPI ranks',
+    'medium': 'iterative solver on 8 MPI ranks',
+    'large': 'iterative solver on 112 MPI ranks',
 }
 TOLERANCE_KEYS = {
     'Area absolute tolerance fraction', 'Velocity absolute tolerance',
@@ -70,9 +80,14 @@ def main():
     parser.add_argument('--output', type=Path, required=True,
                         help='New run directory; existing directories are refused')
     parser.add_argument('--profile', choices=PROFILES, default='tiny')
-    parser.add_argument('--duration', type=float, default=.8,
-                        help='Seconds after 7.2 s, up to the recorded endpoint 8 s')
-    parser.add_argument('--ranks', type=int, help='Default: one for tiny, four otherwise')
+    parser.add_argument('--duration', type=float,
+                        help=('Seconds after 7.2 s, up to 0.8; defaults: '
+                              'tiny/small 0.8, medium/large 0.002'))
+    parser.add_argument('--output-period', type=float,
+                        help=('Output interval in seconds; defaults: '
+                              'tiny/small 0.01, medium/large 0.002'))
+    parser.add_argument('--ranks', type=int,
+                        help='Default ranks: tiny 1, small 4, medium 8, large 112')
     parser.add_argument('--solid-viscosity', type=float, default=4.2,
                         help='Native eta coefficient in Pa s; zero is the undamped control')
     parser.add_argument('--tolerance-scale', type=float, default=1.,
@@ -81,8 +96,22 @@ def main():
                         help='Write concrete parameters and run metadata without execution')
     args = parser.parse_args()
     try:
-        if not math.isfinite(args.duration) or not 0 < args.duration <= .8:
+        (mesh, default_ranks, default_duration,
+         default_period) = PROFILES[args.profile]
+        duration = (args.duration if args.duration is not None
+                    else default_duration)
+        if not math.isfinite(duration) or not 0 < duration <= .8:
             raise ValueError('--duration must be finite and in (0, 0.8]')
+        requested_period = (args.output_period if args.output_period is not None
+                            else default_period)
+        if not math.isfinite(requested_period) or requested_period <= 0:
+            raise ValueError('--output-period must be finite and positive')
+        output_period = min(requested_period, duration)
+        initial, final = 7.2, min(8., 7.2 + duration)
+        if final <= initial:
+            raise ValueError('--duration cannot advance the start time')
+        if initial + output_period <= initial:
+            raise ValueError('--output-period cannot advance the start time')
         if not math.isfinite(args.solid_viscosity) or args.solid_viscosity < 0:
             raise ValueError('--solid-viscosity must be finite and nonnegative')
         if not math.isfinite(args.tolerance_scale) or args.tolerance_scale <= 0:
@@ -93,7 +122,6 @@ def main():
         for path in (source, build, output, assets):
             if '\n' in str(path) or '\r' in str(path):
                 raise ValueError('Parameter paths cannot contain line breaks')
-        mesh, default_ranks = PROFILES[args.profile]
         ranks = args.ranks if args.ranks is not None else default_ranks
         if ranks < 1 or (args.profile == 'tiny' and ranks != 1):
             raise ValueError('Ranks must be positive; tiny requires one rank for UMFPACK')
@@ -104,7 +132,6 @@ def main():
                 raise ValueError(f'Missing asset: {path}')
         inputs.extend(sorted(path for path in (assets / 'network').iterdir()
                              if path.is_file() and path.name != 'manifest'))
-        initial, final = 7.2, min(8., 7.2 + args.duration)
         check_inflow(assets / 'inputs/inlet_ha.csv', initial, final)
         executable = build / 'metric_flow_x_elastodynamics'
         if not executable.is_file() and (build / (executable.name + '_debug')).is_file():
@@ -132,6 +159,8 @@ def main():
                     line = match[1] + format(float(value) * args.tolerance_scale, '.17g')
                 elif key == 'Final time':
                     line = match[1] + format(final, '.17g')
+                elif key == 'Time interval between each output':
+                    line = match[1] + format(output_period, '.17g')
                 elif key == 'Viscosity eta':
                     line = match[1] + format(args.solid_viscosity, '.17g')
             lines.append(line)
@@ -143,20 +172,32 @@ def main():
         output.mkdir(parents=True, exist_ok=False)
         (output / 'common.prm').write_text(common)
         (output / 'parameters.prm').write_text(parameters)
+        audited_duration = AUDITED_DURATIONS[args.profile]
         metadata = {'profile': args.profile, 'ranks': ranks,
+                    'duration_s': duration, 'output_period_s': output_period,
+                    'requested_output_period_s': requested_period,
+                    'current_runtime_audited_duration_s': audited_duration,
                     'initial_time_s': initial, 'final_time_s': final,
                     'solid_viscosity_Pa_s': args.solid_viscosity,
                     'tolerance_scale': args.tolerance_scale, 'command': command,
                     'status': 'prepared',
-                    'unvalidated_scale_profile': args.profile in ('medium', 'large'),
+                    'unvalidated_scale_profile': (
+                      args.profile in ('medium', 'large') and
+                      duration > audited_duration),
+                    'validation_scope': (
+                      f'The recorded b4d85cb6 audit covers {audited_duration:g} s '
+                      f'for {args.profile}: {AUDITED_CONFIGURATIONS[args.profile]}. '
+                      'The small 0.8 s reference uses the earlier a92bee56 runtime. '
+                      'Every new run needs its own audits; startup and conservation '
+                      'checks do not establish physiological validation.'),
                     'sha256': {str(path.relative_to(assets)): sha256(path) for path in inputs}}
         metadata['sha256']['common.prm'] = sha256(output / 'common.prm')
         metadata['sha256']['parameters.prm'] = sha256(output / 'parameters.prm')
         manifest = output / 'run.json'
         manifest.write_text(json.dumps(metadata, indent=2) + '\n')
         print(shlex.join(command), flush=True)
-        if args.profile in ('medium', 'large'):
-            print('This scale profile has no validated coupled runtime.', file=sys.stderr)
+        if metadata['unvalidated_scale_profile']:
+            print('The requested interval exceeds the audited duration for this scale; see run.json.', file=sys.stderr)
         if args.prepare_only:
             return 0
         with (output / 'run.log').open('w') as log:

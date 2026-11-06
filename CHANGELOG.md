@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #351](https://github.com/luca-heltai/immersx/pull/351) Select bounded replicated direct inverses for coupled flow fields and materialize small Schur operators per Jacobian snapshot while checking every inner solve against the original action. Configure these policies in the IRCAD liver profiles without changing physical parameters or solver tolerances.
+
 - [PR #345](https://github.com/luca-heltai/immersx/pull/345) Allow IDA to stop at each output time while retaining its BDF history, so nonlinear algebraic constraints are evaluated at internal step endpoints.
 
 - [PR #345](https://github.com/luca-heltai/immersx/pull/345) Allow linear weak terms with fixed geometry, support and homogeneous constraints to retain their first assembly across residual, transpose and matrix requests while keeping state values and affine offsets current.
@@ -189,6 +191,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #351](https://github.com/luca-heltai/immersx/pull/351) Set durations, output periods and MPI defaults for each liver profile, reject time increments that cannot advance the start time, and distinguish audited startup intervals from the earlier full beat in run metadata and the tutorial.
+
 - [PR #342](https://github.com/luca-heltai/immersx/pull/342) Reuse deal.II MeshWorker scratch data for linear weak-term cell, boundary, and affine assembly, retaining local buffers between cells and evaluating quadrature weights and face basis values once per point.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Release vascular bootstrap and generated-input data after native preparation, retain only live topology in incremental branch records, and construct selected tissue flow conditions without copying the physical graph.
@@ -268,6 +272,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #350](https://github.com/luca-heltai/immersx/pull/350) Use the same fixed primal actions in positive-weight Schur construction, elimination and recovery, preserving the physical multiplier row when AMG is approximate.
+
+- [PR #349](https://github.com/luca-heltai/immersx/pull/349) Retain the coupled displacement–velocity inverse when IDA computes consistent initial conditions with zero derivative weight, avoiding singular diagonal AMG setup in coupled elasticity. Use the same fixed pair action in Schur construction and primal recovery so the multiplier row remains consistent when AMG is approximate.
 
 - [PR #345](https://github.com/luca-heltai/immersx/pull/345) Overwrite imported native pressure-operator destinations correctly on ranks without vessel cells, preserving zero and nonzero pressure actions.
 
