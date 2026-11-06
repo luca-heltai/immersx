@@ -45,8 +45,7 @@ assets/
 ```
 
 Keep the bundle's attribution, input provenance, report and checksums alongside
-these files. Its generated anatomical meshes are distributed with permission
-for this case; retain the original IRCAD attribution and licence.
+these files. Retain the original IRCAD attribution and licence.
 
 From the repository root, prepare a short serial run without executing it:
 

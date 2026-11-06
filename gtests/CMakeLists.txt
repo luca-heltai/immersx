@@ -314,7 +314,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                                  PRIVATE ${GTEST_INCLUDE_DIRS})
       DEAL_II_SETUP_TARGET(${_metric_flow_x_test_target} ${_BUILD_TYPE})
       set(_vascular_transfer_filter
-        "MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds:MetricFlowX.BOTH_PreparesThreeCompartmentInputWithIndependentPortalBoundary")
+        "MetricFlowX.BOTH_PreparesVascularInputWithNativeBeds:MetricFlowX.BOTH_PreparesThreeCompartmentInputWithIndependentPortalBoundary:MetricFlowX.BOTH_PreparesExplicitSealedInputTerminals")
       set(_metric_flow_x_serial_test
           "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowX.Serial")
       add_test(NAME ${_metric_flow_x_serial_test}
