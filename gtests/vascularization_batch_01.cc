@@ -156,7 +156,19 @@ TEST(VascularGrowthBatch,
                                             Point<3>(2., 2., 2.));
   MappingQ1<3>   mapping;
   const auto     n          = roots(bg, mapping);
-  const Point<3> targets[2] = {{.995, 1., .5}, {1.005, 1., .5}};
+  const Point<3> targets[2] = {{1.005, 1., .5}, {.995, 1., .5}};
+  // Both flat-ended rays contain this same strict interior point, so the
+  // distributed conflict does not depend on rounded capsule endcaps.
+  const Point<3> witness(1., 1., .5);
+  for (unsigned int i = 0; i < 2; ++i)
+    {
+      const Point<3> origin(.5 + i, .5 + i, .5);
+      const auto     axis = targets[i] - origin;
+      const double   t    = ((witness - origin) * axis) / axis.norm_square();
+      EXPECT_GT(t, 0.);
+      EXPECT_LT(t, 1.);
+      EXPECT_LT((witness - origin - t * axis).norm(), .01 * std::cbrt(.5));
+    }
   const auto a = point_owner(bg, targets[0]), b = point_owner(bg, targets[1]);
   std::vector<BatchProposal> local;
   if (rank() == a)
