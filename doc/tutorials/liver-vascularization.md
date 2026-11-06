@@ -541,12 +541,12 @@ This delegates component numbering and reference-area scaling to MetricFlowX.
 Choose and verify these tolerances against the spatial and temporal errors of
 the intended case.
 
-The [coupled IRCAD12 starting case](https://github.com/luca-heltai/immersx/blob/0a4ea15e/tutorials/liver_icar/README.md)
-provides a two-territory arterial/portal/venous archive and four run profiles.
-Its [research release](https://github.com/luca-heltai/immersx/releases/tag/liver-icar-start-2026-11-05)
-contains the generated meshes, parameters, numerical inputs/results and a
-literature report. The million and ten-million profiles are preparation cases;
-their transient solver performance is not validated.
+The [coupled IRCAD12 liver tutorial](liver-icar-coupled.md) provides a separate
+two-territory arterial/portal/venous case, three tissue resolutions, physical
+parameters, numerical audits, reproducible result figures and ParaView paths.
+Its recorded results include the small complete interval, the medium 20 ms
+check and the large 2 ms startup. These windows do not establish physiological
+validation, mesh convergence or a uniform inf-sup bound.
 
 For an archived liver case, `Stop at output times = true` under
 `/MetricFlowX coupling/` ends an internal IDA step at each saved time. The
