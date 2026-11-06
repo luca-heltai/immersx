@@ -262,7 +262,14 @@ namespace ImmersX
           if (extension == "msh")
             read_gmsh_file(filename, grid_in);
           else if (extension == "stl")
-            grid_in.read_msh(filename);
+            {
+              // Reject failed opens before entering Gmsh's project lock.
+              {
+                std::ifstream input(filename, std::ios::binary);
+                AssertThrow(input.good(), dealii::ExcFileNotOpen(filename));
+              }
+              grid_in.read_msh(filename);
+            }
           return;
         }
 #endif
