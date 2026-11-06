@@ -82,6 +82,7 @@ set(_public_headers
     immersx/physics/coupled_elasticity.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
+    immersx/algebra/local_preconditioner.h
     immersx/coupling/particle_coupling.h
     immersx/io/imported_finite_element_fields.h
     immersx/io/output_handler.h
@@ -343,7 +344,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                              PROPERTIES LABELS "integration;quick;mpi"
                                         TIMEOUT 300 PROCESSORS 4
                                         RESOURCE_LOCK ImmersX.TestOutput
-                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal")
+                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.BOTH_BackgroundOwnershipKeepsRCRAndFieldValuesLocal:MetricFlowX.BOTH_PressureOperatorOverwritesImportedDestination")
       endif()
       foreach(_ranks 1 2 4)
         if(_ranks GREATER 1 AND NOT _immersx_mpiexec)

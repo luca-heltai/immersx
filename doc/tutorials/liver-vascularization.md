@@ -462,3 +462,94 @@ The figure renderer accepts the same three options and colors portal vessels
 purple. Geometry certification, demand matching and positive perfusion are
 required before writing an accepted result; the finite growth budget can fail
 for an incompatible geometry or search configuration.
+
+
+## Save the volume and reuse the physical network
+
+To save the exact generated volume before distributed partitioning, set:
+
+```text
+subsection Liver
+  set Write volume mesh = true
+end
+```
+
+The new output directory then contains `liver.msh` as well as the physical
+`network/` archive. Set `Only generate mesh = true` to stop after writing the
+volume, for example when preparing several tissue resolutions. This mode also
+requires `Write volume mesh = true`. It does not generate or validate a vascular
+network. The ordinary growth path remains the default.
+
+With a compatible MetricFlowX package, `metric_flow_x_elastodynamics` can load
+the physical archive and subdivide its vessels against its final tissue mesh.
+The imported tissue mesh can be `liver.msh`; select a fully distributed Domain
+for tetrahedra. Configure the ordinary solid, IDA, inflow and lift parameters,
+then add the following explicit vascular data:
+
+```text
+subsection MetricFlowX coupling
+  subsection Archived network
+    set Directory = /absolute/path/to/network
+    set Young moduli = 400000,400000,400000
+    set Wall thickness ratios = .1,.1,.1
+    set Reference pressures = 10064.5,629.6,1066.6
+    set Portal pressure = 1066.6
+    set Venous pressure = 629.6
+    set Root resistance = 100000
+  end
+end
+```
+
+The three material entries are in **arterial, venous, portal** order. Young
+moduli and reference pressures are in Pa; wall thickness is the given ratio
+times the mean vessel radius. Root resistance is in Pa s/m³. The numbers above
+illustrate the parameter contract, not a patient calibration. The arterial
+root retains the native inflow function or CSV. Portal and venous roots use
+separate pressure reservoirs with the stated positive series resistance.
+This requires a backend with orientation-correct RCR conditions at both vessel
+ends. The saved common microvascular compartments connect the tissue leaves;
+they do not acquire extra independent outlet resistances. An archive with
+unconnected tissue leaves is rejected. In particular, the anatomical growth
+example above retains unused input leaves and needs an explicit physiological
+closure before it can be adopted by this path.
+
+The coupled output reports each block's DoFs and the total. Per-rank
+`mesh_scale-*.csv` files retain each numerical interval's length and the
+minimum/maximum diameter of crossed tissue cells. Short-cell exceptions are
+reported explicitly. Terminal CSV diagnostics use actual boundary traces,
+including the coupled external pressure. Mass diagnostics compare net outward
+flow with volume change between accepted output times; the first record has no
+previous interval.
+
+For an equilibrium start, IDA's `Correction type at initial time = use_y_dot`
+uses a zero state derivative to solve the complete coupled residual at the
+initial time. This equilibrates the chosen boundary data; it does not establish
+a periodic coupled state. For exterior tissue support, configure the solid's
+`Robin boundary ids`, `Functions/Robin coefficient` and
+`Functions/Robin boundary` as described in the
+[Robin boundary reference](../reference/robin-boundaries.md).
+
+
+Coupled error control can use different absolute tolerances for quantities
+with different units. Set `Displacement absolute tolerance` (m),
+`Velocity absolute tolerance` (m/s), and `Wall pressure absolute tolerance`
+(Pa) under `MetricFlowX coupling`. Their zero defaults retain the common IDA
+absolute tolerance. `Use native flow tolerances = true` reuses MetricFlowX's
+`Area absolute tolerance fraction`, `Velocity absolute tolerance`, and
+`Capacitor pressure absolute tolerance` for its mixed area/velocity/pressure vector.
+This delegates component numbering and reference-area scaling to MetricFlowX.
+Choose and verify these tolerances against the spatial and temporal errors of
+the intended case.
+
+The [coupled IRCAD12 starting case](https://github.com/luca-heltai/immersx/blob/0a4ea15e/tutorials/liver_icar/README.md)
+provides a two-territory arterial/portal/venous archive and four run profiles.
+Its [research release](https://github.com/luca-heltai/immersx/releases/tag/liver-icar-start-2026-11-05)
+contains the generated meshes, parameters, numerical inputs/results and a
+literature report. The million and ten-million profiles are preparation cases;
+their transient solver performance is not validated.
+
+For an archived liver case, `Stop at output times = true` under
+`/MetricFlowX coupling/` ends an internal IDA step at each saved time. The
+default remains dense output. Internal stops retain the BDF history and avoid
+interpolation defects in nonlinear hydraulic constraints. Control Newton
+convergence separately through the IDA `Nonlinear solver` subsection.

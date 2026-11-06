@@ -12,6 +12,17 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Added
 
 - [PR #347](https://github.com/luca-heltai/immersx/pull/347) Select composed normal or MUMPS-BLR preconditioning for harmonic reinforcement through solver parameters, with controls for inner CG accuracy, the FGMRES basis, BLR truncation and MUMPS workspace.
+- [PR #353](https://github.com/luca-heltai/immersx/pull/353) Add the ParaView Area Tube plugin to visualize line datasets with radius computed from cross-sectional area.
+
+- [PR #351](https://github.com/luca-heltai/immersx/pull/351) Select bounded replicated direct inverses for coupled flow fields and materialize small Schur operators per Jacobian snapshot while checking every inner solve against the original action. Configure these policies in the IRCAD liver profiles without changing physical parameters or solver tolerances.
+
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Allow IDA to stop at each output time while retaining its BDF history, so nonlinear algebraic constraints are evaluated at internal step endpoints.
+
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Allow linear weak terms with fixed geometry, support and homogeneous constraints to retain their first assembly across residual, transpose and matrix requests while keeping state values and affine offsets current.
+
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Configure coupled displacement, velocity and wall-pressure absolute tolerances in their physical units, and reuse native MetricFlowX component tolerances for its mixed flow state.
+
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Load archived arterial, portal and venous CCO networks in the coupled flow–tissue application, retain their common microvascular compartments, and discretize their edges against the final tissue mesh. Report block DoFs, local mesh scales and physical terminal diagnostics. Save exact generated liver volume meshes and support mesh-only preparation.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Export the coupled solid elastic and Robin spring energy and prescribed-load work at accepted output times.
 
@@ -183,6 +194,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #351](https://github.com/luca-heltai/immersx/pull/351) Set durations, output periods and MPI defaults for each liver profile, reject time increments that cannot advance the start time, and distinguish audited startup intervals from the earlier full beat in run metadata and the tutorial.
+
 - [PR #342](https://github.com/luca-heltai/immersx/pull/342) Reuse deal.II MeshWorker scratch data for linear weak-term cell, boundary, and affine assembly, retaining local buffers between cells and evaluating quadrature weights and face basis values once per point.
 
 - [PR #325](https://github.com/luca-heltai/immersx/pull/325) Release vascular bootstrap and generated-input data after native preparation, retain only live topology in incremental branch records, and construct selected tissue flow conditions without copying the physical graph.
@@ -264,6 +277,16 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Fixed
 
 - [PR #347](https://github.com/luca-heltai/immersx/pull/347) Handle exact Krylov-space closure in LinearAdapter on deal.II 9.7 as well as newer versions, so exact preconditioners converge without NaN residuals.
+- [PR #346](https://github.com/luca-heltai/immersx/pull/346) Reject unreadable STL inputs before entering Gmsh and verify that missing MSH or STL files preserve later valid imports in the same session.
+- [PR #355](https://github.com/luca-heltai/immersx/pull/355) Rebalance vascular mesh cuts when adjacent intervals can satisfy the existing background length bounds without changing physical vessel geometry.
+
+- [PR #350](https://github.com/luca-heltai/immersx/pull/350) Use the same fixed primal actions in positive-weight Schur construction, elimination and recovery, preserving the physical multiplier row when AMG is approximate.
+
+- [PR #349](https://github.com/luca-heltai/immersx/pull/349) Retain the coupled displacement–velocity inverse when IDA computes consistent initial conditions with zero derivative weight, avoiding singular diagonal AMG setup in coupled elasticity. Use the same fixed pair action in Schur construction and primal recovery so the multiplier row remains consistent when AMG is approximate.
+
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Overwrite imported native pressure-operator destinations correctly on ranks without vessel cells, preserving zero and nonzero pressure actions.
+
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Check MUMPS corrections against the retained Jacobian, preventing failed native factorizations from silently freezing a coupled trajectory. Allow an explicit workspace margin for the liver profiles.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Reject unreadable Gmsh mesh files before opening them in an existing session, so a missing input does not prevent later valid mesh imports.
 
@@ -432,6 +455,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #345](https://github.com/luca-heltai/immersx/pull/345) Provide IRCAD12 liver parameter profiles, bounded MOX arterial input, a two-territory physical vascular archive with CCO bifurcations in all three networks, and reproducible mesh-generation and run commands for a tiny pilot and three problem sizes.
+
 - [PR #314](https://github.com/luca-heltai/immersx/pull/314) Add optional portal-tree preparation and growth to the liver workflow, with a common-compartment diagram, independent checks and rendering for three networks. Preserve the published 1,000-pair arterial–venous reference.
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Use project-relative examples in the liver tutorial without machine names or installation-specific paths.
 - [PR #313](https://github.com/luca-heltai/immersx/pull/313) Illustrate the liver tutorial with native before-and-after vascular trees and a tissue-volume section; provide a renderer and a manifest of the checked source data.
@@ -474,6 +499,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #344](https://github.com/luca-heltai/immersx/pull/344) Keep performance history across fast-forward merges with reordered parents, validate the current source before historical backfill, and retain historical failures without blocking a valid current revision.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Request the conservation accuracy checked by the vascular Robin regression explicitly and keep its assertions free of ambiguous-else compiler diagnostics.
 
