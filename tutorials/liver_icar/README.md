@@ -69,18 +69,24 @@ The default asset directory is `<build>/data/liver_icar/assets`.
 | --- | --- | ---: | ---: | --- |
 | `tiny` | P1 / DG0 | 19,818 | 26 | Serial UMFPACK |
 | `small` | P2 / DG1 | 132,672 | 26 | MUMPS, four ranks by default |
-| `medium` | P2 / DG1 | 992,034 | 55 | Iterative; coupled run unvalidated |
-| `large` | P2 / DG1 | 10,206,420 | 128 | Iterative; coupled run unvalidated |
+| `medium` | P2 / DG1 | 992,034 | 55 | Iterative, 32 ranks; 20 ms audited |
+| `large` | P2 / DG1 | 10,206,420 | 128 | Iterative, 64 ranks; consistent initialization accepted |
 
-The tiny and small profiles report 20,000 and 132,932 total coupled DoFs.
-The table itself counts only solid displacement and velocity. Assuming the
-current native face unknown layout and DG1 multiplier, adding ten DoFs per numerical 1D cell gives
-derived medium/large coupled totals of 992,584 and 10,207,700. Confirm these
-against the executable's reported block counts before using them as measurements.
-Medium and large are preparation profiles, not completed large simulations or
-a demonstrated scalable solver. All profiles default to
-the recorded 7.2–8 s interval; use `--duration` for a shorter startup check.
-Tiny requires one rank. `--ranks` overrides the other profiles' default.
+The measured total coupled DoFs are 20,000, 132,932, 992,584 and
+10,207,700 respectively. The table counts only solid displacement and velocity.
+The [scaling tracker](https://github.com/luca-heltai/immersx/issues/343)
+records the tested revisions, resource bounds and audits. The small case has a
+complete 0.8 s beat. The frozen experimental solvers recorded in the tracker
+have passed a 20 ms medium transient; the large case has
+reached consistent initialization, while its short transient is still being
+validated. Replay with the public solver configuration below is pending.
+These observations do not establish mesh convergence, a uniform
+inf-sup bound or physiological validation.
+
+All profiles default to the recorded 7.2–8 s interval. Use `--duration .002`
+for an initial startup check on medium or large; a full beat on those scales
+has not been validated. Tiny requires one rank. `--ranks` overrides the other
+profiles' defaults and should match the available memory and CPU allocation.
 
 The native archive redistribution and discretization checks passed at four
 ranks on all three meshes. Across every crossed background cell, numerical
@@ -146,6 +152,58 @@ this scales every absolute tolerance and the common relative tolerance.
 Changing only the relative tolerance can leave absolute-tolerance-dominated
 components almost unchanged. Shared IDA statistics and the final timing table
 are the relevant solver diagnostics; native standalone IDA CSVs are disabled.
+
+## Bounded coupled inverses
+
+Medium and large select these controls under
+`MetricFlowSystem<1, 3>/IDA parameters/Linear solver`:
+
+```text
+set Maximum replicated flow inverse DoFs = 2048
+set Maximum materialized Schur DoFs = 512
+```
+
+The first selects a replicated LAPACK LU inverse for a flow field no larger
+than the limit. The flow fields have 440 and 1024 DoFs; this does not replicate
+the tissue matrix. Above the limit the application retains its default ILU.
+Zero retains ILU at every size. The native standalone `Use direct solver`
+option does not select the coupled field inverse.
+
+The second samples the small Schur operator once per Jacobian snapshot and
+reuses its dense column matrix in the inner GMRES. The limits apply to the
+110/256 multiplier DoFs, not the roughly one/ten million total DoFs. A zero
+limit keeps matrix-free inner actions, as does a field above the limit.
+Storage is quadratic in the selected small-field size on every MPI rank.
+The sampled Schur operator still uses approximate tissue inverses; it is not
+the exact Schur complement of the full coupled Jacobian.
+
+GMRES retains its metric and tolerance. Every materialized inner solve checks
+its residual again with the original operator in that metric, including
+transpose solves. If sampling roundoff leaves this check above target, it
+performs up to three residual corrections within the original inner iteration
+budget, with the same target based on the original right-hand side. Failure
+still throws. The outer coupled true-residual check also remains active. Snapshot time and derivative weight describe the retained
+linearization, which IDA may reuse during chord Newton iterations.
+
+In C++, configure the execution adapter before initialization:
+
+```cpp
+using FlowVector = MetricFlowX::VectorType;
+adapter.set_schur_materialization_limit(512);
+auto flow = ImmersX::metric_flow_x(flow_problem);
+flow.preconditioner_factory = [](const auto &matrix, const auto &prototype) {
+  return ImmersX::make_replicated_direct_preconditioner<FlowVector>(
+    matrix, prototype, 2048);
+};
+const auto fields = adapter.add(flow, "blood-flow");
+```
+
+The direct helper requires a nonempty square MPI field block within its
+explicit bound and matching prototype layout. It owns the LU factors,
+supports `Tvmult`, and is collective even on ranks with no owned flow rows.
+Callers choose their fallback before selecting this strict helper. Leaving
+the descriptor factory empty preserves ordinary `metric_flow_x(problem)`
+registration and its ILU default.
 
 ## Regenerate the volume and physical archive
 

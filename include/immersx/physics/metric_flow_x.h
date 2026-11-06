@@ -28,16 +28,21 @@ namespace ImmersX
   /** Non-owning description of a MetricFlowX Problem contribution.
    *
    * BloodFlowSystem owns the mesh, physics, and native vectors.  This value
-   * only supplies the mutable access needed by native assembly while allowing
-   * the public adapter::add() API to retain its logically-const contributor
-   * contract.
+   * supplies mutable access for native assembly and an optional caller-selected
+   * field inverse. The public adapter::add() API retains its logically-const
+   * contributor contract.
    */
   template <int dim, int spacedim = dim>
   struct MetricFlowXProblem
   {
-    using Problem = ::MetricFlowX::BloodFlowSystem<dim, spacedim>;
+    using Problem               = ::MetricFlowX::BloodFlowSystem<dim, spacedim>;
+    using PreconditionerFactory = typename SemiDiscreteModel<
+      ::MetricFlowX::VectorType,
+      ::MetricFlowX::MatrixType>::PreconditionerFactory;
 
     Problem *problem = nullptr;
+    // The execution caller may replace the default ILU field inverse.
+    PreconditionerFactory preconditioner_factory;
   };
 
   /** Semantic fields and native component views for one BloodFlowSystem. */
@@ -55,9 +60,12 @@ namespace ImmersX
   /** Make a non-owning MetricFlowX contribution descriptor. */
   template <int dim, int spacedim>
   MetricFlowXProblem<dim, spacedim>
-  metric_flow_x(::MetricFlowX::BloodFlowSystem<dim, spacedim> &problem)
+  metric_flow_x(
+    ::MetricFlowX::BloodFlowSystem<dim, spacedim> &problem,
+    typename MetricFlowXProblem<dim, spacedim>::PreconditionerFactory
+      preconditioner_factory = {})
   {
-    return {&problem};
+    return {&problem, std::move(preconditioner_factory)};
   }
 
   /** Register BloodFlowSystem as one mixed differential/algebraic Field. */
@@ -84,21 +92,24 @@ namespace ImmersX
                                         problem.differential_dofs());
 
     // Coupled Schur preconditioning needs an inverse of the mixed flow block.
-    builder.preconditioner(
-      state, [](const auto &matrix, const auto &prototype) {
-        using Preconditioner = ::MetricFlowX::LA::MPI::PreconditionILU;
-        typename Preconditioner::AdditionalData data;
+    if (description.preconditioner_factory)
+      builder.preconditioner(state, description.preconditioner_factory);
+    else
+      builder.preconditioner(
+        state, [](const auto &matrix, const auto &prototype) {
+          using Preconditioner = ::MetricFlowX::LA::MPI::PreconditionILU;
+          typename Preconditioner::AdditionalData data;
 #  ifdef METRIC_FLOW_X_WITH_TRILINOS
-        // Algebraic traces have zero diagonal entries and couple neighboring
-        // cells. Overlap and first-level fill retain those couplings in the
-        // local inverses across MPI cuts.
-        data.ilu_atol = 1.e-5;
-        data.overlap  = 1;
-        data.ilu_fill = 1;
+          // Algebraic traces have zero diagonal entries and couple neighboring
+          // cells. Overlap and first-level fill retain those couplings in the
+          // local inverses across MPI cuts.
+          data.ilu_atol = 1.e-5;
+          data.overlap  = 1;
+          data.ilu_fill = 1;
 #  endif
-        return make_local_preconditioner<Vector, Matrix, Preconditioner>(
-          matrix, prototype, data);
-      });
+          return make_local_preconditioner<Vector, Matrix, Preconditioner>(
+            matrix, prototype, data);
+        });
 
     auto term = builder.term(state, "blood-flow");
     term.residual([description, state](const auto &context) {

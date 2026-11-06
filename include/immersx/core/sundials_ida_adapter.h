@@ -246,6 +246,20 @@ namespace ImmersX
       include_schur_primal_coupling_ = enabled;
     }
 
+    /** Materialize Schur operators up to this global field size per snapshot.
+     * Zero keeps matrix-free inner actions. Cached solves retain the original
+     * GMRES metric/tolerance and verify the original operator residual.
+     */
+    void
+    set_schur_materialization_limit(const unsigned int maximum_dofs)
+    {
+      AssertThrow(
+        !connected_,
+        dealii::ExcMessage(
+          "Configure Schur materialization before solver initialization."));
+      schur_materialization_limit_ = maximum_dofs;
+    }
+
     /** Configure IDA controls before solver() or solve() connects callbacks. */
     void
     set_additional_data(const AdditionalData &data)
@@ -547,7 +561,15 @@ namespace ImmersX
     schur_preconditioner(const FieldId           multiplier,
                          const GlobalVectorType &state) const
     {
-      return composition_.schur_preconditioner(multiplier, state);
+      return composition_.schur_preconditioner(multiplier,
+                                               state,
+                                               nullptr,
+                                               0.,
+                                               1000,
+                                               1.e-9,
+                                               false,
+                                               nullptr,
+                                               schur_materialization_limit_);
     }
 
   private:
@@ -1108,7 +1130,8 @@ namespace ImmersX
                   1000,
                   1.e-9,
                   include_schur_primal_coupling_,
-                  snapshot.get()));
+                  snapshot.get(),
+                  schur_materialization_limit_));
               current_solver_is_flexible_ = true;
             }
           else if (composition_.has_isolated_second_order_pair())
@@ -1174,6 +1197,7 @@ namespace ImmersX
     bool                                current_solver_is_flexible_ = false;
     bool                                connected_                  = false;
     bool                                include_schur_primal_coupling_ = false;
+    unsigned int                        schur_materialization_limit_   = 0;
   };
 } // namespace ImmersX
 #endif

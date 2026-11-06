@@ -18,8 +18,8 @@ import sys
 PROFILES = {
     'tiny': ('small', 1),
     'small': ('small', 4),
-    'medium': ('medium', 4),
-    'large': ('large', 4),
+    'medium': ('medium', 32),
+    'large': ('large', 64),
 }
 TOLERANCE_KEYS = {
     'Area absolute tolerance fraction', 'Velocity absolute tolerance',
@@ -72,7 +72,7 @@ def main():
     parser.add_argument('--profile', choices=PROFILES, default='tiny')
     parser.add_argument('--duration', type=float, default=.8,
                         help='Seconds after 7.2 s, up to the recorded endpoint 8 s')
-    parser.add_argument('--ranks', type=int, help='Default: one for tiny, four otherwise')
+    parser.add_argument('--ranks', type=int, help='Default ranks: tiny 1, small 4, medium 32, large 64')
     parser.add_argument('--solid-viscosity', type=float, default=4.2,
                         help='Native eta coefficient in Pa s; zero is the undamped control')
     parser.add_argument('--tolerance-scale', type=float, default=1.,
@@ -148,15 +148,17 @@ def main():
                     'solid_viscosity_Pa_s': args.solid_viscosity,
                     'tolerance_scale': args.tolerance_scale, 'command': command,
                     'status': 'prepared',
-                    'unvalidated_scale_profile': args.profile in ('medium', 'large'),
+                    'unvalidated_scale_profile': args.profile == 'large' or
+                      (args.profile == 'medium' and args.duration > .02),
+                    'validation_scope': 'Documented release inputs and parameters only; frozen experimental solvers tested medium through 20 ms; public-API replay and large transient validation pending.',
                     'sha256': {str(path.relative_to(assets)): sha256(path) for path in inputs}}
         metadata['sha256']['common.prm'] = sha256(output / 'common.prm')
         metadata['sha256']['parameters.prm'] = sha256(output / 'parameters.prm')
         manifest = output / 'run.json'
         manifest.write_text(json.dumps(metadata, indent=2) + '\n')
         print(shlex.join(command), flush=True)
-        if args.profile in ('medium', 'large'):
-            print('This scale profile has no validated coupled runtime.', file=sys.stderr)
+        if metadata['unvalidated_scale_profile']:
+            print('The requested scale/time interval exceeds the documented validated transient.', file=sys.stderr)
         if args.prepare_only:
             return 0
         with (output / 'run.log').open('w') as log:

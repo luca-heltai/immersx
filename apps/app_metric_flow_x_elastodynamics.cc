@@ -373,6 +373,17 @@ namespace
       ParameterAcceptor::prm,
       Patterns::Selection("iterative|umfpack|mumps"));
 
+    unsigned int flow_direct_inverse_limit   = 0;
+    unsigned int schur_materialization_limit = 0;
+    coupled_solver.add_parameter(
+      "Maximum replicated flow inverse DoFs",
+      flow_direct_inverse_limit,
+      "Use replicated dense LU up to this global flow field size; zero retains the default ILU.");
+    coupled_solver.add_parameter(
+      "Maximum materialized Schur DoFs",
+      schur_materialization_limit,
+      "Cache Schur columns up to this global multiplier size per Jacobian; zero keeps matrix-free inner actions.");
+
     ParameterAcceptor coupling("/MetricFlowX coupling/");
     std::string       embedded_partitioning = "default";
     coupling.add_parameter(
@@ -704,6 +715,7 @@ namespace
       adapter.set_mumps_workspace_relaxation(
         static_cast<unsigned int>(mumps_workspace_relaxation));
     adapter.set_schur_primal_coupling();
+    adapter.set_schur_materialization_limit(schur_materialization_limit);
     if (linear_solver == "iterative")
       adapter.set_linear_solver(Adapter::LinearSolver::iterative);
     else if (linear_solver == "umfpack")
@@ -711,8 +723,23 @@ namespace
     else if (linear_solver == "mumps")
       adapter.set_linear_solver(Adapter::LinearSolver::mumps);
     const auto solid_fields = adapter.add(solid_problem, "elastodynamics");
-    const auto flow_fields =
-      adapter.add(metric_flow_x(flow_problem), "blood-flow");
+    AssertThrow(
+      Utilities::MPI::min(flow_direct_inverse_limit, MPI_COMM_WORLD) ==
+          Utilities::MPI::max(flow_direct_inverse_limit, MPI_COMM_WORLD) &&
+        Utilities::MPI::min(flow_problem.locally_owned_dofs().size(),
+                            MPI_COMM_WORLD) ==
+          Utilities::MPI::max(flow_problem.locally_owned_dofs().size(),
+                              MPI_COMM_WORLD),
+      ExcMessage("Flow inverse limits or dimensions differ across ranks."));
+    auto flow_description = metric_flow_x(flow_problem);
+    if (flow_direct_inverse_limit > 0 &&
+        flow_problem.locally_owned_dofs().size() <= flow_direct_inverse_limit)
+      flow_description.preconditioner_factory =
+        [flow_direct_inverse_limit](const auto &matrix, const auto &prototype) {
+          return make_replicated_direct_preconditioner<FieldVector>(
+            matrix, prototype, flow_direct_inverse_limit);
+        };
+    const auto flow_fields = adapter.add(flow_description, "blood-flow");
 
     const auto coupling_fields = adapter.add(
       [&](auto &builder) {

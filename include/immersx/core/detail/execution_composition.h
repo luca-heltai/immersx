@@ -852,8 +852,9 @@ namespace ImmersX::detail
                          const double            alpha              = 0.,
                          const unsigned int      maximum_iterations = 1000,
                          const double            tolerance          = 1.e-9,
-                         const bool      include_primal_coupling    = false,
-                         const Snapshot *snapshot = nullptr) const
+                         const bool         include_primal_coupling = false,
+                         const Snapshot    *snapshot                = nullptr,
+                         const unsigned int materialization_limit   = 0) const
     {
       const auto *prepared_model =
         snapshot ? &snapshot->linearization : nullptr;
@@ -892,7 +893,8 @@ namespace ImmersX::detail
                                            context,
                                            maximum_iterations,
                                            tolerance,
-                                           prepared_model);
+                                           prepared_model,
+                                           materialization_limit);
       struct Participant
       {
         unsigned int  block;
@@ -974,38 +976,12 @@ namespace ImmersX::detail
       const auto multiplier_block          = field_layout_.block(multiplier);
       const auto multiplier_preconditioner = this->multiplier_preconditioner(
         multiplier, state, context, prepared_model);
-      const auto schur_transpose = dealii::transpose_operator(schur);
-      const auto multiplier_preconditioner_transpose =
-        dealii::transpose_operator(multiplier_preconditioner);
-
-      auto solve_multiplier = [schur,
-                               schur_transpose,
-                               multiplier_preconditioner,
-                               multiplier_preconditioner_transpose,
-                               maximum_iterations,
-                               tolerance](FieldVectorType       &solution,
-                                          const FieldVectorType &rhs,
-                                          const bool             transpose) {
-        // The Schur complement can reach a lucky breakdown: an Arnoldi vector
-        // becomes exactly zero after the exact solution has been found.
-        // deal.II's default delayed classical Gram-Schmidt divides by a zero
-        // norm in that case, while modified Gram-Schmidt stops.
-        // A relative reduction keeps this preconditioner usable for small
-        // correction right-hand sides. An absolute tolerance can return zero
-        // for a nonzero vector and cause false FGMRES happy breakdown.
-        dealii::ReductionControl control(maximum_iterations, 0., tolerance);
-        typename dealii::SolverGMRES<FieldVectorType>::AdditionalData data;
-        data.orthogonalization_strategy = dealii::LinearAlgebra::
-          OrthogonalizationStrategy::modified_gram_schmidt;
-        dealii::SolverGMRES<FieldVectorType> solver(control, data);
-        if (transpose)
-          solver.solve(schur_transpose,
-                       solution,
-                       rhs,
-                       multiplier_preconditioner_transpose);
-        else
-          solver.solve(schur, solution, rhs, multiplier_preconditioner);
-      };
+      auto solve_multiplier = make_schur_solver(schur,
+                                                multiplier_preconditioner,
+                                                maximum_iterations,
+                                                tolerance,
+                                                materialization_limit,
+                                                false);
 
       auto apply = [participants,
                     primal_corrections,
@@ -2224,6 +2200,129 @@ namespace ImmersX::detail
     }
 
   private:
+    /** Retain one bounded Schur matrix per snapshot and verify its solves
+     * against the original action in the original left-preconditioned norm.
+     */
+    std::function<void(FieldVectorType &, const FieldVectorType &, bool)>
+    make_schur_solver(const LocalOperator &schur,
+                      const LocalOperator &metric,
+                      const unsigned int   maximum_iterations,
+                      const double         tolerance,
+                      const unsigned int   materialization_limit,
+                      const bool           retain_full_basis) const
+    {
+      AssertThrow(
+        dealii::Utilities::MPI::min(materialization_limit, communicator_) ==
+          dealii::Utilities::MPI::max(materialization_limit, communicator_),
+        dealii::ExcMessage(
+          "Schur materialization limits differ across ranks."));
+      FieldVectorType prototype;
+      schur.reinit_domain_vector(prototype, false);
+      AssertThrow(
+        dealii::Utilities::MPI::min(prototype.size(), communicator_) ==
+          dealii::Utilities::MPI::max(prototype.size(), communicator_),
+        dealii::ExcMessage("Schur dimensions differ across ranks."));
+      const bool materialized = materialization_limit > 0 &&
+                                prototype.size() > 0 &&
+                                prototype.size() <= materialization_limit;
+      const auto solver_schur =
+        materialized ?
+          detail::materialize_replicated_operator(schur,
+                                                  communicator_,
+                                                  materialization_limit) :
+          schur;
+      return [schur,
+              solver_schur,
+              metric,
+              maximum_iterations,
+              tolerance,
+              materialized,
+              retain_full_basis](FieldVectorType       &solution,
+                                 const FieldVectorType &rhs,
+                                 const bool             transpose) {
+        schur.reinit_domain_vector(solution, false);
+        solution = 0.;
+        dealii::ReductionControl control(maximum_iterations, 0., tolerance);
+        // A bounded static multiplier system can retain its complete basis.
+        // Include the workspace slots used by older supported constructors.
+        const auto basis_size =
+          std::min<dealii::types::global_dof_index>(rhs.size(),
+                                                    maximum_iterations);
+        const unsigned int workspace =
+          materialized && retain_full_basis ?
+            static_cast<unsigned int>(basis_size) + 2 :
+            30;
+        typename dealii::SolverGMRES<FieldVectorType>::AdditionalData data(
+          workspace);
+        data.orthogonalization_strategy = dealii::LinearAlgebra::
+          OrthogonalizationStrategy::modified_gram_schmidt;
+        const auto solve = [&](FieldVectorType       &value,
+                               const FieldVectorType &right_hand_side,
+                               dealii::SolverControl &solver_control) {
+          dealii::SolverGMRES<FieldVectorType> solver(solver_control, data);
+          if (transpose)
+            solver.solve(dealii::transpose_operator(solver_schur),
+                         value,
+                         right_hand_side,
+                         dealii::transpose_operator(metric));
+          else
+            solver.solve(solver_schur, value, right_hand_side, metric);
+        };
+        solve(solution, rhs, control);
+        unsigned int iterations = control.last_step();
+        if (materialized)
+          {
+            FieldVectorType residual, weighted_residual, weighted_rhs;
+            schur.reinit_range_vector(residual, false);
+            metric.reinit_range_vector(weighted_residual, false);
+            metric.reinit_range_vector(weighted_rhs, false);
+            if (transpose)
+              metric.Tvmult(weighted_rhs, rhs);
+            else
+              metric.vmult(weighted_rhs, rhs);
+            const double reference = weighted_rhs.l2_norm();
+            AssertThrow(std::isfinite(reference),
+                        dealii::ExcMessage(
+                          "The Schur right-hand side is not finite."));
+            const double target = tolerance * reference;
+            // Sampling and applying an operator can round differently. Refine
+            // against the original action without relaxing its residual target.
+            for (unsigned int refinement = 0;; ++refinement)
+              {
+                if (transpose)
+                  schur.Tvmult(residual, solution);
+                else
+                  schur.vmult(residual, solution);
+                residual -= rhs;
+                if (transpose)
+                  metric.Tvmult(weighted_residual, residual);
+                else
+                  metric.vmult(weighted_residual, residual);
+                const double defect = weighted_residual.l2_norm();
+                if (std::isfinite(defect) && defect <= target)
+                  break;
+                AssertThrow(std::isfinite(defect) && refinement < 3 &&
+                              iterations < maximum_iterations,
+                            dealii::SolverControl::NoConvergence(iterations,
+                                                                 defect));
+                FieldVectorType correction;
+                schur.reinit_domain_vector(correction, false);
+                correction = 0.;
+                residual *= -1.;
+                dealii::ReductionControl correction_control(
+                  maximum_iterations - iterations, target, tolerance);
+                solve(correction, residual, correction_control);
+                const auto used = correction_control.last_step();
+                AssertThrow(used > 0,
+                            dealii::SolverControl::NoConvergence(iterations,
+                                                                 defect));
+                iterations += used;
+                solution += correction;
+              }
+          }
+      };
+    }
+
     static bool
     has_static_second_order_pair(const SaddlePointMetadata &metadata,
                                  const Model               &model)
@@ -2458,7 +2557,8 @@ namespace ImmersX::detail
       const EvaluationContext<FieldVectorType> &context,
       const unsigned int                        maximum_iterations,
       const double                              tolerance,
-      const Model                              *prepared_model) const
+      const Model                              *prepared_model,
+      const unsigned int                        materialization_limit) const
     {
       const auto operators =
         static_schur_operators(metadata, state, context, prepared_model);
@@ -2466,6 +2566,12 @@ namespace ImmersX::detail
                                                     state,
                                                     context,
                                                     prepared_model);
+      const auto solve_multiplier = make_schur_solver(operators.schur,
+                                                      metric,
+                                                      maximum_iterations,
+                                                      tolerance,
+                                                      materialization_limit,
+                                                      true);
       const auto multiplier_block = field_layout_.block(metadata.multiplier);
       struct NonParticipant
       {
@@ -2490,13 +2596,11 @@ namespace ImmersX::detail
           non_participants.push_back({block, *inverse});
         }
       const auto apply = [operators,
-                          metric,
                           multiplier_block,
                           non_participants,
-                          maximum_iterations,
-                          tolerance](GlobalVectorType       &dst,
-                                     const GlobalVectorType &src,
-                                     const bool              transpose) {
+                          solve_multiplier](GlobalVectorType       &dst,
+                                            const GlobalVectorType &src,
+                                            const bool              transpose) {
         GlobalVectorType primal;
         operators.inverse.reinit_range_vector(primal, false);
         if (transpose)
@@ -2511,19 +2615,7 @@ namespace ImmersX::detail
         else
           operators.to_multiplier.vmult(rhs, primal);
         rhs -= src.block(multiplier_block);
-        lambda = 0.;
-        dealii::ReductionControl control(maximum_iterations, 0., tolerance);
-        typename dealii::SolverGMRES<FieldVectorType>::AdditionalData data;
-        data.orthogonalization_strategy = dealii::LinearAlgebra::
-          OrthogonalizationStrategy::modified_gram_schmidt;
-        dealii::SolverGMRES<FieldVectorType> solver(control, data);
-        if (transpose)
-          solver.solve(dealii::transpose_operator(operators.schur),
-                       lambda,
-                       rhs,
-                       dealii::transpose_operator(metric));
-        else
-          solver.solve(operators.schur, lambda, rhs, metric);
+        solve_multiplier(lambda, rhs, transpose);
         if (transpose)
           operators.to_multiplier.Tvmult(primal, lambda);
         else

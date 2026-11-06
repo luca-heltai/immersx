@@ -82,6 +82,7 @@ set(_public_headers
     immersx/physics/coupled_elasticity.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
+    immersx/algebra/local_preconditioner.h
     immersx/coupling/particle_coupling.h
     immersx/io/imported_finite_element_fields.h
     immersx/io/output_handler.h
