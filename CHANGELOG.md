@@ -450,7 +450,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Document the coupled IRCAD12 liver profiles, model assumptions and recorded checks, with reproducible scalar plots and snapshots, complete references, and verified ParaView entrypoints.
+- [PR #354](https://github.com/luca-heltai/immersx/pull/354) Document the two-territory IRCAD12 solver pilot, model assumptions and recorded checks, with reproducible scalar plots and snapshots, complete references, and verified ParaView entrypoints.
 
 - [PR #345](https://github.com/luca-heltai/immersx/pull/345) Provide IRCAD12 liver parameter profiles, bounded MOX arterial input, a two-territory physical vascular archive with CCO bifurcations in all three networks, and reproducible mesh-generation and run commands for a tiny pilot and three problem sizes.
 
