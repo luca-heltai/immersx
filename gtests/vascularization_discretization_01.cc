@@ -270,6 +270,66 @@ TEST(VascularDiscretization, NonconvexDomainHasDisjointInteriorIntervals)
     }
 }
 
+TEST(VascularDiscretization, BOTH_RebalancesCutsAcrossDifferentCellSizes)
+{
+  const auto       comm       = MPI_COMM_WORLD;
+  const auto       rank       = Utilities::MPI::this_mpi_process(comm);
+  const auto       owner      = Utilities::MPI::n_mpi_processes(comm) - 1;
+  const double     fine_width = std::sqrt(.08), coarse_width = std::sqrt(1.36);
+  Triangulation<3> serial;
+  GridGenerator::subdivided_hyper_rectangle(
+    serial,
+    std::vector<std::vector<double>>{{fine_width, coarse_width}, {.2}, {.2}},
+    Point<3>(),
+    Point<3>(fine_width + coarse_width, .2, .2));
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial, comm);
+  parallel::fullydistributed::Triangulation<3> background(comm);
+  background.create_triangulation(description);
+  NetworkData network;
+  if (rank == owner)
+    {
+      network                       = line(Point<3>(fine_width - .25, .1, .1),
+                     Point<3>(fine_width + .85, .1, .1));
+      network.vessels.at(100).owner = owner;
+      for (auto &[id, node] : network.nodes)
+        node.owner = owner;
+    }
+  const auto result = discretize(background, MappingQ1<3>(), network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_EQ(result.short_cells, 0u);
+  EXPECT_EQ(result.exterior_cells, 0u);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(result.cells.size()),
+                                comm),
+            2u);
+  // H is exactly .4 then 1.2. A midpoint bisection of the 1.1-long vessel
+  // makes two .55 cells, both below .5*1.2; merging violates 2*.4.
+  // The interface cut instead gives .25/.4 and .85/1.2, both admissible.
+  if (rank == owner)
+    {
+      ASSERT_EQ(result.cells.size(), 2u);
+      EXPECT_NEAR(result.cells.front().reference.end, .25 / 1.1, 1.e-12);
+      EXPECT_DOUBLE_EQ(result.cells.front().reference.begin, 0.);
+      EXPECT_DOUBLE_EQ(result.cells.back().reference.end, 1.);
+      double integrated_volume = 0., integrated_resistance = 0.;
+      for (const auto &cell : result.cells)
+        {
+          const double l = (cell.reference.end - cell.reference.begin) * 1.1;
+          EXPECT_GE(l / cell.h_max, .5 * (1. - 1.e-12));
+          EXPECT_LE(l / cell.h_min, 2. * (1. + 1.e-12));
+          integrated_volume +=
+            volume(network, 100, cell.reference.begin, cell.reference.end);
+          integrated_resistance +=
+            resistance(network, 100, cell.reference.begin, cell.reference.end);
+        }
+      EXPECT_NEAR(integrated_volume / volume(network, 100), 1., 1.e-13);
+      EXPECT_NEAR(integrated_resistance / resistance(network, 100), 1., 1.e-13);
+      EXPECT_EQ(network.nodes.size(), 2u);
+      EXPECT_EQ(network.vessels.size(), 1u);
+    }
+}
+
 TEST(VascularDiscretization, ReportsShortVesselsAndBudgetExhaustion)
 {
   Triangulation<3> background;

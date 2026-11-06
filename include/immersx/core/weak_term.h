@@ -55,6 +55,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <type_traits>
 #include <utility>
@@ -62,8 +63,29 @@
 
 namespace ImmersX
 {
+  template <typename SourceObservable,
+            int reduced_dim,
+            int surface_dim,
+            int spacedim,
+            int n_components>
+  class LiftedObservable;
+
   namespace detail
   {
+    template <typename Trial>
+    struct has_linear_cached_trial : is_linear_observable<Trial>
+    {};
+
+    template <typename Source,
+              int dim,
+              int surface_dim,
+              int spacedim,
+              int components>
+    struct has_linear_cached_trial<
+      LiftedObservable<Source, dim, surface_dim, spacedim, components>>
+      : is_linear_observable<Source>
+    {};
+
     inline void
     report_retained_quadrature_points_once(const std::uint64_t retained,
                                            const std::uint64_t total,
@@ -4736,10 +4758,12 @@ namespace ImmersX
       static_assert(support_spacedim == TestExpression::spacedimension(),
                     "Integration support and test field must share an "
                     "embedding dimension.");
-      return WeakTerm<TrialExpression,
-                      TestExpression,
-                      IntegrationSupport<support_dim, support_spacedim>>(
+      auto result = WeakTerm<TrialExpression,
+                             TestExpression,
+                             IntegrationSupport<support_dim, support_spacedim>>(
         observable_, target_, std::move(support));
+      result.cache_assembly_ = cache_assembly_;
+      return result;
     }
 
     template <int support_dim, int support_spacedim>
@@ -4752,11 +4776,13 @@ namespace ImmersX
       static_assert(support_spacedim == TestExpression::spacedimension(),
                     "Boundary support and test field must share an "
                     "embedding dimension.");
-      return WeakTerm<
-        TrialExpression,
-        TestExpression,
-        BoundaryIntegrationSupport<support_dim, support_spacedim>>(
-        observable_, target_, std::move(support));
+      auto result =
+        WeakTerm<TrialExpression,
+                 TestExpression,
+                 BoundaryIntegrationSupport<support_dim, support_spacedim>>(
+          observable_, target_, std::move(support));
+      result.cache_assembly_ = cache_assembly_;
+      return result;
     }
 
     template <typename PhysicalSupport,
@@ -4774,8 +4800,10 @@ namespace ImmersX
                       TestExpression::dimension(),
                     "Physical support dimension cannot exceed the test "
                     "field dimension.");
-      return WeakTerm<TrialExpression, TestExpression, PhysicalSupport>(
+      auto result = WeakTerm<TrialExpression, TestExpression, PhysicalSupport>(
         observable_, target_, std::move(support));
+      result.cache_assembly_ = cache_assembly_;
+      return result;
     }
 
     WeakTerm
@@ -4808,6 +4836,24 @@ namespace ImmersX
       return support_;
     }
 
+    /** Retain a linear pairing after its first assembly.
+     * Meshes, mappings, lifted reference geometry, integration support, FE
+     * spaces and homogeneous constraint coefficients must stay fixed while
+     * this term is used. State values and affine constraint offsets may change.
+     * Rebuild the term after changing any fixed data. Nonlinear trials are
+     * rejected; the default keeps assembling the current pairing on demand.
+     */
+    WeakTerm
+    with_cached_assembly() const
+    {
+      AssertThrow(detail::has_linear_cached_trial<TrialExpression>::value,
+                  dealii::ExcMessage(
+                    "Cached weak-term assembly requires a linear trial."));
+      auto result            = *this;
+      result.cache_assembly_ = true;
+      return result;
+    }
+
     template <typename VectorType, typename MatrixType>
     FieldId
     add(SemidiscreteBuilder<VectorType, MatrixType> &builder) const
@@ -4827,8 +4873,11 @@ namespace ImmersX
             std::is_same_v<TestExpression, decltype(test(target_.source()))>,
             "A lifted reaction currently pairs with a value test.");
           const auto bulk = value(target_.source());
-          const WeakTerm<decltype(bulk), TrialExpression, Support> reverse(
-            bulk, observable_, support_);
+          auto       reverse =
+            WeakTerm<decltype(bulk), TrialExpression, Support>(bulk,
+                                                               observable_,
+                                                               support_);
+          reverse.cache_assembly_ = cache_assembly_;
           const auto pairing =
             reverse.make_pairing(builder, observable_, region_);
           const auto reaction =
@@ -5238,10 +5287,18 @@ namespace ImmersX
       Pair result;
       result.source_id = observable_.source_field();
       result.target_id = target.source().field_id();
-      const auto build = [recipe = *this, target, region] {
-        return recipe.template assemble_pairing<VectorType, MatrixType>(target,
-                                                                        region,
-                                                                        false);
+      const auto cached =
+        cache_assembly_ ? std::make_shared<std::optional<Pair>>() : nullptr;
+      const auto build = [recipe = *this, target, region, cached] {
+        if (cached == nullptr)
+          return recipe.template assemble_pairing<VectorType, MatrixType>(
+            target, region, false);
+        if (!cached->has_value())
+          cached->emplace(
+            recipe.template assemble_pairing<VectorType, MatrixType>(target,
+                                                                     region,
+                                                                     false));
+        return cached->value();
       };
       const auto source            = observable_.source();
       const auto row               = target.source();
@@ -5639,6 +5696,7 @@ namespace ImmersX
     TestExpression              target_;
     Support                     support_;
     WeakTermRegion              region_;
+    bool                        cache_assembly_ = false;
     std::function<void(double)> context_update_;
   };
 

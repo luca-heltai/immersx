@@ -31,6 +31,7 @@
 #  include <immersx/physics/elastodynamics_semidiscrete.h>
 #  include <immersx/physics/metric_flow_x.h>
 #  include <immersx/physics/metric_flow_x_pressure.h>
+#  include <immersx/vascularization/io.h>
 #  include <immersx/vascularization/metric_flow_x.h>
 
 #  include <algorithm>
@@ -169,6 +170,175 @@ namespace
       }
   }
 
+  template <class Adapter, class Flow>
+  auto
+  set_native_flow_tolerances(Adapter      &adapter,
+                             Flow         &flow,
+                             const FieldId field,
+                             int)
+    -> decltype(flow.make_absolute_tolerances(), void())
+  {
+    adapter.set_local_tolerances(field, [&flow](auto &values) {
+      values = flow.make_absolute_tolerances();
+    });
+  }
+
+  template <class Adapter, class Flow>
+  void
+  set_native_flow_tolerances(Adapter &, Flow &, const FieldId, long)
+  {
+    AssertThrow(
+      false,
+      ExcMessage(
+        "Native flow tolerances require a compatible MetricFlowX package."));
+  }
+
+  struct ArchivedFlowParameters : ParameterAcceptor
+  {
+    ArchivedFlowParameters()
+      : ParameterAcceptor("/MetricFlowX coupling/Archived network/")
+    {
+      add_parameter(
+        "Directory",
+        directory,
+        "Native physical network archive. Empty uses the ordinary VTK or generation path.");
+      add_parameter(
+        "Young moduli",
+        young_moduli,
+        "Wall Young moduli in Pa, in arterial, venous, portal order.");
+      add_parameter(
+        "Wall thickness ratios",
+        thickness_ratios,
+        "Wall thickness divided by mean reference radius, in arterial, venous, portal order.");
+      add_parameter(
+        "Reference pressures",
+        reference_pressures,
+        "Wall reference pressures in Pa, in arterial, venous, portal order.");
+      add_parameter("Portal pressure",
+                    portal_pressure,
+                    "Prescribed portal root reservoir pressure in Pa.");
+      add_parameter("Venous pressure",
+                    venous_pressure,
+                    "Prescribed venous root reservoir pressure in Pa.");
+      add_parameter(
+        "Root resistance",
+        root_resistance,
+        "Positive root reservoir resistance in Pa s/m^3; saved tissue compartments supply their own resistances.");
+      add_parameter("Redistribution halo",
+                    halo,
+                    "Physical archive halo in metres.");
+    }
+
+    std::string         directory;
+    std::vector<double> young_moduli{0., 0., 0.};
+    std::vector<double> thickness_ratios{0., 0., 0.};
+    std::vector<double> reference_pressures{0., 0., 0.};
+    double portal_pressure = 0., venous_pressure = 0., root_resistance = 0.,
+           halo = 0.;
+  };
+
+  template <class Flow>
+  Vascularization::MetricFlowXTransfer
+  prepare_archived_flow(Flow                                    &flow,
+                        const Vascularization::GenerationResult &generation,
+                        const ArchivedFlowParameters            &parameters)
+  {
+    namespace V = Vascularization;
+    AssertThrow(
+      parameters.young_moduli.size() == 3 &&
+        parameters.thickness_ratios.size() == 3 &&
+        parameters.reference_pressures.size() == 3,
+      ExcMessage(
+        "Archived wall parameters require three values in arterial, venous, portal order."));
+    for (unsigned int i = 0; i < 3; ++i)
+      AssertThrow(
+        std::isfinite(parameters.young_moduli[i]) &&
+          parameters.young_moduli[i] > 0. &&
+          std::isfinite(parameters.thickness_ratios[i]) &&
+          parameters.thickness_ratios[i] > 0. &&
+          std::isfinite(parameters.reference_pressures[i]),
+        ExcMessage(
+          "Archived wall material must be positive and reference pressure finite."));
+    AssertThrow(
+      std::isfinite(parameters.portal_pressure) &&
+        std::isfinite(parameters.venous_pressure) &&
+        std::isfinite(parameters.root_resistance) &&
+        parameters.root_resistance > 0.,
+      ExcMessage(
+        "Archived root pressures must be finite and reservoir resistance positive."));
+
+    // Every tissue leaf must connect through a saved bed. Independent outlet
+    // resistances would introduce additional drains beside those compartments.
+    std::set<V::Id>    linked;
+    const auto         comm = flow.mpi_communicator();
+    std::vector<V::Id> owned_linked;
+    for (const auto &pair : generation.terminal_pairs)
+      owned_linked.insert(owned_linked.end(), {pair.arterial, pair.venous});
+    for (const auto &triplet : generation.terminal_triplets)
+      owned_linked.insert(owned_linked.end(),
+                          {triplet.arterial, triplet.portal, triplet.venous});
+    for (const auto &ids : Utilities::MPI::all_gather(comm, owned_linked))
+      linked.insert(ids.begin(), ids.end());
+    unsigned int unlinked = 0;
+    const auto   rank     = Utilities::MPI::this_mpi_process(comm);
+    for (const auto &[id, terminal] : generation.network.terminals)
+      if (terminal.owner == rank && linked.count(id) == 0)
+        ++unlinked;
+    AssertThrow(
+      Utilities::MPI::sum(unlinked, comm) == 0,
+      ExcMessage(
+        "The archived network contains tissue leaves without microvascular connections."));
+
+    if constexpr (V::has_metric_flow_x_network_input<Flow>)
+      return V::prepare_metric_flow_x(
+        flow,
+        generation,
+        [&](V::Id, const V::Vessel &vessel) {
+          unsigned int role = 0;
+          if (vessel.system == V::System::venous)
+            role = 1;
+          else if (vessel.system == V::System::portal)
+            role = 2;
+          typename Flow::VesselProperties result;
+          result.E      = parameters.young_moduli[role];
+          result.h_wall = parameters.thickness_ratios[role] * .5 *
+                          (vessel.radii[0] + vessel.radii[1]);
+          result.p_d = parameters.reference_pressures[role];
+          result.p0  = 0.;
+          return result;
+        },
+        [&](V::Id, const V::Node &node, const V::Terminal *terminal) {
+          // The native input validates positive R2 even at linked leaves;
+          // those leaves use the saved resistor graph instead of this RCR.
+          typename Flow::RCRPhysics result;
+          result.R2 = parameters.root_resistance;
+          if (terminal != nullptr)
+            result.label = "microvascular-compartment";
+          else if (node.port == V::Port::portal_inlet)
+            {
+              result.P_out = parameters.portal_pressure;
+              result.label = "portal-root";
+            }
+          else if (node.port == V::Port::venous_outlet)
+            {
+              result.P_out = parameters.venous_pressure;
+              result.label = "venous-root";
+            }
+          else
+            AssertThrow(
+              false, ExcMessage("Unsupported real port in archived network."));
+          return result;
+        });
+    else
+      {
+        AssertThrow(
+          false,
+          ExcMessage(
+            "Archived flow requires MetricFlowX NetworkPhysics input."));
+        return {};
+      }
+  }
+
   void
   run_coupled_problem(const std::string &parameter_file)
   {
@@ -203,6 +373,17 @@ namespace
       ParameterAcceptor::prm,
       Patterns::Selection("iterative|umfpack|mumps"));
 
+    unsigned int flow_direct_inverse_limit   = 0;
+    unsigned int schur_materialization_limit = 0;
+    coupled_solver.add_parameter(
+      "Maximum replicated flow inverse DoFs",
+      flow_direct_inverse_limit,
+      "Use replicated dense LU up to this global flow field size; zero retains the default ILU.");
+    coupled_solver.add_parameter(
+      "Maximum materialized Schur DoFs",
+      schur_materialization_limit,
+      "Cache Schur columns up to this global multiplier size per Jacobian; zero keeps matrix-free inner actions.");
+
     ParameterAcceptor coupling("/MetricFlowX coupling/");
     std::string       embedded_partitioning = "default";
     coupling.add_parameter(
@@ -212,8 +393,40 @@ namespace
       ParameterAcceptor::prm,
       Patterns::Selection("default|immersed"));
 
+    ArchivedFlowParameters      archive_parameters;
     Vascularization::Parameters generation_parameters;
-    bool                        generate_network = false;
+    bool                        use_native_tolerances      = false;
+    bool                        stop_at_output_times       = false;
+    int                         mumps_workspace_relaxation = -1;
+    double displacement_tolerance = 0., velocity_tolerance = 0.,
+           pressure_tolerance = 0.;
+    coupling.add_parameter(
+      "Use native flow tolerances",
+      use_native_tolerances,
+      "Use MetricFlowX area, velocity and capacitor absolute tolerances in the coupled adapter.");
+    coupling.add_parameter(
+      "Stop at output times",
+      stop_at_output_times,
+      "Take an internal IDA step at every saved time to preserve nonlinear algebraic constraints in output.");
+    coupling.add_parameter(
+      "MUMPS workspace relaxation",
+      mumps_workspace_relaxation,
+      "Extra workspace percentage; -1 retains the MUMPS default.",
+      ParameterAcceptor::prm,
+      Patterns::Integer(-1));
+    coupling.add_parameter(
+      "Displacement absolute tolerance",
+      displacement_tolerance,
+      "Metres; zero retains the common IDA absolute tolerance.");
+    coupling.add_parameter(
+      "Velocity absolute tolerance",
+      velocity_tolerance,
+      "Metres per second; zero retains the common IDA absolute tolerance.");
+    coupling.add_parameter(
+      "Wall pressure absolute tolerance",
+      pressure_tolerance,
+      "Pascals; zero retains the common IDA absolute tolerance.");
+    bool   generate_network     = false;
     double vessel_young_modulus = 0., vessel_wall_thickness = 0.,
            vessel_reference_pressure = 0., terminal_resistance = 0.,
            outlet_pressure = 0.;
@@ -240,6 +453,18 @@ namespace
                            "Native terminal outlet pressure in Pa.");
 
     initialize_parameters(parameter_file);
+    const bool archived_network = !archive_parameters.directory.empty();
+    AssertThrow(!archived_network || !generate_network,
+                ExcMessage(
+                  "Choose either an archived network or vascular generation."));
+    const bool physical_network = archived_network || generate_network;
+    if (archived_network)
+      {
+        auto path = std::filesystem::path(archive_parameters.directory);
+        if (path.is_relative())
+          path = std::filesystem::absolute(parameter_file).parent_path() / path;
+        archive_parameters.directory = path.lexically_normal().string();
+      }
     const auto flow_output_directory =
       metric_flow_parameter("Output directory");
     initialize_flow_parameters(flow_problem,
@@ -277,7 +502,31 @@ namespace
                              flow_problem.triangulation());
     std::optional<Vascularization::GenerationResult>    generated;
     std::optional<Vascularization::MetricFlowXTransfer> transfer;
-    if (generate_network)
+    if (archived_network)
+      {
+        auto archive =
+          Vascularization::load_network(archive_parameters.directory,
+                                        solid_problem.triangulation(),
+                                        solid_problem.mapping(),
+                                        archive_parameters.halo,
+                                        MPI_COMM_WORLD);
+        generated.emplace();
+        generated->network           = std::move(archive.network);
+        generated->territories       = std::move(archive.territories);
+        generated->terminal_pairs    = std::move(archive.terminal_pairs);
+        generated->terminal_triplets = std::move(archive.terminal_triplets);
+        generated->validation        = Vascularization::validate_data(
+          generated->network, Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD));
+        generated->discretization =
+          Vascularization::discretize(solid_problem.triangulation(),
+                                      solid_problem.mapping(),
+                                      generated->network,
+                                      generation_parameters.discretization,
+                                      MPI_COMM_WORLD);
+        transfer =
+          prepare_archived_flow(flow_problem, *generated, archive_parameters);
+      }
+    else if (generate_network)
       {
         AssertThrow(
           Vascularization::has_metric_flow_x_network_input<FlowProblem>,
@@ -349,7 +598,7 @@ namespace
     std::optional<FiniteElementSpaceView<1, 3>> generated_reference_view;
     FieldVector                                 reference_area;
     const auto                                  reference_field = [&]() {
-      if (generate_network)
+      if (physical_network)
         {
           unsigned int reference_degree = area_fe->degree;
           unsigned int local_taper = 0;
@@ -411,6 +660,31 @@ namespace
       reference_area.update_ghost_values();
       return a0.field();
     }();
+    if (physical_network)
+      {
+        const auto    rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+        std::ofstream scales(std::filesystem::path(flow_output_directory) /
+                             ("mesh_scale-" + std::to_string(rank) + ".csv"));
+        AssertThrow(
+          Utilities::MPI::min(scales.good() ? 1u : 0u, MPI_COMM_WORLD) == 1,
+          ExcMessage("Cannot write physical-network mesh scale diagnostics."));
+        scales.precision(17);
+        scales
+          << "vessel,begin,end,length_m,h_min_m,h_max_m,inside,short_cell\n";
+        for (const auto &cell : generated->discretization.cells)
+          scales << cell.reference.vessel << ',' << cell.reference.begin << ','
+                 << cell.reference.end << ','
+                 << Vascularization::length(generated->network,
+                                            cell.reference.vessel) *
+                      (cell.reference.end - cell.reference.begin)
+                 << ',' << cell.h_min << ',' << cell.h_max << ',' << cell.inside
+                 << ',' << cell.short_cell << '\n';
+        if (rank == 0)
+          std::cout << "Physical network discretization: "
+                    << generated->discretization.short_cells << " short cells, "
+                    << generated->discretization.exterior_cells
+                    << " exterior cells" << std::endl;
+      }
     generated.reset();
     transfer.reset();
     const auto A0 = frozen(reference_field, reference_area);
@@ -436,7 +710,12 @@ namespace
       make_metric_flow_x_pressure_projection(lambda, supports.overlap);
 
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
+    adapter.set_stop_at_output_times(stop_at_output_times);
+    if (mumps_workspace_relaxation >= 0)
+      adapter.set_mumps_workspace_relaxation(
+        static_cast<unsigned int>(mumps_workspace_relaxation));
     adapter.set_schur_primal_coupling();
+    adapter.set_schur_materialization_limit(schur_materialization_limit);
     if (linear_solver == "iterative")
       adapter.set_linear_solver(Adapter::LinearSolver::iterative);
     else if (linear_solver == "umfpack")
@@ -444,8 +723,23 @@ namespace
     else if (linear_solver == "mumps")
       adapter.set_linear_solver(Adapter::LinearSolver::mumps);
     const auto solid_fields = adapter.add(solid_problem, "elastodynamics");
-    const auto flow_fields =
-      adapter.add(metric_flow_x(flow_problem), "blood-flow");
+    AssertThrow(
+      Utilities::MPI::min(flow_direct_inverse_limit, MPI_COMM_WORLD) ==
+          Utilities::MPI::max(flow_direct_inverse_limit, MPI_COMM_WORLD) &&
+        Utilities::MPI::min(flow_problem.locally_owned_dofs().size(),
+                            MPI_COMM_WORLD) ==
+          Utilities::MPI::max(flow_problem.locally_owned_dofs().size(),
+                              MPI_COMM_WORLD),
+      ExcMessage("Flow inverse limits or dimensions differ across ranks."));
+    auto flow_description = metric_flow_x(flow_problem);
+    if (flow_direct_inverse_limit > 0 &&
+        flow_problem.locally_owned_dofs().size() <= flow_direct_inverse_limit)
+      flow_description.preconditioner_factory =
+        [flow_direct_inverse_limit](const auto &matrix, const auto &prototype) {
+          return make_replicated_direct_preconditioner<FieldVector>(
+            matrix, prototype, flow_direct_inverse_limit);
+        };
+    const auto flow_fields = adapter.add(flow_description, "blood-flow");
 
     const auto coupling_fields = adapter.add(
       [&](auto &builder) {
@@ -462,6 +756,7 @@ namespace
 
         weak_term(value(solid_fields.fields().displacement), test(lambda_wall))
           .on(supports.overlap)
+          .with_cached_assembly()
           .add(builder);
         weak_term(negative_wall_displacement, test(multiplier))
           .on(supports.overlap)
@@ -471,6 +766,7 @@ namespace
           .add(builder);
         weak_term(lambda_wall, test(solid_fields.fields().velocity))
           .on(supports.overlap)
+          .with_cached_assembly()
           .add(builder);
 
         const auto pressure      = -1. * value(multiplier);
@@ -538,7 +834,33 @@ namespace
       },
       "vessel-wall");
 
-    auto state     = adapter.make_state();
+    AssertThrow(displacement_tolerance >= 0. && velocity_tolerance >= 0. &&
+                  pressure_tolerance >= 0.,
+                ExcMessage(
+                  "Coupled absolute tolerance overrides must be nonnegative."));
+    if (displacement_tolerance > 0.)
+      adapter.set_absolute_tolerance(solid_fields.fields().displacement,
+                                     displacement_tolerance);
+    if (velocity_tolerance > 0.)
+      adapter.set_absolute_tolerance(solid_fields.fields().velocity,
+                                     velocity_tolerance);
+    if (pressure_tolerance > 0.)
+      adapter.set_absolute_tolerance(coupling_fields.fields().multiplier,
+                                     pressure_tolerance);
+    if (use_native_tolerances)
+      set_native_flow_tolerances(adapter,
+                                 flow_problem,
+                                 flow_fields.fields().state,
+                                 0);
+
+    auto state = adapter.make_state();
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      {
+        std::cout << "Coupled block DoFs:";
+        for (unsigned int b = 0; b < state.n_blocks(); ++b)
+          std::cout << ' ' << state.block(b).size();
+        std::cout << "\nCoupled total DoFs: " << state.size() << std::endl;
+      }
     auto state_dot = adapter.make_state();
     initialize_elastodynamics_adapter_state(
       adapter, solid_fields, solid_problem, state, state_dot);
@@ -549,6 +871,8 @@ namespace
       flow_time.initial_time);
     adapter.field(state, coupling_fields.fields().multiplier)     = 0.;
     adapter.field(state_dot, coupling_fields.fields().multiplier) = 0.;
+    if (ida_parameters.correction_type_at_initial_time == "use_y_dot")
+      state_dot = 0.;
 
     const auto flow_output_name = metric_flow_parameter("Output filename");
     std::vector<std::pair<double, std::string>> multiplier_output_records;
@@ -564,9 +888,11 @@ namespace
                          pressure_projection,
                          flow_fields,
                          flow_output_name,
-                         flow_output_directory](const GlobalVector &solution,
-                                                const unsigned int  step,
-                                                const double        time) {
+                         flow_output_directory](
+                          const GlobalVector &solution,
+                          const GlobalVector &solution_dot,
+                          const unsigned int  step,
+                          const double        time) {
       std::filesystem::create_directories(flow_output_directory);
       std::filesystem::create_directories(solid_parameters.output_directory);
       const auto &flow_state =
@@ -581,6 +907,15 @@ namespace
           adapter.field(solution, coupling_fields.fields().multiplier),
           pressure_projection));
       flow_problem.output_results(flow_state, pressure, step);
+      flow_problem.set_external_pressure_provider(
+        metric_flow_x_pressure_provider(
+          -1. * value(coupling_fields.fields().multiplier),
+          adapter.field(solution, coupling_fields.fields().multiplier),
+          pressure_projection));
+      const auto &flow_derivative =
+        adapter.field(solution_dot, flow_fields.fields().state);
+      flow_problem.write_output_step(time, flow_state, &flow_derivative);
+      flow_problem.clear_external_pressure_provider();
       // MetricFlowX's native writer uses its runner's private clock. The
       // coupled adapter supplies the accepted times for this collection.
       if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
@@ -647,25 +982,32 @@ namespace
       MPI_Barrier(MPI_COMM_WORLD);
     };
 
-    adapter.set_output_step([&solid_problem, &adapter, output, solid_fields](
-                              const double        time,
-                              const GlobalVector &solution,
-                              const GlobalVector &solution_dot,
-                              const unsigned int  step) {
-      solid_problem.accept_state(
-        adapter.field(solution, solid_fields.fields().displacement),
-        adapter.field(solution, solid_fields.fields().velocity),
-        time,
-        step);
-      output(solution, step, time);
-      (void)solution_dot;
-    });
-
     auto initial_flow_state = flow_problem.make_state();
-    if (generate_network)
-      initial_flow_state = adapter.field(state, flow_fields.fields().state);
+    adapter.set_output_step(
+      [&solid_problem,
+       &adapter,
+       output,
+       solid_fields,
+       flow_fields,
+       physical_network,
+       &initial_flow_state](const double        time,
+                            const GlobalVector &solution,
+                            const GlobalVector &solution_dot,
+                            const unsigned int  step) {
+        if (physical_network && step == 0)
+          initial_flow_state =
+            adapter.field(solution, flow_fields.fields().state);
+        solid_problem.accept_state(
+          adapter.field(solution, solid_fields.fields().displacement),
+          adapter.field(solution, solid_fields.fields().velocity),
+          time,
+          step);
+        output(solution, solution_dot, step, time);
+      });
+
+    flow_problem.open_output_files();
     const auto accepted_steps = adapter.solve(state, state_dot);
-    if (generate_network)
+    if (physical_network)
       {
         auto flow_change = flow_problem.make_state();
         flow_change      = adapter.field(state, flow_fields.fields().state);

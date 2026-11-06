@@ -123,6 +123,29 @@ change and request an IDA restart. These callbacks operate on execution
 vectors; updating Problem-owned matrices, constraints, and accepted state is
 the application's responsibility.
 
+### Output times and algebraic constraints
+
+IDA normally returns dense output interpolated from its internal BDF history.
+For nonlinear algebraic equations, the interpolated state can have a larger
+constraint residual than a state accepted at an internal step. Configure
+`ida.set_stop_at_output_times(true)` before initialization to end an internal
+step at each requested output time. This keeps the BDF history; it does not
+restart IDA or tighten its error tolerances. The default remains dense output.
+Output stops also respect the startup-ramp cutoff and the configured final
+time. More frequent output can increase the number of internal steps.
+
+### MUMPS workspace and solve checks
+
+`ida.set_mumps_workspace_relaxation(100)` requests 100% extra workspace
+relative to the native estimate through MUMPS ICNTL(14). Without an override,
+the native default is retained. Configure this before initialization.
+Workspace controls allocation, not the physical model or time tolerances.
+
+Some supported deal.II wrappers do not propagate MUMPS factorization errors.
+The adapter therefore checks each MUMPS correction against its retained
+Jacobian and rejects a relative residual above `1e-8`. This prevents an
+unsuccessful factorization from returning an unnoticed zero correction.
+
 ### Local absolute tolerances and startup ramp
 
 The default error control uses one absolute tolerance and one relative

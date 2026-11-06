@@ -1,0 +1,10 @@
+include @IMMERSX_BINARY_DIR@/gtests/parameters/metric_flow_x.prm
+include @IMMERSX_BINARY_DIR@/gtests/parameters/metric_flow_x_rcr_partition.prm
+
+subsection Functions
+  set Inflow function = 1e-6*(1+t)
+end
+
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-pressure-vector-state
+end
