@@ -139,6 +139,40 @@ namespace
     };
     return result;
   }
+
+  void
+  initialize_multilevel_matrices(Matrix         &mass,
+                                 Matrix         &stiffness,
+                                 Matrix         &damping,
+                                 const IndexSet &owned)
+  {
+    const auto             size = owned.size();
+    DynamicSparsityPattern sparsity(size, size, owned);
+    for (const auto i : owned)
+      {
+        sparsity.add(i, i);
+        if (i > 0)
+          sparsity.add(i, i - 1);
+        if (i + 1 < size)
+          sparsity.add(i, i + 1);
+      }
+    for (auto *matrix : {&mass, &stiffness, &damping})
+      matrix->reinit(owned, owned, sparsity, MPI_COMM_WORLD);
+    for (const auto i : owned)
+      {
+        mass.set(i, i, 3. + 0.1 * (i % 7));
+        stiffness.set(i, i, 2.05 + 0.01 * (i % 3));
+        damping.set(i, i, 0.3 + 0.05 * (i % 5));
+        for (const auto j : {i == 0 ? i : i - 1, i + 1 == size ? i : i + 1})
+          if (j != i)
+            {
+              mass.set(i, j, 0.1);
+              stiffness.set(i, j, -1.);
+            }
+      }
+    for (auto *matrix : {&mass, &stiffness, &damping})
+      matrix->compress(VectorOperation::insert);
+  }
 } // namespace
 
 TEST(Elastodynamics, BOTH_StaticPairPreservesConstraintsAndTranspose)
@@ -214,32 +248,8 @@ TEST(Elastodynamics, BOTH_StaticPairFixedAMGAdjoint)
   const auto         owned =
     Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
                                                            size);
-  DynamicSparsityPattern sparsity(size, size, owned);
-  for (const auto i : owned)
-    {
-      sparsity.add(i, i);
-      if (i > 0)
-        sparsity.add(i, i - 1);
-      if (i + 1 < size)
-        sparsity.add(i, i + 1);
-    }
   Matrix mass, stiffness, damping;
-  for (auto *matrix : {&mass, &stiffness, &damping})
-    matrix->reinit(owned, owned, sparsity, MPI_COMM_WORLD);
-  for (const auto i : owned)
-    {
-      mass.set(i, i, 3. + 0.1 * (i % 7));
-      stiffness.set(i, i, 2.05 + 0.01 * (i % 3));
-      damping.set(i, i, 0.3 + 0.05 * (i % 5));
-      for (const auto j : {i == 0 ? i : i - 1, i + 1 == size ? i : i + 1})
-        if (j != i)
-          {
-            mass.set(i, j, 0.1);
-            stiffness.set(i, j, -1.);
-          }
-    }
-  for (auto *matrix : {&mass, &stiffness, &damping})
-    matrix->compress(VectorOperation::insert);
+  initialize_multilevel_matrices(mass, stiffness, damping, owned);
   SecondOrderBlockPreconditioner<FieldVector> inverse;
   inverse.initialize(mass,
                      stiffness,
@@ -278,6 +288,131 @@ TEST(Elastodynamics, BOTH_StaticPairFixedAMGAdjoint)
 }
 
 #ifdef DEAL_II_WITH_SUNDIALS
+TEST(DistributedIDA, BOTH_StaticPairMultilevelSchurPreservesMultiplierRow)
+{
+  using Adapter           = IDAAdapter<FieldVector, GlobalVector>;
+  const unsigned int size = 3000;
+  const auto         owned =
+    Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
+                                                           size);
+  const auto multiplier_owned =
+    Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD, 2);
+  const auto modes = [](const auto i, const unsigned int column) {
+    return column == 0 ? 1. + 0.1 * (i % 7) :
+                         (i % 2 == 0 ? -1. : 1.) + 0.03 * (i % 11);
+  };
+  Matrix mass, stiffness, damping, force, trace, self, metric;
+  initialize_multilevel_matrices(mass, stiffness, damping, owned);
+  initialize_matrix(force, owned, multiplier_owned, modes);
+  initialize_matrix(trace,
+                    multiplier_owned,
+                    owned,
+                    [&](const auto row, const auto column) {
+                      return modes(column, row) / size;
+                    });
+  initialize_matrix(self,
+                    multiplier_owned,
+                    multiplier_owned,
+                    [](const auto row, const auto column) {
+                      return row == column ? -0.05 : 0.;
+                    });
+  initialize_matrix(metric,
+                    multiplier_owned,
+                    multiplier_owned,
+                    [](const auto row, const auto column) {
+                      return row == column ? 1. : 0.;
+                    });
+  const auto reinit = [owned](FieldVector &v, const bool) {
+    v.reinit(owned, MPI_COMM_WORLD);
+  };
+  FieldVector b(owned, MPI_COMM_WORLD), zero(b), fixed_u(b), fixed_v(b),
+    error(b);
+  for (const auto i : owned)
+    b(i) = modes(i, 0) + 0.3 * modes(i, 1);
+  b.compress(VectorOperation::insert);
+  SecondOrderBlockPreconditioner<FieldVector> fixed_inverse;
+  fixed_inverse.initialize(mass, stiffness, damping, IndexSet(size), reinit);
+  fixed_inverse.prepare_static_inverse();
+  fixed_inverse.static_vmult(fixed_u, fixed_v, zero, b, true);
+  stiffness.vmult(error, fixed_u);
+  error -= b;
+  const double amg_residual = error.l2_norm() / b.l2_norm();
+  // An exact coarse solve would hide different Schur and recovery actions.
+  ASSERT_GT(amg_residual, 1.e-8);
+  SCOPED_TRACE(::testing::Message()
+               << "one-cycle AMG relative residual=" << amg_residual);
+
+  const auto contribute = [&](auto &builder) {
+    const auto u      = builder.field("u", owned, owned, owned);
+    const auto v      = builder.field("v", owned, owned, owned);
+    const auto lambda = builder.algebraic_field("lambda", multiplier_owned);
+    const auto mass_operator = builder.matrix_operator(mass);
+    builder.term(u, "kinematic")
+      .derivative(u, mass_operator)
+      .state(v, -1. * mass_operator);
+    builder.term(v, "momentum")
+      .derivative(v, mass_operator)
+      .state(u, builder.matrix_operator(stiffness))
+      .state(v, builder.matrix_operator(damping))
+      .state(lambda, assembling_operator(force));
+    builder.term(lambda, "compatibility")
+      .state(u, assembling_operator(trace))
+      .state(lambda, builder.matrix_operator(self));
+    builder.second_order_pair(
+      u,
+      v,
+      [] { return 0ul; },
+      [size] {
+        SecondOrderPreconditionerData data;
+        data.constrained = IndexSet(size);
+        return data;
+      });
+    builder.saddle_point(lambda, {u, v}, builder.matrix_operator(metric));
+    return std::array<FieldId, 3>{{u, v, lambda}};
+  };
+  Adapter::Composition composition(MPI_COMM_WORLD);
+  const auto           fields  = composition.add(contribute, "solid");
+  auto                 state   = composition.make_state();
+  auto                 dot     = composition.make_state();
+  const auto           inverse = composition.schur_preconditioner(
+    fields[2], state, &dot, 0., 100, 1.e-12, true);
+  auto  rhs        = composition.make_state();
+  auto  result     = composition.make_state();
+  auto &lambda_rhs = composition.field(rhs, fields[2]);
+  for (const auto i : multiplier_owned)
+    lambda_rhs(i) = i == 0 ? 0.4 : -0.7;
+  rhs.compress(VectorOperation::insert);
+  const auto n_ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  const auto empty_ranks =
+    Utilities::MPI::sum(static_cast<unsigned int>(
+                          multiplier_owned.n_elements() == 0),
+                        MPI_COMM_WORLD);
+  EXPECT_EQ(empty_ranks, n_ranks > 2 ? n_ranks - 2 : 0);
+
+  for (const bool transpose : {false, true})
+    {
+      SCOPED_TRACE(transpose ? "transpose" : "forward");
+      if (transpose)
+        inverse.Tvmult(result, rhs);
+      else
+        inverse.vmult(result, rhs);
+      FieldVector row(multiplier_owned, MPI_COMM_WORLD);
+      if (transpose)
+        {
+          force.Tvmult(row, composition.field(result, fields[1]));
+          self.Tvmult_add(row, composition.field(result, fields[2]));
+        }
+      else
+        {
+          trace.vmult(row, composition.field(result, fields[0]));
+          self.vmult_add(row, composition.field(result, fields[2]));
+        }
+      row -= lambda_rhs;
+      // This physical row oracle does not construct its RHS through Schur.
+      EXPECT_LE(row.l2_norm(), 1.e-10 * lambda_rhs.l2_norm());
+    }
+}
+
 TEST(DistributedIDA, BOTH_StaticPairSchurAndConsistentInitialConditions)
 {
   using Adapter = IDAAdapter<FieldVector, GlobalVector>;

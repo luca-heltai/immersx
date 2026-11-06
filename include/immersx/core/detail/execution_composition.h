@@ -842,6 +842,8 @@ namespace ImmersX::detail
 
     /** Build a global block-factorization preconditioner using a Schur solve.
      * The inner solve uses tolerance as a relative residual reduction.
+     * Static second-order pairs use the same fixed AMG actions in Schur
+     * construction, elimination and recovery.
      */
     Operator
     schur_preconditioner(const FieldId           multiplier,
@@ -2333,10 +2335,10 @@ namespace ImmersX::detail
         [multiplier_partition, communicator](FieldVectorType &v, const bool) {
           v.reinit(multiplier_partition, communicator);
         };
-      auto primal_inverse = [pairs, diagonal, reinit_global](const bool fixed) {
-        const auto apply = [pairs, diagonal, fixed](GlobalVectorType       &dst,
-                                                    const GlobalVectorType &src,
-                                                    const bool transpose) {
+      auto primal_inverse = [pairs, diagonal, reinit_global]() {
+        const auto apply = [pairs, diagonal](GlobalVectorType       &dst,
+                                             const GlobalVectorType &src,
+                                             const bool transpose) {
           dst = 0.;
           for (const auto &entry : diagonal)
             if (transpose)
@@ -2351,13 +2353,13 @@ namespace ImmersX::detail
                                           dst.block(pair.velocity),
                                           src.block(pair.displacement),
                                           src.block(pair.velocity),
-                                          fixed);
+                                          true);
             else
               pair.inverse->static_vmult(dst.block(pair.displacement),
                                          dst.block(pair.velocity),
                                          src.block(pair.displacement),
                                          src.block(pair.velocity),
-                                         fixed);
+                                         true);
         };
         Operator result;
         result.reinit_range_vector  = reinit_global;
@@ -2389,7 +2391,7 @@ namespace ImmersX::detail
         return result;
       };
       StaticSchurOperators result;
-      result.inverse                              = primal_inverse(false);
+      result.inverse                              = primal_inverse();
       result.from_multiplier.reinit_range_vector  = reinit_global;
       result.from_multiplier.reinit_domain_vector = reinit_multiplier;
       result.from_multiplier.vmult =
@@ -2441,7 +2443,7 @@ namespace ImmersX::detail
             p.to_multiplier.Tvmult_add(dst.block(p.block), src);
         };
       result.schur =
-        result.to_multiplier * primal_inverse(true) * result.from_multiplier;
+        result.to_multiplier * result.inverse * result.from_multiplier;
       if (model.has_state_operator(metadata.multiplier, metadata.multiplier))
         result.schur -= model.state_operator(metadata.multiplier,
                                              metadata.multiplier,
