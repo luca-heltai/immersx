@@ -677,6 +677,9 @@ namespace ImmersX::detail
       AssertThrow(has_isolated_second_order_pair(),
                   dealii::ExcMessage("The full second-order factorization "
                                      "requires an isolated field pair."));
+      AssertThrow(alpha > 0.,
+                  dealii::ExcMessage("Second-order Schur reduction requires "
+                                     "a positive derivative weight."));
       StateView<FieldVectorType> state_view(layout_, 0.);
       StateView<FieldVectorType> derivative_view(layout_, 0.);
       field_layout_.bind_state(state_view, state);
@@ -727,7 +730,10 @@ namespace ImmersX::detail
       return model_.saddle_points();
     }
 
-    /** Build S ~= sum_i B_i P_i^-1 D_i - J_lambda,lambda. */
+    /** Build S ~= sum_i B_i P_i^-1 D_i - J_lambda,lambda.
+     * At zero derivative weight, retain each registered second-order pair
+     * in full; other primal cross-couplings remain in the outer operator.
+     */
     LocalOperator
     schur_operator(const FieldId           multiplier,
                    const GlobalVectorType &state,
@@ -767,6 +773,10 @@ namespace ImmersX::detail
       else
         derivative_context.emplace(0., state_view, nullptr);
       const auto &context = snapshot ? snapshot->context : *derivative_context;
+
+      if (alpha == 0. && has_static_second_order_pair(*metadata, model))
+        return static_schur_operators(*metadata, state, context, prepared_model)
+          .schur;
 
       std::vector<LocalOperator> terms;
       std::vector<LocalOperator> inverses, to, from;
@@ -874,6 +884,13 @@ namespace ImmersX::detail
       else
         derivative_context.emplace(0., state_view, nullptr);
       const auto &context = snapshot ? snapshot->context : *derivative_context;
+      if (alpha == 0. && has_static_second_order_pair(*metadata, model))
+        return static_schur_preconditioner(*metadata,
+                                           state,
+                                           context,
+                                           maximum_iterations,
+                                           tolerance,
+                                           prepared_model);
       struct Participant
       {
         unsigned int  block;
@@ -2205,6 +2222,353 @@ namespace ImmersX::detail
     }
 
   private:
+    static bool
+    has_static_second_order_pair(const SaddlePointMetadata &metadata,
+                                 const Model               &model)
+    {
+      for (const auto &pair : model.second_order_pairs())
+        if (std::find(metadata.participants.begin(),
+                      metadata.participants.end(),
+                      pair.displacement) != metadata.participants.end() &&
+            std::find(metadata.participants.begin(),
+                      metadata.participants.end(),
+                      pair.velocity) != metadata.participants.end())
+          return true;
+      return false;
+    }
+
+    using CouplingColumn =
+      dealii::LinearOperator<GlobalVectorType, FieldVectorType>;
+    using CouplingRow =
+      dealii::LinearOperator<FieldVectorType, GlobalVectorType>;
+
+    struct StaticSchurOperators
+    {
+      Operator       inverse;
+      CouplingColumn from_multiplier;
+      CouplingRow    to_multiplier;
+      LocalOperator  schur;
+    };
+
+    StaticSchurOperators
+    static_schur_operators(const SaddlePointMetadata                &metadata,
+                           const GlobalVectorType                   &state,
+                           const EvaluationContext<FieldVectorType> &context,
+                           const Model *prepared_model) const
+    {
+      // Retain each static mechanical pair in full. Other primal fields use
+      // their local inverses; cross-couplings between distinct groups remain
+      // in the outer Krylov operator, as with the block approximation above.
+      const auto &model = prepared_model ? *prepared_model : model_;
+      struct Pair
+      {
+        unsigned int                               displacement, velocity;
+        std::shared_ptr<SecondOrderPreconditioner> inverse;
+      };
+      std::vector<Pair>         pairs;
+      std::vector<unsigned int> paired_blocks;
+      for (const auto &pair : model.second_order_pairs())
+        {
+          const bool displacement =
+            std::find(metadata.participants.begin(),
+                      metadata.participants.end(),
+                      pair.displacement) != metadata.participants.end();
+          const bool velocity =
+            std::find(metadata.participants.begin(),
+                      metadata.participants.end(),
+                      pair.velocity) != metadata.participants.end();
+          if (!displacement && !velocity)
+            continue;
+          AssertThrow(
+            displacement && velocity,
+            dealii::ExcMessage(
+              "A static Schur inverse requires both second-order fields."));
+          const auto u = field_layout_.block(pair.displacement);
+          const auto v = field_layout_.block(pair.velocity);
+          pairs.push_back(
+            {u, v, second_order_inverse(pair, context, 0., prepared_model)});
+          paired_blocks.insert(paired_blocks.end(), {u, v});
+        }
+      struct Participant
+      {
+        unsigned int  block;
+        LocalOperator to_multiplier, from_multiplier;
+      };
+      struct Diagonal
+      {
+        unsigned int  block;
+        LocalOperator inverse;
+      };
+      std::vector<Participant> participants;
+      std::vector<Diagonal>    diagonal;
+      for (const auto field : metadata.participants)
+        {
+          const auto block = field_layout_.block(field);
+          participants.push_back(
+            {block,
+             model.state_operator(metadata.multiplier, field, context),
+             model.state_operator(field, metadata.multiplier, context)});
+          if (std::find(paired_blocks.begin(), paired_blocks.end(), block) ==
+              paired_blocks.end())
+            {
+              const auto inverse = local_preconditioner(
+                field, state, context, 0., true, prepared_model);
+              AssertThrow(
+                inverse.has_value(),
+                dealii::ExcMessage(
+                  "Static Schur construction requires a primal inverse."));
+              diagonal.push_back({block, *inverse});
+            }
+        }
+
+      const auto partitions    = field_layout_.block_partitions();
+      const auto communicator  = communicator_;
+      const auto reinit_global = [partitions, communicator](GlobalVectorType &v,
+                                                            const bool) {
+        v.reinit(partitions, communicator);
+      };
+      const auto multiplier_partition =
+        layout_.field(metadata.multiplier).locally_owned;
+      const auto reinit_multiplier =
+        [multiplier_partition, communicator](FieldVectorType &v, const bool) {
+          v.reinit(multiplier_partition, communicator);
+        };
+      auto primal_inverse = [pairs, diagonal, reinit_global](const bool fixed) {
+        const auto apply = [pairs, diagonal, fixed](GlobalVectorType       &dst,
+                                                    const GlobalVectorType &src,
+                                                    const bool transpose) {
+          dst = 0.;
+          for (const auto &entry : diagonal)
+            if (transpose)
+              entry.inverse.Tvmult(dst.block(entry.block),
+                                   src.block(entry.block));
+            else
+              entry.inverse.vmult(dst.block(entry.block),
+                                  src.block(entry.block));
+          for (const auto &pair : pairs)
+            if (transpose)
+              pair.inverse->static_Tvmult(dst.block(pair.displacement),
+                                          dst.block(pair.velocity),
+                                          src.block(pair.displacement),
+                                          src.block(pair.velocity),
+                                          fixed);
+            else
+              pair.inverse->static_vmult(dst.block(pair.displacement),
+                                         dst.block(pair.velocity),
+                                         src.block(pair.displacement),
+                                         src.block(pair.velocity),
+                                         fixed);
+        };
+        Operator result;
+        result.reinit_range_vector  = reinit_global;
+        result.reinit_domain_vector = reinit_global;
+        result.vmult                = [apply](GlobalVectorType       &dst,
+                               const GlobalVectorType &src) {
+          apply(dst, src, false);
+        };
+        result.Tvmult = [apply](GlobalVectorType       &dst,
+                                const GlobalVectorType &src) {
+          apply(dst, src, true);
+        };
+        auto memory =
+          std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+        result.vmult_add = [apply, memory](GlobalVectorType       &dst,
+                                           const GlobalVectorType &src) {
+          typename dealii::VectorMemory<GlobalVectorType>::Pointer tmp(*memory);
+          tmp->reinit(dst);
+          apply(*tmp, src, false);
+          dst += *tmp;
+        };
+        result.Tvmult_add = [apply, memory](GlobalVectorType       &dst,
+                                            const GlobalVectorType &src) {
+          typename dealii::VectorMemory<GlobalVectorType>::Pointer tmp(*memory);
+          tmp->reinit(dst);
+          apply(*tmp, src, true);
+          dst += *tmp;
+        };
+        return result;
+      };
+      StaticSchurOperators result;
+      result.inverse                              = primal_inverse(false);
+      result.from_multiplier.reinit_range_vector  = reinit_global;
+      result.from_multiplier.reinit_domain_vector = reinit_multiplier;
+      result.from_multiplier.vmult =
+        [participants](GlobalVectorType &dst, const FieldVectorType &src) {
+          dst = 0.;
+          for (const auto &p : participants)
+            p.from_multiplier.vmult(dst.block(p.block), src);
+        };
+      result.from_multiplier.vmult_add =
+        [participants](GlobalVectorType &dst, const FieldVectorType &src) {
+          for (const auto &p : participants)
+            p.from_multiplier.vmult_add(dst.block(p.block), src);
+        };
+      result.from_multiplier.Tvmult =
+        [participants, reinit_multiplier](FieldVectorType        &dst,
+                                          const GlobalVectorType &src) {
+          reinit_multiplier(dst, false);
+          for (const auto &p : participants)
+            p.from_multiplier.Tvmult_add(dst, src.block(p.block));
+        };
+      result.from_multiplier.Tvmult_add =
+        [participants](FieldVectorType &dst, const GlobalVectorType &src) {
+          for (const auto &p : participants)
+            p.from_multiplier.Tvmult_add(dst, src.block(p.block));
+        };
+      result.to_multiplier.reinit_range_vector  = reinit_multiplier;
+      result.to_multiplier.reinit_domain_vector = reinit_global;
+      result.to_multiplier.vmult =
+        [participants, reinit_multiplier](FieldVectorType        &dst,
+                                          const GlobalVectorType &src) {
+          reinit_multiplier(dst, false);
+          for (const auto &p : participants)
+            p.to_multiplier.vmult_add(dst, src.block(p.block));
+        };
+      result.to_multiplier.vmult_add =
+        [participants](FieldVectorType &dst, const GlobalVectorType &src) {
+          for (const auto &p : participants)
+            p.to_multiplier.vmult_add(dst, src.block(p.block));
+        };
+      result.to_multiplier.Tvmult = [participants](GlobalVectorType      &dst,
+                                                   const FieldVectorType &src) {
+        dst = 0.;
+        for (const auto &p : participants)
+          p.to_multiplier.Tvmult(dst.block(p.block), src);
+      };
+      result.to_multiplier.Tvmult_add =
+        [participants](GlobalVectorType &dst, const FieldVectorType &src) {
+          for (const auto &p : participants)
+            p.to_multiplier.Tvmult_add(dst.block(p.block), src);
+        };
+      result.schur =
+        result.to_multiplier * primal_inverse(true) * result.from_multiplier;
+      if (model.has_state_operator(metadata.multiplier, metadata.multiplier))
+        result.schur -= model.state_operator(metadata.multiplier,
+                                             metadata.multiplier,
+                                             context);
+      return result;
+    }
+
+    Operator
+    static_schur_preconditioner(
+      const SaddlePointMetadata                &metadata,
+      const GlobalVectorType                   &state,
+      const EvaluationContext<FieldVectorType> &context,
+      const unsigned int                        maximum_iterations,
+      const double                              tolerance,
+      const Model                              *prepared_model) const
+    {
+      const auto operators =
+        static_schur_operators(metadata, state, context, prepared_model);
+      const auto metric = multiplier_preconditioner(metadata.multiplier,
+                                                    state,
+                                                    context,
+                                                    prepared_model);
+      const auto multiplier_block = field_layout_.block(metadata.multiplier);
+      struct NonParticipant
+      {
+        unsigned int  block;
+        LocalOperator inverse;
+      };
+      std::vector<NonParticipant> non_participants;
+      for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
+        {
+          const auto field = field_layout_.field(block);
+          if (field == metadata.multiplier ||
+              std::find(metadata.participants.begin(),
+                        metadata.participants.end(),
+                        field) != metadata.participants.end())
+            continue;
+          const auto inverse = local_preconditioner(
+            field, state, context, 0., false, prepared_model);
+          AssertThrow(
+            inverse.has_value(),
+            dealii::ExcMessage(
+              "Static Schur preconditioning requires non-participant inverses."));
+          non_participants.push_back({block, *inverse});
+        }
+      const auto apply = [operators,
+                          metric,
+                          multiplier_block,
+                          non_participants,
+                          maximum_iterations,
+                          tolerance](GlobalVectorType       &dst,
+                                     const GlobalVectorType &src,
+                                     const bool              transpose) {
+        GlobalVectorType primal;
+        operators.inverse.reinit_range_vector(primal, false);
+        if (transpose)
+          operators.inverse.Tvmult(primal, src);
+        else
+          operators.inverse.vmult(primal, src);
+        FieldVectorType rhs, lambda;
+        operators.to_multiplier.reinit_range_vector(rhs, false);
+        lambda.reinit(rhs);
+        if (transpose)
+          operators.from_multiplier.Tvmult(rhs, primal);
+        else
+          operators.to_multiplier.vmult(rhs, primal);
+        rhs -= src.block(multiplier_block);
+        lambda = 0.;
+        dealii::ReductionControl control(maximum_iterations, 0., tolerance);
+        typename dealii::SolverGMRES<FieldVectorType>::AdditionalData data;
+        data.orthogonalization_strategy = dealii::LinearAlgebra::
+          OrthogonalizationStrategy::modified_gram_schmidt;
+        dealii::SolverGMRES<FieldVectorType> solver(control, data);
+        if (transpose)
+          solver.solve(dealii::transpose_operator(operators.schur),
+                       lambda,
+                       rhs,
+                       dealii::transpose_operator(metric));
+        else
+          solver.solve(operators.schur, lambda, rhs, metric);
+        if (transpose)
+          operators.to_multiplier.Tvmult(primal, lambda);
+        else
+          operators.from_multiplier.vmult(primal, lambda);
+        primal.sadd(-1., 1., src);
+        if (transpose)
+          operators.inverse.Tvmult(dst, primal);
+        else
+          operators.inverse.vmult(dst, primal);
+        dst.block(multiplier_block) = lambda;
+        for (const auto &entry : non_participants)
+          if (transpose)
+            entry.inverse.Tvmult(dst.block(entry.block),
+                                 src.block(entry.block));
+          else
+            entry.inverse.vmult(dst.block(entry.block), src.block(entry.block));
+      };
+      Operator result;
+      result.reinit_range_vector  = operators.inverse.reinit_range_vector;
+      result.reinit_domain_vector = operators.inverse.reinit_domain_vector;
+      result.vmult                = [apply](GlobalVectorType       &dst,
+                             const GlobalVectorType &src) {
+        apply(dst, src, false);
+      };
+      result.Tvmult = [apply](GlobalVectorType       &dst,
+                              const GlobalVectorType &src) {
+        apply(dst, src, true);
+      };
+      auto memory =
+        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+      result.vmult_add = [apply, memory](GlobalVectorType       &dst,
+                                         const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer tmp(*memory);
+        tmp->reinit(dst);
+        apply(*tmp, src, false);
+        dst += *tmp;
+      };
+      result.Tvmult_add = [apply, memory](GlobalVectorType       &dst,
+                                          const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer tmp(*memory);
+        tmp->reinit(dst);
+        apply(*tmp, src, true);
+        dst += *tmp;
+      };
+      return result;
+    }
+
     std::shared_ptr<SecondOrderPreconditioner>
     second_order_inverse(const SecondOrderPair                    &pair,
                          const EvaluationContext<FieldVectorType> &context,
@@ -2213,9 +2577,9 @@ namespace ImmersX::detail
     {
       const auto &model = prepared_model ? *prepared_model : model_;
       AssertThrow(
-        alpha > 0.,
+        alpha >= 0.,
         dealii::ExcMessage(
-          "Second-order Schur reduction requires a positive derivative weight."));
+          "Second-order Schur reduction requires a nonnegative derivative weight."));
       const auto owned =
         context.state(pair.displacement).locally_owned_elements();
       const auto same_partition = [&owned](const dealii::IndexSet &partition) {
@@ -2278,7 +2642,10 @@ namespace ImmersX::detail
           cached.inverse  = std::move(inverse);
           cached.revision = revision;
         }
-      cached.inverse->set_coefficients(alpha, 1., 1., 1.);
+      if (alpha == 0.)
+        cached.inverse->prepare_static_inverse();
+      else
+        cached.inverse->set_coefficients(alpha, 1., 1., 1.);
       return cached.inverse;
     }
 
