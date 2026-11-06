@@ -26,15 +26,24 @@ namespace ImmersX
 {
   namespace harmonic_detail
   {
+    /** Accuracy of a harmonic Problem's registered local inverse. */
+    struct SurrogateOptions
+    {
+      unsigned int maximum_iterations    = 30;
+      double       relative_reduction    = .1;
+      bool         scale_constraint_rows = false;
+    };
+
     /** One positive surrogate and inverse shared by the complex components. */
     struct SurrogatePreconditioner
     {
       using Matrix   = ImmersXLA::MPI::SparseMatrix;
       using Operator = dealii::LinearOperator<ImmersXLA::MPI::Vector>;
-      std::function<std::shared_ptr<Matrix>()>         make_matrix;
-      std::function<Operator(std::shared_ptr<Matrix>)> make_inverse;
-      std::vector<std::function<void(Matrix &)>>       additions;
-      std::optional<Operator>                          inverse;
+      std::function<std::shared_ptr<Matrix>()> make_matrix;
+      std::function<Operator(std::shared_ptr<Matrix>, const Matrix &)>
+                                                 make_inverse;
+      std::vector<std::function<void(Matrix &)>> additions;
+      std::optional<Operator>                    inverse;
 
       std::shared_ptr<Matrix>
       matrix() const
@@ -46,10 +55,10 @@ namespace ImmersX
       }
 
       Operator
-      get()
+      get(const Matrix &physical_matrix)
       {
         if (!inverse)
-          inverse = make_inverse(matrix());
+          inverse = make_inverse(matrix(), physical_matrix);
         return *inverse;
       }
     };
@@ -74,20 +83,40 @@ namespace ImmersX
     template <int dim, int spacedim>
     auto
     make_surrogate_inverse(const ElasticityFreqProblem<dim, spacedim> &problem,
-                           std::shared_ptr<ImmersXLA::MPI::SparseMatrix> matrix)
+                           std::shared_ptr<ImmersXLA::MPI::SparseMatrix> matrix,
+                           const ImmersXLA::MPI::SparseMatrix &physical_matrix,
+                           const SurrogateOptions              options = {})
     {
-      using Vector                  = ImmersXLA::MPI::Vector;
-      using Operator                = dealii::LinearOperator<Vector>;
-      const auto       owned        = problem.locally_owned_dofs();
-      const auto       communicator = problem.communicator();
-      dealii::IndexSet constrained(owned.size());
+      using Vector            = ImmersXLA::MPI::Vector;
+      using Operator          = dealii::LinearOperator<Vector>;
+      const auto owned        = problem.locally_owned_dofs();
+      const auto communicator = problem.communicator();
+      AssertThrow(options.maximum_iterations > 0 &&
+                    options.relative_reduction > 0. &&
+                    options.relative_reduction < 1.,
+                  dealii::ExcMessage(
+                    "Invalid harmonic surrogate CG controls."));
+      std::vector<std::pair<dealii::types::global_dof_index, double>>
+           constrained;
+      bool valid_diagonals = true;
       for (const auto &line : problem.real_constraints().get_lines())
         if (owned.is_element(line.index))
           {
-            constrained.add_index(line.index);
+            const double diagonal = options.scale_constraint_rows ?
+                                      physical_matrix.diag_element(line.index) :
+                                      1.;
+            valid_diagonals =
+              valid_diagonals && std::isfinite(diagonal) && diagonal > 0.;
+            constrained.emplace_back(line.index,
+                                     diagonal > 0. ? 1. / diagonal : 0.);
             matrix->set(line.index, line.index, 1.);
           }
-      constrained.compress();
+      if (options.scale_constraint_rows)
+        AssertThrow(
+          dealii::Utilities::MPI::min(
+            static_cast<unsigned int>(valid_diagonals), communicator) != 0,
+          dealii::ExcMessage(
+            "Harmonic constrained diagonals must be finite and positive."));
       matrix->compress(dealii::VectorOperation::insert);
       const auto amg  = problem.make_surrogate_amg(*matrix);
       auto     memory = std::make_shared<dealii::GrowingVectorMemory<Vector>>();
@@ -97,12 +126,12 @@ namespace ImmersX
         v.reinit(owned, communicator);
       };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult = [matrix, amg, constrained, memory](Vector       &dst,
-                                                        const Vector &src) {
+      result.vmult                = [matrix, amg, constrained, memory, options](
+                       Vector &dst, const Vector &src) {
         typename dealii::VectorMemory<Vector>::Pointer rhs(*memory);
         rhs->reinit(src);
         *rhs = src;
-        for (const auto index : constrained)
+        for (const auto &[index, inverse_diagonal] : constrained)
           (*rhs)[index] = 0.;
         dst               = 0.;
         const double norm = rhs->l2_norm();
@@ -111,14 +140,16 @@ namespace ImmersX
                       "Non-finite harmonic surrogate right-hand side."));
         if (norm > 0.)
           {
-            // Match the standalone surrogate's reduction and iteration cap.
-            // The outer FGMRES checks convergence of the physical system.
-            dealii::IterationNumberControl control(30, .1 * norm, false, false);
+            dealii::IterationNumberControl control(options.maximum_iterations,
+                                                   options.relative_reduction *
+                                                     norm,
+                                                   false,
+                                                   false);
             dealii::SolverCG<Vector>       solver(control, *memory);
             solver.solve(*matrix, dst, *rhs, *amg);
           }
-        for (const auto index : constrained)
-          dst[index] = src[index];
+        for (const auto &[index, inverse_diagonal] : constrained)
+          dst[index] = inverse_diagonal * src[index];
         AssertThrow(std::isfinite(dst.l2_norm()),
                     dealii::ExcMessage(
                       "Non-finite harmonic surrogate correction."));
@@ -285,7 +316,8 @@ namespace ImmersX
   ElasticityFreqFields<dim, spacedim>
   contribute(Builder                                    &builder,
              const ElasticityFreqProblem<dim, spacedim> &problem,
-             const double                                volume_weight = 1.)
+             const double                                volume_weight = 1.,
+             const harmonic_detail::SurrogateOptions     options       = {})
   {
     using namespace dealii;
     AssertThrow(std::isfinite(volume_weight) && volume_weight > 0.,
@@ -412,12 +444,16 @@ namespace ImmersX
     surrogate->make_matrix = [&problem, volume_weight] {
       return problem.make_surrogate_matrix(volume_weight);
     };
-    surrogate->make_inverse = [&problem](auto matrix) {
+    surrogate->make_inverse = [&problem, options](auto        matrix,
+                                                  const auto &physical_matrix) {
       return harmonic_detail::make_surrogate_inverse(problem,
-                                                     std::move(matrix));
+                                                     std::move(matrix),
+                                                     physical_matrix,
+                                                     options);
     };
-    const auto local_inverse = [surrogate](const auto &, const auto &) {
-      return surrogate->get();
+    const auto local_inverse = [surrogate](const auto &physical_matrix,
+                                           const auto &) {
+      return surrogate->get(physical_matrix);
     };
     builder.preconditioner(real_id, local_inverse);
     builder.preconditioner(imaginary_id, local_inverse);
@@ -426,6 +462,15 @@ namespace ImmersX
             std::move(real_space),
             std::move(imaginary_space),
             std::move(surrogate)};
+  }
+
+  template <typename Builder, int dim, int spacedim>
+  auto
+  contribute(Builder                                    &builder,
+             const ElasticityFreqProblem<dim, spacedim> &problem,
+             const harmonic_detail::SurrogateOptions     options)
+  {
+    return contribute(builder, problem, 1., options);
   }
 } // namespace ImmersX
 #endif

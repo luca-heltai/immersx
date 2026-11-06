@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #347](https://github.com/luca-heltai/immersx/pull/347) Select composed normal or MUMPS-BLR preconditioning for harmonic reinforcement through solver parameters, with controls for inner CG accuracy, the FGMRES basis, BLR truncation and MUMPS workspace.
 - [PR #353](https://github.com/luca-heltai/immersx/pull/353) Add the ParaView Area Tube plugin to visualize line datasets with radius computed from cross-sectional area.
 
 - [PR #351](https://github.com/luca-heltai/immersx/pull/351) Select bounded replicated direct inverses for coupled flow fields and materialize small Schur operators per Jacobian snapshot while checking every inner solve against the original action. Configure these policies in the IRCAD liver profiles without changing physical parameters or solver tolerances.
@@ -275,6 +276,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #347](https://github.com/luca-heltai/immersx/pull/347) Handle exact Krylov-space closure in LinearAdapter on deal.II 9.7 as well as newer versions, so exact preconditioners converge without NaN residuals.
 - [PR #346](https://github.com/luca-heltai/immersx/pull/346) Reject unreadable STL inputs before entering Gmsh and verify that missing MSH or STL files preserve later valid imports in the same session.
 - [PR #355](https://github.com/luca-heltai/immersx/pull/355) Rebalance vascular mesh cuts when adjacent intervals can satisfy the existing background length bounds without changing physical vessel geometry.
 
