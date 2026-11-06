@@ -194,6 +194,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #348](https://github.com/luca-heltai/immersx/pull/348) Reuse Schur operator graphs and lifted trial derivatives during coupled IDA Jacobian setup, preserving the equations, meshes, time intervals and solver tolerances.
 - [PR #351](https://github.com/luca-heltai/immersx/pull/351) Set durations, output periods and MPI defaults for each liver profile, reject time increments that cannot advance the start time, and distinguish audited startup intervals from the earlier full beat in run metadata and the tutorial.
 
 - [PR #342](https://github.com/luca-heltai/immersx/pull/342) Reuse deal.II MeshWorker scratch data for linear weak-term cell, boundary, and affine assembly, retaining local buffers between cells and evaluating quadrature weights and face basis values once per point.
@@ -499,6 +500,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #348](https://github.com/luca-heltai/immersx/pull/348) Run validation and application GoogleTests in ordered batches of at most 15 cases with a 115-second CTest timeout, preserving serial and MPI coverage and exclusive access to shared output files.
 
 - [PR #344](https://github.com/luca-heltai/immersx/pull/344) Keep performance history across fast-forward merges with reordered parents, validate the current source before historical backfill, and retain historical failures without blocking a valid current revision.
 
