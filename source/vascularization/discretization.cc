@@ -446,6 +446,69 @@ namespace ImmersX::Vascularization
         result.h_min = 0.;
       return result;
     }
+
+    std::optional<double>
+    rebalance_cut(Id                              vessel,
+                  double                          length,
+                  double                          begin,
+                  double                          old_cut,
+                  double                          end,
+                  const std::vector<Interval>    &intervals,
+                  const DiscretizationParameters &parameters,
+                  GrowthWork                     *work)
+    {
+      const auto admissible = [&](double a, double b) {
+        const auto   cell = cell_resolution(vessel, a, b, intervals, work);
+        const double l    = (b - a) * length;
+        return cell.inside &&
+               l >= parameters.lower_factor * cell.h_max * (1. - 1.e-12) &&
+               l <= parameters.upper_factor * cell.h_min * (1. + 1.e-12);
+      };
+      std::optional<double> best;
+      const auto            consider = [&](double cut) {
+        if (cut > begin && cut < end && admissible(begin, cut) &&
+            admissible(cut, end) &&
+            (!best || std::abs(cut - old_cut) < std::abs(*best - old_cut)))
+          best = cut;
+      };
+      std::vector<double> breaks{begin, end};
+      for (const auto &interval : intervals)
+        {
+          count_work(work, GrowthOperation::interval_record_visits);
+          for (double point : {interval.begin, interval.end})
+            if (point > begin && point < end)
+              breaks.push_back(point);
+        }
+      std::sort(breaks.begin(), breaks.end());
+      breaks.erase(std::unique(breaks.begin(), breaks.end()), breaks.end());
+      // A feasible cut can occur only at an interface, with no open
+      // neighborhood: each side then excludes the other side's mesh scale.
+      for (double point : breaks)
+        consider(point);
+      for (std::size_t i = 1; i < breaks.size(); ++i)
+        {
+          const double middle = .5 * (breaks[i - 1] + breaks[i]);
+          const auto   left =
+            cell_resolution(vessel, begin, middle, intervals, work);
+          const auto right =
+            cell_resolution(vessel, middle, end, intervals, work);
+          if (!left.inside || !right.inside)
+            continue;
+          // Both crossed-cell scale ranges are constant while the cut
+          // remains between these consecutive background interfaces.
+          const double lower =
+            std::max({breaks[i - 1],
+                      begin + parameters.lower_factor * left.h_max / length,
+                      end - parameters.upper_factor * right.h_min / length});
+          const double upper =
+            std::min({breaks[i],
+                      begin + parameters.upper_factor * left.h_min / length,
+                      end - parameters.lower_factor * right.h_max / length});
+          if (lower <= upper)
+            consider(.5 * (lower + upper));
+        }
+      return best;
+    }
   } // namespace
 
   std::map<Id, std::vector<internal::BackgroundInterval>>
@@ -713,6 +776,49 @@ namespace ImmersX::Vascularization
                     continue;
                 }
               ++right;
+            }
+          // Keep the original partition whenever splitting and merging
+          // already meet the bounds. Otherwise move one shared cut without
+          // changing either physical endpoint or the number of numerical cells.
+          for (auto right = std::next(partition.begin());
+               right != partition.end();
+               ++right)
+            {
+              const auto left = std::prev(right);
+              const auto cell =
+                cell_resolution(id, *left, *right, intervals, work);
+              if (!cell.inside ||
+                  (*right - *left) * l >=
+                    parameters.lower_factor * cell.h_max * (1. - 1.e-12))
+                continue;
+              for (int offset : {-1, 1})
+                {
+                  if ((offset == -1 && left == partition.begin()) ||
+                      (offset == 1 && std::next(right) == partition.end()))
+                    continue;
+                  const auto shared = offset == -1 ? left : right;
+                  const auto first  = std::prev(shared),
+                             last   = std::next(shared);
+                  const auto neighbor =
+                    offset == -1 ?
+                      cell_resolution(id, *first, *shared, intervals, work) :
+                      cell_resolution(id, *shared, *last, intervals, work);
+                  if (!neighbor.inside)
+                    continue;
+                  if (const auto cut = rebalance_cut(id,
+                                                     l,
+                                                     *first,
+                                                     *shared,
+                                                     *last,
+                                                     intervals,
+                                                     parameters,
+                                                     work))
+                    {
+                      *shared = *cut;
+                      count_work(work, GrowthOperation::interval_cut_edits);
+                      break;
+                    }
+                }
             }
           for (auto right = std::next(partition.begin());
                right != partition.end();
