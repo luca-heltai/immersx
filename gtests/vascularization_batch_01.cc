@@ -537,3 +537,200 @@ TEST(VascularGrowthBatch, BOTH_SpatialConflictVotesMatchExhaustivePairs)
         }
     }
 }
+TEST(VascularGrowthBatch,
+     BOTH_FlatTubeSeparationIsInvariantUnderDegreeTwoSamples)
+{
+  const Edge extension{100,
+                       {{1, 2}},
+                       {{Point<3>(.6, .5, .5), Point<3>(.9, .5, .5)}},
+                       .05};
+  for (const unsigned int pieces : {1u, 2u, 8u, 32u})
+    for (unsigned int i = 0; i < pieces; ++i)
+      {
+        const Edge fixed{10 + i,
+                         {{i == 0 ? Id{0} : Id{1000 + i},
+                           i + 1 == pieces ? Id{1} : Id{1001 + i}}},
+                         {{Point<3>(.1 + .5 * i / pieces, .5, .5),
+                           Point<3>(.1 + .5 * (i + 1) / pieces, .5, .5)}},
+                         .05};
+        // These flat-ended pieces have disjoint interiors. Only the last
+        // piece shares the actual junction; sampling changes no physical tube.
+        EXPECT_TRUE(compatible(extension, fixed, 15., 0.))
+          << pieces << ':' << i;
+        EXPECT_TRUE(compatible(fixed, extension, 15., 0.))
+          << pieces << ':' << i;
+      }
+}
+
+TEST(VascularGrowthBatch,
+     BOTH_FlatCylinderSeparatesAnatomicalTipButNotIntersection)
+{
+  const Point<3> p52(.15715330839, .11075111479, .092861868441);
+  const Point<3> p53(.15608678758, .1121147275, .085326336324);
+  const Point<3> tip(.15570352972, .11287145317, .084041535854);
+  const double   r52 = .0012242651519, r53 = .0012156437614;
+  const double   rtip = .0010541478181, length = .009112321167690196;
+  const Edge     fixed{52, {{52, 53}}, {{p52, p53}}, r52};
+  const auto     direction = (tip - p53) / tip.distance(p53);
+  const Edge forward{100, {{54, 55}}, {{tip, tip + length * direction}}, rtip};
+  EXPECT_TRUE(compatible(forward, fixed, 15., 0.));
+  EXPECT_TRUE(compatible(fixed, forward, 15., 0.));
+  const Edge reverse{100,
+                     {{54, 55}},
+                     {{tip, tip + Point<3>(0., 0., length)}},
+                     rtip};
+  // This point lies strictly inside both actual linearly tapered frusta,
+  // independently of the bounding-cylinder separation implementation.
+  const Point<3> witness(.15570352972, .11287145317, .08559063045250732);
+  const auto     check_inside = [&](const Edge &edge, double r0, double r1) {
+    const auto   axis = edge.points[1] - edge.points[0];
+    const double t = ((witness - edge.points[0]) * axis) / axis.norm_square();
+    EXPECT_GT(t, 0.);
+    EXPECT_LT(t, 1.);
+    EXPECT_LT((witness - edge.points[0] - t * axis).norm(),
+              (1. - t) * r0 + t * r1);
+  };
+  check_inside(fixed, r52, r53);
+  check_inside(reverse, rtip, rtip);
+  EXPECT_FALSE(compatible(reverse, fixed, 15., 0.));
+  EXPECT_FALSE(compatible(fixed, reverse, 15., 0.));
+}
+
+TEST(VascularGrowthBatch,
+     BOTH_FlatCylinderKeepsTouchClearanceAndCrossingsRejected)
+{
+  const Edge first{0,
+                   {{0, 1}},
+                   {{Point<3>(0., 0., 0.), Point<3>(1., 0., 0.)}},
+                   .1};
+  Edge       second{2,
+                    {{2, 3}},
+                    {{Point<3>(1.05, 0., 0.), Point<3>(2., 0., 0.)}},
+              .1};
+  EXPECT_TRUE(compatible(first, second, 15., 0.));
+  EXPECT_TRUE(compatible(first, second, 15., .04));
+  EXPECT_FALSE(compatible(first, second, 15., .05));
+  second.points[0][0] = 1.;
+  EXPECT_FALSE(compatible(first, second, 15., 0.));
+  second.points = {{Point<3>(.5, -1., 0.), Point<3>(.5, 1., 0.)}};
+  EXPECT_FALSE(compatible(first, second, 15., 0.));
+  second.points = {{Point<3>(0., .2, 0.), Point<3>(1., .2, 0.)}};
+  EXPECT_FALSE(compatible(first, second, 15., 0.));
+  second.points = {{Point<3>(2., 1.e-10, 0.), Point<3>(1.05, 0., 0.)}};
+  EXPECT_TRUE(compatible(first, second, 15., 0.));
+  for (const double gap : {1.e-6, .05})
+    {
+      const Point<3> shift(1.e9, 1.e9, 1.e9);
+      Edge           a = first, b = second;
+      a.points = {{shift, shift + Point<3>(1., 0., 0.)}};
+      b.points = {
+        {shift + Point<3>(1. + gap, 0., 0.), shift + Point<3>(2., 1.e-10, 0.)}};
+      EXPECT_EQ(compatible(a, b, 15., 0.), gap == .05);
+    }
+  const Point<3> shift(1.e6, 1.e6, 1.e6);
+  const Edge     needle{0,
+                        {{0, 1}},
+                        {{shift, shift + Point<3>(1.e-6, 0., 0.)}},
+                    .1};
+  const Edge     near{2,
+                      {{2, 3}},
+                      {{shift + Point<3>(.000101, 0., 0.),
+                        shift + Point<3>(.000102, 0., 0.)}},
+                  .1};
+  // Normalizing these very short axes amplifies absolute coordinate error;
+  // a coordinate-only guard would falsely call this test well resolved.
+  EXPECT_FALSE(compatible(needle, near, 15., 0.));
+  for (const double extent : {1.e150, 1.e154})
+    {
+      const Edge huge_a{0,
+                        {{0, 1}},
+                        {{Point<3>(-extent, 0., 0.), Point<3>(extent, 0., 0.)}},
+                        .1};
+      const Edge huge_b{2,
+                        {{2, 3}},
+                        {{Point<3>(0., -extent, 0.), Point<3>(0., extent, 0.)}},
+                        .1};
+      // Their axes intersect. An overflowing capsule distance is uncertainty,
+      // not a positive separation certificate.
+      EXPECT_FALSE(compatible(huge_a, huge_b, 15., 0.));
+    }
+}
+
+TEST(VascularGrowthBatch, BOTH_FlatCylinderVoteKeepsRemoteAndEmptyOwners)
+{
+  Triangulation<3> serial;
+  GridGenerator::subdivided_hyper_rectangle(serial,
+                                            {2, 1, 1},
+                                            Point<3>(),
+                                            Point<3>(2., 1., 1.));
+  for (const auto &cell : serial.active_cell_iterators())
+    cell->set_subdomain_id(cell->center()[0] < 1. ? 0 : size() - 1);
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      serial, MPI_COMM_WORLD);
+  parallel::fullydistributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  bg.create_triangulation(description);
+  const MappingQ1<3> mapping;
+  if (size() > 2)
+    {
+      EXPECT_EQ(Utilities::MPI::sum(bg.n_locally_owned_active_cells() == 0 ?
+                                      1u :
+                                      0u,
+                                    MPI_COMM_WORLD),
+                size() - 2);
+    }
+  for (unsigned int scenario = 0; scenario < 3; ++scenario)
+    {
+      NetworkData input;
+      if (rank() == size() - 1)
+        {
+          input.nodes[0] = {{.2, .5, .5}, rank(), Port::arterial_inlet};
+          input.nodes[1] = {{.55, .5, .5}, rank()};
+          input.nodes[2] = {{.6, .5, .5}, rank()};
+          for (Id id : {0u, 1u})
+            {
+              Vessel v;
+              v.nodes           = {{id, id + 1}};
+              v.radii           = {{.05, .05}};
+              v.viscosity       = .004;
+              v.owner           = rank();
+              input.vessels[id] = v;
+            }
+          if (scenario == 1)
+            {
+              input.nodes[10]   = {{.65, .5, .5}, rank(), Port::portal_inlet};
+              input.nodes[11]   = {{.85, .5, .5}, rank()};
+              Vessel v          = input.vessels.at(0);
+              v.nodes           = {{10, 11}};
+              v.system          = System::portal;
+              input.vessels[10] = v;
+            }
+        }
+      const auto n = redistribute(bg, mapping, input, .2, MPI_COMM_WORLD);
+      std::vector<BatchProposal> local;
+      if (rank() == size() - 1)
+        {
+          BatchProposal proposal;
+          proposal.id      = 100;
+          proposal.cost    = 1.;
+          proposal.changed = {{100,
+                               {{2, 100}},
+                               {{Point<3>(.6, .5, .5),
+                                 Point<3>(.9, scenario == 2 ? 1.1 : .5, .5)}},
+                               .05}};
+          local.push_back(proposal);
+        }
+      BackgroundGeometry geometry(bg, mapping);
+      Parameters         p;
+      physical_controls(p);
+      p.minimum_angle     = 15.;
+      const auto result   = select(geometry, n, local, p);
+      const bool expected = scenario == 0;
+      if (rank() == size() - 1)
+        {
+          EXPECT_EQ(result.local.at(100), expected);
+        }
+      for (const auto &[key, accepted] : result.relevant)
+        EXPECT_EQ(accepted, expected);
+    }
+}

@@ -512,7 +512,9 @@ namespace ImmersX::Vascularization::internal
   // On each interval with a fixed clamped projection onto b, the residual
   // is affine in the parameter on a, so its squared norm is quadratic.
   inline double
-  segment_distance_square(const Segment<3> &a, const Segment<3> &b)
+  segment_distance_square(const Segment<3> &a,
+                          const Segment<3> &b,
+                          Tensor<1, 3>     *closest_direction = nullptr)
   {
     const auto          u  = a.second - a.first;
     const auto          v  = b.second - b.first;
@@ -543,7 +545,14 @@ namespace ImmersX::Vascularization::internal
           norm > 0. ?
             std::clamp(-(offset * slope) / norm, cuts[i - 1], cuts[i]) :
             middle;
-        best = std::min(best, (offset + t * slope).norm_square());
+        const auto   delta  = offset + t * slope;
+        const double square = delta.norm_square();
+        if (square < best)
+          {
+            best = square;
+            if (closest_direction != nullptr)
+              *closest_direction = delta;
+          }
       }
     return best;
   }
@@ -587,9 +596,69 @@ namespace ImmersX::Vascularization::internal
                                    b.points[0].norm(),
                                    b.points[1].norm()});
     const double distance = a.radius + b.radius + clearance + guard;
-    return segment_distance_square({a.points[0], a.points[1]},
-                                   {b.points[0], b.points[1]}) >
-           distance * distance;
+    Tensor<1, 3> closest_direction;
+    const double squared_distance =
+      segment_distance_square({a.points[0], a.points[1]},
+                              {b.points[0], b.points[1]},
+                              &closest_direction);
+    if (std::isfinite(squared_distance) &&
+        squared_distance > distance * distance)
+      return true;
+
+    // Rounded capsules bound flat-ended vessels conservatively. A positive
+    // support-plane gap between the containing flat cylinders also certifies
+    // separation, including near densely sampled degree-two continuations.
+    const auto   da = a.points[1] - a.points[0];
+    const auto   db = b.points[1] - b.points[0];
+    const double la = da.norm(), lb = db.norm();
+    if (!(la > 0.) || !(lb > 0.) || !std::isfinite(la) || !std::isfinite(lb) ||
+        !std::isfinite(a.radius) || !std::isfinite(b.radius) ||
+        !(a.radius > 0.) || !(b.radius > 0.) || !std::isfinite(clearance) ||
+        clearance < 0.)
+      return false;
+    const auto ua = da / la, ub = db / lb;
+    // Axis normalization amplifies absolute endpoint errors on short vessels.
+    // Keep the existing coordinate guard and include this conditioning before
+    // accepting any additional separation certificate.
+    const double condition = 1. + a.radius / la + b.radius / lb;
+    const double support_guard =
+      std::max(guard,
+               64. * std::numeric_limits<double>::epsilon() *
+                 std::max({1., a.radius, b.radius, clearance})) *
+      condition;
+    const double required_gap = clearance + support_guard;
+    if (!std::isfinite(required_gap))
+      return false;
+    const auto separated = [&](Tensor<1, 3> axis) {
+      const double norm = axis.norm();
+      if (!(norm > 0.) || !std::isfinite(norm))
+        return false;
+      axis /= norm;
+      const double radial_a = a.radius * cross_product_3d(axis, ua).norm();
+      const double radial_b = b.radius * cross_product_3d(axis, ub).norm();
+      // Project from one common origin to avoid subtracting large absolute
+      // support values after the interval bounds have been rounded.
+      const double a1   = axis * da;
+      const double b0   = axis * (b.points[0] - a.points[0]);
+      const double b1   = axis * (b.points[1] - a.points[0]);
+      const double lo_a = std::min(0., a1) - radial_a;
+      const double hi_a = std::max(0., a1) + radial_a;
+      const double lo_b = std::min(b0, b1) - radial_b;
+      const double hi_b = std::max(b0, b1) + radial_b;
+      if (!std::isfinite(lo_a) || !std::isfinite(hi_a) ||
+          !std::isfinite(lo_b) || !std::isfinite(hi_b))
+        return false;
+      return std::max(lo_a - hi_b, lo_b - hi_a) > required_gap;
+    };
+    if (separated(da) || separated(db) || separated(cross_product_3d(ua, ub)) ||
+        separated(closest_direction))
+      return true;
+    for (const auto &pa : a.points)
+      for (const auto &pb : b.points)
+        if (separated(pa - pb))
+          return true;
+    // The finite axis set is sufficient only when it finds a witness.
+    return false;
   }
 
 } // namespace ImmersX::Vascularization::internal

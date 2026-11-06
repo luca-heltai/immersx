@@ -275,6 +275,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Certify separation of flat-ended vascular tubes when their rounded bounding capsules overlap, preserving clearance, junction-angle and domain checks for densely sampled anatomical inputs.
+
 - [PR #355](https://github.com/luca-heltai/immersx/pull/355) Rebalance vascular mesh cuts when adjacent intervals can satisfy the existing background length bounds without changing physical vessel geometry.
 
 - [PR #350](https://github.com/luca-heltai/immersx/pull/350) Use the same fixed primal actions in positive-weight Schur construction, elimination and recovery, preserving the physical multiplier row when AMG is approximate.
