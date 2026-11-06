@@ -17,8 +17,10 @@
 
 #include <immersx/vascularization/generation.h>
 
+#include <map>
 #include <memory>
 #include <random>
+#include <set>
 
 #include "growth_mpi_scope.h"
 #include "growth_paths.h"
@@ -606,6 +608,9 @@ namespace ImmersX::Vascularization::internal
     bucket(count).initialization_work += *work;
     unsigned int failures                     = 0;
     bool         integration_budget_exhausted = false;
+    // A companion target repeats its six offsets. Retry other parents after
+    // the distributed vote rejects an optimum computed with cheap bounds.
+    std::map<std::pair<Id, unsigned int>, std::set<Id>> rejected_parents;
     initialization_scope.finish();
     while (count < terminal_count && failures < p.sample_budget)
       {
@@ -675,6 +680,7 @@ namespace ImmersX::Vascularization::internal
           return finish();
         std::optional<Point<3>> raw;
         Id                      shared_territory = invalid_id;
+        unsigned int            shared_direction = 0;
         if (system == System::arterial)
           {
             try
@@ -698,6 +704,7 @@ namespace ImmersX::Vascularization::internal
             raw              = entry->position;
             const unsigned int direction =
               ((run.batches - 1) % 6 + shared_territory % 6) % 6;
+            shared_direction = direction;
             (*raw)[direction / 2] += (direction % 2 ? 1. : -1.) *
                                      territory_separations.at(shared_territory);
             ++run.sampled_points;
@@ -739,6 +746,8 @@ namespace ImmersX::Vascularization::internal
             valid,
             "Native cell sampling failed, or spatial weight/tissue demand violates its configured range."))
           return finish();
+        const auto rejected =
+          rejected_parents.find({shared_territory, shared_direction});
         sampling_end               = timer.wall_time();
         const double nearest_begin = timer.wall_time();
         const auto   nearby        = nearest(
@@ -866,6 +875,9 @@ namespace ImmersX::Vascularization::internal
               if (rank == producer && target)
                 for (const auto &hit : nearby)
                   {
+                    if (rejected != rejected_parents.end() &&
+                        rejected->second.count(hit.id))
+                      continue;
                     const auto &x = paths.contexts.at(hit.id);
                     const auto  radii =
                       candidate_radii(x, terminal_demand, work);
@@ -1062,6 +1074,9 @@ namespace ImmersX::Vascularization::internal
         selection_end = timer.wall_time();
         if (selected == 0)
           {
+            if (best && (system == System::venous || system == System::portal))
+              rejected_parents[{shared_territory, shared_direction}].insert(
+                best->vessel);
             ++failures;
             if (demand_callbacks.discard)
               demand_callbacks.discard();
@@ -1147,6 +1162,8 @@ namespace ImmersX::Vascularization::internal
                                                splits.front().terminal);
             pending.erase(shared_territory);
           }
+        // Any accepted transaction can change geometry and Murray radii.
+        rejected_parents.clear();
         run.accepted_insertions += splits.size();
         run.maximum_batch_insertions =
           std::max(run.maximum_batch_insertions, selected);

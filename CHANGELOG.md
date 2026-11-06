@@ -280,6 +280,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #359](https://github.com/luca-heltai/immersx/pull/359) Retry other nearby vessel candidates when the distributed geometry vote rejects a companion growth target, preserving the same physical checks and finite search budget.
+
 - [PR #358](https://github.com/luca-heltai/immersx/pull/358) Certify separation of flat-ended vascular tubes when their rounded bounding capsules overlap, preserving clearance, junction-angle and domain checks for densely sampled anatomical inputs.
 
 - [PR #357](https://github.com/luca-heltai/immersx/pull/357) Apply up to three MUMPS refinement corrections in IDA using the retained Jacobian action and the existing residual tolerance, so small right-hand sides do not fail solely because the first backsolve is insufficiently accurate.

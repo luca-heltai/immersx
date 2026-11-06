@@ -931,6 +931,13 @@ activate idle processes. A Murray bound rejects targets that cannot fit the
 minimum radius under the fixed roots. Failed batches consume a finite
 consecutive sampling budget, and incomplete runs are reported as failures.
 
+If the distributed vote selects no split, companion growth remembers the
+rejected optimum for that common territory and offset. On the next visit it
+tries another vessel from the same `Candidate vessels` list, with the same
+length, radius, angle, wall and clearance checks. Every accepted transaction
+clears these exclusions because geometry and Murray radii can change. This
+retry remains bounded by `Sample budget per insertion`.
+
 Tests start from one real seed, accept insertions from multiple producers in
 the same batch, and reproduce the result at a fixed partition and random seed.
 Empty background processes join the same phases without sampling. This loop
