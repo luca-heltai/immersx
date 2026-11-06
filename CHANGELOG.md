@@ -280,7 +280,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Retry other nearby vessel candidates when the distributed geometry vote rejects a companion growth target, preserving the same physical checks and finite search budget.
+- [PR #359](https://github.com/luca-heltai/immersx/pull/359) Retry other nearby vessel candidates when the distributed geometry vote rejects a companion growth target, preserving the same physical checks and finite search budget.
 
 - [PR #358](https://github.com/luca-heltai/immersx/pull/358) Certify separation of flat-ended vascular tubes when their rounded bounding capsules overlap, preserving clearance, junction-angle and domain checks for densely sampled anatomical inputs.
 
