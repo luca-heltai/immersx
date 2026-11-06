@@ -10,8 +10,10 @@
 #include <immersx/vascularization/generation.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <set>
 
 #include "vascularization_integral_oracles.h"
@@ -53,30 +55,135 @@ namespace
         std::clamp((p - x) * delta / delta.norm_square(), 0., 1.);
       return p.distance(x + t * delta);
     };
-    double      result = std::min({point_segment(a, c, d),
-                                   point_segment(b, c, d),
-                                   point_segment(c, a, b),
-                                   point_segment(d, a, b)});
-    long double aa = 0., bb = 0., cc = 0., dd = 0., ee = 0.;
+    double result = std::min({point_segment(a, c, d),
+                              point_segment(b, c, d),
+                              point_segment(c, a, b),
+                              point_segment(d, a, b)});
+    // Cross products retain the small angle without subtracting nearly
+    // equal squared lengths for almost parallel segments.
+    std::array<long double, 3> cross{}, first{}, second{};
+    long double                det = 0., numerator_s = 0., numerator_t = 0.;
     for (unsigned int k = 0; k < 3; ++k)
       {
-        aa += static_cast<long double>(u[k]) * u[k];
-        bb += static_cast<long double>(u[k]) * v[k];
-        cc += static_cast<long double>(v[k]) * v[k];
-        dd += static_cast<long double>(u[k]) * w[k];
-        ee += static_cast<long double>(v[k]) * w[k];
+        const unsigned int i = (k + 1) % 3, j = (k + 2) % 3;
+        cross[k] = static_cast<long double>(u[i]) * v[j] -
+                   static_cast<long double>(u[j]) * v[i];
+        first[k] = static_cast<long double>(-w[i]) * v[j] -
+                   static_cast<long double>(-w[j]) * v[i];
+        second[k] = static_cast<long double>(-w[i]) * u[j] -
+                    static_cast<long double>(-w[j]) * u[i];
+        det += cross[k] * cross[k];
+        numerator_s += first[k] * cross[k];
+        numerator_t += second[k] * cross[k];
       }
-    const auto det = aa * cc - bb * bb;
     if (det > 0.)
       {
-        const double s = (bb * ee - cc * dd) / det,
-                     t = (aa * ee - bb * dd) / det;
+        const double s = numerator_s / det, t = numerator_t / det;
         if (s >= 0. && s <= 1. && t >= 0. && t <= 1.)
           result = std::min(result, (a + s * u).distance(c + t * v));
       }
     return result;
   }
+  // Circumscribed polygonal prisms contain the complete flat cylinders.
+  // A gap between their projections therefore proves cylinder clearance;
+  // failure to find a witness remains a test failure, not an acceptance.
+  bool
+  oracle_flat_clearance(const Point<3> &a,
+                        const Point<3> &b,
+                        const double    ra,
+                        const Point<3> &c,
+                        const Point<3> &d,
+                        const double    rb,
+                        const double    clearance)
+  {
+    const double scale =
+      std::max({1., a.norm(), b.norm(), c.norm(), d.norm(), ra, rb, clearance});
+    const double guard = 128. * std::numeric_limits<double>::epsilon() * scale;
+    if (oracle_distance(a, b, c, d) > ra + rb + clearance + guard)
+      return true;
+    const auto prism =
+      [](const Point<3> &x, const Point<3> &y, const double radius) {
+        constexpr unsigned int sides = 128;
+        const auto             axis  = (y - x) / x.distance(y);
+        unsigned int           k     = 0;
+        for (unsigned int j = 1; j < 3; ++j)
+          if (std::abs(axis[j]) < std::abs(axis[k]))
+            k = j;
+        Tensor<1, 3> coordinate;
+        coordinate[k] = 1.;
+        const auto u  = cross_product_3d(axis, coordinate) /
+                       cross_product_3d(axis, coordinate).norm();
+        const auto   v            = cross_product_3d(axis, u);
+        const double outer_radius = radius / std::cos(numbers::PI / sides);
+        std::vector<Point<3>> vertices;
+        for (const auto &end : {x, y})
+          for (unsigned int j = 0; j < sides; ++j)
+            {
+              const double angle = 2. * numbers::PI * j / sides;
+              vertices.push_back(end + outer_radius * (std::cos(angle) * u +
+                                                       std::sin(angle) * v));
+            }
+        return vertices;
+      };
+    const auto                first = prism(a, b, ra), second = prism(c, d, rb);
+    std::vector<Tensor<1, 3>> directions{b - a,
+                                         d - c,
+                                         cross_product_3d(b - a, d - c)};
+    // Face normals of the enclosing prisms also certify skew separation.
+    for (unsigned int j = 0; j < first.size() / 2; ++j)
+      {
+        const unsigned int next = (j + 1) % (first.size() / 2);
+        directions.push_back(cross_product_3d(first[next] - first[j], b - a));
+        directions.push_back(cross_product_3d(second[next] - second[j], d - c));
+      }
+    for (const auto &direction : directions)
+      {
+        if (direction.norm() == 0.)
+          continue;
+        const auto normal     = direction / direction.norm();
+        double     first_min  = std::numeric_limits<double>::max();
+        double     second_min = first_min;
+        double     first_max = -first_min, second_max = -first_min;
+        for (const auto &point : first)
+          {
+            const double projection = (point - a) * normal;
+            first_min               = std::min(first_min, projection);
+            first_max               = std::max(first_max, projection);
+          }
+        for (const auto &point : second)
+          {
+            const double projection = (point - a) * normal;
+            second_min              = std::min(second_min, projection);
+            second_max              = std::max(second_max, projection);
+          }
+        if (std::max(second_min - first_max, first_min - second_max) >
+            clearance + guard)
+          return true;
+      }
+    return false;
+  }
 } // namespace
+
+TEST(VascularCCO, FlatClearanceOracleRejectsIntersectionAndInsufficientGap)
+{
+  const Point<3> a(0., 0., 0.), b(1., 0., 0.);
+  // The end-cap gap is .1, although the radius-.2 capsules overlap.
+  EXPECT_TRUE(oracle_flat_clearance(
+    a, b, .2, Point<3>(1.1, 0., 0.), Point<3>(2., 0., 0.), .2, .05));
+  EXPECT_FALSE(oracle_flat_clearance(
+    a, b, .2, Point<3>(1.1, 0., 0.), Point<3>(2., 0., 0.), .2, .15));
+  EXPECT_FALSE(oracle_flat_clearance(
+    a, b, .2, Point<3>(1., 0., 0.), Point<3>(2., 0., 0.), .2, 0.));
+  EXPECT_FALSE(oracle_flat_clearance(
+    a, b, .2, Point<3>(.5, -.5, 0.), Point<3>(.5, .5, 0.), .2, 0.));
+  EXPECT_FALSE(oracle_flat_clearance(a,
+                                     b,
+                                     1.e-13,
+                                     Point<3>(0., -5.e-12, 0.),
+                                     Point<3>(1., 5.e-12, 0.),
+                                     1.e-13,
+                                     0.));
+}
 
 TEST(VascularCCO, TreeTopologyAndMurrayHaveIndependentOracles)
 {
@@ -184,11 +291,15 @@ TEST(VascularCCO, WholeTreeWallsAnglesAndSkewClearances)
                 }
           if (!incident)
             {
-              EXPECT_GT(oracle_distance(n.nodes.at(e.nodes[0]).position,
-                                        n.nodes.at(e.nodes[1]).position,
-                                        n.nodes.at(f.nodes[0]).position,
-                                        n.nodes.at(f.nodes[1]).position),
-                        e.radii[0] + f.radii[0] + p.clearance - 1.e-13);
+              EXPECT_TRUE(oracle_flat_clearance(
+                n.nodes.at(e.nodes[0]).position,
+                n.nodes.at(e.nodes[1]).position,
+                *std::max_element(e.radii.begin(), e.radii.end()),
+                n.nodes.at(f.nodes[0]).position,
+                n.nodes.at(f.nodes[1]).position,
+                *std::max_element(f.radii.begin(), f.radii.end()),
+                p.clearance))
+                << "Vessels " << a->first << " and " << b->first;
             }
         }
     }

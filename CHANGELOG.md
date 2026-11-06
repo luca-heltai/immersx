@@ -280,6 +280,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #358](https://github.com/luca-heltai/immersx/pull/358) Certify separation of flat-ended vascular tubes when their rounded bounding capsules overlap, preserving clearance, junction-angle and domain checks for densely sampled anatomical inputs.
+
 - [PR #357](https://github.com/luca-heltai/immersx/pull/357) Apply up to three MUMPS refinement corrections in IDA using the retained Jacobian action and the existing residual tolerance, so small right-hand sides do not fail solely because the first backsolve is insufficiently accurate.
 
 - [PR #347](https://github.com/luca-heltai/immersx/pull/347) Handle exact Krylov-space closure in LinearAdapter on deal.II 9.7 as well as newer versions, so exact preconditioners converge without NaN residuals.
