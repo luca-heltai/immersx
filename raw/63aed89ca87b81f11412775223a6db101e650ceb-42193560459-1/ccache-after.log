@@ -1,0 +1,9 @@
+Cacheable calls:   511 / 511 (100.0%)
+  Hits:            509 / 511 (99.61%)
+    Direct:        509 / 509 (100.0%)
+    Preprocessed:    0 / 509 ( 0.00%)
+  Misses:            2 / 511 ( 0.39%)
+Local storage:
+  Cache size (GB): 0.1 / 1.0 ( 6.22%)
+  Hits:            509 / 511 (99.61%)
+  Misses:            2 / 511 ( 0.39%)
