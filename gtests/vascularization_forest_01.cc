@@ -3331,11 +3331,15 @@ TEST(VascularForest, BOTH_ExecutionObstacleOverlayContainsEveryTrialCollision)
   std::map<Id, unsigned int> requests;
   if (rank() == producer)
     requests.emplace(base + 13, owners.at(base + 13));
-  for (unsigned int scenario = 0; scenario < 4; ++scenario)
+  for (unsigned int scenario = 0; scenario < 5; ++scenario)
     {
+      const Id selected_id = scenario == 4 ? base + 14 : base + 13;
+      requests.clear();
+      if (rank() == producer)
+        requests.emplace(selected_id, owners.at(selected_id));
       GrowthDemandUpdate update;
       update.snapshot_revision = 7;
-      if (rank() == 0 && scenario != 0)
+      if (rank() == 0 && scenario > 0 && scenario < 4)
         {
           update.terminals = {{base + 30, .5}, {base + 131, 2.25}};
           if (scenario == 2)
@@ -3348,7 +3352,9 @@ TEST(VascularForest, BOTH_ExecutionObstacleOverlayContainsEveryTrialCollision)
         }
       const auto preview = snapshot.demand().preview(update);
       ASSERT_TRUE(preview.validation.valid());
-      const double new_demand = scenario == 3 ? .005 : 2.5;
+      const double new_demand = scenario == 4 ? 1.e-12 :
+                                scenario == 3 ? .005 :
+                                                2.5;
       const auto   paths = snapshot.demand().candidate_paths(snapshot.network(),
                                                            preview,
                                                            requests,
@@ -3410,7 +3416,7 @@ TEST(VascularForest, BOTH_ExecutionObstacleOverlayContainsEveryTrialCollision)
       if (rank() == producer)
         {
           ASSERT_EQ(paths.contexts.size(), 1u);
-          const auto &context     = paths.contexts.at(base + 13);
+          const auto &context     = paths.contexts.at(selected_id);
           const auto  trial_radii = candidate_radii(context, new_demand);
           ASSERT_TRUE(trial_radii);
           for (const auto &[id, record] : obstacles.records)
@@ -3431,14 +3437,46 @@ TEST(VascularForest, BOTH_ExecutionObstacleOverlayContainsEveryTrialCollision)
                            new_demand,
                            [](const auto &) { return true; });
           ASSERT_TRUE(candidate);
+          std::set<Id> replaced;
+          for (const auto &changed : candidate->changed)
+            replaced.insert(changed.id);
+          bool growing_ancestor = false, shrinking_sibling = false;
+          for (std::size_t i = 1; i < context.path.size(); ++i)
+            {
+              const auto  &branch = context.path[i];
+              const double radius = (*trial_radii)(branch.edge.id,
+                                                   context.root,
+                                                   branch.edge.radius);
+              if (radius > branch.edge.radius)
+                {
+                  growing_ancestor = true;
+                  EXPECT_TRUE(replaced.count(branch.edge.id));
+                }
+            }
+          for (const auto &[id, baseline] : obstacles.records)
+            if (!replaced.count(id))
+              {
+                const double radius =
+                  (*trial_radii)(id, baseline.root, baseline.edge.radius);
+                EXPECT_LE(radius, baseline.edge.radius)
+                  << scenario << " " << id;
+                shrinking_sibling =
+                  shrinking_sibling || (baseline.root == context.root &&
+                                        radius < baseline.edge.radius);
+              }
+          if (scenario == 4)
+            {
+              EXPECT_TRUE(growing_ancestor);
+              EXPECT_TRUE(shrinking_sibling);
+            }
           for (const auto &changed : candidate->changed)
             {
-              const auto &mask = obstacles.covered_ancestors.at(base + 13);
+              const auto &mask = obstacles.covered_ancestors.at(selected_id);
               if (mask.count(changed.id))
                 continue;
               for (const auto &[id, baseline] : all_edges)
                 {
-                  if (id == base + 13 || id == changed.id)
+                  if (id == selected_id || id == changed.id)
                     continue;
                   auto edge   = baseline.edge;
                   edge.radius = (*trial_radii)(id, baseline.root, edge.radius);
@@ -3451,7 +3489,7 @@ TEST(VascularForest, BOTH_ExecutionObstacleOverlayContainsEveryTrialCollision)
             }
           if (scenario == 3)
             {
-              EXPECT_TRUE(obstacles.covered_ancestors.at(base + 13).empty());
+              EXPECT_TRUE(obstacles.covered_ancestors.at(selected_id).empty());
             }
         }
       else
@@ -3950,4 +3988,76 @@ TEST(VascularForest, BOTH_RejectedBestRetriesAnotherParentAtTheSameTerritory)
             EXPECT_LT(b.distance(.5 * (start[1] + end[1])), 1.e-13);
           }
       }
+}
+
+TEST(VascularForest, BOTH_GrowthObstacleBoxesKeepExhaustiveProfileSeparation)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  background(bg);
+  MappingQ1<3> mapping;
+  auto         input = paired_seed();
+  if (rank() == size() - 1)
+    {
+      input.terminals.at(base + 130).demand = 1.e-12;
+      input.nodes[base + 20000]             = {Point<3>(.1, 1.8, 1.7), rank()};
+      input.nodes[base + 20001]             = {Point<3>(3.8, 1.8, 1.7), rank()};
+      Vessel obstacle;
+      obstacle.nodes              = {{base + 20000, base + 20001}};
+      obstacle.radii              = {{.02, .1}};
+      obstacle.viscosity          = .004;
+      obstacle.owner              = rank();
+      input.vessels[base + 20010] = obstacle;
+    }
+  const auto n = redistribute(bg, mapping, input, 0., MPI_COMM_WORLD);
+  Parameters p;
+  physical_controls(p);
+  venous_controls(p);
+  p.minimum_radius     = 0.;
+  p.reference_flow     = 0.;
+  p.dissipation_weight = 0.;
+  const auto run       = grow_forest(bg,
+                               mapping,
+                               n,
+                               venous_seed_ids(n),
+                               venous_seed_roots(n),
+                               p,
+                               MPI_COMM_WORLD,
+                               4,
+                               System::venous,
+                               common_territories(n));
+  for (const auto &issue : run.validation.issues)
+    ADD_FAILURE() << issue.message;
+  ASSERT_TRUE(run.validation.valid());
+  ASSERT_TRUE(run.accepted.committed);
+  EXPECT_EQ(Utilities::MPI::sum(run.accepted_insertions, MPI_COMM_WORLD), 3u);
+  EXPECT_GT(Utilities::MPI::sum(
+              run.work[GrowthOperation::network_index_queries], MPI_COMM_WORLD),
+            0u);
+  std::map<Id, GrowthDemandEdge> local, all;
+  for (const auto &[id, v] : run.accepted.network.vessels)
+    if (v.owner == rank())
+      {
+        GrowthDemandEdge record;
+        record.edge           = {id,
+                                 v.nodes,
+                                 {{run.accepted.network.nodes.at(v.nodes[0]).position,
+                                   run.accepted.network.nodes.at(v.nodes[1]).position}},
+                                 std::max(v.radii[0], v.radii[1])};
+        record.endpoint_radii = v.radii;
+        local.emplace(id, record);
+      }
+  for (const auto &part : Utilities::MPI::all_gather(MPI_COMM_WORLD, local))
+    all.insert(part.begin(), part.end());
+  // Enumerate every physical pair independently of all spatial indices.
+  for (auto a = all.begin(); a != all.end(); ++a)
+    for (auto b = std::next(a); b != all.end(); ++b)
+      EXPECT_TRUE(compatible(a->second.edge,
+                             b->second.edge,
+                             p.minimum_angle,
+                             p.clearance,
+                             a->second.endpoint_radii,
+                             b->second.endpoint_radii))
+        << a->first << " " << b->first;
+  EXPECT_EQ(all.at(base + 20010).endpoint_radii,
+            (std::array<double, 2>{{.02, .1}}));
 }

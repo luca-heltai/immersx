@@ -31,7 +31,19 @@ namespace ImmersX::Vascularization::internal
   namespace
   {
     using namespace dealii;
-    using Leaf = std::pair<Segment<3>, Id>;
+    using Leaf = std::pair<BoundingBox<3>, Id>;
+    BoundingBox<3>
+    envelope(const Edge &edge, double padding)
+    {
+      Point<3> a, b;
+      for (unsigned int d = 0; d < 3; ++d)
+        {
+          a[d] = std::min(edge.points[0][d], edge.points[1][d]) - padding;
+          b[d] = std::max(edge.points[0][d], edge.points[1][d]) + padding;
+        }
+      return BoundingBox<3>(std::make_pair(a, b));
+    }
+
     struct Hit
     {
       Id           id;
@@ -857,13 +869,18 @@ namespace ImmersX::Vascularization::internal
                 }
               const auto       &obstacles = obstacle_reply.records;
               std::vector<Leaf> obstacle_leaves;
-              double            obstacle_radius = 0.;
               for (const auto &[id, obstacle] : obstacles)
                 {
-                  obstacle_leaves.push_back(
-                    {{obstacle.edge.points[0], obstacle.edge.points[1]}, id});
-                  obstacle_radius =
-                    std::max(obstacle_radius, obstacle.edge.radius);
+                  const auto  &edge = obstacle.edge;
+                  const double guard =
+                    64. * std::numeric_limits<double>::epsilon() *
+                    std::max(
+                      {1., edge.points[0].norm(), edge.points[1].norm()});
+                  // Growing ancestors are replaced below; all remaining
+                  // candidate radii are bounded by this preview's profile.
+                  obstacle_leaves.emplace_back(envelope(edge,
+                                                        edge.radius + guard),
+                                               id);
                 }
               const auto obstacle_tree = pack_rtree(obstacle_leaves);
               count_work(work, GrowthOperation::network_index_builds);
@@ -899,20 +916,6 @@ namespace ImmersX::Vascularization::internal
                         using TrialLeaf =
                           std::pair<BoundingBox<3>, std::size_t>;
                         std::vector<TrialLeaf> trial_leaves;
-                        const auto             envelope = [&](const Edge &edge,
-                                                  double      padding) {
-                          Point<3> a, b;
-                          for (unsigned int d = 0; d < 3; ++d)
-                            {
-                              a[d] =
-                                std::min(edge.points[0][d], edge.points[1][d]) -
-                                padding;
-                              b[d] =
-                                std::max(edge.points[0][d], edge.points[1][d]) +
-                                padding;
-                            }
-                          return BoundingBox<3>(std::make_pair(a, b));
-                        };
                         for (std::size_t i = 0; i < changed.size(); ++i)
                           {
                             replaced.insert(changed[i].id);
@@ -956,10 +959,9 @@ namespace ImmersX::Vascularization::internal
                                        GrowthOperation::network_index_queries);
                             for (const auto &[segment, id] :
                                  obstacle_tree |
-                                   bgi::adaptors::queried(bgi::intersects(
-                                     envelope(e,
-                                              e.radius + obstacle_radius +
-                                                broad_clearance + guard))))
+                                   bgi::adaptors::queried(
+                                     bgi::intersects(envelope(
+                                       e, e.radius + broad_clearance + guard))))
                               {
                                 count_work(work,
                                            GrowthOperation::network_index_hits);
