@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow explicit zero-flow declarations for unpaired anatomical archive ends while retaining strict checks for missing or conflicting microvascular connections.
+
 - [PR #353](https://github.com/luca-heltai/immersx/pull/353) Add the ParaView Area Tube plugin to visualize line datasets with radius computed from cross-sectional area.
 
 - [PR #351](https://github.com/luca-heltai/immersx/pull/351) Select bounded replicated direct inverses for coupled flow fields and materialize small Schur operators per Jacobian snapshot while checking every inner solve against the original action. Configure these policies in the IRCAD liver profiles without changing physical parameters or solver tolerances.

@@ -37,6 +37,17 @@ namespace ImmersX::Vascularization
     struct HasNetworkPhysics<Flow, std::void_t<typename Flow::NetworkPhysics>>
       : std::true_type
     {};
+
+    template <class Physics, class = void>
+    struct HasSealedTerminals : std::false_type
+    {};
+
+    template <class Physics>
+    struct HasSealedTerminals<
+      Physics,
+      std::void_t<decltype(std::declval<Physics &>().sealed_terminals)>>
+      : std::true_type
+    {};
   } // namespace internal
 
   /** Older installed MetricFlowX packages retain their ordinary input path. */
@@ -95,13 +106,18 @@ namespace ImmersX::Vascularization
    * A local mesh-only view reverses veins to orient execution cells along
    * flow. Original nodes, reference orientations, radii and ids remain intact.
    * Native microvascular links reuse the supplied positive terminal beds.
+   * An optional set of physical Terminal ids declares sealed, zero-flow ends.
+   * Its entries may be distributed or repeated on several ranks. Such ends
+   * must exist and must not belong to a bed; their boundary callback is not
+   * called. Older backends accept only an empty sealed set.
    */
   template <class Flow, class VesselPhysics, class BoundaryPhysics>
   MetricFlowXTransfer
   prepare_metric_flow_x(Flow                   &flow,
                         const GenerationResult &generation,
                         const VesselPhysics    &vessel_physics,
-                        const BoundaryPhysics  &boundary_physics)
+                        const BoundaryPhysics  &boundary_physics,
+                        const std::set<Id>     &sealed_terminals = {})
   {
     using namespace dealii;
     if constexpr (!has_metric_flow_x_network_input<Flow>)
@@ -125,7 +141,26 @@ namespace ImmersX::Vascularization
             generation.discretization.validation.valid() &&
             flow.triangulation().n_global_active_cells() == 0,
           "Flow preparation requires a valid result and an empty native mesh.");
-        using Physics          = typename Flow::NetworkPhysics;
+        using Physics = typename Flow::NetworkPhysics;
+        std::set<Id> sealed;
+        for (const auto &ids :
+             Utilities::MPI::all_gather(comm, sealed_terminals))
+          sealed.insert(ids.begin(), ids.end());
+        require_all(
+          sealed.empty() || internal::HasSealedTerminals<Physics>::value,
+          "Sealed terminals require a compatible MetricFlowX backend.");
+        bool valid_sealed_links = true;
+        for (const auto &pair : generation.terminal_pairs)
+          valid_sealed_links = valid_sealed_links &&
+                               sealed.count(pair.arterial) == 0 &&
+                               sealed.count(pair.venous) == 0;
+        for (const auto &triplet : generation.terminal_triplets)
+          valid_sealed_links = valid_sealed_links &&
+                               sealed.count(triplet.arterial) == 0 &&
+                               sealed.count(triplet.portal) == 0 &&
+                               sealed.count(triplet.venous) == 0;
+        require_all(valid_sealed_links,
+                    "A microvascular bed terminal cannot also be sealed.");
         using VesselProperties = typename Flow::VesselProperties;
         using RCR = typename decltype(Physics{}.terminals)::mapped_type;
         std::map<Id, VesselProperties> owned_vessels;
@@ -167,11 +202,11 @@ namespace ImmersX::Vascularization
                   valid =
                     owned_terminal_nodes.emplace(id, terminal.node).second &&
                     valid;
+                  RCR boundary{};
+                  if (sealed.count(id) == 0)
+                    boundary = boundary_physics(terminal.node, node, &terminal);
                   valid =
-                    owned_boundaries
-                      .emplace(terminal.node,
-                               boundary_physics(terminal.node, node, &terminal))
-                      .second &&
+                    owned_boundaries.emplace(terminal.node, boundary).second &&
                     valid;
                 }
             for (const auto &[id, node] : network.nodes)
@@ -218,11 +253,20 @@ namespace ImmersX::Vascularization
                   "Native coefficient records have duplicate physical owners."));
           return result;
         };
-        const auto vessels        = collect(owned_vessels);
-        const auto boundaries     = collect(owned_boundaries);
-        const auto terminal_nodes = collect(owned_terminal_nodes);
-        const auto inlets         = collect(owned_inlets);
-        const auto reversed       = collect(owned_reversed);
+        const auto   vessels        = collect(owned_vessels);
+        const auto   boundaries     = collect(owned_boundaries);
+        const auto   terminal_nodes = collect(owned_terminal_nodes);
+        const auto   inlets         = collect(owned_inlets);
+        const auto   reversed       = collect(owned_reversed);
+        std::set<Id> sealed_nodes;
+        for (const Id id : sealed)
+          {
+            const auto terminal = terminal_nodes.find(id);
+            require_all(
+              terminal != terminal_nodes.end(),
+              "A declared sealed terminal is absent from the network.");
+            sealed_nodes.insert(terminal->second);
+          }
         require_all(!vessels.empty() &&
                       vessels.size() < numbers::invalid_material_id,
                     "Native flow material ids cannot represent this network.");
@@ -249,7 +293,13 @@ namespace ImmersX::Vascularization
             const auto native = static_cast<types::boundary_id>(boundary++);
             AssertThrow(transfer.boundary_ids.emplace(id, native).second,
                         ExcMessage("A physical inlet also has terminal data."));
-            input.terminals.emplace(native, properties);
+            if (sealed_nodes.count(id) != 0)
+              {
+                if constexpr (internal::HasSealedTerminals<Physics>::value)
+                  input.sealed_terminals.insert(native);
+              }
+            else
+              input.terminals.emplace(native, properties);
           }
         for (const auto &[id, node] : terminal_nodes)
           transfer.terminal_ids.emplace(id, transfer.boundary_ids.at(node));

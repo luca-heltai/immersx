@@ -1281,7 +1281,7 @@ ordinary imported-input application path; selecting generation reports the
 missing native API before growing a network. Build MetricFlowX with
 `-DMETRIC_FLOW_X_BACKEND=Trilinos` for this checkout, whose ImmersX linear
 algebra configuration selects Trilinos. Both packages must use the same backend
-and deal.II installation. The supporting native API is proposed in
+and deal.II installation. See the supporting native API in
 [MetricFlowX #86](https://github.com/luca-heltai/metric-flow-x/pull/86).
 
 Construct the final background first, then generate, validate and prepare the
@@ -1319,6 +1319,20 @@ physical node ID and a terminal pointer, or a null pointer at a real outlet.
 Arterial inlets retain native boundary zero and need no terminal callback.
 Material and wall choices must match the native configured model. These
 synthetic values illustrate the API; they are not an organ calibration.
+
+For an explicitly closed anatomical end, pass its physical **Terminal ID** in
+the optional fifth argument, a `std::set<Id>` of sealed terminals. Node IDs
+and native boundary IDs are different namespaces. Entries may be distributed
+or repeated across ranks. The helper rejects unknown IDs and terminals already
+connected through a saved bed. It skips the boundary callback for sealed ends
+and transfers an exact zero-flow condition, with no downstream reservoir or
+capacitor state. This requires the sealed-terminal API from
+[MetricFlowX #88](https://github.com/luca-heltai/metric-flow-x/pull/88) and a
+rebuild against its matching headers and library; an empty set also works with
+older backends.
+
+A sealed end is a declared model boundary. Record that choice and exclude it
+from coverage measures intended to describe supplied and drained tissue.
 
 The helper constructs the native fully distributed line mesh with execution
 owners following the background. It exchanges coefficient tables, identifiers

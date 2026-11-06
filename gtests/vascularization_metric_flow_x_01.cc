@@ -7,6 +7,8 @@
 #include <gtest/gtest.h>
 #include <immersx/vascularization/metric_flow_x.h>
 
+#include <set>
+
 #include "test_paths.h"
 
 #if defined(IMMERSX_WITH_METRIC_FLOW_X) && defined(DEAL_II_WITH_SUNDIALS)
@@ -262,6 +264,141 @@ namespace
                     std::uint64_t(result.discretization.cells.size()), comm));
       }
   }
+  template <class Flow>
+  void
+  exercise_sealed_transfer()
+  {
+    if constexpr (!has_metric_flow_x_network_input<Flow>)
+      GTEST_SKIP() << "Installed MetricFlowX has no in-memory input API.";
+    else
+      {
+        using Physics = typename Flow::NetworkPhysics;
+        if constexpr (!ImmersX::Vascularization::internal::HasSealedTerminals<
+                        Physics>::value)
+          GTEST_SKIP() << "Installed MetricFlowX has no sealed-terminal API.";
+        else
+          {
+            const auto comm = MPI_COMM_WORLD;
+            const auto rank = Utilities::MPI::this_mpi_process(comm);
+            const auto last = Utilities::MPI::n_mpi_processes(comm) - 1;
+            ParameterAcceptor::clear();
+            parallel::distributed::Triangulation<3> background(comm);
+            GridGenerator::hyper_cube(background);
+            background.refine_global(1);
+            GenerationResult result;
+            if (rank == 0 || rank == last)
+              {
+                result.network.nodes[base + 1] = {Point<3>(.1, .3, .5),
+                                                  0,
+                                                  Port::arterial_inlet};
+                result.network.nodes[base + 3] = {Point<3>(.9, .3, .5), 0};
+                result.network.nodes[base + 5] = {Point<3>(.9, .7, .5),
+                                                  last,
+                                                  Port::venous_outlet};
+                result.network.nodes[base + 7] = {Point<3>(.1, .7, .5), last};
+                Vessel artery, vein;
+                artery.nodes                      = {{base + 1, base + 3}};
+                artery.radii                      = {{.003, .0025}};
+                artery.viscosity                  = .004;
+                vein.nodes                        = {{base + 5, base + 7}};
+                vein.radii                        = {{.004, .0035}};
+                vein.viscosity                    = .004;
+                vein.owner                        = last;
+                vein.system                       = System::venous;
+                result.network.vessels[base + 11] = artery;
+                result.network.vessels[base + 13] = vein;
+                result.network.terminals[Id(0)]   = {
+                  base + 3, invalid_id, System::arterial, 0, 1.};
+                result.network.terminals[base + 19] = {
+                  base + 7, invalid_id, System::venous, last, 1.};
+              }
+            result.validation =
+              validate_data(result.network,
+                            Utilities::MPI::n_mpi_processes(comm));
+            ASSERT_TRUE(result.validation.valid());
+            result.discretization = discretize(background,
+                                               MappingQ1<3>(),
+                                               result.network,
+                                               DiscretizationParameters{},
+                                               comm);
+            ASSERT_TRUE(result.discretization.validation.valid());
+            Flow flow(comm);
+            flow.initialize_params(
+              ImmersX::TestPaths::parameter_path(
+                "gtests/parameters/vascularization_metric_flow_x.prm"),
+              ImmersX::TestPaths::output_path(
+                "vascular-metric-flow-x/sealed_last_used_parameters.prm")
+                .string());
+            const auto material = [](Id, const Vessel &) {
+              typename Flow::VesselProperties properties;
+              properties.E      = 5.e5;
+              properties.h_wall = .0003;
+              return properties;
+            };
+            unsigned int boundary_calls = 0;
+            const auto   boundary =
+              [&](Id, const Node &, const Terminal *terminal) {
+                ++boundary_calls;
+                EXPECT_EQ(terminal, nullptr);
+                using RCR = typename decltype(Physics{}.terminals)::mapped_type;
+                return RCR{0., 1.e8, 0., 0., "real-port"};
+              };
+            std::set<Id> sealed;
+            // Deliberately request each end on a rank other than its owner.
+            if (rank == last)
+              sealed.insert(Id(0));
+            if (rank == 0)
+              sealed.insert(base + 19);
+            if (rank == 0)
+              result.terminal_pairs.push_back(
+                {base + 21, Id(0), base + 19, 1.e9});
+            EXPECT_ANY_THROW(
+              prepare_metric_flow_x(flow, result, material, boundary, sealed));
+            EXPECT_EQ(flow.triangulation().n_global_active_cells(), 0u);
+            result.terminal_pairs.clear();
+            auto unknown = sealed;
+            if (rank == 0)
+              unknown.insert(base + 99);
+            EXPECT_ANY_THROW(
+              prepare_metric_flow_x(flow, result, material, boundary, unknown));
+            EXPECT_EQ(flow.triangulation().n_global_active_cells(), 0u);
+            boundary_calls = 0;
+            const auto transfer =
+              prepare_metric_flow_x(flow, result, material, boundary, sealed);
+            EXPECT_EQ(Utilities::MPI::sum(boundary_calls, comm), 1u);
+            unsigned int artery_ends = 0, vein_ends = 0;
+            for (const auto &cell :
+                 flow.triangulation().active_cell_iterators())
+              if (cell->is_locally_owned())
+                for (unsigned int f = 0; f < 2; ++f)
+                  if (cell->face(f)->at_boundary())
+                    {
+                      const auto id = cell->face(f)->boundary_id();
+                      if (id == transfer.terminal_ids.at(Id(0)))
+                        {
+                          EXPECT_EQ(f, 1u);
+                          ++artery_ends;
+                        }
+                      else if (id == transfer.terminal_ids.at(base + 19))
+                        {
+                          EXPECT_EQ(f, 0u);
+                          ++vein_ends;
+                        }
+                    }
+            EXPECT_EQ(Utilities::MPI::sum(artery_ends, comm), 1u);
+            EXPECT_EQ(Utilities::MPI::sum(vein_ends, comm), 1u);
+            auto state = flow.make_state(), rate = flow.make_state(),
+                 residual = flow.make_state();
+            flow.initialize_consistent_state(state, rate, .17);
+            EXPECT_GT(rate.l2_norm(), 0.);
+            flow.assemble_residual(.17, state, rate, residual);
+            flow.assemble_state_jacobian(.17, state, rate);
+            flow.assemble_derivative_jacobian(.17, state, rate);
+            EXPECT_TRUE(std::isfinite(residual.l2_norm()));
+          }
+      }
+  }
+
 } // namespace
 
 TEST(MetricFlowX, BOTH_PreparesVascularInputWithNativeBeds)
@@ -272,5 +409,9 @@ TEST(MetricFlowX,
      BOTH_PreparesThreeCompartmentInputWithIndependentPortalBoundary)
 {
   exercise_native_transfer<MetricFlowX::BloodFlowSystem<1, 3>>(true);
+}
+TEST(MetricFlowX, BOTH_PreparesExplicitSealedInputTerminals)
+{
+  exercise_sealed_transfer<MetricFlowX::BloodFlowSystem<1, 3>>();
 }
 #endif
