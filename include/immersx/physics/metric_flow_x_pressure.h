@@ -280,6 +280,10 @@ namespace ImmersX
     result.view.vmult =
       [&problem, pressure, state, time, projection](Vector       &dst,
                                                     const Vector &src) {
+        // Scalar zeroing preserves a Trilinos destination's pending Insert
+        // mode; native pressure assembly needs a fresh vector before adding
+        // entries.
+        problem.reinit_state(dst);
         dst = 0.;
         problem.add_external_pressure_residual(
           time,
