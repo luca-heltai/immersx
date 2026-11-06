@@ -3760,3 +3760,185 @@ TEST(VascularForest, BOTH_ExecutionReusesAncestorCapsAndAdvancesShrinkEvents)
       expected_roots   = expected.fixed_owned_roots;
     }
 }
+
+TEST(VascularForest, BOTH_RejectedBestRetriesAnotherParentAtTheSameTerritory)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(bg,
+                                            {2, 1, 1},
+                                            Point<3>(),
+                                            Point<3>(1., 1., 1.));
+  for (const auto &cell : bg.active_cell_iterators())
+    if (cell->is_locally_owned() && cell->center()[0] < .5)
+      cell->set_refine_flag();
+  bg.execute_coarsening_and_refinement();
+  MappingQ1<3> mapping;
+
+  const Id                bad = base + 10010, good = base + 11010;
+  const std::array<Id, 3> territories{{base + 40, base + 140, base + 240}};
+  const std::array<Point<3>, 2> start{
+    {Point<3>(.65, .4, .5), Point<3>(.95, .25, .5)}};
+  const std::array<Point<3>, 2> end{
+    {Point<3>(.65, .6, .5), Point<3>(.95, .75, .5)}};
+  const std::array<double, 2> radii{{.0002, .001}};
+  const Point<3>              target(.78, .5, .5);
+  constexpr double            hmin = .75, hcoarse = 1.5, offset = .00015;
+  // Exact diameters of the refined (.25,.5,.5) and coarse (.5,1,1) boxes.
+  double local_min = std::numeric_limits<double>::max(), local_max = 0.;
+  for (const auto &cell : bg.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        local_min = std::min(local_min, cell->diameter());
+        local_max = std::max(local_max, cell->diameter());
+      }
+  EXPECT_NEAR(Utilities::MPI::min(local_min, MPI_COMM_WORLD), hmin, 1.e-14);
+  EXPECT_NEAR(Utilities::MPI::max(local_max, MPI_COMM_WORLD), hcoarse, 1.e-14);
+  for (unsigned int direction = 0; direction < 6; ++direction)
+    {
+      Point<3> tip = target;
+      tip[direction / 2] += (direction % 2 ? 1. : -1.) * offset;
+      const auto delta = [&](unsigned int tree) {
+        const auto   midpoint = .5 * (start[tree] + end[tree]);
+        const double half     = .5 * start[tree].distance(end[tree]);
+        return radii[tree] * radii[tree] *
+               (half +
+                std::pow(2., -2. / 3.) * (half + midpoint.distance(tip)) -
+                2. * half);
+      };
+      EXPECT_LT(delta(0), delta(1)); // Common positive forest-volume divisor.
+      EXPECT_GT(.1, .1 * hmin);
+      EXPECT_LT(.1 / hcoarse, .1);
+      EXPECT_GT(.25 / hcoarse, .1);
+      EXPECT_GT((.5 * (start[1] + end[1])).distance(tip) / hcoarse, .1);
+    }
+
+  NetworkData            input;
+  std::vector<Territory> common;
+  if (rank() == size() - 1)
+    {
+      for (unsigned int tree = 0; tree < 2; ++tree)
+        {
+          const Id id          = tree == 0 ? bad : good;
+          input.nodes[id - 10] = {start[tree],
+                                  rank(),
+                                  Port::venous_outlet,
+                                  Provenance::generated};
+          input.nodes[id - 9]  = {end[tree],
+                                  rank(),
+                                  Port::none,
+                                  Provenance::generated};
+          Vessel vessel;
+          vessel.nodes             = {{id - 10, id - 9}};
+          vessel.radii             = {{radii[tree], radii[tree]}};
+          vessel.viscosity         = .004;
+          vessel.system            = System::venous;
+          vessel.provenance        = Provenance::generated;
+          vessel.owner             = rank();
+          input.vessels[id]        = vessel;
+          input.terminals[id + 20] = {
+            id - 9, territories[tree], System::venous, rank(), 1.};
+          common.push_back({territories[tree], end[tree], rank(), 1.});
+        }
+      common.push_back({territories[2], target, rank(), 1.});
+    }
+  const auto   native = redistribute(bg, mapping, input, 0., MPI_COMM_WORLD);
+  std::set<Id> mutable_owned;
+  std::map<Id, double> roots;
+  for (unsigned int tree = 0; tree < 2; ++tree)
+    {
+      const Id id = tree == 0 ? bad : good;
+      if (native.vessels.count(id) && native.vessels.at(id).owner == rank())
+        {
+          mutable_owned.insert(id);
+          roots[id] = radii[tree];
+        }
+    }
+  Parameters p;
+  physical_controls(p);
+  p.length_scale                     = "local mesh size";
+  p.terminal_count_multiplier_factor = "none";
+  p.terminal_count                   = 3;
+  p.minimum_length                   = .1;
+  p.minimum_radius                   = 0.;
+  p.clearance                        = 0.;
+  p.minimum_angle                    = 1.;
+  p.candidate_count                  = 2;
+  p.optimization_steps               = 0;
+  p.sample_budget                    = 12;
+  p.reference_flow                   = 2.e-9;
+  p.dissipation_weight               = 0.;
+  p.venous.enabled                   = true;
+  p.venous.murray_exponent           = 3.;
+  p.venous.terminal_separation       = 1.e-4;
+  const auto  run                    = grow_forest(bg,
+                               mapping,
+                               native,
+                               mutable_owned,
+                               roots,
+                               p,
+                               MPI_COMM_WORLD,
+                               3,
+                               System::venous,
+                               common);
+  std::string messages;
+  for (const auto &issue : run.validation.issues)
+    messages += issue.message + "\n";
+  ASSERT_TRUE(run.validation.valid()) << messages;
+  ASSERT_TRUE(run.accepted.committed);
+  EXPECT_EQ(Utilities::MPI::sum(run.accepted_insertions, MPI_COMM_WORLD), 1u);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                  run.accepted.fixed_owned_roots.size()),
+                                MPI_COMM_WORLD),
+            2u);
+  EXPECT_EQ(
+    Utilities::MPI::sum(static_cast<std::uint64_t>(
+                          run.accepted.physiology.owned_leaf_terminals.size()),
+                        MPI_COMM_WORLD),
+    3u);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                  run.owned_venous_terminals.size()),
+                                MPI_COMM_WORLD),
+            3u);
+  const auto                 &after = run.accepted.network;
+  std::array<unsigned int, 3> claims{{0, 0, 0}};
+  for (const auto &[id, terminal] : after.terminals)
+    if (terminal.owner == rank())
+      {
+        const auto entry =
+          std::find(territories.begin(), territories.end(), terminal.territory);
+        EXPECT_NE(entry, territories.end());
+        if (entry == territories.end())
+          continue;
+        const unsigned int index = entry - territories.begin();
+        ++claims[index];
+        EXPECT_DOUBLE_EQ(terminal.demand, 1.);
+        const auto position = after.nodes.at(terminal.node).position;
+        if (index < 2)
+          EXPECT_LT(position.distance(end[index]), 1.e-13);
+        else
+          EXPECT_NEAR(position.distance(target), offset, 1.e-13);
+      }
+  for (unsigned int count : claims)
+    EXPECT_EQ(Utilities::MPI::sum(count, MPI_COMM_WORLD), 1u);
+  for (const auto &[id, vessel] : after.vessels)
+    if (vessel.owner == rank())
+      {
+        const auto a = after.nodes.at(vessel.nodes[0]).position;
+        const auto b = after.nodes.at(vessel.nodes[1]).position;
+        EXPECT_GE(std::min(a[0], b[0]), .5);
+        EXPECT_GE(a.distance(b) / hcoarse + 1.e-13, .1);
+        EXPECT_TRUE(std::isfinite(vessel.radii[0]));
+        EXPECT_GT(vessel.radii[0], 0.);
+        if (id == bad)
+          {
+            EXPECT_EQ(vessel.nodes, native.vessels.at(bad).nodes);
+            EXPECT_EQ(vessel.radii, native.vessels.at(bad).radii);
+            EXPECT_LT(a.distance(start[0]), 1.e-13);
+            EXPECT_LT(b.distance(end[0]), 1.e-13);
+          }
+        if (id == good)
+          {
+            EXPECT_LT(b.distance(.5 * (start[1] + end[1])), 1.e-13);
+          }
+      }
+}
