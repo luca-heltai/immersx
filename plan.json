@@ -107,7 +107,8 @@
     "9015c660e3123baa80dd6a4c3e08af4ab37c7d96",
     "507c53a5265c82f83bc12fb39c1959a8826827ce",
     "f22f78a8af658aed69a83ba21c97d3254d3bdaf8",
-    "e466af7b0577f648d64e3108922c3aa7302b1fe7"
+    "e466af7b0577f648d64e3108922c3aa7302b1fe7",
+    "06061fe0a000b9491bd0336b9eb6332201752b51"
   ],
   "configuration": {
     "build_type": "Release",
@@ -121,17 +122,17 @@
     "repetitions": 9,
     "timing_contract": "source-isolated; absent timing_scope is legacy-unspecified"
   },
-  "harness_sha": "e466af7b0577f648d64e3108922c3aa7302b1fe7",
+  "harness_sha": "06061fe0a000b9491bd0336b9eb6332201752b51",
   "schema_version": 1,
   "selected": [
-    "e466af7b0577f648d64e3108922c3aa7302b1fe7",
-    "aff4fd987df80245bc588053da894b40eb6bade4",
-    "606505fa5e2f238c8c3b54ab63092e6d27911af1",
-    "23fde82b7c5168de0e3058e1c242b9799b7e0959",
-    "96bc4907c13311a943ffd8cd42053dbfb7fbf237",
-    "837fd5eddb3046a0d0a77bc16bd4fb1d96fb64a0",
-    "819d38f029435c7ca8a77a6d9fd735c37387e761",
-    "40715fb1bbf70e81b02fd06177a8a5bb74e7fc1b"
+    "06061fe0a000b9491bd0336b9eb6332201752b51",
+    "a46cf145cf59fb88038c1b42e43d9275d08ea60e",
+    "2ee63941b395bf303959b41e7d328a19a0a886f7",
+    "0f194f186ecee7d585ea4dac20f31f26551483b0",
+    "0668844d3da3939945b557c20f826cc76f19f2ce",
+    "4bb8e92c244443d2c5e65ed74415a402a03ec203",
+    "e1e23ad524156396c063f5c8f1a6b424c30f01a3",
+    "b0a51089be391e0db79b3230bedfc7999502bd3b"
   ],
-  "source_sha": "e466af7b0577f648d64e3108922c3aa7302b1fe7"
+  "source_sha": "06061fe0a000b9491bd0336b9eb6332201752b51"
 }
