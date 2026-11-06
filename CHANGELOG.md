@@ -280,7 +280,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Certify separation of tapered anatomical vessels using their actual endpoint radii when maximum-radius containers overlap, while retaining current Murray radii for mutable branches and conservative rejection without a separating witness.
+- [PR #361](https://github.com/luca-heltai/immersx/pull/361) Certify separation of tapered anatomical vessels using their actual endpoint radii when maximum-radius containers overlap, while retaining current Murray radii for mutable branches and conservative rejection without a separating witness.
 
 - [PR #359](https://github.com/luca-heltai/immersx/pull/359) Retry other nearby vessel candidates when the distributed geometry vote rejects a companion growth target, preserving the same physical checks and finite search budget.
 

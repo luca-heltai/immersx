@@ -16,7 +16,8 @@ collective terminal-count calibration. Arterio-venous generation starts from
 real venous outlets or selected input venous leaves and uses the same MPI
 path with one or several processes. Use a first-order mapping on an
 all-tetrahedral or all-hexahedral physical background.
-Geometry checks include the vessel wall and clearance. Nonincident vessels first use rounded maximum-radius capsules for a fast
+Geometry checks include the vessel wall and clearance. Nonincident vessels
+first use rounded maximum-radius capsules for a fast
 separation test. When these overlap, a strictly positive support-plane gap can
 still certify separation of their flat-ended linear-taper frusta. Frozen input
 vessels retain their native endpoint radii; generated mutable vessels use the
