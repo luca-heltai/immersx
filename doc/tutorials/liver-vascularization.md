@@ -740,6 +740,48 @@ required before writing an accepted result; the finite growth budget can fail
 for an incompatible geometry or search configuration.
 
 
+## Continue companion growth from physical data
+
+The native `resume_companions` entry accepts the original anatomical network,
+a physical checkpoint, the unchanged generation parameters and an explicit
+active phase (`System::portal` or `System::venous`). The arterial phase must
+already be complete. Portal growth must also be complete when starting the
+venous phase. Existing generated companion leaves count toward the absolute
+number of completed arterial territories; the requested count is not an
+additional number of leaves.
+
+The original nodes and vessels, their physical properties, untouched input
+terminals, and completed supply forests are retained. The checkpoint must
+identify each generated terminal's original common territory and demand.
+Completed forests undergo the native geometry certificate using their stored
+radii before growth is skipped. Invalid attachments, changed anatomical data,
+changed demands, inconsistent root radii and duplicate territory claims are
+rejected collectively. The ordinary complete-bed and reference validation
+still runs after all enabled roles are complete.
+
+For `liver_vascular`, keep the original tree files and Grow flags and set:
+
+```text
+subsection Liver
+  set Companion checkpoint archive = /absolute/path/to/physical-checkpoint
+  set Companion continuation phase = portal
+end
+```
+
+This directory must be a native network-only physical archive: preserve all
+Node, Vessel and Terminal IDs and metadata, including territory labels, but do
+not register unfinished pairs, triplets or compartments as completed beds.
+The diagnostic PVTU/CSV exports alone are not such an archive. An external
+converter must restore and verify missing physical metadata against the
+original input before writing one with the native archive writer. A partial
+checkpoint is an intermediate growth state, not a coupled simulation input.
+
+Continuation starts a new finite search epoch. It does not restore the old
+random generator or rejected-candidate history and does not promise the same
+trajectory as an uninterrupted run. Count limits and coverage targets remain
+in force; the entry does not rerun the terminal-count calibration search or
+relax incomplete common-territory matching.
+
 (save-the-volume-and-reuse-the-physical-network)=
 ## Save the volume and reuse the physical network
 

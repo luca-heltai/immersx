@@ -290,5 +290,37 @@ namespace ImmersX::Vascularization
            const std::vector<Territory>       &initial_territories,
            const std::vector<TerminalPair>    &initial_pairs,
            const std::vector<TerminalTriplet> &initial_triplets);
+
+  /**
+   * Continue portal/venous growth from a materialized physical checkpoint,
+   * retaining every original node/vessel, untouched terminal and completed
+   * artery. The original registry must contain no beds, and generated
+   * components must start at its real non-port tissue terminals.
+   * Checkpoint-only vessel ids identify generated descendants; imported records
+   * with generated provenance remain frozen. The active phase is portal or
+   * venous; starting at venous requires a complete portal forest when portal
+   * growth is enabled.
+   *
+   * New arterial terminal identities, positions and demands define the common
+   * territories. Their absolute count is preserved and must lie within the
+   * configured terminal limits. Existing companion leaves count toward that
+   * same total, never as a request for additional terminals. Every common
+   * territory must finish with one terminal of each enabled system.
+   *
+   * Records are owned once globally, with ordinary ghosts. Physical bootstrap,
+   * pending claims, geometry and final reference validation are collective.
+   * Invalid or unsuccessful continuation returns an invalid diagnostic result;
+   * malformed controls throw collectively. No arterial count calibration is
+   * restarted. Search counters/caches and RNG streams start afresh: this is not
+   * a bit-identical restart of an interrupted sampling sequence.
+   */
+  GenerationResult
+  resume_companions(const dealii::Triangulation<3> &background,
+                    const dealii::Mapping<3>       &mapping,
+                    const NetworkData              &original,
+                    const NetworkData              &checkpoint,
+                    const Parameters               &parameters,
+                    MPI_Comm                        communicator,
+                    System                          active_companion);
 } // namespace ImmersX::Vascularization
 #endif

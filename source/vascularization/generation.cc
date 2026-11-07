@@ -20,10 +20,13 @@
 #include <set>
 
 #include "archive_internal.h"
+#include "distribution_internal.h"
 #include "generation_pairs.h"
+#include "growth_batch.h"
 #include "growth_geometry.h"
 #include "growth_loop.h"
 #include "growth_start.h"
+#include "network_serialization.h"
 #include "tissue_growth_callbacks.h"
 
 namespace ImmersX::Vascularization
@@ -353,6 +356,498 @@ namespace ImmersX::Vascularization
                     "Seed coordinates and directions must be finite."));
   }
 
+
+  namespace
+  {
+    struct CompanionContinuation
+    {
+      NetworkData                         network;
+      ValidationReport                    validation;
+      std::vector<Territory>              territories;
+      std::array<std::set<Id>, 3>         mutable_owned;
+      std::array<std::map<Id, double>, 3> roots;
+      std::map<Id, Id>                    attachments;
+      std::map<Id, double>                terminal_flows, attachment_flows;
+      std::array<std::uint64_t, 3>        leaves{};
+      System                              active = System::portal;
+    };
+
+    struct ContinuationRootRecords
+    {
+      std::vector<std::pair<Id, std::pair<Terminal, bool>>> terminals;
+      std::vector<std::pair<Id, Vessel>> parents, starts, ends;
+      template <class Archive>
+      void
+      serialize(Archive &ar, unsigned int)
+      {
+        ar &terminals &parents &starts &ends;
+      }
+    };
+
+    CompanionContinuation
+    prepare_companion_continuation(const NetworkData            &original,
+                                   NetworkData                   checkpoint,
+                                   const Parameters             &parameters,
+                                   const System                  active,
+                                   const MeshLengthScale        &scale,
+                                   internal::BackgroundGeometry &geometry,
+                                   MPI_Comm                      comm)
+    {
+      using namespace dealii;
+      const auto            rank = Utilities::MPI::this_mpi_process(comm);
+      const auto            size = Utilities::MPI::n_mpi_processes(comm);
+      CompanionContinuation result;
+      result.active   = active;
+      result.network  = std::move(checkpoint);
+      const auto fail = [&](Id id, const std::string &message) {
+        result.validation.issues.push_back({"continuation", id, message});
+      };
+      const auto valid = [&]() {
+        const bool all = Utilities::MPI::min(static_cast<unsigned int>(
+                                               result.validation.valid()),
+                                             comm) == 1;
+        if (!all && result.validation.valid())
+          fail(invalid_id,
+               "Companion continuation is invalid on another process.");
+        return all;
+      };
+      try
+        {
+          internal::validate_archive_data(original, {}, {}, comm);
+          internal::validate_archive_data(result.network, {}, {}, comm);
+        }
+      catch (const std::exception &)
+        {
+          fail(
+            invalid_id,
+            "Continuation requires valid physical input and checkpoint records.");
+        }
+      if (!valid())
+        return result;
+
+      // Compare persistent records at id shards, independently of repartition.
+      using Networks = std::pair<NetworkData, NetworkData>;
+      std::map<unsigned int, Networks> send;
+      const auto route = [&](const NetworkData &network, bool input) {
+        for (const auto &[id, node] : network.nodes)
+          if (node.owner == rank)
+            (input ? send[id % size].first : send[id % size].second)
+              .nodes.emplace(id, node);
+        for (const auto &[id, vessel] : network.vessels)
+          if (vessel.owner == rank)
+            (input ? send[id % size].first : send[id % size].second)
+              .vessels.emplace(id, vessel);
+        for (const auto &[id, terminal] : network.terminals)
+          if (terminal.owner == rank)
+            (input ? send[id % size].first : send[id % size].second)
+              .terminals.emplace(id, terminal);
+      };
+      route(original, true);
+      route(result.network, false);
+      NetworkData before, after;
+      for (const auto &[sender, records] :
+           Utilities::MPI::some_to_some(comm, send))
+        {
+          before.nodes.insert(records.first.nodes.begin(),
+                              records.first.nodes.end());
+          before.vessels.insert(records.first.vessels.begin(),
+                                records.first.vessels.end());
+          before.terminals.insert(records.first.terminals.begin(),
+                                  records.first.terminals.end());
+          after.nodes.insert(records.second.nodes.begin(),
+                             records.second.nodes.end());
+          after.vessels.insert(records.second.vessels.begin(),
+                               records.second.vessels.end());
+          after.terminals.insert(records.second.terminals.begin(),
+                                 records.second.terminals.end());
+        }
+      for (const auto &[id, n] : before.nodes)
+        {
+          const auto found = after.nodes.find(id);
+          if (found == after.nodes.end() ||
+              found->second.position != n.position ||
+              found->second.port != n.port ||
+              found->second.provenance != n.provenance ||
+              found->second.inward_port_normal != n.inward_port_normal)
+            fail(
+              id,
+              "A continuation checkpoint changed or omitted an original node.");
+        }
+      for (const auto &[id, v] : before.vessels)
+        {
+          const auto found = after.vessels.find(id);
+          if (found == after.vessels.end() || found->second.nodes != v.nodes ||
+              found->second.radii != v.radii ||
+              found->second.viscosity != v.viscosity ||
+              found->second.system != v.system ||
+              found->second.provenance != v.provenance ||
+              found->second.physical_properties != v.physical_properties)
+            fail(
+              id,
+              "A continuation checkpoint changed or omitted an original vessel.");
+        }
+      std::map<unsigned int, std::array<std::vector<Id>, 3>> replies;
+      for (const auto &[id, n] : after.nodes)
+        if (!before.nodes.count(id) &&
+            (n.provenance != Provenance::generated || n.port != Port::none ||
+             n.inward_port_normal.norm_square() != 0.))
+          fail(
+            id,
+            "Continuation supports generated descendants of original attachments, not new seed ports.");
+      for (const auto &[id, v] : after.vessels)
+        if (!before.vessels.count(id))
+          {
+            if (v.provenance != Provenance::generated)
+              fail(id,
+                   "A new checkpoint vessel must retain generated provenance.");
+            replies[v.owner][0].push_back(id);
+          }
+      for (const auto &[id, t] : before.terminals)
+        {
+          const auto found = after.terminals.find(id);
+          if (found == after.terminals.end())
+            replies[t.owner][2].push_back(id);
+          else if (found->second.node != t.node ||
+                   found->second.territory != t.territory ||
+                   found->second.system != t.system ||
+                   found->second.demand != t.demand)
+            fail(
+              id,
+              "A retained original terminal changed physical identity or demand.");
+          if (t.territory != invalid_id)
+            fail(
+              id,
+              "Companion continuation requires an original registry without existing beds.");
+        }
+      for (const auto &[id, t] : after.terminals)
+        if (!before.terminals.count(id))
+          replies[t.owner][1].push_back(id);
+      if (!valid())
+        return result;
+      std::set<Id> missing;
+      for (const auto &[sender, ids] :
+           Utilities::MPI::some_to_some(comm, replies))
+        {
+          for (Id id : ids[0])
+            result
+              .mutable_owned[static_cast<unsigned int>(
+                result.network.vessels.at(id).system)]
+              .insert(id);
+          for (Id id : ids[1])
+            {
+              const auto &t = result.network.terminals.at(id);
+              ++result.leaves[static_cast<unsigned int>(t.system)];
+              if (t.territory == invalid_id)
+                fail(
+                  id,
+                  "A new checkpoint terminal must identify a common territory.");
+              if (t.system == System::arterial)
+                result.territories.push_back(
+                  {t.territory,
+                   result.network.nodes.at(t.node).position,
+                   rank,
+                   t.demand});
+            }
+          missing.insert(ids[2].begin(), ids[2].end());
+        }
+      if (!valid())
+        return result;
+
+      // Attachment joins use node shards, not locally relevant adjacency.
+      std::map<unsigned int, ContinuationRootRecords> root_send;
+      for (const auto &[id, t] : original.terminals)
+        if (t.owner == rank)
+          root_send[t.node % size].terminals.push_back(
+            {id, {t, missing.count(id) != 0}});
+      for (const auto &[id, v] : original.vessels)
+        if (v.owner == rank)
+          root_send[v.nodes[1] % size].parents.emplace_back(id, v);
+      for (const auto &ids : result.mutable_owned)
+        for (Id id : ids)
+          {
+            const auto &v = result.network.vessels.at(id);
+            root_send[v.nodes[0] % size].starts.emplace_back(id, v);
+            root_send[v.nodes[1] % size].ends.emplace_back(id, v);
+          }
+      std::map<Id, std::pair<Id, std::pair<Terminal, bool>>> terminals;
+      std::map<Id, std::vector<std::pair<Id, Vessel>>>       parents, starts;
+      for (const auto &[sender, packet] :
+           Utilities::MPI::some_to_some(comm, root_send))
+        {
+          for (const auto &t : packet.terminals)
+            terminals.emplace(t.second.first.node, t);
+          for (const auto &v : packet.parents)
+            parents[v.second.nodes[1]].push_back(v);
+          for (const auto &v : packet.starts)
+            starts[v.second.nodes[0]].push_back(v);
+          for (const auto &v : packet.ends)
+            if (before.nodes.count(v.second.nodes[1]))
+              fail(v.first,
+                   "A generated descendant cannot end at an original node.");
+        }
+      using RootReply =
+        std::pair<std::array<std::map<Id, double>, 3>, std::map<Id, Id>>;
+      std::map<unsigned int, RootReply> root_replies;
+      for (const auto &[node, incoming] : starts)
+        if (before.nodes.count(node) && !terminals.count(node))
+          fail(
+            node,
+            "A continuation root must start at an original tissue terminal.");
+      for (const auto &[node, record] : terminals)
+        {
+          const auto &[id, entry]   = record;
+          const auto &[t, consumed] = entry;
+          const auto &children      = starts[node];
+          if (children.empty())
+            {
+              if (consumed)
+                fail(id,
+                     "An original terminal disappeared without an attachment.");
+              continue;
+            }
+          if (!consumed || children.size() != 1 || parents[node].size() != 1 ||
+              before.nodes.at(node).port != Port::none)
+            {
+              fail(
+                id,
+                "An attachment must consume exactly one original non-port leaf.");
+              continue;
+            }
+          const auto &[root, v] = children.front();
+          const auto &parent    = parents[node].front().second;
+          if (v.system != t.system || parent.system != t.system ||
+              v.radii[0] != parent.radii[1])
+            {
+              fail(
+                root,
+                "A continuation root disagrees with its original system or fixed cap radius.");
+              continue;
+            }
+          root_replies[v.owner]
+            .first[static_cast<unsigned int>(t.system)][root] = parent.radii[1];
+          root_replies[t.owner].second[id]                    = root;
+        }
+      if (!valid())
+        return result;
+      for (const auto &[sender, reply] :
+           Utilities::MPI::some_to_some(comm, root_replies))
+        {
+          for (unsigned int s = 0; s < 3; ++s)
+            result.roots[s].insert(reply.first[s].begin(),
+                                   reply.first[s].end());
+          result.attachments.insert(reply.second.begin(), reply.second.end());
+        }
+      for (auto &leaves : result.leaves)
+        leaves = Utilities::MPI::sum(leaves, comm);
+      const std::array<const std::vector<Id> *, 3> selections{
+        {&parameters.selected_terminals,
+         &parameters.venous.selected_terminals,
+         &parameters.portal.selected_terminals}};
+      std::array<std::uint64_t, 3> consumed_counts{};
+      for (const auto &[id, root] : result.attachments)
+        {
+          const auto system =
+            static_cast<unsigned int>(original.terminals.at(id).system);
+          ++consumed_counts[system];
+          if (!selections[system]->empty() &&
+              std::find(selections[system]->begin(),
+                        selections[system]->end(),
+                        id) == selections[system]->end())
+            fail(
+              id,
+              "A checkpoint attachment is excluded by the original input selection.");
+        }
+      for (unsigned int system = 0; system < 3; ++system)
+        {
+          consumed_counts[system] =
+            Utilities::MPI::sum(consumed_counts[system], comm);
+          if (result.leaves[system] > 0 && !selections[system]->empty() &&
+              consumed_counts[system] != selections[system]->size())
+            fail(
+              invalid_id,
+              "A prepared checkpoint phase must retain all selected original attachments.");
+        }
+      const auto n = result.leaves[static_cast<unsigned int>(System::arterial)];
+      if (n == 0 || n > std::numeric_limits<unsigned int>::max() ||
+          result.leaves[2] > n || result.leaves[1] > n ||
+          (!parameters.portal.enabled && result.leaves[2] != 0) ||
+          (active == System::portal && result.leaves[1] != 0) ||
+          (active == System::venous && parameters.portal.enabled &&
+           result.leaves[2] != n))
+        fail(
+          invalid_id,
+          "Companion checkpoint counts disagree with the completed arterial territories or phase order.");
+      if (!valid())
+        return result;
+
+      // Revalidate materialized Murray state without adopting recomputed radii.
+      for (unsigned int s = 0; s < 3; ++s)
+        {
+          if (result.leaves[s] == 0)
+            continue;
+          const auto physical =
+            internal::evaluate_forest(result.network,
+                                      result.mutable_owned[s],
+                                      result.roots[s],
+                                      parameters,
+                                      comm,
+                                      scale);
+          result.validation.issues.insert(result.validation.issues.end(),
+                                          physical.validation.issues.begin(),
+                                          physical.validation.issues.end());
+          if (!valid())
+            return result;
+          if (s == static_cast<unsigned int>(System::arterial) ||
+              (s == static_cast<unsigned int>(System::portal) &&
+               active == System::venous))
+            {
+              // Skipped completed phases still need the native final geometry
+              // certificate, using the exact stored endpoint radius profiles.
+              std::vector<internal::BatchProposal> checks;
+              for (Id id : result.mutable_owned[s])
+                {
+                  const auto             &v = result.network.vessels.at(id);
+                  internal::BatchProposal check;
+                  check.id            = id;
+                  check.owners[id]    = rank;
+                  check.old_nodes[id] = v.nodes;
+                  check.changed.push_back(
+                    {id,
+                     v.nodes,
+                     {{result.network.nodes.at(v.nodes[0]).position,
+                       result.network.nodes.at(v.nodes[1]).position}},
+                     v.radii[0]});
+                  for (Id node : v.nodes)
+                    {
+                      const auto &n = result.network.nodes.at(node);
+                      if (std::max({std::abs(n.inward_port_normal[0]),
+                                    std::abs(n.inward_port_normal[1]),
+                                    std::abs(n.inward_port_normal[2])}) > 0.)
+                        {
+                          check.port_owners[node] = n.owner;
+                          check.normals[node]     = n.inward_port_normal;
+                        }
+                    }
+                  checks.push_back(std::move(check));
+                }
+              const auto certified = internal::select_growth_batch(
+                geometry,
+                result.network,
+                checks,
+                parameters,
+                comm,
+                [&](Id id) { return result.network.vessels.at(id).radii; },
+                true);
+              for (const auto &[id, accepted] : certified.local)
+                if (!accepted)
+                  fail(
+                    id,
+                    "Completed checkpoint geometry failed native certification.");
+              if (!valid())
+                return result;
+              result.terminal_flows.insert(physical.terminal_flows.begin(),
+                                           physical.terminal_flows.end());
+              if (parameters.reference_flow > 0.)
+                for (const auto &[root, radius] : result.roots[s])
+                  result.attachment_flows[root] = physical.owned.at(root).flow;
+            }
+          double gamma = parameters.arterial_murray_exponent;
+          if (s == static_cast<unsigned int>(System::venous))
+            gamma = parameters.venous.murray_exponent;
+          else if (s == static_cast<unsigned int>(System::portal))
+            gamma = parameters.portal.murray_exponent;
+          const long double tolerance =
+            64.L * std::numeric_limits<double>::epsilon() *
+            (1.L + (1.L + physical.upward_levels) / gamma);
+          for (const auto &[id, branch] : physical.owned)
+            for (const double r : result.network.vessels.at(id).radii)
+              if (std::abs(static_cast<long double>(r) - branch.radius) /
+                    std::max<long double>(r, branch.radius) >
+                  tolerance)
+                fail(
+                  id,
+                  "Checkpoint radii disagree with the independently reconstructed fixed-root forest.");
+          const auto leaves =
+            Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                  physical.owned_leaf_terminals.size()),
+                                comm);
+          if (leaves != result.leaves[s])
+            fail(
+              invalid_id,
+              "Checkpoint terminal registry disagrees with its generated forest.");
+          if (!valid())
+            return result;
+        }
+      return result;
+    }
+  } // namespace
+
+  static unsigned int
+  resolve_terminal_count(const dealii::Triangulation<3> &background,
+                         const Parameters               &parameters,
+                         MPI_Comm                        communicator)
+  {
+    using namespace dealii;
+    const auto &factor = parameters.terminal_count_multiplier_factor;
+    AssertThrow(factor == "none" || factor == "background cell count" ||
+                  factor == "background vertex count",
+                ExcMessage("Invalid terminal count multiplier factor."));
+    int comparison = MPI_UNEQUAL;
+    MPI_Comm_compare(background.get_mpi_communicator(),
+                     communicator,
+                     &comparison);
+    AssertThrow(
+      Utilities::MPI::min(static_cast<unsigned int>(comparison == MPI_IDENT ||
+                                                    comparison ==
+                                                      MPI_CONGRUENT),
+                          communicator) == 1,
+      ExcMessage("Background and generation communicators must be congruent."));
+    std::uint64_t multiplier = 1;
+    if (factor == "none")
+      multiplier = 1;
+    else if (factor == "background cell count")
+      multiplier = background.n_global_active_cells();
+    else if (factor == "background vertex count")
+      {
+        // One unconstrained linear DoF per used vertex gives the global
+        // cardinality, including hanging nodes and shared coarse vertices.
+        unsigned int families[2]{0, 0};
+        bool         supported = true;
+        for (const auto &cell : background.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              if (cell->reference_cell().is_simplex())
+                families[0] = 1;
+              else if (cell->reference_cell().is_hyper_cube())
+                families[1] = 1;
+              else
+                supported = false;
+            }
+        Utilities::MPI::max(families, communicator, families);
+        AssertThrow(
+          Utilities::MPI::min(static_cast<unsigned int>(supported),
+                              communicator) == 1 &&
+            families[0] + families[1] == 1,
+          ExcMessage(
+            "Vertex counting requires a nonempty all-tetrahedral or all-hexahedral background."));
+        const bool           simplex = families[0] != 0;
+        const FE_Q<3>        hexahedral(1);
+        const FE_SimplexP<3> tetrahedral(1);
+        DoFHandler<3>        vertices(background);
+        vertices.distribute_dofs(
+          simplex ? static_cast<const FiniteElement<3> &>(tetrahedral) :
+                    static_cast<const FiniteElement<3> &>(hexahedral));
+        multiplier = vertices.n_dofs();
+      }
+    AssertThrow(
+      parameters.terminal_count > 0 && multiplier > 0 &&
+        multiplier <=
+          std::numeric_limits<unsigned int>::max() / parameters.terminal_count,
+      ExcMessage(
+        "The multiplied terminal count must be positive and fit in unsigned int."));
+    return static_cast<unsigned int>(parameters.terminal_count * multiplier);
+  }
+
   static GenerationResult
   generate_count(
     const dealii::Triangulation<3>                &background,
@@ -366,7 +861,9 @@ namespace ImmersX::Vascularization
     const std::vector<TerminalPair>               &initial_pairs,
     const std::vector<TerminalTriplet>            &initial_triplets,
     std::unique_ptr<internal::BackgroundGeometry> &prepared_geometry,
-    GrowthWork                                    &preparation_work)
+    GrowthWork                                    &preparation_work,
+    const NetworkData                             *checkpoint = nullptr,
+    const System active_companion                             = System::portal)
   {
     using namespace dealii;
     const auto size        = Utilities::MPI::n_mpi_processes(communicator);
@@ -487,74 +984,123 @@ namespace ImmersX::Vascularization
     };
     std::vector<Id> roots;
     std::set<Id>    mutable_forest;
-    if (creating_seed)
+    Id reserved_venous_port = invalid_id, reserved_portal_port = invalid_id;
+    std::optional<CompanionContinuation> continuation;
+    if (checkpoint)
       {
-        auto startup = internal::start_seed(
-          background, mapping, parameters, communicator, &geometry);
-        result.validation = startup.validation;
-        if (startup.prepared)
-          {
-            result.network = std::move(startup.network);
-            mutable_forest = std::move(startup.mutable_owned);
-            for (const auto &[id, radius] : startup.fixed_owned_roots)
-              roots.push_back(id);
-          }
+        const auto cp_validation = validate_data(*checkpoint, size);
+        result.validation.issues.insert(result.validation.issues.end(),
+                                        cp_validation.issues.begin(),
+                                        cp_validation.issues.end());
+        if (!collective_valid())
+          return result;
+        const double halo =
+          result.length_scale.physical_length(parameters.clearance,
+                                              result.length_scale.maximum());
+        const auto original_owned = internal::redistribute_with_owners(
+          background, mapping, initial, halo, communicator, {}, &geometry);
+        auto restored = internal::redistribute_with_owners(
+          background, mapping, *checkpoint, halo, communicator, {}, &geometry);
+        continuation            = prepare_companion_continuation(original_owned,
+                                                      std::move(restored),
+                                                      parameters,
+                                                      active_companion,
+                                                      result.length_scale,
+                                                      geometry,
+                                                      communicator);
+        result.validation       = continuation->validation;
+        result.network          = std::move(continuation->network);
+        result.territories      = continuation->territories;
+        result.attachment_roots = continuation->attachments;
+        result.target_terminal_flows   = continuation->terminal_flows;
+        result.target_attachment_flows = continuation->attachment_flows;
+        if (!collective_valid())
+          return result;
+        terminal_count = static_cast<unsigned int>(continuation->leaves[0]);
+        result.requested_terminal_count = terminal_count;
+        const auto maximum =
+          parameters.calibration.maximum_terminals == 0 ?
+            std::max(initial_count, parameters.calibration.minimum_terminals) :
+            parameters.calibration.maximum_terminals;
+        if (terminal_count < parameters.calibration.minimum_terminals ||
+            terminal_count > maximum)
+          fail(
+            invalid_id,
+            "Completed arterial count lies outside the configured terminal limits.");
+        if (!collective_valid())
+          return result;
       }
     else
       {
-        auto startup      = internal::start_attachments(background,
-                                                   mapping,
-                                                   initial,
-                                                   parameters,
-                                                   terminal_count,
-                                                   communicator,
-                                                   &geometry);
-        result.validation = startup.accepted.validation;
-        if (startup.accepted.prepared)
+        if (creating_seed)
           {
-            result.network          = std::move(startup.accepted.network);
-            mutable_forest          = std::move(startup.accepted.mutable_owned);
-            result.attachment_roots = std::move(startup.attachment_roots);
-            for (const auto &[id, radius] : startup.accepted.fixed_owned_roots)
-              roots.push_back(id);
+            auto startup = internal::start_seed(
+              background, mapping, parameters, communicator, &geometry);
+            result.validation = startup.validation;
+            if (startup.prepared)
+              {
+                result.network = std::move(startup.network);
+                mutable_forest = std::move(startup.mutable_owned);
+                for (const auto &[id, radius] : startup.fixed_owned_roots)
+                  roots.push_back(id);
+              }
           }
-      }
-    if (!collective_valid())
-      return result;
-    Id reserved_venous_port = invalid_id, reserved_portal_port = invalid_id;
-    if (parameters.venous.enabled)
-      {
-        auto outlet = internal::reserve_companion_port(background,
+        else
+          {
+            auto startup      = internal::start_attachments(background,
                                                        mapping,
-                                                       result.network,
+                                                       initial,
                                                        parameters,
+                                                       terminal_count,
                                                        communicator,
-                                                       System::venous,
                                                        &geometry);
-        result.validation.issues.insert(result.validation.issues.end(),
-                                        outlet.validation.issues.begin(),
-                                        outlet.validation.issues.end());
+            result.validation = startup.accepted.validation;
+            if (startup.accepted.prepared)
+              {
+                result.network = std::move(startup.accepted.network);
+                mutable_forest = std::move(startup.accepted.mutable_owned);
+                result.attachment_roots = std::move(startup.attachment_roots);
+                for (const auto &[id, radius] :
+                     startup.accepted.fixed_owned_roots)
+                  roots.push_back(id);
+              }
+          }
         if (!collective_valid())
           return result;
-        result.network       = std::move(outlet.network);
-        reserved_venous_port = outlet.port;
-      }
-    if (parameters.portal.enabled)
-      {
-        auto inlet = internal::reserve_companion_port(background,
-                                                      mapping,
-                                                      result.network,
-                                                      parameters,
-                                                      communicator,
-                                                      System::portal,
-                                                      &geometry);
-        result.validation.issues.insert(result.validation.issues.end(),
-                                        inlet.validation.issues.begin(),
-                                        inlet.validation.issues.end());
-        if (!collective_valid())
-          return result;
-        result.network       = std::move(inlet.network);
-        reserved_portal_port = inlet.port;
+        if (parameters.venous.enabled)
+          {
+            auto outlet = internal::reserve_companion_port(background,
+                                                           mapping,
+                                                           result.network,
+                                                           parameters,
+                                                           communicator,
+                                                           System::venous,
+                                                           &geometry);
+            result.validation.issues.insert(result.validation.issues.end(),
+                                            outlet.validation.issues.begin(),
+                                            outlet.validation.issues.end());
+            if (!collective_valid())
+              return result;
+            result.network       = std::move(outlet.network);
+            reserved_venous_port = outlet.port;
+          }
+        if (parameters.portal.enabled)
+          {
+            auto inlet = internal::reserve_companion_port(background,
+                                                          mapping,
+                                                          result.network,
+                                                          parameters,
+                                                          communicator,
+                                                          System::portal,
+                                                          &geometry);
+            result.validation.issues.insert(result.validation.issues.end(),
+                                            inlet.validation.issues.begin(),
+                                            inlet.validation.issues.end());
+            if (!collective_valid())
+              return result;
+            result.network       = std::move(inlet.network);
+            reserved_portal_port = inlet.port;
+          }
       }
     const auto run_growth = [&](System system) {
       std::map<Id, double> fixed_roots;
@@ -632,7 +1178,8 @@ namespace ImmersX::Vascularization
                 growth.accepted.physiology.owned.at(root).flow;
         }
     };
-    run_growth(System::arterial);
+    if (!continuation)
+      run_growth(System::arterial);
     result.effective_terminal_count =
       Utilities::MPI::sum(static_cast<unsigned int>(result.territories.size()),
                           communicator);
@@ -642,37 +1189,52 @@ namespace ImmersX::Vascularization
       if ((companion_system == System::portal && parameters.portal.enabled) ||
           (companion_system == System::venous && parameters.venous.enabled))
         {
-          auto startup =
-            internal::start_companion(background,
-                                      mapping,
-                                      result.network,
-                                      initial,
-                                      parameters,
-                                      result.territories,
-                                      companion_system == System::portal ?
-                                        reserved_portal_port :
-                                        reserved_venous_port,
-                                      communicator,
-                                      companion_system,
-                                      &geometry);
-          result.validation.issues.insert(
-            result.validation.issues.end(),
-            startup.accepted.validation.issues.begin(),
-            startup.accepted.validation.issues.end());
-          if (!collective_valid())
-            return result;
-          if (!startup.accepted.prepared)
+          if (continuation && active_companion == System::venous &&
+              companion_system == System::portal)
+            continue;
+          const auto component = static_cast<unsigned int>(companion_system);
+          if (continuation && continuation->leaves[component] > 0)
             {
-              fail(invalid_id, "No companion startup batch was prepared.");
-              return result;
+              mutable_forest = continuation->mutable_owned[component];
+              roots.clear();
+              for (const auto &[id, radius] : continuation->roots[component])
+                roots.push_back(id);
             }
-          result.network = std::move(startup.accepted.network);
-          mutable_forest = std::move(startup.accepted.mutable_owned);
-          result.attachment_roots.insert(startup.attachment_roots.begin(),
-                                         startup.attachment_roots.end());
-          roots.clear();
-          for (const auto &[id, radius] : startup.accepted.fixed_owned_roots)
-            roots.push_back(id);
+          else
+            {
+              auto startup =
+                internal::start_companion(background,
+                                          mapping,
+                                          result.network,
+                                          initial,
+                                          parameters,
+                                          result.territories,
+                                          companion_system == System::portal ?
+                                            reserved_portal_port :
+                                            reserved_venous_port,
+                                          communicator,
+                                          companion_system,
+                                          &geometry);
+              result.validation.issues.insert(
+                result.validation.issues.end(),
+                startup.accepted.validation.issues.begin(),
+                startup.accepted.validation.issues.end());
+              if (!collective_valid())
+                return result;
+              if (!startup.accepted.prepared)
+                {
+                  fail(invalid_id, "No companion startup batch was prepared.");
+                  return result;
+                }
+              result.network = std::move(startup.accepted.network);
+              mutable_forest = std::move(startup.accepted.mutable_owned);
+              result.attachment_roots.insert(startup.attachment_roots.begin(),
+                                             startup.attachment_roots.end());
+              roots.clear();
+              for (const auto &[id, radius] :
+                   startup.accepted.fixed_owned_roots)
+                roots.push_back(id);
+            }
           run_growth(companion_system);
           if (!collective_valid())
             return result;
@@ -801,65 +1363,8 @@ namespace ImmersX::Vascularization
                           communicator) == 1,
       ExcMessage(
         "All processes must use the same vascular calibration controls."));
-    const auto &factor = parameters.terminal_count_multiplier_factor;
-    AssertThrow(factor == "none" || factor == "background cell count" ||
-                  factor == "background vertex count",
-                ExcMessage("Invalid terminal count multiplier factor."));
-    int comparison = MPI_UNEQUAL;
-    MPI_Comm_compare(background.get_mpi_communicator(),
-                     communicator,
-                     &comparison);
-    AssertThrow(
-      Utilities::MPI::min(static_cast<unsigned int>(comparison == MPI_IDENT ||
-                                                    comparison ==
-                                                      MPI_CONGRUENT),
-                          communicator) == 1,
-      ExcMessage("Background and generation communicators must be congruent."));
-    std::uint64_t multiplier = 1;
-    if (factor == "none")
-      multiplier = 1;
-    else if (factor == "background cell count")
-      multiplier = background.n_global_active_cells();
-    else if (factor == "background vertex count")
-      {
-        // One unconstrained linear DoF per used vertex gives the global
-        // cardinality, including hanging nodes and shared coarse vertices.
-        unsigned int families[2]{0, 0};
-        bool         supported = true;
-        for (const auto &cell : background.active_cell_iterators())
-          if (cell->is_locally_owned())
-            {
-              if (cell->reference_cell().is_simplex())
-                families[0] = 1;
-              else if (cell->reference_cell().is_hyper_cube())
-                families[1] = 1;
-              else
-                supported = false;
-            }
-        Utilities::MPI::max(families, communicator, families);
-        AssertThrow(
-          Utilities::MPI::min(static_cast<unsigned int>(supported),
-                              communicator) == 1 &&
-            families[0] + families[1] == 1,
-          ExcMessage(
-            "Vertex counting requires a nonempty all-tetrahedral or all-hexahedral background."));
-        const bool           simplex = families[0] != 0;
-        const FE_Q<3>        hexahedral(1);
-        const FE_SimplexP<3> tetrahedral(1);
-        DoFHandler<3>        vertices(background);
-        vertices.distribute_dofs(
-          simplex ? static_cast<const FiniteElement<3> &>(tetrahedral) :
-                    static_cast<const FiniteElement<3> &>(hexahedral));
-        multiplier = vertices.n_dofs();
-      }
-    AssertThrow(
-      parameters.terminal_count > 0 && multiplier > 0 &&
-        multiplier <=
-          std::numeric_limits<unsigned int>::max() / parameters.terminal_count,
-      ExcMessage(
-        "The multiplied terminal count must be positive and fit in unsigned int."));
     const auto initial_count =
-      static_cast<unsigned int>(parameters.terminal_count * multiplier);
+      resolve_terminal_count(background, parameters, communicator);
     const bool has_metadata =
       Utilities::MPI::sum(static_cast<Id>(initial_territories.size() +
                                           initial_pairs.size() +
@@ -1111,6 +1616,88 @@ namespace ImmersX::Vascularization
       {"calibration",
        invalid_id,
        "No terminal count met all requested volume and coverage targets within the finite calibration/search budget. This does not prove incompatibility."});
+    return result;
+  }
+
+  GenerationResult
+  resume_companions(const dealii::Triangulation<3> &background,
+                    const dealii::Mapping<3>       &mapping,
+                    const NetworkData              &original,
+                    const NetworkData              &checkpoint,
+                    const Parameters               &parameters,
+                    MPI_Comm                        communicator,
+                    const System                    active_companion)
+  {
+    using namespace dealii;
+    const auto controls = std::make_pair(
+      std::make_pair(
+        std::array<double, 10>{
+          {static_cast<double>(active_companion),
+           parameters.seed_length,
+           static_cast<double>(parameters.venous.enabled),
+           static_cast<double>(parameters.portal.enabled),
+           parameters.calibration.volume_fraction,
+           parameters.calibration.minimum_coverage,
+           parameters.calibration.relative_tolerance,
+           static_cast<double>(parameters.calibration.minimum_terminals),
+           static_cast<double>(parameters.calibration.maximum_terminals),
+           static_cast<double>(parameters.terminal_count)}},
+        std::array<std::string, 2>{{parameters.terminal_count_multiplier_factor,
+                                    parameters.length_scale}}),
+      std::array<std::vector<Id>, 3>{{parameters.selected_terminals,
+                                      parameters.venous.selected_terminals,
+                                      parameters.portal.selected_terminals}});
+    bool matching = true;
+    for (const auto &other : Utilities::MPI::all_gather(communicator, controls))
+      matching = matching && other == controls;
+    AssertThrow(
+      matching && parameters.venous.enabled &&
+        ((active_companion == System::portal && parameters.portal.enabled) ||
+         active_companion == System::venous),
+      ExcMessage(
+        "Companion continuation requires matching controls and an enabled portal or venous phase."));
+    const auto initial_count =
+      resolve_terminal_count(background, parameters, communicator);
+    GrowthWork                                    work;
+    std::unique_ptr<internal::BackgroundGeometry> geometry;
+    auto        result = generate_count(background,
+                                 mapping,
+                                 original,
+                                 parameters,
+                                 communicator,
+                                 initial_count,
+                                 initial_count,
+                                        {},
+                                        {},
+                                        {},
+                                 geometry,
+                                 work,
+                                 &checkpoint,
+                                 active_companion);
+    const auto &p      = parameters.calibration;
+    if (result.validation.valid())
+      {
+        const double error =
+          p.volume_fraction > 0. ?
+            std::abs(result.tissue.volume_fraction / p.volume_fraction - 1.) :
+            0.;
+        const double coverage = parameters.portal.enabled ?
+                                  result.tissue.triple_coverage :
+                                  result.tissue.dual_coverage;
+        if (error > p.relative_tolerance || coverage < p.minimum_coverage)
+          result.validation.issues.push_back(
+            {"calibration",
+             invalid_id,
+             "The fixed arterial checkpoint count does not meet the requested volume or coverage objective; continuation never regrows arteries."});
+      }
+    result.calibration.status         = result.validation.valid() ?
+                                          CalibrationStatus::converged :
+                                          CalibrationStatus::exhausted;
+    result.calibration.sampled_points = result.sampled_points;
+    result.calibration.attempts.push_back({result.requested_terminal_count,
+                                           result.tissue,
+                                           result.validation,
+                                           result.sampled_points});
     return result;
   }
 } // namespace ImmersX::Vascularization
