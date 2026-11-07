@@ -1,0 +1,80 @@
+{
+  "scope": "Completed arterial stage only; parent timeout during portal growth, no completed hepatic venous growth, coupled PDE, physiology adoption or restart state.",
+  "inspection_archive": "liver-cco-A4245-v21-20261107.tar.gz",
+  "inspection_archive_sha256": "b54d531ab31baf4466dcd1b335ecf55f5c6806eeccd5b9c1351bd8033d04f5c0",
+  "release_tag": "liver-icar-cco-inspection-2026-11-07",
+  "documentation_base_commit": "749c3799ce45b55791b845a5a17a090ce77bc272",
+  "source_validation": {
+    "generated_arterial_terminals": 4245,
+    "arterial_vessels": 8542,
+    "generated_arterial_vessels": 8488,
+    "imported_vessels_exactly_preserved": 835,
+    "imported_nodes_exactly_preserved": 838,
+    "parent_exit_code": 124,
+    "parent_elapsed_s": 21600.08561243862,
+    "all_32_native_finish_growth_validation_valid": true,
+    "all_32_native_finish_transaction_committed": true,
+    "all_32_overall_generation_complete": false
+  },
+  "documentation_input_sha256": {
+    "arterial-projection-segments.csv": "facc71185726a9ea56561464df947e246125dda61cbf154d91fb4f82d7a4d916",
+    "arterial-coverage-cells.csv": "11bafd873b8f74f48367c874cef5201326b439575b3da24d7b5c4038ffcb2a70",
+    "arterial-coverage.json": "8768088d6e3a2f1f3191a5ca96b1a129c577256e9d2f035e78304ba009482104"
+  },
+  "generation_mesh_sha256": "494b3b278f16af6c35a188076cde9df8a95733f00eb8952d69d08d363c287854",
+  "original_and_documentation_assets": {
+    "arterial-growth-projections.png": {
+      "inspection_sha256": "74a30a72187b1db99723fa9d8fb2a448ed2191648d35e2c696a51434cff066db",
+      "documentation_sha256": "74a30a72187b1db99723fa9d8fb2a448ed2191648d35e2c696a51434cff066db"
+    },
+    "arterial-growth-projections.svg": {
+      "inspection_sha256": "541d3e84c79a14166a192e7eab3fc4e47cc3aec0ba209625777a436d8a69c2b9",
+      "documentation_sha256": "09aa6b36b50fb39f7691a1ba5ad77a187bbcb635fa16c11be222d4baefd3c2cb"
+    },
+    "arterial-coverage-occupancy.png": {
+      "inspection_sha256": "7a2e4dcbdcb24f55b48587f5f3309e9505e250dc74764f5be7410effeec573e6",
+      "documentation_sha256": "7a2e4dcbdcb24f55b48587f5f3309e9505e250dc74764f5be7410effeec573e6"
+    },
+    "arterial-coverage-occupancy.svg": {
+      "inspection_sha256": "7b325317fd48845ee2bdde92c24ac4c4d8ce0cd79c300ec8fce3778285587bcb",
+      "documentation_sha256": "732845363f8e3869a729cff791e7f156e27534919ac8387b82b0ab043c13dbe7"
+    },
+    "arterial-projection-segments.csv": {
+      "inspection_sha256": "986fc7eb0b2b85c9cd74931ac18dfd5cfc2a0591d1da217302f51c022e8844df",
+      "documentation_sha256": "facc71185726a9ea56561464df947e246125dda61cbf154d91fb4f82d7a4d916"
+    },
+    "arterial-coverage-cells.csv": {
+      "inspection_sha256": "98dece86d753b0a4927fa9be880ae8ff1fc009d5e2073ce936ddf7ee7b768bbf",
+      "documentation_sha256": "11bafd873b8f74f48367c874cef5201326b439575b3da24d7b5c4038ffcb2a70"
+    },
+    "arterial-coverage.json": {
+      "inspection_sha256": "8768088d6e3a2f1f3191a5ca96b1a129c577256e9d2f035e78304ba009482104",
+      "documentation_sha256": "8768088d6e3a2f1f3191a5ca96b1a129c577256e9d2f035e78304ba009482104"
+    }
+  },
+  "script_sha256": "a21d0a718326bd14945e13c21fda0b335a503d3f6546c37c2136c43aa5b2e872",
+  "figure_sha256": {
+    "arterial-coverage-occupancy.svg": "732845363f8e3869a729cff791e7f156e27534919ac8387b82b0ab043c13dbe7",
+    "arterial-coverage-occupancy.png": "7a2e4dcbdcb24f55b48587f5f3309e9505e250dc74764f5be7410effeec573e6",
+    "arterial-growth-projections.svg": "09aa6b36b50fb39f7691a1ba5ad77a187bbcb635fa16c11be222d4baefd3c2cb",
+    "arterial-growth-projections.png": "74a30a72187b1db99723fa9d8fb2a448ed2191648d35e2c696a51434cff066db"
+  },
+  "visual_review": {
+    "status": "PASS",
+    "reviewed_utc": "2026-11-07T05:01:18.922432+00:00",
+    "review_method": "Both final PNGs viewed independently at readable display size.",
+    "checks": [
+      "Three equal-aspect millimetre projections, imported and generated legend, background silhouette and complete axes are readable.",
+      "Constant line-width and actual Radius-not-shown caveat are visible.",
+      "Occupancy annotations, volume-weighted sufficient distance bound and original 2H contract line are readable.",
+      "No clipping or overlapping titles/axes/legends detected.",
+      "Arterial-only, coarse-mesh and no-PDE/no-triple/no-inf-sup scope is printed."
+    ],
+    "reviewed_image_sha256": {
+      "arterial-growth-projections.png": "74a30a72187b1db99723fa9d8fb2a448ed2191648d35e2c696a51434cff066db",
+      "arterial-coverage-occupancy.png": "7a2e4dcbdcb24f55b48587f5f3309e9505e250dc74764f5be7410effeec573e6"
+    }
+  },
+  "adaptation": "CSV/SVG LF normalization only. The reproduction script reads native plotted segment coordinates from the saved CSV and the exact generation mesh from the inspection archive. Scientific data and the published PNGs are unchanged.",
+  "native_CCO_or_PDE_runs": 0
+}
