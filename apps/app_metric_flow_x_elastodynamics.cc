@@ -1017,6 +1017,31 @@ namespace
         output(solution, solution_dot, step, time);
       });
 
+    // IDA must limit Newton trials before either cell or trace areas leave
+    // the constitutive domain. Its constraint code 2 means strictly positive.
+    auto state_constraints =
+      std::make_shared<GlobalVector>(adapter.make_state());
+    *state_constraints = 0.;
+    auto &flow_constraints =
+      adapter.field(*state_constraints, flow_fields.fields().state);
+    types::global_dof_index constrained_area_dofs = 0;
+    for (const auto component :
+         {FlowProblem::Component::area, FlowProblem::Component::area_trace})
+      {
+        const auto &indices = flow_problem.component_dofs(component);
+        constrained_area_dofs += indices.n_elements();
+        for (const auto index : indices)
+          flow_constraints[index] = 2.;
+      }
+    state_constraints->compress(VectorOperation::insert);
+    constrained_area_dofs =
+      Utilities::MPI::sum(constrained_area_dofs, MPI_COMM_WORLD);
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      std::cout << "IDA positive cell/trace area DoFs: "
+                << constrained_area_dofs << std::endl;
+    adapter.solver().get_constraint_vector =
+      [state_constraints]() -> GlobalVector & { return *state_constraints; };
+
     flow_problem.open_output_files();
     const auto accepted_steps = adapter.solve(state, state_dot);
     if (physical_network)
