@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Continue portal and venous CCO growth from a physical checkpoint while retaining the completed arterial forest and matching its existing common territories.
+- [PR #367](https://github.com/luca-heltai/immersx/pull/367) Continue portal and venous CCO growth from a physical checkpoint while retaining the completed arterial forest and matching its existing common territories.
 
 - [PR #356](https://github.com/luca-heltai/immersx/pull/356) Allow explicit zero-flow declarations for unpaired anatomical archive ends while retaining strict checks for missing or conflicting microvascular connections.
 
