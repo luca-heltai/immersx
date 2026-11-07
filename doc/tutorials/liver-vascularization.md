@@ -380,7 +380,8 @@ it does not prove that the requested geometry or physiology is impossible.
 
 With `Length scale = local mesh size`, set `Objectives/Maximum service distance`
 to `2` for a maximum tissue-to-terminal distance of twice the diameter of the
-tissue cell containing the evaluation point. It is not a minimum spacing
+tissue cell containing the evaluation point. For the affine tetrahedra below,
+this diameter $H_K$ is the longest cell edge. It is not a minimum spacing
 between terminals. `Objectives/Minimum tissue coverage = .95` requests at
 least 95 percent volume-weighted quadrature coverage. With portal inflow
 enabled, this criterion uses the points served by all three systems, rather
@@ -415,7 +416,102 @@ diagnostics before increasing the problem size. Comparable mesh lengths are
 an important check, but do not by themselves establish a discrete inf-sup
 condition.
 
-### Inspect anatomical growth separately from perfusion
+### Inspect the completed arterial stage
+
+The anatomical V21 calculation reached its requested **4,245 generated arterial
+terminals on 4,245 tetrahedra**. Its arterial stage contains 8,542 physical
+segments: 54 retained arterial input segments and 8,488 generated CCO segments.
+The full snapshot preserves all 835 retained input vessels and their endpoint
+coordinates and radius traces. The input-tail preparation uses a 0.34 mm radius
+threshold at existing points; this is a resolution sensitivity, not a clinical
+cutoff.
+
+The parent calculation stopped at its six-hour limit while portal growth had
+reached 3,140 terminals; hepatic venous growth had not started. The arterial
+finish snapshot is therefore an inspection result, not a completed three-network
+archive. It contains no coupled time steps, pressure/flow/displacement solution,
+or restart state.
+
+```{figure} ../_static/liver-cco-inspection/A4245/arterial-growth-projections.png
+:alt: XY, XZ and YZ projections of the completed 4,245-terminal artery, with imported segments in blue-gray and generated CCO segments in red
+:width: 100%
+
+Completed arterial growth in the coarse IRCAD case 12 generation volume.
+Blue-gray lines are the 54 retained arterial segments; red lines are the 8,488
+generated segments. Coordinates are in millimetres. Constant line width makes
+the branches visible and does not encode physical radius.
+```
+
+One terminal per global cell is a count target, not one terminal in every cell.
+The measured arterial occupancy is:
+
+| Generated arterial terminals in a cell | Cells |
+| ---: | ---: |
+| 0 | 1,515 |
+| 1 | 1,606 |
+| 2 | 802 |
+| 3 | 263 |
+| 4 | 49 |
+| 5 | 10 |
+
+All 4,245 terminal coordinates were located inside this background. The global
+mean is one terminal per cell, with a local maximum of five. A cell containing
+no terminal can still be served by a nearby terminal.
+
+An independent geometric check uses the nearest generated arterial terminal
+distance $d_K$ from the cell centroid, the largest centroid-to-vertex distance
+$r_K$, and the longest edge $H_K$. The guarded sufficient condition
+$d_K+r_K\leq 2H_K$ holds for **every tetrahedron**, certifying 100% of this coarse
+volume within the requested maximum distance of $2H_K$. This follows from
+convexity of a straight tetrahedron and the 1-Lipschitz nearest-terminal distance.
+It also implies the distance predicate at its quadrature points; it does not
+replay the native quadrature or distributed routing. The requested minimum was
+95%. This arterial-only result establishes neither portal/venous joint coverage,
+coverage on a finer anatomical volume, perfusion, nor an inf-sup condition.
+
+```{figure} ../_static/liver-cco-inspection/A4245/arterial-coverage-occupancy.png
+:alt: Arterial terminal occupancy from zero to five per cell and the volume-weighted sufficient whole-cell distance bound relative to the 2H maximum
+:width: 100%
+
+Measured occupancy and conservative whole-cell coverage for A4245. The right
+panel weights cells by volume and compares the sufficient distance bound with
+the original maximum-distance contract, $2H_K$. These are geometric measurements
+on the coarse arterial background, not pressure or perfusion results.
+```
+
+Download the [A4245 inspection archive](https://github.com/luca-heltai/immersx/releases/download/liver-icar-cco-inspection-2026-11-07/liver-cco-A4245-v21-20261107.tar.gz)
+and extract it into a new directory. The stable download URL becomes available
+when the inspection release is published; while it remains a draft, use the
+authenticated draft assets listed in the
+[tracking record](https://github.com/luca-heltai/immersx/issues/343).
+The archive SHA-256 is
+`b54d531ab31baf4466dcd1b335ecf55f5c6806eeccd5b9c1351bd8033d04f5c0`.
+Verify its internal `SHA256SUMS` before opening these files in ParaView:
+
+- `artery.vtu`: completed arterial physical vessels with native `Radius`,
+  `Generated` and physical IDs;
+- `liver-generation.vtu`: the 4,245-tetrahedron generation volume;
+- `arterial-terminals.vtp`: the generated arterial endpoints;
+- `network-context.vtu`: the arterial result together with the retained portal
+  and venous inputs, without completed companion growth.
+
+These names are relative to the extracted inspection archive. Keep the duplicated
+endpoint traces: incident vessels can have different native radii at a shared
+physical node.
+Use `Radius` for a varying-radius Tube filter rather than interpreting the
+constant-width projections as a lumen image. These physical segments have not
+yet been rediscretized and checked against the final coupled background.
+
+The [per-cell measurements](../_static/liver-cco-inspection/A4245/arterial-coverage-cells.csv),
+[plotted segments](../_static/liver-cco-inspection/A4245/arterial-projection-segments.csv),
+[coverage record](../_static/liver-cco-inspection/A4245/arterial-coverage.json) and
+[figure provenance](../_static/liver-cco-inspection/A4245/provenance.json) retain
+the figure inputs and scope. The accompanying
+[plot script](../_static/liver-cco-inspection/A4245/plot.py) reproduces the views
+from these tables and the archived `liver-generation.vtu`; see its
+[instructions](../_static/liver-cco-inspection/A4245/README.txt).
+
+### Historical A3073 checkpoint
 
 The [anatomical case tracking record](https://github.com/luca-heltai/immersx/issues/343)
 includes a saved arterial checkpoint with 3,073 generated tissue terminals on
@@ -459,8 +555,8 @@ terminal. These are geometric measurements, not pressure or perfusion results.
 
 ### Check interval lengths before coupling
 
-Rediscretizing the same physical checkpoint on the original tetrahedra produces
-6,987 numerical intervals, including seven outside the tissue. Of the 6,980
+Rediscretizing the historical A3073 physical checkpoint on the original
+tetrahedra produces 6,987 numerical intervals, including seven outside the tissue. Of the 6,980
 inside intervals, 6,948 are below the configured lower bound
 $L/h_{\max}=0.5$; none exceed $L/h_{\min}=2$. The generated arterial subset
 alone has 6,124 lower-bound failures. Good terminal coverage therefore does not

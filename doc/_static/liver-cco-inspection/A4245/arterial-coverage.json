@@ -1,0 +1,30 @@
+{
+  "status": "INDEPENDENT_GEOMETRIC_MEASUREMENT_NOT_NATIVE_REPLAY",
+  "terminals": 4245,
+  "cells": 4245,
+  "maximum_service_distance_in_cell_H": 2,
+  "H_definition": "longest edge of each affine background tetrahedron",
+  "whole_cell_lower_bound_fraction": 1.0,
+  "whole_cell_count_sufficiently_covered": 4245,
+  "minimum_margin_2H_minus_d_plus_r_m": 0.0014045555672963033,
+  "floating_guard_m": 2.842170943040401e-14,
+  "Q2_pointwise_coverage_implied_by_all_cell_bound": 1.0,
+  "native_Q2_integration_reexecuted": false,
+  "requested_minimum_coverage": 0.95,
+  "requested_coverage_met_by_sufficient_generated_arterial_only_bound": true,
+  "cell_centre_volume_fraction": 1.0,
+  "occupancy_histogram": {
+    "0": 1515,
+    "1": 1606,
+    "2": 802,
+    "3": 263,
+    "4": 49,
+    "5": 10
+  },
+  "occupied_cells": 2730,
+  "maximum_terminals_per_cell": 5,
+  "mean_terminals_per_cell": 1.0,
+  "unlocated_terminals": [],
+  "physical_volume_m3": 0.0014891786488047158,
+  "scope": "Only the generated arterial terminal set and 4245 affine background cells. By convexity and 1-Lipschitz nearest-set distance, d(centroid)+max_vertex_distance<=2H certifies every point in the cell, hence also any Q2 quadrature point. This is not replay of native distributed routing or quadrature. No PV/HV/triple, finer-mesh, perfusion or inf-sup claim. Shared-face cell assignment for occupancy is not unique."
+}
