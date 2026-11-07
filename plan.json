@@ -140,8 +140,6 @@
   },
   "harness_sha": "c873cd6081a0aa1185564face956cbb7cbebd7fd",
   "schema_version": 1,
-  "selected": [
-    "c873cd6081a0aa1185564face956cbb7cbebd7fd"
-  ],
+  "selected": [],
   "source_sha": "c873cd6081a0aa1185564face956cbb7cbebd7fd"
 }
