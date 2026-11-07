@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <limits>
 #include <sstream>
 #include <string>
 
@@ -165,6 +167,69 @@ namespace
                  dealii::ExceptionBase);
     return result;
   }
+  auto
+  add_logarithmic_field(Adapter                             &adapter,
+                        const std::function<double(double)> &forcing,
+                        unsigned int                        &invalid_trials)
+  {
+    return adapter.add([&](auto &builder) {
+      using Model = typename std::decay_t<decltype(builder)>::Model;
+      dealii::IndexSet owned(1);
+      if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+        owned.add_index(0);
+      owned.compress();
+      const auto field = builder.algebraic_field("positive value", owned);
+      builder.term(field, "logarithmic constraint")
+        .residual([field, forcing, &invalid_trials](const auto &context) {
+          const auto &value = context.state(field);
+          FieldVector residual(value);
+          for (const auto i : residual.locally_owned_elements())
+            if (value[i] <= 0.)
+              {
+                ++invalid_trials;
+                residual[i] = std::numeric_limits<double>::quiet_NaN();
+              }
+            else
+              residual[i] = std::log(value[i]) + forcing(context.time());
+          residual.compress(dealii::VectorOperation::insert);
+          typename Model::Operation result;
+          result.reinit_vector = [value](FieldVector &v, bool) {
+            v.reinit(value);
+          };
+          result.apply     = [residual](FieldVector &v) { v = residual; };
+          result.apply_add = [residual](FieldVector &v) { v += residual; };
+          return result;
+        })
+        .state(field,
+               typename Model::OperatorFactory([field](const auto &context) {
+                 const auto               value = context.state(field);
+                 typename Model::Operator op;
+                 op.reinit_range_vector = [value](FieldVector &v, bool) {
+                   v.reinit(value);
+                 };
+                 op.reinit_domain_vector = op.reinit_range_vector;
+                 op.vmult = [value](FieldVector &dst, const FieldVector &src) {
+                   dst = src;
+                   for (const auto i : dst.locally_owned_elements())
+                     dst[i] /= value[i];
+                   dst.compress(dealii::VectorOperation::insert);
+                 };
+                 op.vmult_add = [value](FieldVector       &dst,
+                                        const FieldVector &src) {
+                   FieldVector contribution(src);
+                   for (const auto i : contribution.locally_owned_elements())
+                     contribution[i] /= value[i];
+                   contribution.compress(dealii::VectorOperation::insert);
+                   dst += contribution;
+                 };
+                 op.Tvmult     = op.vmult;
+                 op.Tvmult_add = op.vmult_add;
+                 return op;
+               }));
+      return field;
+    });
+  }
+
 } // namespace
 
 TEST(DistributedIDA, BOTH_OutputStopsPreserveNonlinearAlgebraicConstraint)
@@ -201,5 +266,90 @@ TEST(DistributedIDA, BOTH_OutputStopsRespectToleranceRamp)
   const auto stopped = integrate_output_stops(true, .01, true);
   EXPECT_LT(stopped.maximum_time_gap, 1.e-13);
   EXPECT_LT(stopped.maximum_constraint, 1.e-5);
+}
+
+TEST(DistributedIDA, BOTH_NonfiniteInitialResidualFailsCollectively)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.initial_time                          = 0.;
+  time.final_time                            = .02;
+  parameters.correction_type_at_initial_time = "use_y_dot";
+  unsigned int invalid_trials                = 0;
+  Adapter      adapter(time, parameters, MPI_COMM_WORLD);
+  const auto   positive = add_logarithmic_field(
+    adapter, [](double t) { return -std::log(2. + t); }, invalid_trials);
+  auto state = adapter.make_state(), derivative = adapter.make_state();
+  adapter.field(state, positive.fields()) = -1.;
+  derivative                              = 0.;
+  EXPECT_THROW(adapter.solve(state, derivative),
+               dealii::RecoverableUserCallbackError);
+  EXPECT_GT(dealii::Utilities::MPI::sum(invalid_trials, MPI_COMM_WORLD), 0u);
+}
+
+TEST(DistributedIDA, BOTH_NonfiniteTrialResidualIsRecoverable)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.initial_time                            = 0.;
+  time.final_time                              = .02;
+  time.output_time_interval                    = .02;
+  parameters.initial_step_size                 = .02;
+  parameters.maximum_step_size                 = .02;
+  parameters.maximum_order                     = 5;
+  parameters.maximum_number_of_steps           = 10000;
+  parameters.absolute_tolerance                = 1.e-10;
+  parameters.relative_tolerance                = 1.e-9;
+  parameters.ignore_algebraic_terms_for_errors = false;
+  parameters.correction_type_at_initial_time   = "none";
+  unsigned int invalid_trials                  = 0;
+  Adapter      adapter(time, parameters, MPI_COMM_WORLD);
+  const auto   positive = add_logarithmic_field(
+    adapter, [](double t) { return 100. * t; }, invalid_trials);
+  auto state = adapter.make_state(), derivative = adapter.make_state();
+  adapter.field(state, positive.fields()) = 1.;
+  derivative                              = -100.;
+  // exp(-100 t) is consistent initially, but the requested first predictor
+  // crosses zero. IDA must reject it and reduce its time step.
+  adapter.solve(state, derivative);
+  const auto rejected =
+    dealii::Utilities::MPI::sum(invalid_trials, MPI_COMM_WORLD);
+  const double value = adapter.field(state, positive.fields()).l2_norm();
+  EXPECT_GT(rejected, 0u);
+  EXPECT_NEAR(value, std::exp(-2.), 1.e-7);
+  RecordProperty("invalid_trials", std::to_string(rejected));
+  std::ostringstream error;
+  error.precision(17);
+  error << std::abs(value - std::exp(-2.));
+  RecordProperty("final_error", error.str());
+}
+TEST(DistributedIDA, BOTH_PositiveConstraintProtectsInitialCorrection)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.initial_time                          = 0.;
+  time.final_time                            = .02;
+  time.output_time_interval                  = .01;
+  parameters.initial_step_size               = .001;
+  parameters.maximum_step_size               = .01;
+  parameters.maximum_order                   = 5;
+  parameters.absolute_tolerance              = 1.e-10;
+  parameters.relative_tolerance              = 1.e-9;
+  parameters.correction_type_at_initial_time = "use_y_dot";
+  unsigned int invalid_trials                = 0;
+  Adapter      adapter(time, parameters, MPI_COMM_WORLD);
+  const auto   positive = add_logarithmic_field(
+    adapter, [](double t) { return -std::log(2. + t); }, invalid_trials);
+  auto state = adapter.make_state(), derivative = adapter.make_state();
+  adapter.field(state, positive.fields()) = 10.;
+  derivative                              = 0.;
+  auto constraints                        = adapter.make_state();
+  constraints                             = 2.;
+  adapter.solver().get_constraint_vector  = [&constraints]() -> GlobalVector  &{
+    return constraints;
+  };
+  adapter.solve(state, derivative);
+  EXPECT_EQ(dealii::Utilities::MPI::sum(invalid_trials, MPI_COMM_WORLD), 0u);
+  EXPECT_NEAR(adapter.field(state, positive.fields()).l2_norm(), 2.02, 1.e-7);
 }
 #endif

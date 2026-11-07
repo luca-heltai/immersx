@@ -13,6 +13,7 @@
 #include <deal.II/base/config.h>
 
 #include <deal.II/base/conditional_ostream.h>
+#include <deal.II/base/exceptions.h>
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/timer.h>
 
@@ -619,6 +620,18 @@ namespace ImmersX
                               GlobalVectorType       &residual) {
         dealii::TimerOutput::Scope timer(computing_timer, "Evaluate residual");
         composition_.evaluate_residual(time, state, &state_dot, residual);
+        // Let IDA reject a nonfinite trial instead of using it to construct a
+        // Newton correction. All ranks must report the same callback status.
+        bool finite = true;
+        for (const auto index : residual.locally_owned_elements())
+          if (!std::isfinite(residual[index]))
+            {
+              finite = false;
+              break;
+            }
+        if (dealii::Utilities::MPI::min(finite ? 1 : 0,
+                                        composition_.communicator()) == 0)
+          throw dealii::RecoverableUserCallbackError();
       };
       ida_->setup_jacobian = [this](const double            time,
                                     const GlobalVectorType &state,

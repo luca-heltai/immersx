@@ -711,7 +711,13 @@ previous interval.
 For an equilibrium start, IDA's `Correction type at initial time = use_y_dot`
 uses a zero state derivative to solve the complete coupled residual at the
 initial time. This equilibrates the chosen boundary data; it does not establish
-a periodic coupled state. For exterior tissue support, configure the solid's
+a periodic coupled state. The coupled application constrains both cell and trace
+area coefficients to remain positive before evaluating a Newton trial.
+Nonfinite residuals are reported collectively as recoverable callback errors.
+Equilibrium correction can still stop when the selected SUNDIALS mode cannot
+recover from a failed residual evaluation; see the
+[IDA initial-condition implementation](https://github.com/LLNL/sundials/blob/v6.7.0/src/idas/idas_ic.c).
+For exterior tissue support, configure the solid's
 `Robin boundary ids`, `Functions/Robin coefficient` and
 `Functions/Robin boundary` as described in the
 [Robin boundary reference](../reference/robin-boundaries.md).
