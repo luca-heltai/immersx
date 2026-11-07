@@ -388,8 +388,8 @@ than the average of their separate coverages.
 
 Changing `Length scale` also changes the units of length-valued growth controls,
 including seed length, minimum vessel length, clearance, minimum radius and
-terminal separation. Re-express those controls in units of the local cell
-diameter. For example, a seed length of `.5` then means half a local cell
+terminal separation. Re-express those controls in mesh units and inspect
+their effective physical lengths. For example, a seed length of `.5` then means half a local cell
 diameter. Imported coordinates and radii, pressures, flow rates and exported
 physical data retain their SI units. See the
 [generation controls](../how-to/vascular-generation) for the complete list.
@@ -404,7 +404,13 @@ After growth and after every change of the tissue grid, rediscretize the
 physical networks and inspect the numerical 1D interval lengths against the
 local background diameter. The discretization target and lower/upper length
 factors control those numerical intervals; they do not change the physical
-terminal count. Record the actual coupled block DoFs and interval-length
+terminal count. Subdivision preserves the endpoints of each physical vessel;
+it does not merge distinct physical vessels across a degree-two node. If a
+physical segment is already shorter than the intended lower interval-length
+bound, further subdivision cannot repair that bound. Review the background
+resolution and the physical input preparation instead.
+
+Record the actual coupled block DoFs and interval-length
 diagnostics before increasing the problem size. Comparable mesh lengths are
 an important check, but do not by themselves establish a discrete inf-sup
 condition.
@@ -530,6 +536,7 @@ required before writing an accepted result; the finite growth budget can fail
 for an incompatible geometry or search configuration.
 
 
+(save-the-volume-and-reuse-the-physical-network)=
 ## Save the volume and reuse the physical network
 
 To save the exact generated volume before distributed partitioning, set:
