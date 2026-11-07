@@ -471,7 +471,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add the completed A4245 arterial inspection, its measured coarse-mesh coverage and terminal occupancy, and ParaView paths while retaining the historical A3073 diagnostics.
+- [PR #366](https://github.com/luca-heltai/immersx/pull/366) Add the completed A4245 arterial inspection, its measured coarse-mesh coverage and terminal occupancy, and ParaView paths while retaining the historical A3073 diagnostics.
 
 - [PR #364](https://github.com/luca-heltai/immersx/pull/364) Add anatomical liver CCO inspection figures and measured coverage, interval-length and pressure-head diagnostics, and distinguish the historical feeder-stub pilot from full-tree growth.
 

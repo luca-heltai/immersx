@@ -556,8 +556,8 @@ terminal. These are geometric measurements, not pressure or perfusion results.
 ### Check interval lengths before coupling
 
 Rediscretizing the historical A3073 physical checkpoint on the original
-tetrahedra produces 6,987 numerical intervals, including seven outside the tissue. Of the 6,980
-inside intervals, 6,948 are below the configured lower bound
+tetrahedra produces 6,987 numerical intervals, including seven outside the tissue.
+Of the 6,980 inside intervals, 6,948 are below the configured lower bound
 $L/h_{\max}=0.5$; none exceed $L/h_{\min}=2$. The generated arterial subset
 alone has 6,124 lower-bound failures. Good terminal coverage therefore does not
 satisfy the numerical interval-length requirement.
