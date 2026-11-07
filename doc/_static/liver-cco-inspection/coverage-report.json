@@ -1,0 +1,291 @@
+{
+  "partial_geometry_only": true,
+  "coupled_solution": false,
+  "mesh_cells": 4245,
+  "mesh_volume_m3": 0.001489178648804716,
+  "cell_diameter_m": {
+    "min": 0.001337076887078749,
+    "median": 0.018633539076308454,
+    "max": 0.036265586103541025
+  },
+  "definition": "H is the longest tetrahedron edge. Coverage distance is 2H at each tissue cell. Only generated arterial tissue terminal records are included; their count equals the active mutable leaf count.",
+  "bounds": "If d is the nearest terminal distance at the cell centroid and r is the maximum centroid-to-vertex distance, d+r<=2H is sufficient for the whole cell; d-r>2H excludes service throughout the cell. Floating-point guards are included.",
+  "limitations": [
+    "Cell-centre coverage is an independent proxy, not native order-2 quadrature.",
+    "Terminal cell assignment on a shared face is not uniquely defined.",
+    "No conclusion on perfusion, physiological feasibility or discrete inf-sup stability."
+  ],
+  "payload_sha256": {
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/v21-arterial258-checkpoint-figure-v1/liver-generation.vtu": "494b3b278f16af6c35a188076cde9df8a95733f00eb8952d69d08d363c287854",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count258-call0.ready.json": "ef31861c20f769a536dbdb2315a0b78d595582d704c6bf3d11aa8b9455418cc3",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count258-call0-inspection.vtu": "24c8ef2dbf9cf0441fa8ec58979d82e1a424155e2062beed11bbb0b96db035a9",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count513-call1.ready.json": "676ec0326e788a3591970317a488d81de49cfe80546731ba6c65d3efec993647",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count513-call1-inspection.vtu": "3d8b7a02204aff065457f49b06f052e4552bbe9599908c6bfe39d3db41d24373",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count778-call2.ready.json": "7b798dd42022bfea2f93c569959c2499dc59334ff49988957002c7890c1c7808",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count778-call2-inspection.vtu": "08b172592c1b4846549cecee57e6941681ff4e152807b3e4f7bc89e093372f06",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count1027-call3.ready.json": "b6e61e25ee0b1ce63a26b05b371777bd013e841b490a7951ab3d0d81998b7326",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count1027-call3-inspection.vtu": "31ed9e98284edecbe434b618efd16e32af35e0a2d927278cbca47d0c44d55d85",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count1281-call4.ready.json": "dcdbcbe3f19605f90e998cf55311b7822bb89ec8ff912182136ac9419636d805",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count1281-call4-inspection.vtu": "8ff89fd4de2937ff54e629fc55924424bf4b99d147f108c666e42a71d52749f5",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count1542-call5.ready.json": "ee5d47d4b57ecfab96aca16407748ed1eceb74ab336d24a5be3e01089fc29f37",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count1542-call5-inspection.vtu": "12aaa3c5fc482d267d1ba07aacdb535d69f20561473cc1ef21ccaf857900b220",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count1798-call6.ready.json": "b17af79df7198f67ee232d694261d7e23af71de9f91e37db7e038500902176a3",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count1798-call6-inspection.vtu": "f340fb4c3d235266334bc73d29212b78d11f5528b7cebc9e6380c5920f383c8b",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count2049-call7.ready.json": "3a9fbeaf93624c76ef6cc237374a1c7cff795ed3d9470254979e5b7d61888ce8",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count2049-call7-inspection.vtu": "460baf73f8163ded14db26e79b42d0b22e16179bd55052daa1f46e2e02909190",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count2307-call8.ready.json": "96a9a1416354dd910db21087a1bd37622e85d6892704d61c0321035cea80f479",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count2307-call8-inspection.vtu": "35829e0ad8324ffb286469686346f5fe7c888ad8bf885fe4c3fc2e38d45542a3",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count2563-call9.ready.json": "21abc3ec48cbe0372789cb174c91bbf1a8f631348541b34a3335bd154f5b6786",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count2563-call9-inspection.vtu": "7bec94b4920b0e3cbcf54b8d30bc4840543e3eccc44a9bd9920e9e2819493be7",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count2816-call10.ready.json": "41237cecba895a93e9e8f62952ca3a546ac3f41b4efb6ae8fd65bfec878b784c",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count2816-call10-inspection.vtu": "069dac3186e6e7cf26ec64cc04c8ff474626877566b9732c34285d91474083b8",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count3073-call11.ready.json": "07f70d27c558f259996b710fda1964bbfca0b9626d80fadca1956acd72f294c9",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count3073-call11-inspection.vtu": "29ebf47afc93a649836ba65d47541196d4439eab870523c80ca79ad9aa6e7649"
+  },
+  "script_sha256": "85d2c03410d05b5084cfb6365f918e5ee913b6a98dc77cc62a3d88e16f6b856f",
+  "checkpoints": [
+    {
+      "checkpoint": "accepted-checkpoint-system0-count258-call0",
+      "mutable_leaves": 258,
+      "requested": 4245,
+      "total_new_arterial_terminals": 258,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.0607773851590106,
+      "maximum_terminals_per_cell": 2,
+      "occupied_cells": 246,
+      "histogram": {
+        "0": 3999,
+        "1": 234,
+        "2": 12
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9921157983468024,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 1.7402676762007017
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count513-call1",
+      "mutable_leaves": 513,
+      "requested": 4245,
+      "total_new_arterial_terminals": 513,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.12084805653710247,
+      "maximum_terminals_per_cell": 2,
+      "occupied_cells": 484,
+      "histogram": {
+        "0": 3761,
+        "1": 455,
+        "2": 29
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9984266058791502,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 1.5506136536545443
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count778-call2",
+      "mutable_leaves": 778,
+      "requested": 4245,
+      "total_new_arterial_terminals": 778,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.18327444051825678,
+      "maximum_terminals_per_cell": 3,
+      "occupied_cells": 721,
+      "histogram": {
+        "0": 3524,
+        "1": 668,
+        "2": 49,
+        "3": 4
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 1.2228876407779654
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count1027-call3",
+      "mutable_leaves": 1027,
+      "requested": 4245,
+      "total_new_arterial_terminals": 1027,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.24193168433451118,
+      "maximum_terminals_per_cell": 3,
+      "occupied_cells": 931,
+      "histogram": {
+        "0": 3314,
+        "1": 840,
+        "2": 86,
+        "3": 5
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 1.120540891450547
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count1281-call4",
+      "mutable_leaves": 1281,
+      "requested": 4245,
+      "total_new_arterial_terminals": 1281,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.3017667844522968,
+      "maximum_terminals_per_cell": 3,
+      "occupied_cells": 1129,
+      "histogram": {
+        "0": 3116,
+        "1": 987,
+        "2": 132,
+        "3": 10
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 0.9748103915530586
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count1542-call5",
+      "mutable_leaves": 1542,
+      "requested": 4245,
+      "total_new_arterial_terminals": 1542,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.36325088339222616,
+      "maximum_terminals_per_cell": 3,
+      "occupied_cells": 1330,
+      "histogram": {
+        "0": 2915,
+        "1": 1133,
+        "2": 182,
+        "3": 15
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 0.8495701722710403
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count1798-call6",
+      "mutable_leaves": 1798,
+      "requested": 4245,
+      "total_new_arterial_terminals": 1798,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.4235571260306243,
+      "maximum_terminals_per_cell": 3,
+      "occupied_cells": 1515,
+      "histogram": {
+        "0": 2730,
+        "1": 1251,
+        "2": 245,
+        "3": 19
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 0.8144236096403638
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count2049-call7",
+      "mutable_leaves": 2049,
+      "requested": 4245,
+      "total_new_arterial_terminals": 2049,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.4826855123674912,
+      "maximum_terminals_per_cell": 4,
+      "occupied_cells": 1683,
+      "histogram": {
+        "0": 2562,
+        "1": 1348,
+        "2": 305,
+        "3": 29,
+        "4": 1
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 0.8144236096403638
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count2307-call8",
+      "mutable_leaves": 2307,
+      "requested": 4245,
+      "total_new_arterial_terminals": 2307,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.5434628975265018,
+      "maximum_terminals_per_cell": 4,
+      "occupied_cells": 1850,
+      "histogram": {
+        "0": 2395,
+        "1": 1443,
+        "2": 359,
+        "3": 46,
+        "4": 2
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 0.8144236096403638
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count2563-call9",
+      "mutable_leaves": 2563,
+      "requested": 4245,
+      "total_new_arterial_terminals": 2563,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.6037691401648999,
+      "maximum_terminals_per_cell": 4,
+      "occupied_cells": 1992,
+      "histogram": {
+        "0": 2253,
+        "1": 1497,
+        "2": 421,
+        "3": 72,
+        "4": 2
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 0.8144236096403638
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count2816-call10",
+      "mutable_leaves": 2816,
+      "requested": 4245,
+      "total_new_arterial_terminals": 2816,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.6633686690223792,
+      "maximum_terminals_per_cell": 4,
+      "occupied_cells": 2131,
+      "histogram": {
+        "0": 2114,
+        "1": 1553,
+        "2": 480,
+        "3": 89,
+        "4": 9
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 0.7288145348401116
+    },
+    {
+      "checkpoint": "accepted-checkpoint-system0-count3073-call11",
+      "mutable_leaves": 3073,
+      "requested": 4245,
+      "total_new_arterial_terminals": 3073,
+      "unlocated_terminal_indices": [],
+      "mean_terminals_per_cell": 0.7239104829210836,
+      "maximum_terminals_per_cell": 4,
+      "occupied_cells": 2266,
+      "histogram": {
+        "0": 1979,
+        "1": 1593,
+        "2": 551,
+        "3": 110,
+        "4": 12
+      },
+      "cell_centre_covered_volume_proxy": 0.9999999999999998,
+      "sufficient_whole_cell_covered_volume_fraction": 0.9999999999999998,
+      "possible_covered_volume_fraction_upper_bound": 0.9999999999999998,
+      "maximum_cell_centre_distance_over_h": 0.7288145348401116
+    }
+  ]
+}

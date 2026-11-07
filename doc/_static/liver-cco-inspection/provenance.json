@@ -1,0 +1,33 @@
+{
+  "status": "PARTIAL_ANATOMICAL_CCO_DIAGNOSTICS_NOT_COUPLED_SOLUTION",
+  "source_checkpoint_sha256": "29ebf47afc93a649836ba65d47541196d4439eab870523c80ca79ad9aa6e7649",
+  "source_background_sha256": "494b3b278f16af6c35a188076cde9df8a95733f00eb8952d69d08d363c287854",
+  "inspection_archive_sha256": "d583b3dc9ebdd9bc3a9fd9e21611aa2ba293044d235c5c7b7347efbd031db62e",
+  "native_library_sha256": "42d12d9dec0ba57214dc4e34da4950717f08e4d3b016b8f3cbedfa4ccd0bdf14",
+  "data": {
+    "growth": "growth-provenance.json",
+    "coverage": "coverage-report.json",
+    "native_intervals": "interval-provenance.json"
+  },
+  "visual_review": "AllthreePNGfigures reviewed; counts and labels legible. No coupled/perfusion claim.",
+  "payload_sha256": {
+    "README.txt": "e036ba2a906df864b63f3210e89f937a1e3eeeaaa2ad9ec4bb67039f8222ffe1",
+    "arterial-coverage-and-cell-counts.png": "7e3b0114091ddb8ba0cd00437ce09a4e93ed53d56bd3cb21d8c3931b59608a4c",
+    "arterial-coverage-and-cell-counts.svg": "25ccbad7d7da86b2c207da6388f5395b6deca8cf4327cc99664b33fa4dc9345a",
+    "arterial-growth-projections.png": "5a5b453ea66b0ecd013e37868394139ac8967aa6d7183adac046d553b42c6d19",
+    "arterial-growth-projections.svg": "ee2678e9d9c26385cf65d7e0abf61c02e1da4211f514f96e9963ce01cbe380c4",
+    "coverage-provenance.json": "ab820183f0d0c5a1025dd940f90d302a14e1e8897a0118e94a99589064332d29",
+    "coverage-report.json": "fab526f9ca5437fc726a506f3c61a577beda36c66dcee8ce6de70c6f8f4e059f",
+    "geometric-coverage.csv": "2d5dfc97ea619a1e8a50099c32903cc03b345aecae4687b8f33f4c1e867318fb",
+    "growth-provenance.json": "c2078f20afa3aa254bd99e0b199491c952a5d28080a5349adf0772a430d2d93b",
+    "interval-histogram.csv": "b39524b3bc41241cd226fe5cfe58333a311e37f019ce011f66a48218a8ff6e0b",
+    "interval-length-comparison.png": "dcccffe1bf18fc95044b4a7eec1fc946d401a5d94540228f8fb9945cb8cb8f32",
+    "interval-length-comparison.svg": "cad30f6a24dcebe71b5a6e7c307d1a1a3755fef400ff72ef3ae89ad012ed4298",
+    "interval-provenance.json": "d93fa80b770237ab97fad0af8cd9618f680bf61c0b97b0a6c85549ef1eee5fd2",
+    "interval-summary.csv": "beb317d176a36c2ef955f45eb74cd720c6ec424c7e84af5a8e2e3c5b8bdfbd1e",
+    "plot_coverage.py": "feddd3e74aab4e008f4fbe33c6e6a00a798df49c7dee9302af3c52ced6f4c62d",
+    "plot_growth.py": "f6391fd7ed81d3bde76caf312184665913b48529716908ea12737ecc24edc2a3",
+    "plot_intervals.py": "76b5520bafab79dc4ab8e5c47f49cd405550160169c63e218e82441fb3ef5925"
+  },
+  "published_format": "CSV line endings and SVG layout whitespace normalized; scientific values and PNGs unchanged."
+}

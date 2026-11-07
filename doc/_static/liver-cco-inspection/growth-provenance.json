@@ -1,0 +1,27 @@
+{
+  "partial_checkpoint": true,
+  "coupled_solution": false,
+  "identity": [
+    0,
+    3073,
+    4245
+  ],
+  "segments": {
+    "input": 835,
+    "arterial": 6144,
+    "venous": 0,
+    "portal": 0
+  },
+  "source_sha256": {
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/generation-allgrow-cells1-r034-power05-box-checkpoint-mpi32-v21/materialized/accepted-checkpoint-system0-count3073-call11-inspection.vtu": "29ebf47afc93a649836ba65d47541196d4439eab870523c80ca79ad9aa6e7649",
+    "/data/home/lheltai/codes/liver-icar-20261105/anatomical-cell-coverage/v21-arterial258-checkpoint-figure-v1/liver-generation.vtu": "494b3b278f16af6c35a188076cde9df8a95733f00eb8952d69d08d363c287854"
+  },
+  "script_sha256": "f6391fd7ed81d3bde76caf312184665913b48529716908ea12737ecc24edc2a3",
+  "output_sha256": {
+    "arterial-growth-projections.png": "5a5b453ea66b0ecd013e37868394139ac8967aa6d7183adac046d553b42c6d19",
+    "arterial-growth-projections.svg": "ee2678e9d9c26385cf65d7e0abf61c02e1da4211f514f96e9963ce01cbe380c4"
+  },
+  "visual_review": "passed: reviewed rendered PNG, labels, counts and scope",
+  "adaptation": "Portable plotting from the same frozen input files; output figure names changed for documentation. Scientific data unchanged.",
+  "published_format": "LF line endings; trailing SVG layout whitespace removed, numeric values and PNGs unchanged."
+}

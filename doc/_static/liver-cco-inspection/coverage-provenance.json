@@ -1,0 +1,14 @@
+{
+  "partial_geometry_only": true,
+  "coupled_solution": false,
+  "report_sha256": "fab526f9ca5437fc726a506f3c61a577beda36c66dcee8ce6de70c6f8f4e059f",
+  "script_sha256": "feddd3e74aab4e008f4fbe33c6e6a00a798df49c7dee9302af3c52ced6f4c62d",
+  "output_sha256": {
+    "arterial-coverage-and-cell-counts.png": "7e3b0114091ddb8ba0cd00437ce09a4e93ed53d56bd3cb21d8c3931b59608a4c",
+    "arterial-coverage-and-cell-counts.svg": "25ccbad7d7da86b2c207da6388f5395b6deca8cf4327cc99664b33fa4dc9345a",
+    "geometric-coverage.csv": "2d5dfc97ea619a1e8a50099c32903cc03b345aecae4687b8f33f4c1e867318fb"
+  },
+  "visual_review": "passed: reviewed rendered PNG, labels, counts and scope",
+  "visual_review_utc": "2026-11-07T00:51:52.156461+00:00",
+  "published_format": "LF line endings; trailing SVG layout whitespace removed, numeric values and PNGs unchanged."
+}
