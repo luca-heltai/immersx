@@ -469,7 +469,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add anatomical liver CCO inspection figures and measured coverage, interval-length and pressure-head diagnostics, and distinguish the historical feeder-stub pilot from full-tree growth.
+- [PR #364](https://github.com/luca-heltai/immersx/pull/364) Add anatomical liver CCO inspection figures and measured coverage, interval-length and pressure-head diagnostics, and distinguish the historical feeder-stub pilot from full-tree growth.
 
 - [PR #363](https://github.com/luca-heltai/immersx/pull/363) Explain global liver terminal-count scaling, local mesh coverage distances, per-cell terminal counts and the separate numerical interval-length checks.
 
