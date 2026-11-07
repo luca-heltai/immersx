@@ -13,6 +13,7 @@
 #include <immersx/core/domain.h>
 #include <immersx/vascularization/generation.h>
 #include <immersx/vascularization/io.h>
+#include <immersx/vascularization/mesh_scale.h>
 
 #ifdef DEAL_II_WITH_VTK
 #  include <vtkCell.h>
@@ -52,6 +53,14 @@ namespace
         "Optional rooted 1D VTK tree; required when Portal network/Enabled is true.");
       add_parameter("Output directory", output_directory);
       add_parameter(
+        "Companion checkpoint archive",
+        companion_checkpoint,
+        "Optional network-only physical checkpoint. Original tree files and Grow selections remain required.");
+      add_parameter(
+        "Companion continuation phase",
+        continuation_phase,
+        "portal or venous; existing companion leaves count toward the completed arterial total.");
+      add_parameter(
         "Write volume mesh",
         write_volume_mesh,
         "Save the prepared volume as liver.msh before partitioning.");
@@ -75,6 +84,7 @@ namespace
       growth.venous.terminal_separation       = .003;
     }
     std::string arterial_grid, venous_grid, portal_grid, output_directory;
+    std::string companion_checkpoint, continuation_phase = "portal";
     bool        write_volume_mesh = false, only_generate_mesh = false;
     ImmersX::DomainParameters<3> domain;
     V::Parameters                growth;
@@ -214,6 +224,11 @@ main(int argc, char **argv)
         settings.portal_grid = (input.parent_path() / settings.portal_grid)
                                  .lexically_normal()
                                  .string();
+      if (!settings.companion_checkpoint.empty())
+        settings.companion_checkpoint =
+          (input.parent_path() / settings.companion_checkpoint)
+            .lexically_normal()
+            .string();
       AssertThrow(
         settings.growth.portal.enabled == !settings.portal_grid.empty(),
         ExcMessage("Supply Portal grid and enable Portal network together."));
@@ -306,8 +321,46 @@ main(int argc, char **argv)
         mapping = std::make_unique<MappingFE<3>>(FE_SimplexP<3>(1));
       else if (reference_cell->is_hyper_cube())
         mapping = std::make_unique<MappingQ1<3>>();
-      const auto result = V::generate(
-        domain.triangulation(), *mapping, initial, settings.growth, comm);
+      V::GenerationResult result;
+      if (settings.companion_checkpoint.empty())
+        result = V::generate(
+          domain.triangulation(), *mapping, initial, settings.growth, comm);
+      else
+        {
+          AssertThrow(
+            settings.continuation_phase == "portal" ||
+              settings.continuation_phase == "venous",
+            ExcMessage(
+              "Companion continuation phase must be portal or venous."));
+          const auto scale = V::mesh_length_scale(domain.triangulation(),
+                                                  settings.growth.length_scale,
+                                                  comm);
+          const auto restored =
+            V::load_network(settings.companion_checkpoint,
+                            domain.triangulation(),
+                            *mapping,
+                            scale.physical_length(settings.growth.clearance,
+                                                  scale.maximum()),
+                            comm);
+          AssertThrow(
+            Utilities::MPI::sum(static_cast<std::uint64_t>(
+                                  restored.territories.size() +
+                                  restored.terminal_pairs.size() +
+                                  restored.terminal_triplets.size()),
+                                comm) == 0,
+            ExcMessage(
+              "A continuation checkpoint must be a network-only physical archive, not a completed compartment archive."));
+          result =
+            V::resume_companions(domain.triangulation(),
+                                 *mapping,
+                                 initial,
+                                 restored.network,
+                                 settings.growth,
+                                 comm,
+                                 settings.continuation_phase == "portal" ?
+                                   V::System::portal :
+                                   V::System::venous);
+        }
       for (const auto &issue : result.validation.issues)
         std::cerr << "Rank " << rank << ": " << issue.entity << ' ' << issue.id
                   << ": " << issue.message << '\n';

@@ -4061,3 +4061,316 @@ TEST(VascularForest, BOTH_GrowthObstacleBoxesKeepExhaustiveProfileSeparation)
   EXPECT_EQ(all.at(base + 20010).endpoint_radii,
             (std::array<double, 2>{{.02, .1}}));
 }
+
+
+namespace
+{
+  NetworkData
+  continuation_fixture(NetworkData &original)
+  {
+    NetworkData checkpoint;
+    if (rank() != size() - 1)
+      return checkpoint;
+    const auto prefix = [&](Id       off,
+                            System   system,
+                            Point<3> inlet,
+                            Point<3> cap,
+                            double   radius) {
+      Node a{inlet, rank()}, b{cap, rank()};
+      if (system == System::arterial)
+        a.port = Port::arterial_inlet;
+      else if (system == System::portal)
+        a.port = Port::portal_inlet;
+      else if (system == System::venous)
+        a.port = Port::venous_outlet;
+      original.nodes[off]     = a;
+      original.nodes[off + 1] = b;
+      Vessel v;
+      v.nodes     = {{off, off + 1}};
+      v.radii     = {{radius, radius}};
+      v.viscosity = .004;
+      v.owner     = rank();
+      v.system    = system;
+      // Input provenance does not select mutable descendants.
+      v.provenance                            = Provenance::generated;
+      v.physical_properties["fixture_marker"] = 37.;
+      original.vessels[off + 10]              = v;
+      original.terminals[off + 20] = {off + 1, invalid_id, system, rank(), 1.};
+    };
+    const double x[4]{.8, 1., 2.6, 3.4};
+    for (unsigned int i = 0; i < 4; ++i)
+      prefix(base + 100 * i,
+             System::arterial,
+             Point<3>(x[i], .1, .7),
+             Point<3>(x[i], .3, .7),
+             .001);
+    prefix(base + 10000,
+           System::portal,
+           Point<3>(.1, 1.65, .7),
+           Point<3>(.2, 1.5, .7),
+           .003);
+    prefix(base + 11000,
+           System::portal,
+           Point<3>(.05, 1.95, 1.2),
+           Point<3>(.2, 1.8, 1.2),
+           .003);
+    prefix(base + 20000,
+           System::venous,
+           Point<3>(.2, 1.5, 1.6),
+           Point<3>(.4, 1.4, 1.6),
+           .004);
+    checkpoint = original;
+    const auto descendant =
+      [&](Id off, System system, Point<3> tip, Id territory, double demand) {
+        checkpoint.nodes[off + 2]    = {tip,
+                                        rank(),
+                                        Port::none,
+                                        Provenance::generated};
+        auto vessel                  = original.vessels.at(off + 10);
+        vessel.nodes                 = {{off + 1, off + 2}};
+        checkpoint.vessels[off + 11] = vessel;
+        checkpoint.terminals.erase(off + 20);
+        checkpoint.terminals[off + 30] = {
+          off + 2, territory, system, rank(), demand};
+        if (system == System::arterial)
+          {
+            checkpoint.nodes[off + 3] = checkpoint.nodes.at(off + 2);
+            checkpoint.nodes.at(off + 2).position =
+              .5 * (original.nodes.at(off + 1).position + tip);
+            auto distal                            = vessel;
+            distal.nodes                           = {{off + 2, off + 3}};
+            checkpoint.vessels[off + 12]           = distal;
+            checkpoint.terminals.at(off + 30).node = off + 3;
+          }
+      };
+    for (unsigned int i = 0; i < 4; ++i)
+      descendant(base + 100 * i,
+                 System::arterial,
+                 Point<3>(x[i], .7, .7),
+                 base + 100 * i + 40,
+                 1. + i);
+    descendant(
+      base + 10000, System::portal, Point<3>(.8, .74, .7), base + 40, 1.);
+    descendant(
+      base + 11000, System::portal, Point<3>(1., .7, .74), base + 140, 2.);
+    return checkpoint;
+  }
+
+  void
+  continuation_controls(Parameters &p)
+  {
+    physical_controls(p);
+    p.terminal_count_multiplier_factor = "none";
+    p.terminal_count                   = 4;
+    p.calibration.minimum_terminals    = 4;
+    p.calibration.maximum_terminals    = 4;
+    p.seed_length                      = .2;
+    p.minimum_length                   = .18;
+    p.minimum_angle                    = 10.;
+    p.sample_budget                    = 500;
+    p.candidate_count                  = 8;
+    p.optimization_steps               = 10;
+    p.venous.enabled                   = true;
+    p.portal.enabled                   = true;
+    p.venous.terminal_separation       = .04;
+    p.portal.terminal_separation       = .04;
+    p.compartment_resistances          = {{1.e13, 1.e12, 1.e12}};
+    for (unsigned int i = 0; i < 4; ++i)
+      {
+        p.selected_terminals.push_back(base + 100 * i + 20);
+        p.reference_conditions.pressures[base + 100 * i] = 1500.;
+      }
+    p.portal.selected_terminals = {base + 10020, base + 11020};
+    p.venous.selected_terminals = {base + 20020};
+    p.reference_conditions.pressures[base + 10000] = 1000.;
+    p.reference_conditions.pressures[base + 11000] = 1000.;
+    p.reference_conditions.pressures[base + 20000] = 0.;
+  }
+
+  NetworkData
+  small_owned_fixture(const NetworkData &network)
+  {
+    NetworkData local, result;
+    for (const auto &[id, n] : network.nodes)
+      if (n.owner == rank())
+        local.nodes.emplace(id, n);
+    for (const auto &[id, v] : network.vessels)
+      if (v.owner == rank())
+        local.vessels.emplace(id, v);
+    for (const auto &[id, t] : network.terminals)
+      if (t.owner == rank())
+        local.terminals.emplace(id, t);
+    // Only the small analytical fixture is gathered for invariant assertions.
+    for (const auto &part : Utilities::MPI::all_gather(MPI_COMM_WORLD, local))
+      {
+        result.nodes.insert(part.nodes.begin(), part.nodes.end());
+        result.vessels.insert(part.vessels.begin(), part.vessels.end());
+        result.terminals.insert(part.terminals.begin(), part.terminals.end());
+      }
+    return result;
+  }
+
+  void
+  expect_physical_record(const Vessel &before, const Vessel &after)
+  {
+    EXPECT_EQ(after.nodes, before.nodes);
+    EXPECT_EQ(after.radii, before.radii);
+    EXPECT_EQ(after.viscosity, before.viscosity);
+    EXPECT_EQ(after.system, before.system);
+    EXPECT_EQ(after.provenance, before.provenance);
+    EXPECT_EQ(after.physical_properties, before.physical_properties);
+  }
+} // namespace
+
+TEST(VascularForest, BOTH_CompanionContinuationPreservesFinishedArteries)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(bg,
+                                            {20, 10, 10},
+                                            Point<3>(),
+                                            Point<3>(4., 2., 2.));
+  MappingQ1<3> mapping;
+  NetworkData  original;
+  const auto   checkpoint = continuation_fixture(original);
+  const auto   expected   = small_owned_fixture(checkpoint);
+  Parameters   p;
+  continuation_controls(p);
+  const auto result = resume_companions(
+    bg, mapping, original, checkpoint, p, MPI_COMM_WORLD, System::portal);
+  for (const auto &issue : result.validation.issues)
+    ADD_FAILURE() << issue.id << ": " << issue.message;
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_EQ(result.requested_terminal_count, 4u);
+  EXPECT_EQ(result.effective_terminal_count, 4u);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
+                                  result.terminal_triplets.size()),
+                                MPI_COMM_WORLD),
+            4u);
+  const auto                  actual = small_owned_fixture(result.network);
+  std::array<unsigned int, 3> counts{};
+  for (const auto &[id, t] : actual.terminals)
+    if (t.territory != invalid_id)
+      ++counts[static_cast<unsigned int>(t.system)];
+  EXPECT_EQ(counts, (std::array<unsigned int, 3>{{4, 4, 4}}));
+  for (const auto &[id, v] : expected.vessels)
+    if (v.system == System::arterial)
+      {
+        ASSERT_TRUE(actual.vessels.count(id));
+        expect_physical_record(v, actual.vessels.at(id));
+        for (Id node : v.nodes)
+          {
+            EXPECT_EQ(actual.nodes.at(node).position,
+                      expected.nodes.at(node).position);
+            EXPECT_EQ(actual.nodes.at(node).port, expected.nodes.at(node).port);
+            EXPECT_EQ(actual.nodes.at(node).provenance,
+                      expected.nodes.at(node).provenance);
+          }
+      }
+  for (Id id : {base + 10030, base + 11030})
+    {
+      ASSERT_TRUE(actual.terminals.count(id));
+      EXPECT_EQ(actual.terminals.at(id).node, expected.terminals.at(id).node);
+      EXPECT_EQ(actual.terminals.at(id).territory,
+                expected.terminals.at(id).territory);
+      EXPECT_EQ(actual.terminals.at(id).demand,
+                expected.terminals.at(id).demand);
+      EXPECT_EQ(actual.nodes.at(actual.terminals.at(id).node).position,
+                expected.nodes.at(expected.terminals.at(id).node).position);
+    }
+  std::uint64_t new_portal = 0, arterial_samples = 0;
+  for (const auto &[id, t] : actual.terminals)
+    new_portal += t.system == System::portal && !expected.terminals.count(id);
+  EXPECT_EQ(new_portal, 2u);
+  for (const auto &statistics : result.growth_statistics)
+    if (statistics.system == System::arterial)
+      arterial_samples += statistics.sampled_points;
+  EXPECT_EQ(arterial_samples, 0u);
+
+  // A completed checkpoint performs no new insertion and keeps both supply
+  // forests frozen while the venous state undergoes native bootstrap.
+  const auto again = resume_companions(
+    bg, mapping, original, result.network, p, MPI_COMM_WORLD, System::venous);
+  for (const auto &issue : again.validation.issues)
+    ADD_FAILURE() << issue.id << ": " << issue.message;
+  ASSERT_TRUE(again.validation.valid());
+  EXPECT_EQ(again.accepted_insertions, 0u);
+  EXPECT_EQ(again.sampled_points, 0u);
+  // Move a generated internal portal junction on every relevant copy. The
+  // completed-phase certificate must reject it without changing leaves/radii.
+  Id           junction = invalid_id;
+  std::set<Id> terminal_nodes;
+  for (const auto &[id, t] : actual.terminals)
+    terminal_nodes.insert(t.node);
+  for (const auto &[id, v] : actual.vessels)
+    if (v.system == System::portal)
+      for (Id node : v.nodes)
+        if (!expected.nodes.count(node) && !terminal_nodes.count(node))
+          junction = std::min(junction, node);
+  ASSERT_NE(junction, invalid_id);
+  auto outside = result.network;
+  if (outside.nodes.count(junction))
+    outside.nodes.at(junction).position[0] = -1.;
+  const auto rejected = resume_companions(
+    bg, mapping, original, outside, p, MPI_COMM_WORLD, System::venous);
+  EXPECT_FALSE(rejected.validation.valid());
+  EXPECT_EQ(rejected.accepted_insertions, 0u);
+  const auto repeated = small_owned_fixture(again.network);
+  EXPECT_EQ(repeated.vessels.size(), actual.vessels.size());
+  for (const auto &[id, v] : actual.vessels)
+    expect_physical_record(v, repeated.vessels.at(id));
+}
+
+TEST(VascularForest, BOTH_CompanionContinuationRejectsChangedCheckpointData)
+{
+  parallel::distributed::Triangulation<3> bg(MPI_COMM_WORLD);
+  GridGenerator::subdivided_hyper_rectangle(bg,
+                                            {20, 10, 10},
+                                            Point<3>(),
+                                            Point<3>(4., 2., 2.));
+  MappingQ1<3> mapping;
+  NetworkData  original;
+  const auto   checkpoint = continuation_fixture(original);
+  Parameters   p;
+  continuation_controls(p);
+  const std::vector<std::function<void(NetworkData &)>> corrupt{
+    [](NetworkData &n) { n.vessels.at(base + 10).viscosity *= 1.1; },
+    [](NetworkData &n) { n.nodes.at(base + 2).position[0] = -1.; },
+    [](NetworkData &n) { n.vessels.at(base + 11).radii[1] *= .9; },
+    [](NetworkData &n) { n.vessels.at(base + 10011).radii[0] *= 1.1; },
+    [](NetworkData &n) { n.terminals.at(base + 10030).demand = 2.; },
+    [](NetworkData &n) { n.terminals.at(base + 11030).territory = base + 40; },
+    [](NetworkData &n) {
+      n.nodes[base + 50000]               = {Point<3>(.21, 1.5, .7),
+                                             rank(),
+                                             Port::none,
+                                             Provenance::generated};
+      n.vessels.at(base + 10011).nodes[0] = base + 50000;
+    }};
+  for (const auto &change : corrupt)
+    {
+      auto bad = checkpoint;
+      if (rank() == size() - 1)
+        change(bad);
+      const auto result = resume_companions(
+        bg, mapping, original, bad, p, MPI_COMM_WORLD, System::portal);
+      EXPECT_FALSE(result.validation.valid());
+      EXPECT_EQ(result.accepted_insertions, 0u);
+    }
+  if (size() > 1)
+    {
+      const double seed_length = p.seed_length;
+      if (rank() == 0)
+        p.seed_length *= 1.1;
+      EXPECT_THROW(
+        resume_companions(
+          bg, mapping, original, checkpoint, p, MPI_COMM_WORLD, System::portal),
+        dealii::ExceptionBase);
+      p.seed_length = seed_length;
+    }
+  p.calibration.minimum_terminals = 1;
+  p.calibration.maximum_terminals = 3;
+  EXPECT_FALSE(
+    resume_companions(
+      bg, mapping, original, checkpoint, p, MPI_COMM_WORLD, System::portal)
+      .validation.valid());
+}
