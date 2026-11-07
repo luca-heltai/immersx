@@ -282,7 +282,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Keep cell and trace area coefficients positive during coupled flow–tissue IDA solves. Report nonfinite trial residuals collectively as recoverable callback errors instead of passing them to the linear solver; equilibrium initialization may still fail when IDA cannot recover.
+- [PR #365](https://github.com/luca-heltai/immersx/pull/365) Keep cell and trace area coefficients positive during coupled flow–tissue IDA solves. Report nonfinite trial residuals collectively as recoverable callback errors instead of passing them to the linear solver; equilibrium initialization may still fail when IDA cannot recover.
 
 - [PR #361](https://github.com/luca-heltai/immersx/pull/361) Certify separation of tapered anatomical vessels using their actual endpoint radii when maximum-radius containers overlap, while retaining current Murray radii for mutable branches and conservative rejection without a separating witness.
 
