@@ -2695,14 +2695,26 @@ namespace ImmersX::detail
       auto      &cached   = second_order_preconditioners_[pair.displacement];
       if (!cached.inverse || cached.revision != revision)
         {
-          const auto mass = model.derivative_matrix_operator(pair.displacement,
-                                                             pair.displacement,
-                                                             context);
-          const auto stiffness = model.state_matrix_operator(pair.velocity,
-                                                             pair.displacement,
-                                                             context);
+          const auto surrogate =
+            model.second_order_preconditioner_operators(pair.displacement);
+          const auto mass =
+            surrogate ?
+              std::optional<typename Model::MatrixOperator>((*surrogate)[0]) :
+              model.derivative_matrix_operator(pair.displacement,
+                                               pair.displacement,
+                                               context);
+          const auto stiffness =
+            surrogate ?
+              std::optional<typename Model::MatrixOperator>((*surrogate)[1]) :
+              model.state_matrix_operator(pair.velocity,
+                                          pair.displacement,
+                                          context);
           const auto damping =
-            model.state_matrix_operator(pair.velocity, pair.velocity, context);
+            surrogate ?
+              std::optional<typename Model::MatrixOperator>((*surrogate)[2]) :
+              model.state_matrix_operator(pair.velocity,
+                                          pair.velocity,
+                                          context);
           AssertThrow(mass && stiffness && damping,
                       dealii::ExcMessage("Second-order factorization requires "
                                          "matrix-backed M, K and D blocks."));
