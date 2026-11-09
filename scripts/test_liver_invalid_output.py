@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True, type=Path)
@@ -61,6 +62,7 @@ def main():
         assert cells > 0, (role, cells)
     assert (diagnostics / "liver_0.pvtu").is_file()
     print(f"Rejected growth retained three diagnostic networks: {diagnostics}")
+
 
 if __name__ == "__main__":
     main()

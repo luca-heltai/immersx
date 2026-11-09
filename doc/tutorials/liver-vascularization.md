@@ -295,8 +295,9 @@ shared physical node; `PhysicalNodeId` records its identity.
 `diagnostic.json` declares that this is not an adoptable network archive;
 no `network/` archive is produced for the rejected result. A role without
 vessels has an empty dataset. Edges with missing or nonfinite endpoint
-coordinates, or an unknown vascular system, cannot be drawn: `omitted-*.csv` lists their physical IDs and
-`diagnostic.json` gives the total omitted count. This output does not repair
+coordinates, or an unknown vascular system, cannot be drawn. The files
+`omitted-*.csv` list their physical IDs, and `diagnostic.json` gives the total
+omitted count. This output does not repair
 the network or change the validation result.
 
 Check the physical result independently of the generator:
