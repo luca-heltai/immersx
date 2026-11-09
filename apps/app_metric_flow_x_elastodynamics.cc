@@ -11,6 +11,8 @@
 #include <deal.II/base/mpi_remote_point_evaluation.h>
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <deal.II/fe/fe_dgq.h>
 
 #include <deal.II/numerics/data_out.h>
@@ -797,12 +799,18 @@ namespace
         for (unsigned int i = 1; i < intervals.size(); ++i)
           straight = straight && std::abs(intervals[i].first -
                                           intervals[i - 1].second) < 1.e-10;
-        double minimum = std::numeric_limits<double>::max(), maximum = 0.;
-        for (const auto i : reference_area.locally_owned_elements())
-          {
-            minimum = std::min(minimum, static_cast<double>(reference_area[i]));
-            maximum = std::max(maximum, static_cast<double>(reference_area[i]));
-          }
+        double     minimum = std::numeric_limits<double>::max(), maximum = 0.;
+        const auto selected_reference_dofs =
+          DoFTools::extract_dofs(reference_field.dof_handler(),
+                                 reference_field.component_mask());
+        for (const auto i : selected_reference_dofs)
+          if (reference_field.dof_handler().locally_owned_dofs().is_element(i))
+            {
+              const double area =
+                reference_area[reference_field.execution_index(i)];
+              minimum = std::min(minimum, area);
+              maximum = std::max(maximum, area);
+            }
         minimum      = Utilities::MPI::min(minimum, MPI_COMM_WORLD);
         maximum      = Utilities::MPI::max(maximum, MPI_COMM_WORLD);
         bool covered = true;
@@ -810,10 +818,17 @@ namespace
           covered = covered && supports.overlap.includes_lifted_point(point);
         covered = Utilities::MPI::min(covered ? 1u : 0u, MPI_COMM_WORLD) == 1;
         AssertThrow(
-          straight && minimum > 0 && maximum - minimum < 1.e-12 * maximum &&
-            covered,
+          straight,
           ExcMessage(
-            "Modal correction requires one fully covered straight, connected, nonoverlapping, uniform-radius cylinder."));
+            "Modal correction requires one straight, connected, nonoverlapping cylinder."));
+        AssertThrow(
+          minimum > 0 && maximum - minimum < 1.e-12 * maximum,
+          ExcMessage(
+            "Modal correction requires a positive, uniform reference area."));
+        AssertThrow(
+          covered,
+          ExcMessage(
+            "Modal correction requires full reference-wall quadrature coverage."));
         FictitiousInteriorCylinder cylinder{origin +
                                               intervals.front().first * tangent,
                                             origin +
