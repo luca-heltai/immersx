@@ -27,8 +27,9 @@ namespace ImmersX::Vascularization
 
   struct GlobalGenerationReport
   {
-    std::uint64_t         upfront_targets = 0, sampled_points = 0;
-    double                minimum_length_m = 0., maximum_length_m = 0.;
+    std::uint64_t upfront_targets = 0, sampled_points = 0;
+    double        minimum_length_m = 0., maximum_length_m = 0.;
+    /** System enum order: arterial, venous, portal. */
     std::array<double, 3> endpoint_radius_bounds_m{};
     /** Temporary attachment-group views, not replicated physical ownership. */
     std::vector<std::uint64_t>         peak_group_records_by_rank;

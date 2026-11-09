@@ -20,7 +20,8 @@ namespace ImmersX::Vascularization
     unsigned int initial_terminals = 16, topology_trials = 64, random_seed = 1,
                  pool_attempt_budget    = 100000;
     std::uint64_t maximum_group_records = 200000;
-    /** Relative to the current optimized SI objective; not a paper constant. */
+    /** Relative to the initially optimized batch objective; not a paper
+     * constant. */
     double initial_temperature = .01, cooling_factor = .95;
     /** Zero geometry minimum uses the existing minimum_length/mesh-scale
      * policy; zero maximum uses the global background bounding-box diagonal.
