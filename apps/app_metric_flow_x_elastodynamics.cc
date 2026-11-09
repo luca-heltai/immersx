@@ -474,6 +474,13 @@ namespace
                            "Native terminal outlet pressure in Pa.");
 
     initialize_parameters(parameter_file);
+    AssertThrow(
+      !remove_fictitious_modes ||
+        detail::has_external_pressure_state_jacobian<FlowProblem>::value,
+      ExcMessage(
+        "Remove fictitious modal response requires MetricFlowX with "
+        "add_external_pressure_state_jacobian(). Rebuild against matching "
+        "headers and libraries from a compatible MetricFlowX installation."));
     const bool archived_network = !archive_parameters.directory.empty();
     AssertThrow(!archived_network || !generate_network,
                 ExcMessage(

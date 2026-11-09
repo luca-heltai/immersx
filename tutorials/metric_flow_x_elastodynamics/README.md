@@ -15,6 +15,12 @@ python3 scripts/mfx_modal_convergence.py --build build-mms --run \
   --cases base refined finer
 ~~~
 
+Use MetricFlowX with the native external-pressure state-Jacobian API and matching
+headers and libraries. The reproducibility revision is main commit
+`e98b2333ed41d0fcef027849e0efb460d9ada64d` (version 1.0.0); see the
+manufactured-solution derivation for the required APIs. Older incompatible
+packages give an error before mesh setup when the correction is enabled.
+
 The base and refined cases use UMFPACK; finer uses factored serial iteration.
 The iterative case compares solvers on the base mesh. The optional MPI input
 also uses iteration; only the explicitly named MUMPS input requires MUMPS.

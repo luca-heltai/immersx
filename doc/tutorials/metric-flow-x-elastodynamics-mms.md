@@ -337,7 +337,18 @@ than the continuous solid axial trace mesh. Composite representative quadrature
 uses four Gauss points repeated twice per centerline cell; wall refinement
 increases from two to three to four across spatial levels.
 
-Configure deal.II with SUNDIALS and VTK and a compatible installed MetricFlowX:
+Configure deal.II with SUNDIALS and VTK and a compatible installed MetricFlowX.
+The correction requires the native `add_external_pressure_state_jacobian()`
+API as well as the external-pressure residual and pressure-coefficient Jacobian
+APIs. Pressure-dependent HLL weights contribute to the state derivative even
+when the imposed pressure is held fixed. Omitting that derivative gives an
+incomplete coupled Jacobian. An incompatible package is rejected before mesh
+setup when this correction is enabled; the legacy option remains available.
+Rebuild ImmersX with matching MetricFlowX headers and libraries after updating
+the package. The reproducibility revision is MetricFlowX main
+[`e98b2333ed41d0fcef027849e0efb460d9ada64d`](https://github.com/luca-heltai/metric-flow-x/commit/e98b2333ed41d0fcef027849e0efb460d9ada64d)
+(version 1.0.0), installed separately from earlier packages.
+
 
 ~~~bash
 cmake -S . -B build-mms -DCMAKE_BUILD_TYPE=Release \
