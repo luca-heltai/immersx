@@ -26,15 +26,15 @@ from the tube law's constitutive $A_{\rm ref}$: the two areas need not coincide,
 and resting pressure need not be zero. The interior affine displacement is
 
 $$
-u_r=gr,\qquad u_x=hx,\qquad \varepsilon(u)=\operatorname{diag}(h,g,g).
+u_r=gr,\qquad u_x=hx,\qquad \varepsilon(u)=\mathrm{diag}(h,g,g).
 $$
 
 The native stress is
 
 $$
-\sigma_e=2\mu_s\varepsilon(u)+\lambda_s\operatorname{div}(u)I,\qquad
+\sigma_e=2\mu_s\varepsilon(u)+\lambda_s\mathrm{div}(u)I,\qquad
 \sigma_v=(\eta_s+2\beta_R\mu_s)\varepsilon(v)
-+\beta_R\lambda_s\operatorname{div}(v)I.
++\beta_R\lambda_s\mathrm{div}(v)I.
 $$
 
 Here $\eta_s$ multiplies $\varepsilon(v)$, not $2\varepsilon(v)$.
@@ -105,7 +105,7 @@ cylinder. With physical weights $w_q$ and $V_h=\sum_qw_q$, and unit tangent $t$,
 
 $$
 g_h=\frac{1}{2V_h}\sum_qw_q[
-\operatorname{tr}\varepsilon(u_q)-t\cdot\varepsilon(u_q)t],\qquad
+\mathrm{tr}\varepsilon(u_q)-t\cdot\varepsilon(u_q)t],\qquad
 h_h=\frac{1}{V_h}\sum_qw_q\,t\cdot\varepsilon(u_q)t.
 $$
 
@@ -401,28 +401,88 @@ Historical results for the uncorrected, zero-viscosity $h=0$ model do not valida
 this corrected model and are not reused as its error table.
 
 
+## Measured spatial and tolerance errors
+
+These completed Release runs use deal.II 9.8.0 and the pinned MetricFlowX
+revision above. All reach $T=0.1$ with the original analytical target
+$\lambda^\star=-0.0152$ Pa. Errors below are percentages. Transverse error is
+the vector error in the two components perpendicular to the cylinder axis;
+it is named radial_l2_error in the JSON report.
+
+| Solid cells | Full displacement $L^2$ error | Transverse displacement error | Transverse velocity error | Multiplier $L^2$ error | Mean multiplier [Pa] |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| $4\times16\times16$ | 12.8892 | 105.5729 | 106.0398 | 712.7506 | -0.1121798852 |
+| $8\times32\times32$ | 2.7549 | 22.5896 | 22.7515 | 195.4006 | -0.0332692722 |
+
+The accurately represented, larger axial component dominates the full-vector
+norm. Its displacement error is 0.3660% and 0.1607% on these two meshes.
+In these Dirichlet cases, the projected axial strain and rate reproduce their
+prescribed targets to floating-point precision, but the computed axial field
+is not exactly the affine target.
+
+The sampled-volume error $V_h/(A_0L)-1$ changes from -25.6409% to +11.5387%.
+The radial strain errors are +7.2902% and -5.4739%, and the rate errors are
++7.2770% and -5.4655%. Relative errors in effective elastic energy decrease
+from 79.8589% to 12.1470%, in effective dissipation from 48.2730% to 7.2732%,
+and in retained kinetic energy from 2.1076% to 0.3089%. The added-volume defect,
+normalized by exact integrated inlet supply, is 0.01373% and 0.01254%.
+These are instantaneous energy comparisons, not a discrete energy-balance proof.
+
+The Neumann cases give multiplier errors of 444.3801% and 77.1558%, with
+transverse displacement errors of 123.8828% and 28.0998%. The coarse $h=0$
+case has the independent target $-0.017$ Pa and multiplier error 635.3375%.
+Neither changing the endpoint conditions nor suppressing axial strain removes
+the coarse pressure bias. Serial direct and iterative base solutions agree in
+mean multiplier within $4.7\times10^{-10}$ Pa; this verifies agreement on the
+discrete equations, rather than accuracy against the continuum target.
+
+The following controls retain the same base spatial mesh and analytical target.
+Absolute overrides have units of metres, metres per second and pascals, in that
+order. An override replaces the corresponding common IDA absolute tolerance.
+The physical controls retain common absolute/relative tolerances $10^{-9}/10^{-7}$
+for the other fields, including native flow. The common-tight control uses
+$10^{-10}/10^{-8}$ without per-field overrides.
+
+| Control | Absolute overrides $u/v/\lambda$ | Accepted steps | Full displacement error [%] | Radial strain error [%] | Multiplier error [%] | Added-volume defect [%] |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Common | none | 130 | 12.8892 | 7.2902 | 712.7506 | 0.0137 |
+| Physical | $10^{-8}/10^{-7}/10^{-6}$ | 35 | 12.9638 | 7.6083 | 712.9208 | 0.3084 |
+| Stricter physical | $10^{-9}/10^{-8}/10^{-7}$ | 73 | 12.8962 | 7.3235 | 712.7957 | 0.0422 |
+| Common-tight | none | 270 | 12.8870 | 7.2798 | 712.7402 | 0.0042 |
+
+Across the two physical controls, transverse velocity error remains about
+106.03--106.04%, radial strain-rate error about 7.27%, and the axial projected
+modes remain at their targets. Effective elastic-energy error is 80.4814% and
+79.9225%, and kinetic-energy error is 2.0415% and 2.1025%. Thus the control with fewer steps
+reproduces the dominant spatial pressure error while increasing the
+volume defect. Mean pressure alone is insufficient to choose tolerances.
+The common-tight mean multiplier changes by $1.4\times10^{-6}$ Pa, compared
+with the approximately $0.097$ Pa coarse pressure bias.
+
+The third spatial level is still being assessed and is excluded from these
+completed measurements. No formal rate or pressure-convergence result is
+claimed here. Earlier runs with an SDK lacking the pressure-state Jacobian
+are separate diagnostics and are not used for this table. Matching coarse
+results across SDKs does not establish the cause of finest-grid solve cost.
+
 The optional mms_cube_finer_direct.prm.in input is a costly UMFPACK benchmark,
-outside the ordinary sequence. In remote verification its initial factorization
+outside the ordinary sequence. In an earlier SDK 0.1.0 diagnostic, its initial factorization
 was stopped after 15 min 21 s at 59.7 GiB peak RSS, before an accepted step.
 No completed finest-direct result is claimed. Use the ordinary iterative finest
 case for the documented sequence and check its measured memory on the target
 machine.
 
-A full-vector displacement norm can hide radial error because the smooth
-axial target is readily represented while the radial derivative jumps. Assess the separate radial error, projected
-strain, multiplier profile and sampled-volume error together. On the coarse
-unfitted mesh, interpolating the exact radial nodal values does not reproduce
-the exact circular-wall trace or affine interior strain. Strong Dirichlet
-endcap interpolation also differs from the weak wall compatibility condition,
-which can produce axial multiplier oscillations. Retained nonmodal interior
-strains contribute to this error; matching only the projected mean strain does
-not establish pressure accuracy.
+The current-SDK saved-field audit reproduces the poor circular-wall trace of
+the nodal Q1 target interpolant: only 36.86% of the target on the base mesh and
+76.74% on the refined mesh. Strong Dirichlet endcap interpolation imposes those
+traces, while the interior solution compensates to meet weak wall compatibility.
+The radial derivative jump and retained nonmodal strains therefore matter even
+when the projected mean strain is close to its target.
 
-
-The original trial with 100-times tighter uniform tolerances failed IDA
-corrector convergence near startup, including a larger-initial-step trial.
-The supplied 10-times comparison completed. Its base-mesh mean multiplier
-changed by only about $1.4\times10^{-6}$ Pa, far below the approximately
-$0.097$ Pa coarse spatial bias. This is a successful tolerance-sensitivity
-check, not a fixed-timestep order study or a proof that still tighter controls
-are reliable.
+Independent reconstructed virtual work closes within $1.3\times10^{-5}$ and
+$4.8\times10^{-5}$ relative on the two Dirichlet meshes, and DG1 compatibility
+moments within $1.7\times10^{-5}$ and $7.7\times10^{-6}$. This gives no evidence
+for an extra $2\pi R_0$ factor. The work reconstruction uses exported Float32
+fields, polygon-wall quadrature and acceleration estimated from the saved
+velocities. It is a limited independent consistency check, rather than an
+exact solver-residual audit or a stability proof.

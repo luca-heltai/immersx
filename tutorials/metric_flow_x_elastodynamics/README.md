@@ -25,8 +25,9 @@ The base and refined cases use UMFPACK; finer uses factored serial iteration.
 The iterative case compares solvers on the base mesh. The optional MPI input
 also uses iteration; only the explicitly named MUMPS input requires MUMPS.
 Outputs and JSON errors remain in separate build-tree directories. The finest
-case has 65,536 solid cells. Its optional finer_direct benchmark exceeded
-59 GiB during initial factorization and is outside the ordinary sequence.
+case has 65,536 solid cells. An earlier SDK 0.1.0 diagnostic of the optional
+finer_direct benchmark exceeded 59 GiB during initial factorization. That
+benchmark is outside the ordinary sequence.
 
 The MMS uses distinct radial and axial strains, nonzero solid viscosity and
 forcing, and source-free continuity. The radial case checks $h=0$; tight checks
