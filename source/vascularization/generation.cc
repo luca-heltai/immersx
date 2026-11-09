@@ -21,6 +21,7 @@
 
 #include "archive_internal.h"
 #include "distribution_internal.h"
+#include "generation_count.h"
 #include "generation_pairs.h"
 #include "growth_batch.h"
 #include "growth_geometry.h"
@@ -782,7 +783,7 @@ namespace ImmersX::Vascularization
     }
   } // namespace
 
-  static unsigned int
+  unsigned int
   resolve_terminal_count(const dealii::Triangulation<3> &background,
                          const Parameters               &parameters,
                          MPI_Comm                        communicator)
