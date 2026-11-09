@@ -2,6 +2,7 @@
 # applied to the unit and integration category tests below; MPI is orthogonal
 # and is selected by the process-count-specific test command.
 set(IMMERSX_UNIT_TEST_SUITES
+    FictitiousInterior
     VascularNetworkData
     TestCategoryTyped/*
     ContributorCore
@@ -30,6 +31,7 @@ set(IMMERSX_UNIT_TEST_SUITES
     ReducedPoisson0D)
 
 set(IMMERSX_INTEGRATION_TEST_SUITES
+    FictitiousInteriorAssembly
     ReplicatedOperators
     VascularTissueDemand
     VascularCompletion
