@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 by Luca Heltai
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+"""Run the modal MMS and report reproducible exported-field errors as JSON."""
+import argparse
+import csv
+import itertools
+import json
+import math
+from pathlib import Path
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+# Keep this source directory unchanged when the shared decoder is imported.
+sys.dont_write_bytecode = True
+from test_metric_flow_x_robin import data_array
+
+ELL, A0 = 0.120685, 3.0605e-4
+R2 = A0 / math.pi
+GAUSS = ((0.5 * (1 - math.sqrt(3 / 5)), 5 / 18),
+         (0.5, 4 / 9),
+         (0.5 * (1 + math.sqrt(3 / 5)), 5 / 18))
+CASES = {
+    "base": "mms_cube", "refined": "mms_cube_refined",
+    "finer": "mms_cube_finer", "tight": "mms_cube_tight",
+    "radial": "mms_cube_radial", "neumann": "mms_cube_neumann",
+    "neumann-refined": "mms_cube_neumann_refined",
+}
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+def decode(array, tree):
+    # The shared decoder handles compressed production output.
+    if array.attrib.get("format") == "ascii":
+        values = [float(value) for value in (array.text or "").split()]
+        require(all(math.isfinite(value) for value in values), "Nonfinite VTK value")
+        return values
+    return data_array(array, tree)
+
+
+def pieces(path):
+    tree = ET.parse(path).getroot()
+    if tree.attrib["type"] == "PUnstructuredGrid":
+        for item in tree.findall(".//Piece"):
+            yield from pieces(path.parent / item.attrib["Source"])
+        return
+    require(tree.attrib["type"] == "UnstructuredGrid", f"Unsupported VTK: {path}")
+    for piece in tree.findall("./UnstructuredGrid/Piece"):
+        if int(piece.attrib["NumberOfPoints"]) == 0:
+            continue
+        coords = decode(piece.find("./Points/DataArray"), tree)
+        points = [coords[i:i + 3] for i in range(0, len(coords), 3)]
+        fields = {}
+        for array in piece.findall("./PointData/DataArray"):
+            count = int(array.attrib.get("NumberOfComponents", "1"))
+            values = decode(array, tree)
+            fields[array.attrib["Name"]] = [
+                values[i:i + count] for i in range(0, len(values), count)]
+        arrays = {a.attrib["Name"]: a for a in piece.findall("./Cells/DataArray")}
+        indices = decode(arrays["connectivity"], tree)
+        offsets = decode(arrays["offsets"], tree)
+        start = 0
+        cells = []
+        for end in offsets:
+            cells.append([int(i) for i in indices[start:int(end)]])
+            start = int(end)
+        yield points, fields, cells
+
+
+def collection(path):
+    datasets = ET.parse(path).findall(".//DataSet")
+    require(bool(datasets), f"No states in {path}")
+    return [(float(item.attrib["timestep"]), path.parent / item.attrib["file"])
+            for item in datasets]
+
+
+def solid_target(point, time, radial=False, velocity=False):
+    x, y, z = point
+    g = 3 * time**2 if velocity else time**3
+    h = 0 if radial else (8 * time**3 if velocity else 2 * time**4)
+    factor = R2 / max(y*y + z*z, R2)
+    return (h*x, g*y*factor, g*z*factor)
+
+
+def integrate(path, dimension, targets):
+    error = {name: 0. for name in targets}
+    norm = dict(error)
+    integrals = dict(error)
+    measure = 0.
+    for points, fields, cells in pieces(path):
+        for cell in cells:
+            require(len(cell) == 2**dimension, f"Only Cartesian Q1 cells supported: {path}")
+            vertices = [points[i] for i in cell]
+            low = [min(v[d] for v in vertices) for d in range(3)]
+            high = [max(v[d] for v in vertices) for d in range(3)]
+            active = [d for d in range(3) if high[d] - low[d] > 1.e-12]
+            require(len(active) == dimension, f"Non-Cartesian cell: {path}")
+            volume = math.prod(high[d] - low[d] for d in active)
+            corners = []
+            for vertex in vertices:
+                bits = tuple(int(abs(vertex[d] - high[d]) < 1.e-10) for d in active)
+                require(all(abs(vertex[d] - (high[d] if bit else low[d])) < 1.e-10
+                            for d, bit in zip(active, bits)), "Non-Cartesian vertex")
+                corners.append(bits)
+            require(len(set(corners)) == len(cell), "Duplicate cell corner")
+            for quadrature in itertools.product(GAUSS, repeat=dimension):
+                unit = [item[0] for item in quadrature]
+                weight = volume * math.prod(item[1] for item in quadrature)
+                point = list(low)
+                for d, coordinate in zip(active, unit):
+                    point[d] += coordinate * (high[d] - low[d])
+                shape = [math.prod(coordinate if bit else 1 - coordinate
+                                   for coordinate, bit in zip(unit, corner))
+                         for corner in corners]
+                measure += weight
+                for name, target in targets.items():
+                    require(name in fields, f"Missing field {name}: {path}")
+                    values = fields[name]
+                    expected = target(point)
+                    actual = [sum(shape[j] * values[index][component]
+                                  for j, index in enumerate(cell))
+                              for component in range(len(expected))]
+                    error[name] += weight * sum((a-b)**2 for a, b in zip(actual, expected))
+                    norm[name] += weight * sum(value**2 for value in expected)
+                    integrals[name] += weight * actual[0]
+    require(measure > 0, f"Empty integration mesh: {path}")
+    return {name: {"l2_error": math.sqrt(error[name]),
+                   "relative_l2_error": math.sqrt(error[name]/norm[name])
+                   if norm[name] else None,
+                   "integral": integrals[name], "measure": measure} for name in targets}
+
+
+def oracle(time, radial=False):
+    g, gd = time**3, 3*time**2
+    h, hd = (0., 0.) if radial else (2*time**4, 8*time**3)
+    exterior = 4*ELL**2 - A0
+    integral = A0 - R2**2*(math.pi+2)/(2*ELL**2)
+    length = 2*ELL
+    # Integral of |W_perp|^2 on the square, including the full interior disk.
+    catalan = .915965594177219015
+    radial_mass = R2**2*(math.pi/2 + 2*math.pi*math.log(2*ELL/math.sqrt(R2))-4*catalan)
+    return {
+        "multiplier_Pa": h + .2*hd - 2*g - .5*gd,
+        "retained_kinetic_energy_J": .5*(hd*hd*8*ELL**5/3 + gd*gd*length*radial_mass),
+        "effective_elastic_energy_J": length*(2*g*g*integral + 1.5*h*h*exterior),
+        "removed_elastic_energy_J": A0*length*(2*g*g+h*h+.5*(2*g+h)**2),
+        "effective_viscous_dissipation_W":
+            length*(gd*gd*integral + .7*hd*hd*exterior),
+        "added_volume_m3": length*A0*((1+g)**2-1),
+    }
+
+
+def assess(directory, radial=False):
+    solid_states = collection(directory/"solid"/"solid.pvd")
+    flow_states = collection(directory/"flow"/"flow.pvd")
+    multiplier_states = collection(directory/"flow"/"pressure_jump.pvd")
+    time = multiplier_states[-1][0]
+    require(math.isclose(time, .1, abs_tol=1.e-12), f"Did not reach T=.1: {time}")
+    require(all(math.isclose(states[-1][0], time, abs_tol=1.e-12)
+                for states in (solid_states, flow_states)), "Inconsistent output times")
+    exact = oracle(time, radial)
+    result = {"time_s": time, "continuum_oracle": exact}
+    result["solid"] = integrate(solid_states[-1][1], 3, {
+        "displacement": lambda p: solid_target(p, time, radial),
+        "velocity": lambda p: solid_target(p, time, radial, True)})
+    result["flow"] = integrate(flow_states[-1][1], 1, {
+        "area": lambda p: (A0*(1+time**3)**2,),
+        "velocity": lambda p: ((ELL-p[0])*6*time**2/(1+time**3),)})
+    result["multiplier"] = integrate(multiplier_states[-1][1], 1, {
+        "pressure_jump": lambda p: (exact["multiplier_Pa"],)})["pressure_jump"]
+    require(math.isclose(result["solid"]["displacement"]["measure"], (2*ELL)**3,
+                         rel_tol=1.e-6), "Incomplete solid output mesh")
+    require(all(math.isclose(value["measure"], 2*ELL, rel_tol=1.e-6)
+                for value in (result["flow"]["area"], result["multiplier"])),
+            "Incomplete centerline output mesh")
+    result["multiplier"]["mean_Pa"] = (
+        result["multiplier"]["integral"]/result["multiplier"]["measure"])
+    result["additional_pressure_mean_Pa"] = -result["multiplier"]["mean_Pa"]
+    initial = integrate(flow_states[0][1], 1, {"area": lambda p: (A0,)})["area"]["integral"]
+    result["added_volume_m3"] = result["flow"]["area"]["integral"] - initial
+    result["volume_defect_m3"] = result["added_volume_m3"] - exact["added_volume_m3"]
+    result["relative_volume_defect"] = result["volume_defect_m3"]/exact["added_volume_m3"]
+    energy = directory/"solid"/"energies.csv"
+    if energy.exists():
+        with energy.open() as stream:
+            rows = list(csv.DictReader(stream))
+        require(bool(rows), "Empty energy diagnostics")
+        result["energy_diagnostics"] = {k: float(v) for k, v in rows[-1].items()}
+        diagnostics = result["energy_diagnostics"]
+        if "sampled_lumen_volume_m3" in diagnostics:
+            result["sampled_volume_relative_error"] = (
+                diagnostics["sampled_lumen_volume_m3"]/(2*ELL*A0)-1)
+        expected_modes = {
+            "modal_g": time**3, "modal_g_dot": 3*time**2,
+            "modal_h": 0. if radial else 2*time**4,
+            "modal_h_dot": 0. if radial else 8*time**3}
+        result["projected_mode_errors"] = {}
+        for name, expected in expected_modes.items():
+            if name in diagnostics:
+                actual = diagnostics[name]
+                result["projected_mode_errors"][name] = {
+                    "actual": actual, "expected": expected,
+                    "absolute_error": abs(actual-expected),
+                    "relative_error": abs((actual-expected)/expected) if expected else None}
+        result["energy_errors"] = {}
+        for column, target in (
+                ("effective_elastic_and_robin_energy_J", "effective_elastic_energy_J"),
+                ("removed_modal_elastic_energy_J", "removed_elastic_energy_J"),
+                ("kinetic_energy_J", "retained_kinetic_energy_J"),
+                ("effective_dissipation_W", "effective_viscous_dissipation_W")):
+            if column in diagnostics:
+                result["energy_errors"][column] = {
+                    "absolute_error": abs(diagnostics[column]-exact[target]),
+                    "relative_error": abs((diagnostics[column]-exact[target])/exact[target])}
+
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--build", type=Path, required=True)
+    parser.add_argument("--executable", type=Path)
+    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--cases", choices=CASES, nargs="+", default=["base", "refined", "finer"])
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--timeout", type=float, default=7200.)
+    args = parser.parse_args()
+    build = args.build.resolve()
+    output = (args.output or build/"test_output"/"mfx-modal-convergence").resolve()
+    executable = (args.executable or build/"metric_flow_x_elastodynamics").resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    report = {"quadrature": "three-point Gauss on exported Cartesian Q1 cells",
+              "cases": {}, "failures": {}}
+    for case in args.cases:
+        directory = output/case
+        directory.mkdir(parents=True, exist_ok=True)
+        try:
+            if args.run:
+                template = build/"tutorials"/"metric_flow_x_elastodynamics"/(CASES[case]+".prm")
+                require(template.is_file(), f"Missing generated input: {template}")
+                parameters = directory/"run.prm"
+                parameters.write_text(
+                    f"include {template}\n"
+                    f"subsection Elastodynamics\n  set Output directory = {directory/'solid'}\nend\n"
+                    f"subsection MetricFlowSystem<1, 3>\n"
+                    f"  set Output directory = {directory/'flow'}\nend\n")
+                with (directory/"application.log").open("w") as log:
+                    process = subprocess.run([str(executable), str(parameters)], cwd=directory,
+                                             stdout=log, stderr=subprocess.STDOUT,
+                                             timeout=args.timeout)
+                require(process.returncode == 0, f"Application failed; see {directory/'application.log'}")
+            report["cases"][case] = assess(directory, case == "radial")
+        except (RuntimeError, OSError, ValueError, AssertionError, KeyError, IndexError, ET.ParseError, subprocess.TimeoutExpired) as error:
+            report["failures"][case] = str(error)
+        (output/"report.json").write_text(json.dumps(report, indent=2, allow_nan=False)+"\n")
+    report["spatial_log2_error_reductions"] = {}
+    for coarse, fine in (("base", "refined"), ("refined", "finer")):
+        if coarse in report["cases"] and fine in report["cases"]:
+            values = {}
+            for label, section, field in (
+                    ("displacement", "solid", "displacement"),
+                    ("solid_velocity", "solid", "velocity"),
+                    ("area", "flow", "area"),
+                    ("flow_velocity", "flow", "velocity"),
+                    ("multiplier", "multiplier", None)):
+                first = report["cases"][coarse][section]
+                last = report["cases"][fine][section]
+                if field:
+                    first, last = first[field], last[field]
+                first, last = first["l2_error"], last["l2_error"]
+                values[label] = math.log2(first/last) if first > 0 and last > 0 else None
+            report["spatial_log2_error_reductions"][coarse+"_to_"+fine] = values
+    (output/"report.json").write_text(json.dumps(report, indent=2, allow_nan=False)+"\n")
+    print(json.dumps(report, indent=2, allow_nan=False))
+    return bool(report["failures"])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,34 +1,25 @@
-# MetricFlowX vessel-wall coupling
+# MetricFlowX–elastodynamics examples
 
-`two_way.prm.in` is the nonzero-inflow example for the
-`metric_flow_x_elastodynamics` application. It configures the flow and solid
-Problems, the tensor-product wall lift, the material data, time integration,
-initial and boundary functions, and output directories.
+The two_way.prm.in input retains ordinary extended-solid coupling.
+The mms_cube*.prm.in cases remove projected fictitious elasticity and viscosity
+while retaining mass.
 
-The template is generated below the build tree. Run the application with that
-generated file, as described in the [tutorial](../../doc/tutorials/metric-flow-x-elastodynamics.md).
+See [the coupling tutorial](../../doc/tutorials/metric-flow-x-elastodynamics-coupling.md)
+and [the manufactured-solution derivation](../../doc/tutorials/metric-flow-x-elastodynamics-mms.md).
 
-The [mathematical formulation](../../doc/tutorials/metric-flow-x-elastodynamics-coupling.md)
-is documented in the tutorial documentation.
+~~~bash
+cmake -S . -B build-mms -DCMAKE_BUILD_TYPE=Release \
+  -DMetricFlowX_DIR=/path/to/metric-flow-x/lib/cmake/MetricFlowX
+cmake --build build-mms --target metric_flow_x_elastodynamics -j2
+python3 scripts/mfx_modal_convergence.py --build build-mms --run \
+  --cases base refined finer
+~~~
 
-The [one-vessel manufactured solution](../../doc/tutorials/metric-flow-x-elastodynamics-mms.md)
-derives a continuous, piecewise solid displacement and nonzero pressure-jump
-target. Its inlet supplies the changing vessel volume. Run
-`mms_cube.prm.in`, `mms_cube_refined.prm.in`, and
-`mms_cube_mpi.prm.in` through their generated build-tree `.prm`
-files. These inputs use the corrected momentum and continuity rows, with the
-native pressure feedback described in the tutorial. The application does not
-compute their errors automatically.
+Serial cases use UMFPACK. The optional MPI input uses the iterative solver;
+only the explicitly named MUMPS input requires MUMPS. Outputs and JSON errors
+remain in separate build-tree directories. The finer case has 65,536 solid
+cells and may require substantially more memory and factorization time.
 
-The default cube inputs prescribe exact time-dependent displacement and velocity
-on the outer boundary. `mms_cube_neumann.prm.in` and
-`mms_cube_neumann_refined.prm.in` retain the exact-traction version on the base
-and refined meshes. They use separate output directories so both boundary
-choices can be compared.
-
-`mms_cube_mumps.prm.in` selects native `dealii::SparseDirectMUMPS` for serial
-or MPI runs. It requires deal.II configured with `DEAL_II_WITH_MUMPS`.
-
-The cube MMS cases share `single_vessel_centered.vtk`. Their flow refinement
-levels are `1` (base and MPI) and `2` (refined); separate pre-refined VTK inputs
-are not needed. Domain retains `a0` while refining the native coarse mesh.
+The MMS uses distinct radial and axial strains, nonzero solid viscosity and
+forcing, and source-free continuity. The radial case checks $h=0$; tight checks
+sensitivity to adaptive time tolerances. No convergence rate is assumed.
