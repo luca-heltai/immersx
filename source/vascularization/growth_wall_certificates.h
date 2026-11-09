@@ -32,6 +32,14 @@ namespace ImmersX::Vascularization
       ValidationReport   validation;
       std::map<Id, bool> local;
     };
+    /** Passive geometry budgets, shared by generation and global NLP. */
+    GrowthWallResult
+    certify_growth_walls(BackgroundGeometry &,
+                         const std::map<Id, GrowthWallRequest> &,
+                         unsigned int geometry_depth,
+                         unsigned int geometry_work,
+                         MPI_Comm,
+                         GrowthWork * = nullptr);
     // Collective even with no local requests. Keys are requester-local;
     // authoritative node/port metadata and length/radius checks belong to the
     // owning controller. No physical state or certification history is adopted.

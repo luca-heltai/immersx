@@ -53,7 +53,8 @@ namespace ImmersX::Vascularization::internal
   GrowthWallResult
   certify_growth_walls(BackgroundGeometry                    &geometry,
                        const std::map<Id, GrowthWallRequest> &local,
-                       const Parameters                      &parameters,
+                       unsigned int                           geometry_depth,
+                       unsigned int                           geometry_work,
                        MPI_Comm                               comm,
                        GrowthWork                            *work)
   {
@@ -70,8 +71,7 @@ namespace ImmersX::Vascularization::internal
                      comm,
                      &comparison);
     bool valid = (comparison == MPI_IDENT || comparison == MPI_CONGRUENT) &&
-                 parameters.geometry_depth <= 30 &&
-                 parameters.geometry_work > 0;
+                 geometry_depth <= 30 && geometry_work > 0;
     count_work(counts, GrowthOperation::validation_record_visits, local.size());
     std::uint64_t query_count = 0;
     for (const auto &[id, request] : local)
@@ -104,7 +104,7 @@ namespace ImmersX::Vascularization::internal
       }
     valid = valid && query_count <= std::numeric_limits<unsigned int>::max();
     const std::array<std::uint64_t, 3> controls{
-      {parameters.geometry_depth, parameters.geometry_work, query_count}};
+      {geometry_depth, geometry_work, query_count}};
     bool queries = false;
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       {
@@ -224,8 +224,8 @@ namespace ImmersX::Vascularization::internal
             geometry.boundary_separated({request.edge.points[0],
                                          request.edge.points[1]},
                                         request.edge.radius + request.padding,
-                                        parameters.geometry_depth,
-                                        parameters.geometry_work,
+                                        geometry_depth,
+                                        geometry_work,
                                         request.port_normals);
         }
     for (const auto &[source, votes] :
@@ -239,5 +239,19 @@ namespace ImmersX::Vascularization::internal
     for (const auto &[id, plane] : planes)
       result.local[id] = result.local[id] && plane[0] && plane[1];
     return result;
+  }
+  GrowthWallResult
+  certify_growth_walls(BackgroundGeometry                    &geometry,
+                       const std::map<Id, GrowthWallRequest> &local,
+                       const Parameters                      &parameters,
+                       MPI_Comm                               comm,
+                       GrowthWork                            *work)
+  {
+    return certify_growth_walls(geometry,
+                                local,
+                                parameters.geometry_depth,
+                                parameters.geometry_work,
+                                comm,
+                                work);
   }
 } // namespace ImmersX::Vascularization::internal
