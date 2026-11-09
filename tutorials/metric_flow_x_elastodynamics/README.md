@@ -15,10 +15,12 @@ python3 scripts/mfx_modal_convergence.py --build build-mms --run \
   --cases base refined finer
 ~~~
 
-Serial cases use UMFPACK. The optional MPI input uses the iterative solver;
-only the explicitly named MUMPS input requires MUMPS. Outputs and JSON errors
-remain in separate build-tree directories. The finer case has 65,536 solid
-cells and may require substantially more memory and factorization time.
+The base and refined cases use UMFPACK; finer uses factored serial iteration.
+The iterative case compares solvers on the base mesh. The optional MPI input
+also uses iteration; only the explicitly named MUMPS input requires MUMPS.
+Outputs and JSON errors remain in separate build-tree directories. The finest
+case has 65,536 solid cells. Its optional finer_direct benchmark exceeded
+59 GiB during initial factorization and is outside the ordinary sequence.
 
 The MMS uses distinct radial and axial strains, nonzero solid viscosity and
 forcing, and source-free continuity. The radial case checks $h=0$; tight checks

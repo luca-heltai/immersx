@@ -12,6 +12,10 @@ end
 subsection MetricFlowSystem<1, 3>
   set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-resolved
   subsection IDA parameters
+    subsection Linear solver
+      # Explicit serial/direct variants are appended by CMake.
+      set Type = iterative
+    end
     set Final time = 0.02
     set Time interval between each output = 0.01
   end

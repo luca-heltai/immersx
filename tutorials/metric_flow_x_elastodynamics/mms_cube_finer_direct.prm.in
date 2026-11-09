@@ -1,0 +1,15 @@
+# Optional costly direct-solver benchmark, outside the ordinary runner sequence.
+# The tested initial factorization exceeded 59 GiB; see the MMS tutorial.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube_finer.prm
+
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-finer-direct
+end
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-finer-direct
+  subsection IDA parameters
+    subsection Linear solver
+      set Type = umfpack
+    end
+  end
+end

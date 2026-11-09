@@ -160,6 +160,23 @@ effective representation of this contribution. Use blood density there when
 different from tissue. This MMS uses the artificial verification density
 $\rho_s=1$. Retained mass is not a three-dimensional incompressible blood solver.
 
+Keeping all native mass also keeps axial extension inertia. The lumen's axial
+solid velocity is not constrained to the one-dimensional flow velocity $U$.
+There is no three-dimensional blood incompressibility constraint, axial
+no-slip condition or ALE compatibility. Retained mass is an effective
+extension/closure, not a consistent reconstruction of blood momentum by
+construction; overlap with the one-dimensional axial inertia is not ruled out.
+The lack of one-dimensional transverse momentum exchange motivates transverse
+inertia, but does not alone justify this additional axial inertia.
+
+The affine interior extension and the distinction between pressure and
+stress-jump forcing are derived by [Heltai and Caiazzo](https://doi.org/10.1002/cnm.3264);
+see the [author preprint](https://arxiv.org/pdf/1908.11243), sections 2.2–2.3,
+equations (5)–(8). Their finite outer-cylinder zero-Dirichlet solution contains
+both inverse-radius and linear-radius terms. This cube MMS instead prescribes
+nonzero boundary values and uses an independently manufactured exterior
+$a^2/r$ profile; it is not that finite outer-cylinder solution.
+
 Originally the extended-solid multiplier balanced fictitious interior elastic,
 viscous and inertial reactions. Its negative supplied effective pressure feedback
 for the extended-solid problem, rather than independently establishing pressure
@@ -183,6 +200,12 @@ $$
 g=t^3,\quad h=2t^4,\quad
 W=\frac{a^2}{\max(y^2+z^2,a^2)}(0,y,z).
 $$
+
+The input functions use numerical time measured in seconds. In dimensional
+notation, $g=(t/t_0)^3$ and $h=2(t/t_0)^4$ with $t_0=1\,{\rm s}$, so
+$\dot g=3(t/t_0)^2/t_0$ and $\dot h=8(t/t_0)^3/t_0$.
+The polynomial expressions below use $t_0=1$ numerically, as do the parameter
+files; their numerical values are unchanged.
 
 An independent continuum solution and body force are
 
@@ -298,15 +321,18 @@ Templates in tutorials/metric_flow_x_elastodynamics/ have separate outputs:
 | --- | ---: | ---: | --- |
 | mms_cube.prm.in | $4\times16\times16$ | 2 | Two-mode base case |
 | mms_cube_refined.prm.in | $8\times32\times32$ | 4 | Second spatial level |
-| mms_cube_finer.prm.in | $16\times64\times64$ | 8 | Third spatial level |
+| mms_cube_finer.prm.in | $16\times64\times64$ | 8 | Third spatial level, iterative |
 | mms_cube_tight.prm.in | $4\times16\times16$ | 2 | Tolerance sensitivity |
 | mms_cube_radial.prm.in | $4\times16\times16$ | 2 | $h=0$ reduction |
 | mms_cube_neumann.prm.in | $4\times16\times16$ | 2 | Endpoint traction |
 | mms_cube_neumann_refined.prm.in | $8\times32\times32$ | 4 | Refined Neumann |
 | mms_cube_mpi.prm.in | $4\times16\times16$ | 2 | Optional MPI, iterative |
 
-Serial defaults use UMFPACK, without MUMPS. The separate mms_cube_mumps.prm.in
-requires MUMPS. All cases use degree one. The DG multiplier mesh is coarser
+Base, refined and small verification cases use UMFPACK. The ordinary finest
+case uses the factored serial iterative solver without MUMPS. The
+mms_cube_iterative.prm.in input checks that solver on the base mesh; select
+the runner's iterative case to compare it with base.
+The separate mms_cube_mumps.prm.in requires MUMPS. All cases use degree one. The DG multiplier mesh is coarser
 than the continuous solid axial trace mesh. Composite representative quadrature
 uses four Gauss points repeated twice per centerline cell; wall refinement
 increases from two to three to four across spatial levels.
@@ -326,7 +352,8 @@ DEAL_II_DIR if needed. For Debug pass
 --executable build-mms/metric_flow_x_elastodynamics_debug to the runner.
 It resolves all paths and runs in dedicated build-tree directories, producing
 a JSON report of final times, solid displacement/velocity $L^2$ errors,
-area/native-velocity/multiplier errors, added volume, volume defect and exact
+area/native-velocity/multiplier errors, separate radial and axial solid errors,
+added volume, volume defect and exact
 continuum energy targets. It also reports projected strain/rate errors and
 sampled-volume error from the native energy diagnostics. Logarithmic error
 reductions are descriptive measurements, not evidence of an asymptotic rate
@@ -353,7 +380,7 @@ Gauss quadrature per direction and linear centerline fields with three-point
 Gauss quadrature. It rejects unsupported cells. Export precision and quadrature
 of the unfitted strain jump limit these reproducible error diagnostics.
 
-The tight case reduces adaptive IDA tolerances by 100 on the base spatial mesh.
+The tight case reduces adaptive IDA tolerances by 10 on the base spatial mesh.
 This is tolerance sensitivity, not fixed-timestep convergence. Stopping at saved
 output times preserves saved algebraic states but does not fix internal steps.
 Separate time error, sampled-cylinder volume, wall geometry and spatial error
@@ -361,3 +388,30 @@ before claiming rates. Solver completion, smoother plots or serial/MPI agreement
 alone do not establish convergence, inf-sup stability or physiological validity.
 Historical results for the uncorrected, zero-viscosity $h=0$ model do not validate
 this corrected model and are not reused as its error table.
+
+
+The optional mms_cube_finer_direct.prm.in input is a costly UMFPACK benchmark,
+outside the ordinary sequence. In remote verification its initial factorization
+was stopped after 15 min 21 s at 59.7 GiB peak RSS, before an accepted step.
+No completed finest-direct result is claimed. Use the ordinary iterative finest
+case for the documented sequence and check its measured memory on the target
+machine.
+
+A full-vector displacement norm can hide radial error because the smooth
+axial target is readily represented while the radial derivative jumps. Assess the separate radial error, projected
+strain, multiplier profile and sampled-volume error together. On the coarse
+unfitted mesh, interpolating the exact radial nodal values does not reproduce
+the exact circular-wall trace or affine interior strain. Strong Dirichlet
+endcap interpolation also differs from the weak wall compatibility condition,
+which can produce axial multiplier oscillations. Retained nonmodal interior
+strains contribute to this error; matching only the projected mean strain does
+not establish pressure accuracy.
+
+
+The original trial with 100-times tighter uniform tolerances failed IDA
+corrector convergence near startup, including a larger-initial-step trial.
+The supplied 10-times comparison completed. Its base-mesh mean multiplier
+changed by only about $1.4\times10^{-6}$ Pa, far below the approximately
+$0.097$ Pa coarse spatial bias. This is a successful tolerance-sensitivity
+check, not a fixed-timestep order study or a proof that still tighter controls
+are reliable.

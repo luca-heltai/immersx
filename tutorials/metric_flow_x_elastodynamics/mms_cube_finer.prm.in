@@ -8,6 +8,11 @@ subsection Elastodynamics
   end
 end
 subsection MetricFlowSystem<1, 3>
+  subsection IDA parameters
+    subsection Linear solver
+      set Type = iterative
+    end
+  end
   set Number of global refinement = 3
   set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-finer-resolved
 end

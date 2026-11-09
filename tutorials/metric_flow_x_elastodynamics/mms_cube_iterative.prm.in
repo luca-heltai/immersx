@@ -1,0 +1,13 @@
+# Serial iterative solver comparison on the same base spatial/temporal case.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube.prm
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-iterative
+end
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-iterative
+  subsection IDA parameters
+    subsection Linear solver
+      set Type = iterative
+    end
+  end
+end

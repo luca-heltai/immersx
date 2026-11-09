@@ -25,6 +25,7 @@ CASES = {
     "base": "mms_cube", "refined": "mms_cube_refined",
     "finer": "mms_cube_finer", "tight": "mms_cube_tight",
     "radial": "mms_cube_radial", "neumann": "mms_cube_neumann",
+    "iterative": "mms_cube_iterative",
     "neumann-refined": "mms_cube_neumann_refined",
 }
 
@@ -92,6 +93,8 @@ def integrate(path, dimension, targets):
     norm = dict(error)
     integrals = dict(error)
     measure = 0.
+    axial_error, radial_error = dict(error), dict(error)
+    axial_norm, radial_norm = dict(error), dict(error)
     for points, fields, cells in pieces(path):
         for cell in cells:
             require(len(cell) == 2**dimension, f"Only Cartesian Q1 cells supported: {path}")
@@ -128,11 +131,27 @@ def integrate(path, dimension, targets):
                     error[name] += weight * sum((a-b)**2 for a, b in zip(actual, expected))
                     norm[name] += weight * sum(value**2 for value in expected)
                     integrals[name] += weight * actual[0]
+                    if dimension == 3 and len(expected) == 3:
+                        axial_error[name] += weight * (actual[0]-expected[0])**2
+                        axial_norm[name] += weight * expected[0]**2
+                        radial_error[name] += weight * sum(
+                            (actual[d]-expected[d])**2 for d in (1, 2))
+                        radial_norm[name] += weight * sum(
+                            expected[d]**2 for d in (1, 2))
     require(measure > 0, f"Empty integration mesh: {path}")
-    return {name: {"l2_error": math.sqrt(error[name]),
+    result = {name: {"l2_error": math.sqrt(error[name]),
                    "relative_l2_error": math.sqrt(error[name]/norm[name])
                    if norm[name] else None,
                    "integral": integrals[name], "measure": measure} for name in targets}
+    if dimension == 3:
+        for name in targets:
+            for label, errors, norms in (
+                    ("axial", axial_error, axial_norm),
+                    ("radial", radial_error, radial_norm)):
+                result[name][label+"_l2_error"] = math.sqrt(errors[name])
+                result[name][label+"_relative_l2_error"] = (
+                    math.sqrt(errors[name]/norms[name]) if norms[name] else None)
+    return result
 
 
 def oracle(time, radial=False):

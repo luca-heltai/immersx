@@ -70,15 +70,13 @@ map are vector-valued fields on the wall.
 
 ## Multiplier and pressure signs
 
-The multiplier is a scalar pressure field, not a single spatially constant
-number. Its interpretation is the pressure jump
-
-$$
-  \lambda=p_{\mathrm{ext}}-p_{\mathrm{int}}^{\mathrm{fitt}},
-$$
-
-between the external pressure and the internal reference pressure used in
-the wall/flow convention. The multiplier couples the solid and flow residuals
+The multiplier is a scalar radial traction amplitude with pressure units for
+the chosen reference-wall pairing. It can vary along the centerline. Its
+identification with physical fluid pressure depends on the fictitious-interior
+convention. The uncorrected extended solid includes interior material reaction;
+the optional correction below removes its projected elastic and viscous part
+while retaining inertia. The historical output name `pressure_jump`
+denotes this amplitude. The multiplier couples the solid and flow residuals
 with opposite signs:
 
 $$
@@ -88,14 +86,14 @@ $$
 $$
 
 In the current assembly, positive $\lambda$ enters the solid row through
-$+B\lambda$, in its momentum equation. The flow receives $p_{\mathrm{external}}=-\lambda$
-through native pressure assembly, including its volume, numerical flux,
+$+B\lambda$, in its momentum equation. The native external-pressure interface receives $p_{\mathrm{add}}=-\lambda$
+through pressure assembly, including its volume, numerical flux,
 boundary, and junction terms. Native assembly supplies the density scaling.
 
 ## Coupled residual
 
-Collecting the solid state, flow state, and multiplier into $y$, the coupled
-semidiscrete problem has the schematic residual form
+With the optional modal correction disabled, collecting the solid state, flow
+state, and multiplier into $y$ gives the schematic residual
 
 $$
   F(t,y,\dot y)=
@@ -164,7 +162,11 @@ mesh motion and does not add a continuity source.
 The retained lumen density is the native solid material density at the sampled
 points. Choose blood density there if that is the intended effective model.
 The tutorial uses equal verification densities; this is not a resolved
-three-dimensional incompressible blood model. The traction convention remains
+three-dimensional incompressible blood model. All native axial extension
+inertia remains too: it is not tied to the one-dimensional axial velocity, and
+overlap with one-dimensional axial inertia is not ruled out. This is an
+effective closure without three-dimensional incompressibility, axial no-slip
+or ALE compatibility. The traction convention remains
 small strain on fixed reference geometry. See the
 [manufactured-solution derivation](metric-flow-x-elastodynamics-mms.md) for
 normalization, the reciprocal axial work, independent targets, and limitations.
