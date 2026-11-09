@@ -34,6 +34,9 @@ set(_public_headers
     immersx/vascularization/metrics.h
     immersx/vascularization/discretization.h
     immersx/vascularization/generation.h
+    immersx/vascularization/global_geometry.h
+    immersx/vascularization/global_generation.h
+    immersx/vascularization/global_generation_report.h
     immersx/vascularization/growth_work.h
     immersx/vascularization/network.h
     immersx/compatibility/reference_cell.h

@@ -11,11 +11,15 @@
 #include <deal.II/grid/tria.h>
 
 #include <immersx/vascularization/discretization.h>
+#include <immersx/vascularization/global_generation_report.h>
+#include <immersx/vascularization/global_geometry.h>
 #include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/mesh_scale.h>
 #include <immersx/vascularization/metrics.h>
 #include <immersx/vascularization/network.h>
 #include <immersx/vascularization/reference_flow.h>
+
+#include <optional>
 
 namespace ImmersX::Vascularization
 {
@@ -204,6 +208,9 @@ namespace ImmersX::Vascularization
     /** Includes completed batch attempts from every calibration trial. */
     std::vector<GrowthStatistics> growth_statistics;
     CalibrationReport             calibration;
+    /** Present only for the joint global-forest workflow. */
+    std::optional<GlobalGeometryReport>   global_geometry;
+    std::optional<GlobalGenerationReport> global_generation;
     /** Actual coupled Poiseuille solution, evaluated with venous drainage. */
     ReferenceResult reference;
     /** Desired m^3/s by NEW Terminal id, populated when reference_flow>0. */
