@@ -1,6 +1,6 @@
 # Nonzero stress-jump manufactured solution with volume supplied by the inlet.
 # See doc/tutorials/metric-flow-x-elastodynamics-mms.md for the derivation.
-# Target: g=t^3, A=A0*(1+g)^2, lambda=-6*g, rho_s=mu_s=lambda_s=1.
+# Target: g=t^3, h=2*t^4, eta=.1, beta=.2; see the continuum oracle.
 
 subsection Elastodynamics
   set FE degree = 1
@@ -21,8 +21,8 @@ subsection Elastodynamics
       set Lame mu = 1
       set Lame lambda = 1
       set Rayleigh alpha = 0
-      set Rayleigh beta = 0
-      set Viscosity eta = 0
+      set Rayleigh beta = 0.2
+      set Viscosity eta = 0.1
     end
   end
   subsection Functions
@@ -30,15 +30,15 @@ subsection Elastodynamics
     # R2=A0/pi for the existing single_vessel_centered.vtk input.
     subsection Body force
       set Function constants = R2=9.7418740666549138e-5
-      set Function expression = 0; 6*t*y*R2/max(y^2+z^2,R2); 6*t*z*R2/max(y^2+z^2,R2)
+      set Function expression = 24*t^2*x; 6*t*y*R2/max(y^2+z^2,R2); 6*t*z*R2/max(y^2+z^2,R2)
     end
     subsection Displacement boundary
       set Function constants = R2=9.7418740666549138e-5
-      set Function expression = 0; t^3*y*R2/max(y^2+z^2,R2); t^3*z*R2/max(y^2+z^2,R2)
+      set Function expression = 2*t^4*x; t^3*y*R2/max(y^2+z^2,R2); t^3*z*R2/max(y^2+z^2,R2)
     end
     subsection Velocity boundary
       set Function constants = R2=9.7418740666549138e-5
-      set Function expression = 0; 3*t^2*y*R2/max(y^2+z^2,R2); 3*t^2*z*R2/max(y^2+z^2,R2)
+      set Function expression = 8*t^3*x; 3*t^2*y*R2/max(y^2+z^2,R2); 3*t^2*z*R2/max(y^2+z^2,R2)
     end
     subsection Initial displacement
       set Function expression = 0; 0; 0
@@ -49,7 +49,7 @@ subsection Elastodynamics
     subsection Exact solution
       # Stored for reference; this coupled executable does not call compute_error().
       set Function constants = R2=9.7418740666549138e-5
-      set Function expression = 0; t^3*y*R2/max(y^2+z^2,R2); t^3*z*R2/max(y^2+z^2,R2)
+      set Function expression = 2*t^4*x; t^3*y*R2/max(y^2+z^2,R2); t^3*z*R2/max(y^2+z^2,R2)
     end
   end
 end
@@ -73,6 +73,9 @@ end
 
 subsection MetricFlowSystem<1, 3>
   subsection IDA parameters
+    subsection Linear solver
+      set Type = umfpack
+    end
     set Initial time = 0
     set Final time = 0.1
     set Time interval between each output = 0.05
@@ -118,4 +121,9 @@ subsection MetricFlowX vessel wall lift
     set Number of points = 4
     set Number of repetitions = 2
   end
+end
+
+subsection MetricFlowX coupling
+  set Remove fictitious modal response = true
+  set Stop at output times = true
 end
