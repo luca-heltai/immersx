@@ -21,6 +21,18 @@ headers and libraries. The reproducibility revision is main commit
 manufactured-solution derivation for the required APIs. Older incompatible
 packages give an error before mesh setup when the correction is enabled.
 
+Run a supplied iterative case with MPI through the same runner:
+
+~~~bash
+python3 scripts/mfx_modal_convergence.py --build build-mms --run \
+  --cases finer --mpi-ranks 8
+~~~
+
+The default --mpi-ranks 1 retains serial execution. Multiple ranks require
+finer, iterative or mpi cases and a matching MPI launcher on PATH. Saved output
+and execution metadata can be reprocessed with the same --output path and no
+--run flag.
+
 The base and refined cases use UMFPACK; finer uses factored serial iteration.
 The iterative case compares solvers on the base mesh. The optional MPI input
 also uses iteration; only the explicitly named MUMPS input requires MUMPS.

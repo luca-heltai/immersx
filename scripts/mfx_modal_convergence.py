@@ -7,6 +7,7 @@ import csv
 import itertools
 import json
 import math
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -25,7 +26,7 @@ CASES = {
     "base": "mms_cube", "refined": "mms_cube_refined",
     "finer": "mms_cube_finer", "tight": "mms_cube_tight",
     "radial": "mms_cube_radial", "neumann": "mms_cube_neumann",
-    "iterative": "mms_cube_iterative",
+    "iterative": "mms_cube_iterative", "mpi": "mms_cube_mpi",
     "neumann-refined": "mms_cube_neumann_refined",
 }
 
@@ -245,10 +246,21 @@ def main():
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--executable", type=Path)
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--mpi-ranks", type=int, default=1,
+                        help="MPI ranks for iterative cases (default: serial)")
     parser.add_argument("--cases", choices=CASES, nargs="+", default=["base", "refined", "finer"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--timeout", type=float, default=7200.)
     args = parser.parse_args()
+    if args.mpi_ranks < 1:
+        parser.error("--mpi-ranks must be positive")
+    launcher = None
+    if args.run and args.mpi_ranks > 1:
+        if any(case not in {"finer", "iterative", "mpi"} for case in args.cases):
+            parser.error("MPI requires iterative inputs; select --cases finer, iterative or mpi")
+        launcher = shutil.which("mpirun") or shutil.which("mpiexec")
+        if launcher is None:
+            parser.error("MPI execution requires mpirun or mpiexec from the matching MPI installation")
     build = args.build.resolve()
     output = (args.output or build/"test_output"/"mfx-modal-convergence").resolve()
     executable = (args.executable or build/"metric_flow_x_elastodynamics").resolve()
@@ -268,12 +280,31 @@ def main():
                     f"subsection Elastodynamics\n  set Output directory = {directory/'solid'}\nend\n"
                     f"subsection MetricFlowSystem<1, 3>\n"
                     f"  set Output directory = {directory/'flow'}\nend\n")
+                command = [str(executable), str(parameters)]
+                if launcher:
+                    command = [launcher, "-np", str(args.mpi_ranks), *command]
+                metadata = {"mpi_ranks": args.mpi_ranks, "command": command,
+                            "parameters": str(parameters)}
+                (directory/"run_metadata.json").write_text(json.dumps(metadata, indent=2)+"\n")
                 with (directory/"application.log").open("w") as log:
-                    process = subprocess.run([str(executable), str(parameters)], cwd=directory,
-                                             stdout=log, stderr=subprocess.STDOUT,
-                                             timeout=args.timeout)
+                    with subprocess.Popen(command, cwd=directory, stdout=log,
+                                          stderr=subprocess.STDOUT) as process:
+                        try:
+                            process.wait(timeout=args.timeout)
+                        except subprocess.TimeoutExpired:
+                            # Let the MPI launcher terminate its ranks before forcing exit.
+                            process.terminate()
+                            try:
+                                process.wait(timeout=5.)
+                            except subprocess.TimeoutExpired:
+                                process.kill()
+                                process.wait()
+                            raise
                 require(process.returncode == 0, f"Application failed; see {directory/'application.log'}")
             report["cases"][case] = assess(directory, case == "radial")
+            metadata = directory/"run_metadata.json"
+            if metadata.exists():
+                report["cases"][case]["execution"] = json.loads(metadata.read_text())
         except (RuntimeError, OSError, ValueError, AssertionError, KeyError, IndexError, ET.ParseError, subprocess.TimeoutExpired) as error:
             report["failures"][case] = str(error)
         (output/"report.json").write_text(json.dumps(report, indent=2, allow_nan=False)+"\n")

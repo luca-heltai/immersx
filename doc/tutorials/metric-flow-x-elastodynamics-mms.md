@@ -375,6 +375,22 @@ python3 scripts/mfx_modal_convergence.py --build build-mms --run \
   --cases tight radial
 ~~~
 
+For MPI, use the same output layout and postprocessor without a custom wrapper:
+
+~~~bash
+python3 scripts/mfx_modal_convergence.py --build build-mms --run \
+  --cases finer --mpi-ranks 8
+python3 scripts/mfx_modal_convergence.py --build build-mms --cases finer
+~~~
+
+The default is one rank with no launcher. More than one rank is supported for
+the iterative finer, iterative and mpi cases; the runner rejects direct-solver
+cases before starting. It finds mpirun or mpiexec on PATH, which must match the
+MPI installation used by deal.II and MetricFlowX. No MUMPS is needed.
+Each run records its argument list and rank count in run_metadata.json;
+reprocessing retains that execution metadata. Supply separate --output paths
+for independent serial/MPI comparisons.
+
 The report is build-mms/test_output/mfx-modal-convergence/report.json.
 Omit --run to reprocess saved runner output. Generated parameter files also run
 directly without path editing:

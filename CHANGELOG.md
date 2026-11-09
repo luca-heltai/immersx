@@ -13,7 +13,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #370](https://github.com/luca-heltai/immersx/pull/370) Save separate diagnostic arterial, portal and venous VTK datasets when liver growth is rejected, preserving crossings and collapsed edges without adopting the invalid network.
 
-- [PR #369](https://github.com/luca-heltai/immersx/pull/369) Add an optional energy projection that removes two fictitious interior elastic and viscous modes in a straight uniform-radius vessel while retaining native inertia, with analytical checks, measured error tables, portable inputs, and an early error for MetricFlowX packages missing the pressure-state Jacobian API.
+- [PR #369](https://github.com/luca-heltai/immersx/pull/369) Add an optional energy projection that removes two fictitious interior elastic and viscous modes in a straight uniform-radius vessel while retaining native inertia, with analytical checks, measured error tables, portable serial/MPI runs, and an early error for MetricFlowX packages missing the pressure-state Jacobian API.
 
 - [PR #367](https://github.com/luca-heltai/immersx/pull/367) Continue portal and venous CCO growth from a physical checkpoint while retaining the completed arterial forest and matching its existing common territories.
 
