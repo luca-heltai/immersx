@@ -368,8 +368,10 @@ TEST_F(FictitiousInteriorAssembly, BOTH_RemainingOperatorsAndModalAdjoint)
     ImmersX::matrix_operator<Vector>(problem->stiffness_matrix()).view;
   const auto d =
     ImmersX::matrix_operator<Vector>(problem->damping_matrix()).view;
-  const auto ce = correction->elastic_operator().view;
-  const auto cv = correction->viscous_operator().view;
+  const std::array<ImmersX::MaterializedOperator<Vector, Matrix>, 2> operators{
+    {correction->elastic_operator(), correction->viscous_operator()}};
+  const auto ce = operators[0].view;
+  const auto cv = operators[1].view;
   for (unsigned int trial = 0; trial < 12; ++trial)
     {
       for (const auto i : problem->locally_owned_dofs())
@@ -382,6 +384,28 @@ TEST_F(FictitiousInteriorAssembly, BOTH_RemainingOperatorsAndModalAdjoint)
       EXPECT_NEAR(work(ce, w, u), work(ce, u, w), 1.e-12);
       EXPECT_NEAR(work(cv, w, u), work(cv, u, w), 1.e-12);
     }
+  for (const auto &op : operators)
+    {
+      Vector     factored = affine(0., 0.), assembled = affine(0., 0.);
+      const auto matrix = op.matrix();
+      op.view.vmult(factored, u);
+      matrix->vmult(assembled, u);
+      factored -= assembled;
+      EXPECT_NEAR(factored.l2_norm(), 0., 1.e-12);
+      op.view.Tvmult(factored, w);
+      matrix->Tvmult(assembled, w);
+      factored -= assembled;
+      EXPECT_NEAR(factored.l2_norm(), 0., 1.e-12);
+    }
+  // Returned operators own their moments even after the builder is destroyed.
+  const auto detached = [&]() {
+    const ImmersX::FictitiousInteriorCylinder cylinder{
+      dealii::Point<3>(.5, .5, 0.), dealii::Point<3>(.5, .5, 1.), .3};
+    const ImmersX::FictitiousInteriorCorrection<Vector, Matrix> temporary(
+      *problem, *parameters, cylinder);
+    return temporary.elastic_operator();
+  }();
+  EXPECT_NEAR(work(detached.view, w, u), work(ce, w, u), 1.e-12);
   // Axial test w=(0,0,z) has no radial virtual strain. Its work equals the
   // two opposite end forces with sampled area V_h/L, not a lateral pressure.
   const auto state      = affine(.13, -.07);
@@ -432,6 +456,7 @@ TEST_F(FictitiousInteriorAssembly, BOTH_RemainingOperatorEigenvalues)
       ASSERT_EQ(eigenvalues.size(), size);
       EXPECT_GE(eigenvalues[0], -1.e-11);
       EXPECT_NEAR(eigenvalues[5], 0., 1.e-11);
+      EXPECT_GT(eigenvalues[6], 1.e-10);
       EXPECT_GT(eigenvalues[size - 1], .01);
     }
 }
@@ -441,13 +466,23 @@ TEST_F(FictitiousInteriorAssembly, BOTH_RejectHangingNodeConstraints)
 {
   Problem refined(*parameters);
   refined.make_grid();
+  // Disable island removal so the single refined cell creates hanging nodes.
+  // This owned fixture is changed before distributing DoFs.
+  auto &mesh = const_cast<dealii::parallel::TriangulationBase<3> &>(
+    refined.triangulation());
+  mesh.set_mesh_smoothing(
+    dealii::Triangulation<3>::limit_level_difference_at_vertices);
+  unsigned int marked = 0;
   for (const auto &cell : refined.triangulation().active_cell_iterators())
-    if (cell->is_locally_owned() && cell->global_active_cell_index() == 0)
-      cell->set_refine_flag();
-  // Construct an unsupported mesh before distributing DoFs; the ordinary
-  // solver API deliberately exposes its mesh for inspection only.
-  const_cast<dealii::parallel::TriangulationBase<3> &>(refined.triangulation())
-    .execute_coarsening_and_refinement();
+    if (cell->is_locally_owned() && cell->center()[0] < .5 &&
+        cell->center()[1] < .5 && cell->center()[2] < .5)
+      {
+        cell->set_refine_flag();
+        ++marked;
+      }
+  ASSERT_EQ(dealii::Utilities::MPI::sum(marked, MPI_COMM_WORLD), 1u);
+  mesh.execute_coarsening_and_refinement();
+  ASSERT_EQ(refined.triangulation().n_global_active_cells(), 15u);
   refined.setup_fe();
   refined.setup_system();
   const auto constraint_count =
@@ -530,5 +565,47 @@ TEST_F(FictitiousInteriorAssembly, BOTH_RetainedMassAndStateJacobian)
   residual *= 1. / step;
   residual -= jacobian_action;
   EXPECT_NEAR(residual.l2_norm(), 0., 2.e-9);
+
+  Adapter    iterative(time, ida_parameters, MPI_COMM_WORLD);
+  const auto iterative_solid  = iterative.add(*problem, "iterative-solid");
+  const auto iterative_uid    = iterative_solid.fields().displacement.id();
+  const auto iterative_vid    = iterative_solid.fields().velocity.id();
+  const auto factored_elastic = ce.view;
+  const auto factored_viscous = cv.view;
+  iterative.add(
+    [&](auto &builder) {
+      builder.term(iterative_vid, "factored-interior")
+        .residual([=](const auto &context) {
+          return -1. * (factored_elastic * context.state(iterative_uid) +
+                        factored_viscous * context.state(iterative_vid));
+        })
+        .state(iterative_uid, -1. * factored_elastic)
+        .state(iterative_vid, -1. * factored_viscous);
+      builder.second_order_preconditioner(
+        iterative_uid,
+        ImmersX::matrix_operator<Vector>(problem->mass_matrix()),
+        ImmersX::matrix_operator<Vector>(problem->stiffness_matrix()),
+        ImmersX::matrix_operator<Vector>(problem->damping_matrix()));
+      return std::tuple<>();
+    },
+    "factored-interior");
+  auto iterative_state                            = iterative.make_state();
+  auto iterative_derivative                       = iterative.make_state();
+  iterative.field(iterative_state, iterative_uid) = affine(.13, -.07);
+  iterative.field(iterative_state, iterative_vid) = affine(.21, .04);
+  iterative.solver().setup_jacobian(0.,
+                                    iterative_state,
+                                    iterative_derivative,
+                                    alpha);
+  EXPECT_TRUE(iterative.has_current_preconditioner());
+  auto iterative_increment = iterative.make_state();
+  auto iterative_action    = iterative.make_state();
+  iterative.field(iterative_increment, iterative_uid) =
+    adapter.field(increment, uid);
+  iterative.field(iterative_increment, iterative_vid) =
+    adapter.field(increment, vid);
+  iterative.current_jacobian().vmult(iterative_action, iterative_increment);
+  iterative_action -= jacobian_action;
+  EXPECT_NEAR(iterative_action.l2_norm(), 0., 1.e-12);
 }
 #endif
