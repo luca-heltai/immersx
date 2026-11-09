@@ -24,7 +24,8 @@ GAUSS = ((0.5 * (1 - math.sqrt(3 / 5)), 5 / 18),
          (0.5 * (1 + math.sqrt(3 / 5)), 5 / 18))
 CASES = {
     "base": "mms_cube", "refined": "mms_cube_refined",
-    "finer": "mms_cube_finer", "tight": "mms_cube_tight",
+    "finer": "mms_cube_finer", "finer-original": "mms_cube_finer_original_pairing",
+    "tight": "mms_cube_tight",
     "radial": "mms_cube_radial", "neumann": "mms_cube_neumann",
     "iterative": "mms_cube_iterative", "mpi": "mms_cube_mpi",
     "neumann-refined": "mms_cube_neumann_refined",
@@ -256,8 +257,8 @@ def main():
         parser.error("--mpi-ranks must be positive")
     launcher = None
     if args.run and args.mpi_ranks > 1:
-        if any(case not in {"finer", "iterative", "mpi"} for case in args.cases):
-            parser.error("MPI requires iterative inputs; select --cases finer, iterative or mpi")
+        if any(case not in {"finer", "finer-original", "iterative", "mpi"} for case in args.cases):
+            parser.error("MPI requires iterative inputs; select finer, finer-original, iterative or mpi cases")
         launcher = shutil.which("mpirun") or shutil.which("mpiexec")
         if launcher is None:
             parser.error("MPI execution requires mpirun or mpiexec from the matching MPI installation")

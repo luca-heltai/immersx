@@ -158,7 +158,10 @@ and native one-dimensional flow does not directly transfer transverse momentum
 to the surrounding solid; retained three-dimensional inertia is the selected
 effective representation of this contribution. Use blood density there when
 different from tissue. This MMS uses the artificial verification density
-$\rho_s=1$. Retained mass is not a three-dimensional incompressible blood solver.
+$\rho_s=1$, while MetricFlowX retains $\rho_f=1060$. No density is changed by
+the correction. The manufactured total pressure is uniform in space, so its
+pressure-gradient term vanishes for this fluid density too. Retained mass is
+not a three-dimensional incompressible blood solver.
 
 Keeping all native mass also keeps axial extension inertia. The lumen's axial
 solid velocity is not constrained to the one-dimensional flow velocity $U$.
@@ -319,23 +322,25 @@ Templates in tutorials/metric_flow_x_elastodynamics/ have separate outputs:
 
 | Template | Solid cells | Centerline cells | Purpose |
 | --- | ---: | ---: | --- |
-| mms_cube.prm.in | $4\times16\times16$ | 2 | Two-mode base case |
-| mms_cube_refined.prm.in | $8\times32\times32$ | 4 | Second spatial level |
-| mms_cube_finer.prm.in | $16\times64\times64$ | 8 | Third spatial level, iterative |
-| mms_cube_tight.prm.in | $4\times16\times16$ | 2 | Tolerance sensitivity |
-| mms_cube_radial.prm.in | $4\times16\times16$ | 2 | $h=0$ reduction |
-| mms_cube_neumann.prm.in | $4\times16\times16$ | 2 | Endpoint traction |
-| mms_cube_neumann_refined.prm.in | $8\times32\times32$ | 4 | Refined Neumann |
-| mms_cube_mpi.prm.in | $4\times16\times16$ | 2 | Optional MPI, iterative |
+| mms_cube.prm.in | $4\times16\times16$ | 1 | Two-mode base case |
+| mms_cube_refined.prm.in | $8\times32\times32$ | 2 | Second spatial level |
+| mms_cube_finer.prm.in | $16\times64\times64$ | 4 | Third spatial level, iterative |
+| mms_cube_tight.prm.in | $4\times16\times16$ | 1 | Tolerance sensitivity |
+| mms_cube_radial.prm.in | $4\times16\times16$ | 1 | $h=0$ reduction |
+| mms_cube_neumann.prm.in | $4\times16\times16$ | 1 | Endpoint traction |
+| mms_cube_neumann_refined.prm.in | $8\times32\times32$ | 2 | Refined Neumann |
+| mms_cube_mpi.prm.in | $4\times16\times16$ | 1 | Optional MPI, iterative |
+| mms_cube_finer_original_pairing.prm.in | $16\times64\times64$ | 8 | Original pairing diagnostic |
 
-Base, refined and small verification cases use UMFPACK. The ordinary finest
-case uses the factored serial iterative solver without MUMPS. The
-mms_cube_iterative.prm.in input checks that solver on the base mesh; select
-the runner's iterative case to compare it with base.
-The separate mms_cube_mumps.prm.in requires MUMPS. All cases use degree one. The DG multiplier mesh is coarser
-than the continuous solid axial trace mesh. Composite representative quadrature
-uses four Gauss points repeated twice per centerline cell; wall refinement
-increases from two to three to four across spatial levels.
+Base, refined and small verification cases use UMFPACK. Finer uses factored
+iteration and supports serial execution; the measured finest recipe uses four
+MPI ranks without MUMPS. The iterative case compares solvers on the base mesh.
+The separate mms_cube_mumps.prm.in requires MUMPS.
+
+All cases use degree one. Each ordinary flow cell spans four solid axial cells.
+Axial wall quadrature uses four Gauss points on each of four equal subintervals,
+one per solid cell. Wall refinements increase from two to three to four across
+the spatial levels. The original pairing is retained only as a diagnostic.
 
 Configure deal.II with SUNDIALS and VTK and a compatible installed MetricFlowX.
 The correction requires the native `add_external_pressure_state_jacobian()`
@@ -352,13 +357,16 @@ the package. The reproducibility revision is MetricFlowX main
 
 ~~~bash
 cmake -S . -B build-mms -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_COUPLED_PROBLEMS=OFF \
   -DMetricFlowX_DIR=/path/to/metric-flow-x/lib/cmake/MetricFlowX
 cmake --build build-mms --target metric_flow_x_elastodynamics -j2
 python3 scripts/mfx_modal_convergence.py --build build-mms --run \
-  --cases base refined finer
+  --cases base refined
 ~~~
 
-Require the MetricFlowX support enabled configuration message. Supply
+Require the MetricFlowX support enabled configuration message.
+ENABLE_COUPLED_PROBLEMS=OFF excludes the separate optional 1dsolver applications;
+it does not disable MetricFlowX. Supply
 DEAL_II_DIR if needed. For Debug pass
 --executable build-mms/metric_flow_x_elastodynamics_debug to the runner.
 It resolves all paths and runs in dedicated build-tree directories, producing
@@ -379,12 +387,12 @@ For MPI, use the same output layout and postprocessor without a custom wrapper:
 
 ~~~bash
 python3 scripts/mfx_modal_convergence.py --build build-mms --run \
-  --cases finer --mpi-ranks 8
+  --cases finer --mpi-ranks 4
 python3 scripts/mfx_modal_convergence.py --build build-mms --cases finer
 ~~~
 
 The default is one rank with no launcher. More than one rank is supported for
-the iterative finer, iterative and mpi cases; the runner rejects direct-solver
+the iterative finer, finer-original, iterative and mpi cases; the runner rejects direct-solver
 cases before starting. It finds mpirun or mpiexec on PATH, which must match the
 MPI installation used by deal.II and MetricFlowX. No MUMPS is needed.
 Each run records its argument list and rank count in run_metadata.json;
@@ -419,86 +427,154 @@ this corrected model and are not reused as its error table.
 
 ## Measured spatial and tolerance errors
 
-These completed Release runs use deal.II 9.8.0 and the pinned MetricFlowX
-revision above. All reach $T=0.1$ with the original analytical target
-$\lambda^\star=-0.0152$ Pa. Errors below are percentages. Transverse error is
-the vector error in the two components perpendicular to the cylinder axis;
-it is named radial_l2_error in the JSON report.
+These Release measurements use deal.II 9.8.0 and the pinned MetricFlowX
+revision above. All three ordinary cases reach $T=0.1$ with common IDA
+absolute/relative tolerances $10^{-9}/10^{-7}$, no field overrides, and enforced
+output stops at 0, 0.05 and 0.1 s. The independent target remains
+$\lambda^\star=-0.0152$ Pa. Field errors are $L^2$ errors expressed as percentages of the corresponding
+analytical target norm. Transverse denotes the $(y,z)$ vector components.
 
-| Solid cells | Full displacement $L^2$ error | Transverse displacement error | Transverse velocity error | Multiplier $L^2$ error | Mean multiplier [Pa] |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| $4\times16\times16$ | 12.8892 | 105.5729 | 106.0398 | 712.7506 | -0.1121798852 |
-| $8\times32\times32$ | 2.7549 | 22.5896 | 22.7515 | 195.4006 | -0.0332692722 |
+| Solid cells | Flow cells | Full displacement error | Transverse displacement error | Transverse velocity error | Multiplier $L^2$ error | Mean multiplier [Pa] |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| $4\times16\times16$ | 1 | 12.6239 | 102.6355 | 103.2000 | 538.7894 | -0.0970959961 |
+| $8\times32\times32$ | 2 | 2.6550 | 21.6981 | 21.8717 | 91.3982 | -0.0287964060 |
+| $16\times64\times64$ | 4 | 1.5406 | 12.5917 | 12.6652 | 55.0186 | -0.0233295346 |
 
-The accurately represented, larger axial component dominates the full-vector
-norm. Its displacement error is 0.3660% and 0.1607% on these two meshes.
-In these Dirichlet cases, the projected axial strain and rate reproduce their
-prescribed targets to floating-point precision, but the computed axial field
-is not exactly the affine target.
+Axial displacement errors are 1.5840%, 0.2664% and 0.1236%. The much smaller
+transverse target norm explains why full-vector errors alone understate radial
+error. Native area errors are $2.8100\times10^{-5}$%,
+$2.4758\times10^{-5}$% and $2.2906\times10^{-5}$%; native velocity errors are
+$2.7723\times10^{-5}$%, 0.0007419% and 0.0008300%. Thus not every flow error
+decreases under refinement.
 
-The sampled-volume error $V_h/(A_0L)-1$ changes from -25.6409% to +11.5387%.
-The radial strain errors are +7.2902% and -5.4739%, and the rate errors are
-+7.2770% and -5.4655%. Relative errors in effective elastic energy decrease
-from 79.8589% to 12.1470%, in effective dissipation from 48.2730% to 7.2732%,
-and in retained kinetic energy from 2.1076% to 0.3089%. The added-volume defect,
-normalized by exact integrated inlet supply, is 0.01373% and 0.01254%.
-These are instantaneous energy comparisons, not a discrete energy-balance proof.
+| Solid axial cells | Projected $g_h$ | Projected $\dot g_h$ | $V_h/(A_0L)-1$ [%] | Added-volume target defect [%] |
+| --- | ---: | ---: | ---: | ---: |
+| 4 | 0.00107257361 | 0.0321731279 | -25.6409 | 0.0137296 |
+| 8 | 0.000945325679 | 0.0283631156 | +11.5387 | 0.0113534 |
+| 16 | 0.000989720631 | 0.0296910081 | +2.2438 | 0.0101653 |
 
-The Neumann cases give multiplier errors of 444.3801% and 77.1558%, with
-transverse displacement errors of 123.8828% and 28.0998%. The coarse $h=0$
-case has the independent target $-0.017$ Pa and multiplier error 635.3375%.
-Neither changing the endpoint conditions nor suppressing axial strain removes
-the coarse pressure bias. Serial direct and iterative base solutions agree in
-mean multiplier within $4.7\times10^{-10}$ Pa; this verifies agreement on the
-discrete equations, rather than accuracy against the continuum target.
+The independent targets are $g=0.001$ and $\dot g=0.03$. The axial projected
+modes reproduce $h=0.0002$ and $\dot h=0.008$ near roundoff in these Dirichlet
+cases; the computed axial fields are not exact. Added-volume defect compares
+$\Delta V_h$ with the exact MMS inlet integral. It is not an independent audit
+of the numerical boundary flux.
 
-The following controls retain the same base spatial mesh and analytical target.
-Absolute overrides have units of metres, metres per second and pascals, in that
-order. An override replaces the corresponding common IDA absolute tolerance.
-The physical controls retain common absolute/relative tolerances $10^{-9}/10^{-7}$
-for the other fields, including native flow. The common-tight control uses
-$10^{-10}/10^{-8}$ without per-field overrides.
+| Solid axial cells | Effective elastic-energy error [%] | Effective dissipation error [%] | Retained kinetic-energy error [%] |
+| --- | ---: | ---: | ---: |
+| 4 | 71.1393 | 42.9777 | 2.0200 |
+| 8 | 11.1940 | 6.6950 | 0.3164 |
+| 16 | 6.9076 | 4.1417 | 0.1773 |
 
-| Control | Absolute overrides $u/v/\lambda$ | Accepted steps | Full displacement error [%] | Radial strain error [%] | Multiplier error [%] | Added-volume defect [%] |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Common | none | 130 | 12.8892 | 7.2902 | 712.7506 | 0.0137 |
-| Physical | $10^{-8}/10^{-7}/10^{-6}$ | 35 | 12.9638 | 7.6083 | 712.9208 | 0.3084 |
-| Stricter physical | $10^{-9}/10^{-8}/10^{-7}$ | 73 | 12.8962 | 7.3235 | 712.7957 | 0.0422 |
-| Common-tight | none | 270 | 12.8870 | 7.2798 | 712.7402 | 0.0042 |
+These are instantaneous comparisons, not a discrete energy-balance proof.
+The finest multiplier error remains 55%; the sampled geometry bias changes
+sign. The observed reductions do not establish an asymptotic order, general
+coupled stability or physiological validity.
 
-Across the two physical controls, transverse velocity error remains about
-106.03--106.04%, radial strain-rate error about 7.27%, and the axial projected
-modes remain at their targets. Effective elastic-energy error is 80.4814% and
-79.9225%, and kinetic-energy error is 2.0415% and 2.1025%. Thus the control with fewer steps
-reproduces the dominant spatial pressure error while increasing the
-volume defect. Mean pressure alone is insufficient to choose tolerances.
-The common-tight mean multiplier changes by $1.4\times10^{-6}$ Pa, compared
-with the approximately $0.097$ Pa coarse pressure bias.
+The finest measurement uses four MPI ranks. Observed per-rank high-water marks
+are 2.994 to 3.016 GiB; aggregate RSS sampled once per second peaks at 12.010 GiB.
+Summing rank high-water marks gives a 12.010 GiB bound; shared mappings can be
+counted repeatedly. Elapsed application time was 43 min 30 s with concurrent
+work on the node. These are resource measurements, not an MPI scaling study.
 
-The third spatial level is still being assessed and is excluded from these
-completed measurements. No formal rate or pressure-convergence result is
-claimed here. Earlier runs with an SDK lacking the pressure-state Jacobian
-are separate diagnostics and are not used for this table. Matching coarse
-results across SDKs does not establish the cause of finest-grid solve cost.
+### Tolerance sensitivity
 
-The optional mms_cube_finer_direct.prm.in input is a costly UMFPACK benchmark,
-outside the ordinary sequence. In an earlier SDK 0.1.0 diagnostic, its initial factorization
-was stopped after 15 min 21 s at 59.7 GiB peak RSS, before an accepted step.
-No completed finest-direct result is claimed. Use the ordinary iterative finest
-case for the documented sequence and check its measured memory on the target
-machine.
+The supplied tight case uses the same base mesh, quadrature and output stops,
+with common tolerances reduced to $10^{-10}/10^{-8}$. No per-field override
+replaces those controls.
 
-The current-SDK saved-field audit reproduces the poor circular-wall trace of
-the nodal Q1 target interpolant: only 36.86% of the target on the base mesh and
-76.74% on the refined mesh. Strong Dirichlet endcap interpolation imposes those
-traces, while the interior solution compensates to meet weak wall compatibility.
-The radial derivative jump and retained nonmodal strains therefore matter even
-when the projected mean strain is close to its target.
+| Control | Multiplier $L^2$ error [%] | Mean multiplier [Pa] | Added-volume target defect [%] |
+| --- | ---: | ---: | ---: |
+| Ordinary | 538.789448 | -0.0970959961 | 0.0137296 |
+| Tight | 538.781900 | -0.0970948488 | 0.0042248 |
 
-Independent reconstructed virtual work closes within $1.3\times10^{-5}$ and
-$4.8\times10^{-5}$ relative on the two Dirichlet meshes, and DG1 compatibility
-moments within $1.7\times10^{-5}$ and $7.7\times10^{-6}$. This gives no evidence
-for an extra $2\pi R_0$ factor. The work reconstruction uses exported Float32
-fields, polygon-wall quadrature and acceleration estimated from the saved
-velocities. It is a limited independent consistency check, rather than an
-exact solver-residual audit or a stability proof.
+Direct field-to-field differences are 0.012318% of the displacement target norm,
+0.00118586% for velocity, and 0.00754861% for the multiplier. The mean multiplier
+changes by $1.1474\times10^{-6}$ Pa. Projected $g_h$ changes from
+0.00107257361 to 0.00107247293 and $\dot g_h$ from 0.0321731279 to 0.0321731316;
+the axial means remain at their targets. Effective elastic-energy error changes
+from 71.1393% to 71.1227%, kinetic-energy error from 2.0200% to 2.0217%, and
+dissipation error remains about 42.9777%. This is adaptive tolerance sensitivity,
+not a fixed-timestep order study or improvement in every diagnostic.
+
+Separate tests of explicit absolute tolerances $10^{-8}$ m for displacement,
+$10^{-7}$ m/s for velocity and $10^{-6}$ Pa for the multiplier reduced work,
+but increased the original base added-volume target defect from 0.01373% to
+0.30838%. At the same finest saved time $T=0.05$, original strict and relaxed
+multiplier errors were 268.505% and 267.418%, while volume defects were 0.05273%
+and 0.53293%. Their stop histories differed. These overrides have not become
+ordinary defaults.
+
+## Why the original pairing oscillates
+
+The original sequence used 2/4/8 flow cells with two solid axial cells per
+flow cell. With prescribed end values, its actual base wall-traction operator
+has rank 3 for 4 multipliers. The cellwise-linear vector $q=(1,-1,1,-1)$ has
+relative traction residual $1.84\times10^{-16}$. However, the native
+flow-pressure block acts on $q$ with normalized residual 0.7071. This is not a
+null column of all coupled rows and does not prove a singular DAE.
+
+The saved pressure component along this exact $q$ accounts for less than
+0.000011% of squared pressure error in the finest $T=0.05$ controls. The large
+pressure fluctuations cannot be attributed to that component alone.
+
+A more specific compatibility constraint is visible in the assembled operator.
+Let $r_j$ be the polygon-weighted radial trace at axial plane $j$, normalized
+by the uniform target $gR_0$. The original two-solid-cell macrocell gives
+
+$$
+5r_0+6r_1+r_2=12,\qquad r_0+6r_1+5r_2=12.
+$$
+
+Subtracting these rows forces $r_0=r_2$. Successive macrocells propagate the
+interpolated end trace $b$ through every even plane, with odd planes $2-b$.
+Actual base traces are approximately
+$[0.364696,1.634373,0.367061,1.634374,0.364696]$.
+Including the small measured nonuniform-area moments reproduces them within
+$2.47\times10^{-5}$; the refined counterpart agrees within $1.59\times10^{-5}$.
+The radial derivative jump and prescribed end interpolation therefore generate
+mesh-scale trace variation even when the projected mean strain is accurate.
+
+The ordinary sequence now uses four solid axial cells per flow cell. Its base
+moment rows are proportional to $[11,18,12,6,1]$ and $[1,6,12,18,11]$:
+their difference includes interior values and no longer propagates the end
+trace to every macrocell endpoint. Four axial quadrature repetitions preserve
+the original physical points and weights; the measured traction embedding
+agrees within $5.65\times10^{-16}$. Uniform area, linear velocity and constant
+multiplier targets remain representable. No material, density, source or
+analytical oracle is changed.
+
+| Solid axial cells | Original multiplier error [%] | Ordinary multiplier error [%] |
+| --- | ---: | ---: |
+| 4 | 712.7506 | 538.7894 |
+| 8 | 195.4006 | 91.3982 |
+| 16 | 289.6060 | 55.0186 |
+
+Both columns use common tolerances $10^{-9}/10^{-7}$ and 0.05 s output stops.
+The pairing does not improve every field: base axial displacement error rises
+from 0.3660% to 1.5840%. It removes the demonstrated trace identity and reduces
+the measured multiplier errors without establishing a general inf-sup result.
+
+The optional finer-original case retains the original finest pairing:
+
+~~~bash
+python3 scripts/mfx_modal_convergence.py --build build-mms --run \
+  --cases finer-original --mpi-ranks 8 --output build-mms/test_output/original-pairing
+~~~
+
+Independent reconstruction of saved-field virtual work closes within
+$1.3\times10^{-5}$ and $4.8\times10^{-5}$ on the original two Dirichlet meshes,
+with compatible DG1 moments. This gives no evidence for an extra $2\pi R_0$
+factor. It uses Float32 fields, polygon quadrature and acceleration estimated
+from saved velocities; it is not an exact solver-residual or stability proof.
+
+Native area or total-pressure accuracy alone does not certify the smaller
+traction amplitude. Near $T=0.05$, the native tube-law derivative is about
+$1.0592\times10^8$ Pa/m²; relative area error $10^{-6}$ changes tube pressure
+by about 0.0324 Pa, against $|\lambda^\star|=0.0037875$ Pa. Reconstructing that
+difference from Float32 area is precision-limited; the reported multiplier
+errors use its directly exported field.
+
+The optional mms_cube_finer_direct.prm.in case is outside the ordinary sequence.
+An earlier SDK 0.1.0 diagnostic stopped its initial UMFPACK factorization after
+15 min 21 s at 59.7 GiB peak RSS, before an accepted step. It is not a completed
+measurement of the current package or ordinary pairing.

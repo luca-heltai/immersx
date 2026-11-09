@@ -161,8 +161,9 @@ mesh motion and does not add a continuity source.
 
 The retained lumen density is the native solid material density at the sampled
 points. Choose blood density there if that is the intended effective model.
-The tutorial uses equal verification densities; this is not a resolved
-three-dimensional incompressible blood model. All native axial extension
+The MMS uses solid density $\rho_s=1$ and fluid density $\rho_f=1060$; its
+retained lumen density therefore differs from the configured fluid density.
+It is not a resolved three-dimensional incompressible blood model. All native axial extension
 inertia remains too: it is not tied to the one-dimensional axial velocity, and
 overlap with one-dimensional axial inertia is not ruled out. This is an
 effective closure without three-dimensional incompressibility, axial no-slip

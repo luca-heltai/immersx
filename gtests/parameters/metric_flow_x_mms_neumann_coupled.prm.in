@@ -4,7 +4,7 @@ include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube_neu
 subsection Elastodynamics
   set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-neumann
   subsection Domain
-    # Retain four axial cells for the two flow cells.
+    # Retain four axial solid cells for the single flow cell.
     set Grid generator arguments = 4, 8, 8: -0.120685, -0.120685, -0.120685: 0.120685, 0.120685, 0.120685: false
   end
 end

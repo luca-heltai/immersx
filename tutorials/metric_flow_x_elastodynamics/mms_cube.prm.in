@@ -91,8 +91,8 @@ subsection MetricFlowSystem<1, 3>
     end
   end
   set Finite element degree = 1
-  # Refine the single coarse cell into two cells, each spanning two solid axial cells.
-  set Number of global refinement = 1
+  # One flow cell spans four solid axial cells; avoid propagating the end trace.
+  set Number of global refinement = 0
   set Number of refinement cycles = 1
   set Output filename = flow
   set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-resolved
@@ -119,7 +119,7 @@ subsection MetricFlowX vessel wall lift
   subsection Representative quadrature
     set Type = gauss
     set Number of points = 4
-    set Number of repetitions = 2
+    set Number of repetitions = 4
   end
 end
 
