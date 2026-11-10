@@ -13,6 +13,7 @@
 #include <immersx/vascularization/io.h>
 #include <immersx/vascularization/reference_flow.h>
 
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -37,20 +38,33 @@ namespace
          const NetworkData      &network,
          const ValidationReport &validation = {})
   {
-#ifdef DEBUG
+#ifdef DEAL_II_WITH_VTK
+    static const std::string run_id = []() {
+      std::string token;
+      if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+        token = std::to_string(
+          std::chrono::high_resolution_clock::now().time_since_epoch().count());
+      return Utilities::MPI::broadcast(MPI_COMM_WORLD, token, 0);
+    }();
+#  ifdef DEBUG
     const std::string configuration = "debug";
-#else
+#  else
     const std::string configuration = "release";
-#endif
+#  endif
     const auto test = ::testing::UnitTest::GetInstance()->current_test_info();
     write_diagnostic_vtk(ImmersX::TestPaths::output_directory(
                            "cco-optional-geometry/" + configuration + "-mpi" +
                            std::to_string(
                              Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD)) +
-                           "/" + test->name() + "/" + stage),
+                           "/run-" + run_id + "/" + test->name() + "/" + stage),
                          network,
                          validation,
                          MPI_COMM_WORLD);
+#else
+    (void)stage;
+    (void)network;
+    (void)validation;
+#endif
   }
   vi::GrowthCandidateContext
   context()
