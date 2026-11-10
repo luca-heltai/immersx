@@ -462,7 +462,7 @@ TEST_F(FictitiousInteriorAssembly, BOTH_RemainingOperatorEigenvalues)
 }
 
 
-TEST_F(FictitiousInteriorAssembly, BOTH_RejectHangingNodeConstraints)
+TEST_F(FictitiousInteriorAssembly, BOTH_HangingNodeProjectionAndEnergy)
 {
   Problem refined(*parameters);
   refined.make_grid();
@@ -492,8 +492,56 @@ TEST_F(FictitiousInteriorAssembly, BOTH_RejectHangingNodeConstraints)
   const ImmersX::FictitiousInteriorCylinder cylinder{
     dealii::Point<3>(.5, .5, 0.), dealii::Point<3>(.5, .5, 1.), .3};
   using Correction = ImmersX::FictitiousInteriorCorrection<Vector, Matrix>;
-  EXPECT_THROW(Correction(refined, *parameters, cylinder),
-               dealii::ExceptionBase);
+  refined.assemble_operators();
+  Correction local(refined, *parameters, cylinder);
+  Vector     affine_state;
+  affine_state.reinit(refined.locally_owned_dofs(), MPI_COMM_WORLD);
+  dealii::VectorTools::interpolate(refined.mapping(),
+                                   refined.dof_handler(),
+                                   AffineDisplacement(.13, -.07),
+                                   affine_state);
+  const auto modes = local.modes(affine_state);
+  EXPECT_NEAR(modes[0], .13, 2.e-14);
+  EXPECT_NEAR(modes[1], -.07, 2.e-14);
+  Vector action;
+  action.reinit(affine_state);
+  refined.mass_matrix().vmult(action, affine_state);
+  // Integral of rho * [g^2 ((x-.5)^2+(y-.5)^2) + h^2 z^2].
+  EXPECT_NEAR(affine_state * action,
+              1.7 * (2. * .13 * .13 / 12. + .07 * .07 / 3.),
+              2.e-14);
+  for (const auto &line : refined.hanging_node_constraints().get_lines())
+    if (affine_state.locally_owned_elements().is_element(line.index))
+      affine_state[line.index] = 0.;
+  const auto elastic = local.elastic_operator();
+  const auto viscous = local.viscous_operator();
+  for (unsigned int sample = 0; sample < 7; ++sample)
+    {
+      Vector x;
+      x.reinit(affine_state);
+      for (const auto i : x.locally_owned_elements())
+        x[i] = std::sin((i + 1.) * (sample + .31));
+      refined.hanging_node_constraints().set_zero(x);
+      refined.stiffness_matrix().vmult(action, x);
+      const double native_elastic = x * action;
+      elastic.view.vmult(action, x);
+      EXPECT_GE(native_elastic - x * action, -1.e-11);
+      refined.damping_matrix().vmult(action, x);
+      const double native_viscous = x * action;
+      viscous.view.vmult(action, x);
+      EXPECT_GE(native_viscous - x * action, -1.e-11);
+      Vector materialized;
+      materialized.reinit(x);
+      elastic.matrix()->vmult(materialized, x);
+      elastic.view.vmult(action, x);
+      materialized -= action;
+      EXPECT_NEAR(materialized.l2_norm(), 0., 2.e-12);
+      Vector transposed;
+      transposed.reinit(x);
+      elastic.view.Tvmult(transposed, x);
+      transposed -= action;
+      EXPECT_NEAR(transposed.l2_norm(), 0., 2.e-12);
+    }
 }
 
 #ifdef DEAL_II_WITH_SUNDIALS

@@ -1,0 +1,22 @@
+# Start from a single cube and refine around the physical wall lift supports.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube.prm
+
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-local
+  subsection Domain
+    set Grid generator arguments = 1, 1, 1: -0.120685, -0.120685, -0.120685: 0.120685, 0.120685, 0.120685: false
+    set Initial refinement = 0
+  end
+end
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-local
+end
+subsection MetricFlowX coupling
+  subsection Co-refinement
+    set Enabled = true
+    set Refinement factor = 2
+    set Max refinement level = 8
+    set Space pre-refinement cycles = 0
+    set Space post-refinement cycles = 0
+  end
+end

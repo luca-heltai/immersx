@@ -151,9 +151,11 @@ the analytical reference volume in energies.csv. Refine the solid mesh and
 check this geometry error as well as solution errors.
 
 The implementation rejects branching, curved, disconnected, nonuniform-radius,
-partly uncovered, or heterogeneously stiff/damped interiors. The solid must be
-conforming, with prescribed-value constraints only; hanging-node and periodic
-constraints are currently rejected. Coverage is checked
+partly uncovered, or heterogeneously stiff/damped interiors. Hanging-node
+constraints and prescribed
+boundary values are supported; other multipoint constraints are rejected.
+Mesh constraints use the same condensation in the native solid operators and
+the modal moments. Coverage is checked
 at the existing wall quadrature points; it is not a proof of geometric
 containment between those points. Use a contained cylinder in a convex solid
 for the documented case. The correction has no new axial multiplier or vessel

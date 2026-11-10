@@ -23,6 +23,8 @@ GAUSS = ((0.5 * (1 - math.sqrt(3 / 5)), 5 / 18),
          (0.5, 4 / 9),
          (0.5 * (1 + math.sqrt(3 / 5)), 5 / 18))
 CASES = {
+    "local": "mms_cube_local", "local-refined": "mms_cube_local_refined",
+    "local-finer": "mms_cube_local_finer", "local-tight": "mms_cube_local_tight",
     "base": "mms_cube", "refined": "mms_cube_refined",
     "finer": "mms_cube_finer", "finer-original": "mms_cube_finer_original_pairing",
     "tight": "mms_cube_tight",
@@ -239,6 +241,16 @@ def assess(directory, radial=False):
                     "absolute_error": abs(diagnostics[column]-exact[target]),
                     "relative_error": abs((diagnostics[column]-exact[target])/exact[target])}
 
+    mesh_report = directory/"flow"/"co_refinement.csv"
+    if mesh_report.exists():
+        with mesh_report.open() as stream:
+            rows = list(csv.DictReader(stream))
+        result["co_refinement"] = {
+            "active_cells_by_level": {
+                row["level"]: int(row["active_cells"]) for row in rows},
+            "solid_dofs": int(rows[0]["solid_dofs"]),
+            "hanging_dofs": int(rows[0]["hanging_dofs"]),
+        }
     return result
 
 
@@ -257,8 +269,8 @@ def main():
         parser.error("--mpi-ranks must be positive")
     launcher = None
     if args.run and args.mpi_ranks > 1:
-        if any(case not in {"finer", "finer-original", "iterative", "mpi"} for case in args.cases):
-            parser.error("MPI requires iterative inputs; select finer, finer-original, iterative or mpi cases")
+        if any(case not in {"finer", "finer-original", "iterative", "mpi", "local-finer"} for case in args.cases):
+            parser.error("MPI requires iterative inputs; select finer, finer-original, iterative, mpi or local-finer cases")
         launcher = shutil.which("mpirun") or shutil.which("mpiexec")
         if launcher is None:
             parser.error("MPI execution requires mpirun or mpiexec from the matching MPI installation")
@@ -310,7 +322,8 @@ def main():
             report["failures"][case] = str(error)
         (output/"report.json").write_text(json.dumps(report, indent=2, allow_nan=False)+"\n")
     report["spatial_log2_error_reductions"] = {}
-    for coarse, fine in (("base", "refined"), ("refined", "finer")):
+    for coarse, fine in (("base", "refined"), ("refined", "finer"),
+                         ("local", "local-refined"), ("local-refined", "local-finer")):
         if coarse in report["cases"] and fine in report["cases"]:
             values = {}
             for label, section, field in (

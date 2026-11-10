@@ -320,9 +320,17 @@ namespace ImmersX
     bool
     state_is_finite() const;
 
+    /** Refine the spatial mesh before setup_system() distributes DoFs. */
+    dealii::parallel::TriangulationBase<dim, spacedim> &
+    triangulation();
+
     /** Return the distributed mesh. */
     const dealii::parallel::TriangulationBase<dim, spacedim> &
     triangulation() const;
+
+    /** Homogeneous mesh constraints, without prescribed boundary values. */
+    const dealii::AffineConstraints<double> &
+    hanging_node_constraints() const;
 
     /** Return the vector-valued finite element. */
     const dealii::FiniteElement<dim, spacedim> &
@@ -352,11 +360,16 @@ namespace ImmersX
     const dealii::IndexSet &
     locally_relevant_dofs() const;
 
-    /** Return the consistent mass operator. */
+    /** Return the consistent mass operator with mesh slaves eliminated.
+     * Prescribed-value boundary columns remain. Hanging-node rows and columns
+     * are zero; adapter unknowns on these rows are zero, while physical state
+     * and output reconstruct their values using hanging_node_constraints().
+     */
     const MatrixType &
     mass_matrix() const;
 
-    /** Return the linear isotropic elasticity stiffness operator. */
+    /** Return the stiffness operator with the same mesh condensation as mass.
+     */
     const MatrixType &
     stiffness_matrix() const;
 

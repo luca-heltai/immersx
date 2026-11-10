@@ -180,6 +180,116 @@ namespace
   }
 } // namespace
 
+TEST(ElastodynamicsAdapterMMS, BOTH_LocalAffineMovingBoundary)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  initialize_parameters_from_string(R"(
+    subsection Elastodynamics
+      set Dirichlet boundary ids = 0,1,2,3
+      subsection Domain
+        set Initial refinement = 1
+        set Grid generator = hyper_cube
+        set Grid generator arguments = 0: 1: true
+        set Triangulation type = distributed
+      end
+      subsection Material properties
+        subsection default
+          set Density = 1
+          set Lame mu = 1
+          set Lame lambda = 2
+          set Rayleigh alpha = 0
+          set Rayleigh beta = 0.2
+          set Viscosity eta = 0.1
+        end
+      end
+      subsection Time interval
+        set Initial time = 0.1
+        set Final time = 0.13
+        set Output time interval = 0.01
+      end
+      subsection IDA
+        subsection Running parameters
+          set Initial step size = 0.0001
+          set Maximum order of BDF = 2
+        end
+        subsection Error control
+          set Absolute error tolerance = 1e-10
+          set Relative error tolerance = 1e-9
+        end
+      end
+      subsection Functions
+        subsection Body force
+          set Function expression = 2*(1+x); 0
+        end
+        subsection Displacement boundary
+          set Function expression = t*t*(1+x); 0
+        end
+        subsection Velocity boundary
+          set Function expression = 2*t*(1+x); 0
+        end
+        subsection Initial displacement
+          set Function expression = 0.01*(1+x); 0
+        end
+        subsection Initial velocity
+          set Function expression = 0.2*(1+x); 0
+        end
+        subsection Exact solution
+          set Function expression = t*t*(1+x); 0
+        end
+      end
+    end
+  )");
+  Problem problem(parameters);
+  problem.make_grid();
+  auto &mesh = problem.triangulation();
+  mesh.set_mesh_smoothing(Triangulation<2>::limit_level_difference_at_vertices);
+  for (const auto &cell : mesh.active_cell_iterators())
+    if (cell->is_locally_owned() && cell->center()[0] < .5 &&
+        cell->center()[1] < .5)
+      cell->set_refine_flag();
+  mesh.execute_coarsening_and_refinement();
+  ASSERT_EQ(mesh.n_global_active_cells(), 7u);
+  problem.setup_fe();
+  problem.setup_system();
+  problem.assemble_operators();
+  problem.set_initial_conditions();
+  ASSERT_GT(
+    Utilities::MPI::sum(problem.hanging_node_constraints().n_constraints(),
+                        MPI_COMM_WORLD),
+    0u);
+  Adapter    adapter(parameters.time_parameters,
+                  parameters.ida_parameters,
+                  MPI_COMM_WORLD);
+  const auto fields    = adapter.add(problem, "local-affine");
+  auto       state     = adapter.make_state();
+  auto       state_dot = adapter.make_state();
+  initialize_elastodynamics_adapter_state(
+    adapter, fields, problem, state, state_dot);
+  for (const auto &line : problem.constraints().get_lines())
+    if (!line.entries.empty() &&
+        problem.locally_owned_dofs().is_element(line.index))
+      EXPECT_EQ(state.block(0)[line.index], 0.);
+  adapter.solve(state, state_dot);
+  problem.accept_state(state.block(0), state.block(1), .13, 1);
+  parameters.exact_solution.set_time(.13);
+  parameters.velocity_boundary.set_time(.13);
+  FieldVector expected;
+  expected.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+  VectorTools::interpolate(problem.mapping(),
+                           problem.dof_handler(),
+                           parameters.exact_solution,
+                           expected);
+  expected -= problem.displacement();
+  EXPECT_LT(expected.l2_norm(), 1.e-7);
+  VectorTools::interpolate(problem.mapping(),
+                           problem.dof_handler(),
+                           parameters.velocity_boundary,
+                           expected);
+  expected -= problem.velocity();
+  EXPECT_LT(expected.l2_norm(), 1.e-6);
+}
+
 TEST(ElastodynamicsAdapterMMS, StrongDirichletSpatialRegression)
 {
   const std::vector<Measurements> results = {

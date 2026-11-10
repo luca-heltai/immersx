@@ -400,6 +400,14 @@ namespace
       schur_materialization_limit,
       "Cache Schur columns up to this global multiplier size per Jacobian; zero keeps matrix-free inner actions.");
 
+    RefinementParameters<0> co_refinement(
+      "/MetricFlowX coupling/Co-refinement/");
+    bool enable_co_refinement = false;
+    co_refinement.add_parameter(
+      "Enabled",
+      enable_co_refinement,
+      "Refine the solid locally around physical reference-wall lift points before distributing solid DoFs.");
+
     ParameterAcceptor coupling("/MetricFlowX coupling/");
     bool              remove_fictitious_modes = false;
     coupling.add_parameter(
@@ -486,6 +494,13 @@ namespace
                 ExcMessage(
                   "Choose either an archived network or vascular generation."));
     const bool physical_network = archived_network || generate_network;
+    AssertThrow(
+      !enable_co_refinement ||
+        (!physical_network &&
+         solid_parameters.domain_parameters.triangulation_type ==
+           "distributed"),
+      ExcMessage(
+        "Lift support co-refinement currently requires native VTK flow input and a distributed solid triangulation."));
     if (archived_network)
       {
         auto path = std::filesystem::path(archive_parameters.directory);
@@ -717,14 +732,71 @@ namespace
     transfer.reset();
     const auto A0 = frozen(reference_field, reference_area);
 
+    const auto reference_radius = sqrt(A0 / numbers::PI);
+    const auto reference_wall =
+      lift(value(lambda), wall_lift, reference_radius);
+    if (enable_co_refinement)
+      {
+        std::vector<Point<3>> points;
+        std::vector<double>   scales;
+        for (const auto &point : reference_wall.lifted_points())
+          {
+            points.push_back(point.point);
+            scales.push_back(point.point.distance(point.representative_point));
+          }
+        // Island-removal smoothing can otherwise turn a local pass into
+        // uniform refinement. Retain the vertex level-difference condition.
+        solid_problem.triangulation().set_mesh_smoothing(
+          Triangulation<3>::limit_level_difference_at_vertices);
+        refine_space_around_points(solid_problem.triangulation(),
+                                   points,
+                                   scales,
+                                   co_refinement,
+                                   MPI_COMM_WORLD);
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout << "Lift support co-refinement: "
+                    << solid_problem.triangulation().n_global_active_cells()
+                    << " solid cells, "
+                    << solid_problem.triangulation().n_global_levels()
+                    << " levels." << std::endl;
+      }
     solid_problem.setup_system();
+    if (enable_co_refinement)
+      {
+        const auto               &mesh = solid_problem.triangulation();
+        std::vector<unsigned int> cells(mesh.n_global_levels(), 0);
+        unsigned int              hanging = 0;
+        for (const auto &cell : mesh.active_cell_iterators())
+          if (cell->is_locally_owned())
+            ++cells[cell->level()];
+        for (auto &count : cells)
+          count = Utilities::MPI::sum(count, MPI_COMM_WORLD);
+        for (const auto &line :
+             solid_problem.hanging_node_constraints().get_lines())
+          if (solid_problem.locally_owned_dofs().is_element(line.index))
+            ++hanging;
+        hanging            = Utilities::MPI::sum(hanging, MPI_COMM_WORLD);
+        const auto    rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+        std::ofstream mesh_report;
+        if (rank == 0)
+          mesh_report.open(std::filesystem::path(flow_output_directory) /
+                           "co_refinement.csv");
+        AssertThrow(Utilities::MPI::min(rank != 0 || mesh_report.good() ? 1u :
+                                                                          0u,
+                                        MPI_COMM_WORLD) == 1,
+                    ExcMessage("Cannot write co-refinement diagnostics."));
+        if (rank == 0)
+          {
+            mesh_report << "level,active_cells,solid_dofs,hanging_dofs\n";
+            for (unsigned int level = 0; level < cells.size(); ++level)
+              mesh_report << level << ',' << cells[level] << ','
+                          << solid_problem.n_dofs() << ',' << hanging << '\n';
+          }
+      }
     solid_problem.assemble_operators();
     solid_problem.set_initial_conditions();
     report_vessel_geometry(flow_problem.triangulation(), solid_problem);
 
-    const auto reference_radius = sqrt(A0 / numbers::PI);
-    const auto reference_wall =
-      lift(value(lambda), wall_lift, reference_radius);
     GridTools::Cache<3> tissue_cache(solid_problem.triangulation(),
                                      solid_problem.mapping());
     const auto          supports =

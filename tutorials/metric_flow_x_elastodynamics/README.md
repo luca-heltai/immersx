@@ -51,3 +51,11 @@ benchmark is outside the ordinary sequence.
 The MMS uses distinct radial and axial strains, nonzero solid viscosity and
 forcing, and source-free continuity. The radial case checks $h=0$; tight checks
 sensitivity to adaptive time tolerances. No convergence rate is assumed.
+
+The local MMS family starts from a 1×1×1 solid grid with zero initial refinement.
+Enable `/MetricFlowX coupling/Co-refinement/Enabled` to refine around the
+physical wall-lift supports. The group exposes the radius-based refinement
+factor, maximum level, global pre-refinement and local post-refinement cycles.
+The `local`, `local-refined` and `local-finer` cases add 0/1/2 local post passes;
+`local-tight` checks temporal tolerance sensitivity on the base local mesh.
+See the MMS derivation for commands and the mesh and error diagnostics.

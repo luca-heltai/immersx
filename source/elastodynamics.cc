@@ -568,8 +568,11 @@ namespace ImmersX
 
     if (update_displacement)
       {
-        displacement_constraints_storage.copy_from(
-          hanging_node_constraints_storage);
+        displacement_constraints_storage.clear();
+        displacement_constraints_storage.reinit(owned_dofs, relevant_dofs);
+        copy_constraints(hanging_node_constraints_storage,
+                         displacement_constraints_storage,
+                         0);
         par.displacement_boundary.set_time(time);
         for (const auto id : par.dirichlet_ids)
           VectorTools::interpolate_boundary_values(
@@ -584,8 +587,11 @@ namespace ImmersX
 
     if (refresh_velocity)
       {
-        velocity_constraints_storage.copy_from(
-          hanging_node_constraints_storage);
+        velocity_constraints_storage.clear();
+        velocity_constraints_storage.reinit(owned_dofs, relevant_dofs);
+        copy_constraints(hanging_node_constraints_storage,
+                         velocity_constraints_storage,
+                         0);
         par.velocity_boundary.set_time(time);
         for (const auto id : par.dirichlet_ids)
           VectorTools::interpolate_boundary_values(
@@ -634,6 +640,7 @@ namespace ImmersX
     hanging_node_constraints_storage.reinit(owned_dofs, relevant_dofs);
     DoFTools::make_hanging_node_constraints(dh,
                                             hanging_node_constraints_storage);
+    hanging_node_constraints_storage.close();
 
     const auto n_spatial_dofs = dh.n_dofs();
     combined_owned_dofs       = IndexSet(2 * n_spatial_dofs);
@@ -652,9 +659,10 @@ namespace ImmersX
     update_constraints(par.time_parameters.initial_time);
 
     DynamicSparsityPattern spatial_dsp(relevant_dofs);
+    // Retain prescribed-value columns while expanding mesh-slave couplings.
     DoFTools::make_sparsity_pattern(dh,
                                     spatial_dsp,
-                                    displacement_constraints_storage,
+                                    hanging_node_constraints_storage,
                                     true);
     SparsityTools::distribute_sparsity_pattern(spatial_dsp,
                                                owned_dofs,
@@ -751,8 +759,7 @@ namespace ImmersX
     homogeneous_stiffness_matrix_storage = 0.;
     homogeneous_damping_matrix_storage   = 0.;
 
-    AffineConstraints<double> no_constraints;
-    no_constraints.close();
+    const auto &mesh_constraints = hanging_node_constraints_storage;
 
     FEValues<dim, spacedim>          fe_values(*mapping_storage,
                                       *fe_storage,
@@ -821,15 +828,18 @@ namespace ImmersX
             }
 
           cell->get_dof_indices(local_dof_indices);
-          no_constraints.distribute_local_to_global(cell_mass,
-                                                    local_dof_indices,
-                                                    mass_matrix_storage);
-          no_constraints.distribute_local_to_global(cell_stiffness,
-                                                    local_dof_indices,
-                                                    stiffness_matrix_storage);
-          no_constraints.distribute_local_to_global(cell_damping,
-                                                    local_dof_indices,
-                                                    damping_matrix_storage);
+          mesh_constraints.distribute_local_to_global(cell_mass,
+                                                      local_dof_indices,
+                                                      local_dof_indices,
+                                                      mass_matrix_storage);
+          mesh_constraints.distribute_local_to_global(cell_stiffness,
+                                                      local_dof_indices,
+                                                      local_dof_indices,
+                                                      stiffness_matrix_storage);
+          mesh_constraints.distribute_local_to_global(cell_damping,
+                                                      local_dof_indices,
+                                                      local_dof_indices,
+                                                      damping_matrix_storage);
           displacement_constraints_storage.distribute_local_to_global(
             cell_mass,
             local_dof_indices,
@@ -891,8 +901,7 @@ namespace ImmersX
     Vector<double>                       rhs(n);
     std::vector<types::global_dof_index> indices(n);
     Functions::ZeroFunction<spacedim>    zero(spacedim);
-    AffineConstraints<double>            unconstrained;
-    unconstrained.close();
+    const auto &mesh_constraints = hanging_node_constraints_storage;
     par.robin_coefficient.set_time(time);
     unsigned int invalid = 0;
     for (const auto &cell : dh.active_cell_iterators())
@@ -923,9 +932,10 @@ namespace ImmersX
                   values, extractor, par.robin_coefficient, zero, matrix, rhs);
               }
           cell->get_dof_indices(indices);
-          unconstrained.distribute_local_to_global(matrix,
-                                                   indices,
-                                                   stiffness_matrix_storage);
+          mesh_constraints.distribute_local_to_global(matrix,
+                                                      indices,
+                                                      indices,
+                                                      stiffness_matrix_storage);
           displacement_constraints_storage.distribute_local_to_global(
             matrix, indices, indices, homogeneous_stiffness_matrix_storage);
         }
@@ -976,9 +986,8 @@ namespace ImmersX
     TimerOutput::Scope t(computing_timer, "Assemble body force");
     ++assembly_statistics_storage.body_force;
 
-    AffineConstraints<double> no_constraints;
-    no_constraints.close();
-    FEValues<dim, spacedim>          fe_values(*mapping_storage,
+    const auto             &mesh_constraints = hanging_node_constraints_storage;
+    FEValues<dim, spacedim> fe_values(*mapping_storage,
                                       *fe_storage,
                                       *quadrature,
                                       update_values | update_quadrature_points |
@@ -1021,7 +1030,7 @@ namespace ImmersX
                       }
 
                   cell->get_dof_indices(local_dof_indices);
-                  no_constraints.distribute_local_to_global(
+                  mesh_constraints.distribute_local_to_global(
                     cell_rhs, local_dof_indices, cached_volume_force);
                 }
           }
@@ -1061,7 +1070,7 @@ namespace ImmersX
                                            fe_face_values.JxW(q);
                           }
                       cell->get_dof_indices(local_dof_indices);
-                      no_constraints.distribute_local_to_global(
+                      mesh_constraints.distribute_local_to_global(
                         cell_rhs, local_dof_indices, cached_traction_force);
                     }
           }
@@ -1093,9 +1102,9 @@ namespace ImmersX
                                                             cell_rhs);
                   }
               cell->get_dof_indices(local_dof_indices);
-              no_constraints.distribute_local_to_global(cell_rhs,
-                                                        local_dof_indices,
-                                                        cached_robin_force);
+              mesh_constraints.distribute_local_to_global(cell_rhs,
+                                                          local_dof_indices,
+                                                          cached_robin_force);
             }
         robin_detail::assert_valid_boundary_data(invalid, mpi_communicator);
         cached_robin_force.compress(VectorOperation::add);
@@ -1835,6 +1844,20 @@ namespace ImmersX
            std::isfinite(velocity_storage.l2_norm());
   }
 
+
+  template <int dim, int spacedim>
+  parallel::TriangulationBase<dim, spacedim> &
+  ElastodynamicsSolver<dim, spacedim>::triangulation()
+  {
+    return *tria;
+  }
+
+  template <int dim, int spacedim>
+  const AffineConstraints<double> &
+  ElastodynamicsSolver<dim, spacedim>::hanging_node_constraints() const
+  {
+    return hanging_node_constraints_storage;
+  }
 
   template <int dim, int spacedim>
   const parallel::TriangulationBase<dim, spacedim> &

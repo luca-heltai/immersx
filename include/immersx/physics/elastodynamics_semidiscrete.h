@@ -214,6 +214,22 @@ namespace ImmersX
     typename ElastodynamicsSolver<dim, spacedim>::VectorType acceleration;
     problem.initial_acceleration(acceleration);
     adapter.field(state_dot, fields.fields().velocity) = acceleration;
+    // Mesh slaves are eliminated from the algebraic system. FE evaluation and
+    // accepted-state output reconstruct them from their unconstrained masters.
+    const auto zero_mesh_slaves = [](auto &vector, const auto &constraints) {
+      for (const auto &line : constraints.get_lines())
+        if (!line.entries.empty() &&
+            vector.locally_owned_elements().is_element(line.index))
+          vector[line.index] = 0.;
+    };
+    zero_mesh_slaves(adapter.field(state, fields.fields().displacement),
+                     problem.constraints());
+    zero_mesh_slaves(adapter.field(state, fields.fields().velocity),
+                     problem.velocity_constraints());
+    zero_mesh_slaves(adapter.field(state_dot, fields.fields().displacement),
+                     problem.constraints());
+    zero_mesh_slaves(adapter.field(state_dot, fields.fields().velocity),
+                     problem.velocity_constraints());
   }
 } // namespace ImmersX
 
