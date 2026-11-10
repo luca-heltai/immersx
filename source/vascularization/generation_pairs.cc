@@ -67,11 +67,12 @@ namespace ImmersX::Vascularization::internal
         fail(invalid_id, "Terminal pairing failed on another process.");
       return all;
     };
-    const auto triple_controls =
-      std::make_pair(p.compartment_resistances,
-                     std::make_pair(std::make_pair(p.portal.enabled,
-                                                   p.portal_flow_fraction),
-                                    p.reference_flow_distribution));
+    const auto triple_controls = std::make_pair(
+      p.compartment_resistances,
+      std::make_pair(
+        std::make_pair(p.portal.enabled, p.portal_flow_fraction),
+        std::make_pair(p.reference_flow_distribution,
+                       p.scale_compartment_resistances_by_demand)));
     for (const auto &other : Utilities::MPI::all_gather(comm, triple_controls))
       if (other != triple_controls)
         fail(invalid_id,
@@ -326,6 +327,19 @@ namespace ImmersX::Vascularization::internal
                 id,
                 "A design terminal pressure must have one authoritative owner.");
       }
+    double mean_demand = 0.;
+    if (p.scale_compartment_resistances_by_demand)
+      {
+        for (const auto &[id, endpoints] : paired)
+          mean_demand += endpoints[0].demand;
+        mean_demand = Utilities::MPI::sum(mean_demand, comm) /
+                      Utilities::MPI::sum(static_cast<Id>(paired.size()), comm);
+        if (!(mean_demand > 0.) || !std::isfinite(mean_demand))
+          fail(invalid_id,
+               "The mean new-territory demand must be positive and finite.");
+      }
+    if (!valid())
+      return;
     for (const auto &[id, endpoints] : paired)
       {
         const auto &a = endpoints[0], &v = endpoints[1], &portal = endpoints[2];
@@ -359,6 +373,9 @@ namespace ImmersX::Vascularization::internal
                          (pp - pt) / portal.desired,
                          (pt - pv) / v.desired}};
               }
+            if (p.scale_compartment_resistances_by_demand)
+              for (double &arm : arms)
+                arm *= mean_demand / a.demand;
             for (const double arm : arms)
               if (!std::isfinite(arm) || !(arm > 0.))
                 fail(id, "Microvascular arms must be positive and finite.");
