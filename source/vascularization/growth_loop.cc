@@ -220,7 +220,7 @@ namespace ImmersX::Vascularization::internal
                "Integrated growth requires a complete demand transaction."))
       return run;
     const auto controls = std::make_pair(
-      std::array<double, 10>{{static_cast<double>(terminal_count),
+      std::array<double, 11>{{static_cast<double>(terminal_count),
                               static_cast<double>(p.random_seed),
                               static_cast<double>(p.sample_budget),
                               static_cast<double>(p.candidate_count),
@@ -229,7 +229,8 @@ namespace ImmersX::Vascularization::internal
                               p.terminal_weight_bound,
                               static_cast<double>(system),
                               companion.terminal_separation,
-                              has_demand_callbacks ? 1. : 0.}},
+                              has_demand_callbacks ? 1. : 0.,
+                              static_cast<double>(p.enforce_geometry)}},
       std::array<std::string, 2>{{p.terminal_weight, p.tissue_demand}});
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
@@ -251,11 +252,15 @@ namespace ImmersX::Vascularization::internal
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
     const double clearance_lower =
-      scale.physical_length(p.clearance, scale.minimum());
+      p.enforce_geometry ? scale.physical_length(p.clearance, scale.minimum()) :
+                           0.;
     const double broad_clearance =
-      scale.physical_length(p.clearance, scale.maximum());
+      p.enforce_geometry ? scale.physical_length(p.clearance, scale.maximum()) :
+                           0.;
     const double physical_minimum_radius =
-      scale.physical_length(p.minimum_radius, scale.minimum());
+      p.enforce_geometry ?
+        scale.physical_length(p.minimum_radius, scale.minimum()) :
+        0.;
     // Startup has established native topology and fixed physical radii only.
     // Assign all initial Di before the first Murray/flow/objective evaluation,
     // including a request satisfied by its initial leaves without insertions.
@@ -492,8 +497,33 @@ namespace ImmersX::Vascularization::internal
           id,
           Segment<3>{run.accepted.network.nodes.at(v.nodes[0]).position,
                      run.accepted.network.nodes.at(v.nodes[1]).position});
-    const auto initial_measures =
-      geometry.measure_segments(initial_segments, comm);
+    const auto measure = [&](const GrowthGeometrySegments &segments) {
+      if (p.enforce_geometry)
+        return geometry.measure_segments(segments, comm);
+      GrowthGeometryMeasures result;
+      bool                   valid = true;
+      // Unchecked drafts use a defined constant normalization, not a domain
+      // or wall certificate. Physical lengths and Murray radii stay in SI.
+      for (const auto &[id, segment] : segments)
+        {
+          const double length = segment.first.distance(segment.second);
+          valid               = valid && std::isfinite(length) && length > 0.;
+          for (const auto &point : {segment.first, segment.second})
+            for (unsigned int d = 0; d < 3; ++d)
+              valid = valid && std::isfinite(point[d]);
+          result.emplace(id,
+                         GrowthGeometryMeasure{length / scale.minimum(),
+                                               scale.minimum(),
+                                               0.,
+                                               true});
+        }
+      AssertThrow(
+        Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 1,
+        ExcMessage(
+          "Unchecked growth still requires finite positive physical segments."));
+      return result;
+    };
+    const auto      initial_measures = measure(initial_segments);
     GrowthExecution execution(
       run.accepted.network,
       run.accepted.physiology,
@@ -501,9 +531,7 @@ namespace ImmersX::Vascularization::internal
       1,
       geometry,
       initial_measures,
-      [&](const GrowthGeometrySegments &segments) {
-        return geometry.measure_segments(segments, comm);
-      },
+      measure,
       [&](const GrowthGeometrySegments &segments) {
         geometry.release_profiles(segments);
       },

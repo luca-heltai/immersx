@@ -57,6 +57,12 @@ namespace ImmersX::Vascularization::internal
         valid,
         "Obstacle queries require one current accepted snapshot and producer."))
       return result;
+    if (!parameters.enforce_geometry)
+      {
+        for (const auto &[id, context] : contexts)
+          result.covered_ancestors.emplace(id, std::set<Id>{});
+        return result;
+      }
     new_demand = Utilities::MPI::broadcast(comm, new_demand, producer);
     std::map<Id, GrowthCandidateRadii> radii;
     std::map<Id, Id>                   context_roots;

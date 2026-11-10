@@ -64,10 +64,11 @@ namespace ImmersX::Vascularization::internal
                       bool check_snapshot_obstacles)
   {
     auto *work = geometry.counts;
-    for (const auto &proposal : submitted)
-      count_work(work,
-                 GrowthOperation::certified_vessels,
-                 proposal.changed.size());
+    if (parameters.enforce_geometry)
+      for (const auto &proposal : submitted)
+        count_work(work,
+                   GrowthOperation::certified_vessels,
+                   proposal.changed.size());
     auto       local = submitted;
     const Rank rank  = Utilities::MPI::this_mpi_process(comm),
                size  = Utilities::MPI::n_mpi_processes(comm);
@@ -85,12 +86,13 @@ namespace ImmersX::Vascularization::internal
         valid = validate_data(network, size).valid();
       }
     const auto controls = std::make_pair(
-      std::array<double, 6>{{parameters.clearance,
+      std::array<double, 7>{{parameters.clearance,
                              parameters.minimum_length,
                              parameters.minimum_radius,
                              parameters.minimum_angle,
                              static_cast<double>(parameters.geometry_depth),
-                             static_cast<double>(parameters.geometry_work)}},
+                             static_cast<double>(parameters.geometry_work),
+                             static_cast<double>(parameters.enforce_geometry)}},
       parameters.length_scale);
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
@@ -102,15 +104,19 @@ namespace ImmersX::Vascularization::internal
       parameters.minimum_radius >= 0. &&
       std::isfinite(parameters.minimum_angle) &&
       parameters.minimum_angle >= 0. && parameters.minimum_angle <= 180. &&
-      parameters.geometry_depth <= 30 && parameters.geometry_work > 0;
+      (!parameters.enforce_geometry ||
+       (parameters.geometry_depth <= 30 && parameters.geometry_work > 0));
     AssertThrow(
       Utilities::MPI::min(static_cast<unsigned int>(valid), comm) == 1,
       ExcMessage("Malformed growth geometry controls or snapshot ownership."));
     geometry.configure_length_scale(parameters.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
     const double broad_clearance =
-      scale.physical_length(parameters.clearance, scale.maximum());
-    scale.physical_length(parameters.clearance, scale.minimum());
+      parameters.enforce_geometry ?
+        scale.physical_length(parameters.clearance, scale.maximum()) :
+        0.;
+    if (parameters.enforce_geometry)
+      scale.physical_length(parameters.clearance, scale.minimum());
     // A zero H denotes an exterior profile, never a fabricated mesh size.
     // Such generated proposals are ineligible; frozen exterior obstacles use
     // the generated branch's defined H in the symmetric pair maximum.
@@ -140,11 +146,14 @@ namespace ImmersX::Vascularization::internal
               {
                 const double length = e.points[0].distance(e.points[1]);
                 edge_valid          = std::isfinite(length) && length > 0.;
-                const auto box      = envelope_box(e, broad_clearance);
-                for (const auto &point : {box.get_boundary_points().first,
-                                          box.get_boundary_points().second})
-                  for (unsigned int d = 0; d < 3; ++d)
-                    edge_valid = edge_valid && std::isfinite(point[d]);
+                if (parameters.enforce_geometry)
+                  {
+                    const auto box = envelope_box(e, broad_clearance);
+                    for (const auto &point : {box.get_boundary_points().first,
+                                              box.get_boundary_points().second})
+                      for (unsigned int d = 0; d < 3; ++d)
+                        edge_valid = edge_valid && std::isfinite(point[d]);
+                  }
               }
             for (unsigned int end = 0; end < 2; ++end)
               {
@@ -182,7 +191,8 @@ namespace ImmersX::Vascularization::internal
     const ScopeExit release_trials(
       [&]() { geometry.release_profiles(segments); });
     std::map<Id, std::vector<BackgroundInterval>> profiles;
-    if (scale.policy == LengthScalePolicy::local_mesh_size)
+    if (parameters.enforce_geometry &&
+        scale.policy == LengthScalePolicy::local_mesh_size)
       profiles = geometry.crossings(segments, comm);
     std::map<Id, bool> normalized_valid;
     for (auto &proposal : local)
@@ -191,6 +201,11 @@ namespace ImmersX::Vascularization::internal
         normalized_valid[proposal.id] = true;
         for (const auto &edge : proposal.changed)
           {
+            if (!parameters.enforce_geometry)
+              {
+                proposal.clearance_scales[edge.id] = 0.;
+                continue;
+              }
             const double length = edge.points[0].distance(edge.points[1]);
             double       normalized_length = length / scale.minimum();
             double       normalized_radius = edge.radius / scale.minimum();
@@ -221,7 +236,8 @@ namespace ImmersX::Vascularization::internal
     std::map<Id, Segment<3>> obstacle_segments;
     const ScopeExit          release_obstacles(
       [&]() { geometry.release_profiles(obstacle_segments); });
-    if (check_snapshot_obstacles && parameters.clearance > 0.)
+    if (parameters.enforce_geometry && check_snapshot_obstacles &&
+        parameters.clearance > 0.)
       for (const auto &[id, vessel] : network.vessels)
         obstacle_segments.emplace(
           id,
@@ -273,55 +289,63 @@ namespace ImmersX::Vascularization::internal
                 port_points.push_back(p.normals.count(e.nodes[end]) != 0);
                 positions.push_back(e.points[end]);
               }
-            for (const auto &[box, target] :
-                 covering_tree | bgi::adaptors::queried(bgi::intersects(
-                                   envelope_box(e, broad_clearance))))
-              ranks.insert(target);
+            if (parameters.enforce_geometry)
+              for (const auto &[box, target] :
+                   covering_tree | bgi::adaptors::queried(bgi::intersects(
+                                     envelope_box(e, broad_clearance))))
+                ranks.insert(target);
           }
         ranges[p.id] = {begin, positions.size()};
-        for (const auto &[id, normal] : p.normals)
-          planes[p.id][id] = false;
+        if (parameters.enforce_geometry)
+          for (const auto &[id, normal] : p.normals)
+            planes[p.id][id] = false;
         for (Rank target : ranks)
           send[target].push_back(p);
       }
-    count_work(work, GrowthOperation::node_localizations, positions.size());
-    const auto matches =
-      GridTools::distributed_compute_point_locations(geometry.cache,
-                                                     positions,
-                                                     boxes);
-    // Native reference points are clamped; physical boundary tests must use
-    // an inverse map of the original physical point. Send both admissibility
-    // bits so each producer can select its ordinary/declared-port tolerance.
-    std::map<Rank, std::vector<std::pair<std::size_t, unsigned char>>>
-      strict_found;
-    for (std::size_t c = 0; c < std::get<0>(matches).size(); ++c)
-      for (std::size_t i = 0; i < std::get<2>(matches)[c].size(); ++i)
-        {
-          const auto &cell = std::get<0>(matches)[c];
-          try
+    if (parameters.enforce_geometry)
+      {
+        count_work(work, GrowthOperation::node_localizations, positions.size());
+        const auto matches =
+          GridTools::distributed_compute_point_locations(geometry.cache,
+                                                         positions,
+                                                         boxes);
+        // Native reference points are clamped; physical boundary tests must use
+        // an inverse map of the original physical point. Send both
+        // admissibility bits so each producer can select its
+        // ordinary/declared-port tolerance.
+        std::map<Rank, std::vector<std::pair<std::size_t, unsigned char>>>
+          strict_found;
+        for (std::size_t c = 0; c < std::get<0>(matches).size(); ++c)
+          for (std::size_t i = 0; i < std::get<2>(matches)[c].size(); ++i)
             {
-              const auto unit = geometry.mapping.transform_real_to_unit_cell(
-                cell, std::get<3>(matches)[c][i]);
-              const bool strict = reference_contains(cell, unit, 0.);
-              const bool port =
-                strict || reference_contains(cell, unit, 1.e-12);
-              const unsigned char mask = (strict ? 1 : 0) | (port ? 2 : 0);
-              if (mask)
-                strict_found[std::get<4>(matches)[c][i]].emplace_back(
-                  std::get<2>(matches)[c][i], mask);
+              const auto &cell = std::get<0>(matches)[c];
+              try
+                {
+                  const auto unit =
+                    geometry.mapping.transform_real_to_unit_cell(
+                      cell, std::get<3>(matches)[c][i]);
+                  const bool strict = reference_contains(cell, unit, 0.);
+                  const bool port =
+                    strict || reference_contains(cell, unit, 1.e-12);
+                  const unsigned char mask = (strict ? 1 : 0) | (port ? 2 : 0);
+                  if (mask)
+                    strict_found[std::get<4>(matches)[c][i]].emplace_back(
+                      std::get<2>(matches)[c][i], mask);
+                }
+              catch (const Mapping<3>::ExcTransformationFailed &)
+                {}
             }
-          catch (const Mapping<3>::ExcTransformationFailed &)
-            {}
-        }
-    const auto destinations = Utilities::MPI::some_to_some(comm, strict_found);
-    std::vector<bool> located(positions.size(), false);
-    for (const auto &[owner, indices] : destinations)
-      for (const auto &[index, mask] : indices)
-        located.at(index) =
-          located.at(index) || (mask & (port_points.at(index) ? 2 : 1));
-    for (const auto &[id, range] : ranges)
-      for (std::size_t i = range.first; i < range.second; ++i)
-        eligible[id] = eligible[id] && located[i];
+        const auto destinations =
+          Utilities::MPI::some_to_some(comm, strict_found);
+        std::vector<bool> located(positions.size(), false);
+        for (const auto &[owner, indices] : destinations)
+          for (const auto &[index, mask] : indices)
+            located.at(index) =
+              located.at(index) || (mask & (port_points.at(index) ? 2 : 1));
+        for (const auto &[id, range] : ranges)
+          for (std::size_t i = range.first; i < range.second; ++i)
+            eligible[id] = eligible[id] && located[i];
+      }
     const auto received = Utilities::MPI::some_to_some(comm, send);
     std::map<ProposalKey, BatchProposal> proposals;
     for (const auto &[producer, items] : received)
@@ -331,7 +355,7 @@ namespace ImmersX::Vascularization::internal
     using Leaf = std::pair<Segment<3>, Id>;
     std::vector<Leaf> leaves;
     double            max_radius = 0.;
-    if (check_snapshot_obstacles)
+    if (parameters.enforce_geometry && check_snapshot_obstacles)
       for (const auto &[id, v] : network.vessels)
         {
           leaves.emplace_back(Segment<3>(network.nodes.at(v.nodes[0]).position,
@@ -374,73 +398,77 @@ namespace ImmersX::Vascularization::internal
                            p.normals.count(node) &&
                            n->second.inward_port_normal == p.normals.at(node);
             }
-        for (std::size_t i = 0; i < p.changed.size(); ++i)
-          {
-            const auto             &e = p.changed[i];
-            std::array<Point<3>, 2> normals;
-            for (unsigned int end = 0; end < 2; ++end)
-              if (p.normals.count(e.nodes[end]))
-                {
-                  normals[end] = p.normals.at(e.nodes[end]);
-                  vote.planes[e.nodes[end]] =
-                    vote.planes[e.nodes[end]] ||
-                    geometry.planar_section(
-                      e.points[end], normalized_port_normal(normals[end]));
-                }
-            vote.valid =
-              vote.valid &&
-              geometry.boundary_separated(
-                {e.points[0], e.points[1]},
-                e.radius + physical_clearance(p.clearance_scales.at(e.id)),
-                parameters.geometry_depth,
-                parameters.geometry_work,
-                normals);
-            for (std::size_t j = 0; j < i; ++j)
+        if (parameters.enforce_geometry)
+          for (std::size_t i = 0; i < p.changed.size(); ++i)
+            {
+              const auto             &e = p.changed[i];
+              std::array<Point<3>, 2> normals;
+              for (unsigned int end = 0; end < 2; ++end)
+                if (p.normals.count(e.nodes[end]))
+                  {
+                    normals[end] = p.normals.at(e.nodes[end]);
+                    vote.planes[e.nodes[end]] =
+                      vote.planes[e.nodes[end]] ||
+                      geometry.planar_section(
+                        e.points[end], normalized_port_normal(normals[end]));
+                  }
               vote.valid =
                 vote.valid &&
-                compatible(e,
-                           p.changed[j],
-                           parameters.minimum_angle,
-                           physical_clearance(
-                             std::max(p.clearance_scales.at(e.id),
-                                      p.clearance_scales.at(p.changed[j].id))),
-                           work);
-            count_work(work, GrowthOperation::network_index_queries);
-            for (const auto &[s, id] :
-                 obstacles | bgi::adaptors::queried(bgi::intersects(
-                               envelope_box(e, broad_clearance + max_radius))))
-              {
-                count_work(work, GrowthOperation::network_index_hits);
-                if (check_snapshot_obstacles && !p.owners.count(id))
-                  {
-                    const auto &v = network.vessels.at(id);
-                    vote.valid    = vote.valid && [&]() {
-                      const auto profile = radii(id);
-                      return compatible(e,
-                                           {id,
-                                         v.nodes,
-                                         {{s.first, s.second}},
-                                         std::max(profile[0], profile[1])},
-                                        parameters.minimum_angle,
-                                        physical_clearance(
-                                          std::max(p.clearance_scales.at(e.id),
-                                                   parameters.clearance > 0. ?
-                                                        obstacle_scales.at(id) :
-                                                        0.)),
-                                           {{e.radius, e.radius}},
-                                        profile,
-                                        work);
-                    }();
-                  }
-              }
-          }
+                geometry.boundary_separated(
+                  {e.points[0], e.points[1]},
+                  e.radius + physical_clearance(p.clearance_scales.at(e.id)),
+                  parameters.geometry_depth,
+                  parameters.geometry_work,
+                  normals);
+              for (std::size_t j = 0; j < i; ++j)
+                vote.valid =
+                  vote.valid &&
+                  compatible(e,
+                             p.changed[j],
+                             parameters.minimum_angle,
+                             physical_clearance(std::max(
+                               p.clearance_scales.at(e.id),
+                               p.clearance_scales.at(p.changed[j].id))),
+                             work);
+              count_work(work, GrowthOperation::network_index_queries);
+              for (const auto &[s, id] :
+                   obstacles |
+                     bgi::adaptors::queried(bgi::intersects(
+                       envelope_box(e, broad_clearance + max_radius))))
+                {
+                  count_work(work, GrowthOperation::network_index_hits);
+                  if (check_snapshot_obstacles && !p.owners.count(id))
+                    {
+                      const auto &v = network.vessels.at(id);
+                      vote.valid    = vote.valid && [&]() {
+                        const auto profile = radii(id);
+                        return compatible(e,
+                                             {id,
+                                           v.nodes,
+                                           {{s.first, s.second}},
+                                           std::max(profile[0], profile[1])},
+                                          parameters.minimum_angle,
+                                          physical_clearance(std::max(
+                                            p.clearance_scales.at(e.id),
+                                            parameters.clearance > 0. ?
+                                                 obstacle_scales.at(id) :
+                                                 0.)),
+                                             {{e.radius, e.radius}},
+                                          profile,
+                                          work);
+                      }();
+                    }
+                }
+            }
       }
     std::vector<std::pair<BoundingBox<3>, ProposalKey>> changed_boxes;
     std::map<Id, std::set<ProposalKey>> vessel_writers, node_writers;
     for (const auto &[key, proposal] : proposals)
       for (const auto &edge : proposal.changed)
         {
-          changed_boxes.emplace_back(envelope_box(edge, broad_clearance), key);
+          if (parameters.enforce_geometry)
+            changed_boxes.emplace_back(envelope_box(edge, broad_clearance),
+                                       key);
           vessel_writers[edge.id].insert(key);
           for (Id node : edge.nodes)
             node_writers[node].insert(key);
@@ -455,13 +483,16 @@ namespace ImmersX::Vascularization::internal
         std::set<ProposalKey> nearby;
         for (const auto &edge : proposal.changed)
           {
-            count_work(work, GrowthOperation::network_index_queries);
-            for (const auto &[box, key] :
-                 changed_tree | bgi::adaptors::queried(bgi::intersects(
-                                  envelope_box(edge, broad_clearance))))
+            if (parameters.enforce_geometry)
               {
-                count_work(work, GrowthOperation::network_index_hits);
-                nearby.insert(key);
+                count_work(work, GrowthOperation::network_index_queries);
+                for (const auto &[box, key] :
+                     changed_tree | bgi::adaptors::queried(bgi::intersects(
+                                      envelope_box(edge, broad_clearance))))
+                  {
+                    count_work(work, GrowthOperation::network_index_hits);
+                    nearby.insert(key);
+                  }
               }
             // Identifier conflicts and shared-junction angles remain relevant
             // independently of the provisional geometric descriptions.
@@ -481,13 +512,14 @@ namespace ImmersX::Vascularization::internal
               for (const auto &e : proposal.changed)
                 for (const auto &f : other.changed)
                   if (e.id == f.id ||
-                      !compatible(e,
-                                  f,
-                                  parameters.minimum_angle,
-                                  physical_clearance(
-                                    std::max(proposal.clearance_scales.at(e.id),
-                                             other.clearance_scales.at(f.id))),
-                                  work))
+                      (parameters.enforce_geometry &&
+                       !compatible(e,
+                                   f,
+                                   parameters.minimum_angle,
+                                   physical_clearance(std::max(
+                                     proposal.clearance_scales.at(e.id),
+                                     other.clearance_scales.at(f.id))),
+                                   work)))
                     conflict = true;
               if (conflict)
                 {

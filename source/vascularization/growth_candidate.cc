@@ -85,8 +85,11 @@ namespace ImmersX::Vascularization::internal
                    c     = junction.distance(terminal);
       const double guard = 64. * std::numeric_limits<double>::epsilon() *
                            std::max({1., junction.norm(), terminal.norm()});
-      if (std::min({a, b, c}) <= guard ||
-          std::min({a, b, c}) < parameters.minimum_length * x.minimum_scale)
+      if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c) ||
+          std::min({a, b, c}) <= 0. ||
+          (parameters.enforce_geometry &&
+           (std::min({a, b, c}) <= guard ||
+            std::min({a, b, c}) < parameters.minimum_length * x.minimum_scale)))
         return {};
       const long double exponent         = 2.L / x.murray_exponent;
       const long double viscous_exponent = 2.L - 4.L / x.murray_exponent;
@@ -150,8 +153,9 @@ namespace ImmersX::Vascularization::internal
         return {};
       if (!std::isfinite(root.volume_length) || root.volume_length <= 0. ||
           !std::isfinite(root.minimum_ratio) || root.minimum_ratio <= 0. ||
-          x.root_radius * root.minimum_ratio <
-            parameters.minimum_radius * x.minimum_scale)
+          (parameters.enforce_geometry &&
+           x.root_radius * root.minimum_ratio <
+             parameters.minimum_radius * x.minimum_scale))
         return {};
       GrowthCandidate p;
       p.vessel                 = selected.edge.id;
@@ -221,7 +225,7 @@ namespace ImmersX::Vascularization::internal
       for (const auto &edge : p.changed)
         if (!std::isfinite(edge.radius) || edge.radius <= 0.)
           return {};
-      if (!geometry(p.changed))
+      if (parameters.enforce_geometry && !geometry(p.changed))
         return {};
       return p;
     }
@@ -274,8 +278,11 @@ namespace ImmersX::Vascularization::internal
                  c     = junction.distance(terminal);
     const double guard = 64. * std::numeric_limits<double>::epsilon() *
                          std::max({1., junction.norm(), terminal.norm()});
-    if (std::min({a, b, c}) <= guard ||
-        std::min({a, b, c}) < parameters.minimum_length * x.minimum_scale)
+    if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c) ||
+        std::min({a, b, c}) <= 0. ||
+        (parameters.enforce_geometry &&
+         (std::min({a, b, c}) <= guard ||
+          std::min({a, b, c}) < parameters.minimum_length * x.minimum_scale)))
       return {};
     const auto sum = [&](double power, double original, bool viscous) {
       const double mu = viscous ? selected.viscosity : 1.;
@@ -333,8 +340,9 @@ namespace ImmersX::Vascularization::internal
              std::pow(demand / (total + w), 1. / x.murray_exponent);
     };
     const double smallest_leaf = radius(std::min(x.minimum_demand, w));
-    if (!(smallest_leaf > 0.) ||
-        smallest_leaf < parameters.minimum_radius * x.minimum_scale)
+    if (!(smallest_leaf > 0.) || !std::isfinite(smallest_leaf) ||
+        (parameters.enforce_geometry &&
+         smallest_leaf < parameters.minimum_radius * x.minimum_scale))
       return {};
     const auto &nodes = selected.edge.nodes;
     p.changed         = {{p.vessel,
@@ -361,7 +369,7 @@ namespace ImmersX::Vascularization::internal
             p.changed.push_back(edge);
           }
       }
-    if (!geometry(p.changed))
+    if (parameters.enforce_geometry && !geometry(p.changed))
       return {};
     return p;
   }
