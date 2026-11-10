@@ -407,9 +407,10 @@ physical-vtk/venous.pvtu
 Open each PVTU with its referenced VTU pieces present. These files preserve
 physical vessel endpoint traces; they accompany the accepted `network/`
 archive. On failure, the same three roles are written under
-`invalid-result/` and must not be treated as an accepted archive. If generation
-throws before returning a network, the diagnostic fallback contains only the
-imported input; the log identifies this case explicitly.
+`invalid-result/` and must not be treated as an accepted archive. Before
+generation starts, `initial-input/` saves the three imported networks.
+If generation throws or a run stops before returning a network, these input
+snapshots remain available; they contain no intermediate grown state.
 
 The new profile targets are approximately 100k, 1M and 10M total coupled DoFs.
 Count displacement, velocity, native flow and multiplier blocks after

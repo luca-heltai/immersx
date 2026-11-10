@@ -321,27 +321,18 @@ main(int argc, char **argv)
         mapping = std::make_unique<MappingFE<3>>(FE_SimplexP<3>(1));
       else if (reference_cell->is_hyper_cube())
         mapping = std::make_unique<MappingQ1<3>>();
+      V::write_diagnostic_vtk(
+        std::filesystem::path(settings.output_directory) / "initial-input",
+        initial,
+        V::validate_data(initial, Utilities::MPI::n_mpi_processes(comm)),
+        comm);
+      if (rank == 0)
+        std::cout << "Initial input VTK: " << settings.output_directory
+                  << "/initial-input/" << std::endl;
       V::GenerationResult result;
       if (settings.companion_checkpoint.empty())
-        {
-          try
-            {
-              result = V::generate(domain.triangulation(),
-                                   *mapping,
-                                   initial,
-                                   settings.growth,
-                                   comm);
-            }
-          catch (const std::exception &error)
-            {
-              result.network = initial;
-              result.validation.issues.push_back(
-                {"generation exception",
-                 V::invalid_id,
-                 std::string(error.what()) +
-                   " No intermediate growth state is available; diagnostic VTK contains only the imported input."});
-            }
-        }
+        result = V::generate(
+          domain.triangulation(), *mapping, initial, settings.growth, comm);
       else
         {
           AssertThrow(
