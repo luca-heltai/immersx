@@ -366,13 +366,14 @@ main(int argc, char **argv)
                   << ": " << issue.message << '\n';
       const bool growth_valid =
         Utilities::MPI::min(result.validation.valid() ? 1u : 0u, comm) == 1;
+      V::write_diagnostic_vtk(std::filesystem::path(settings.output_directory) /
+                                (growth_valid ? "physical-vtk" :
+                                                "invalid-result"),
+                              result.network,
+                              result.validation,
+                              comm);
       if (!growth_valid)
         {
-          V::write_diagnostic_vtk(
-            std::filesystem::path(settings.output_directory) / "invalid-result",
-            result.network,
-            result.validation,
-            comm);
           DataOut<3> background;
           background.attach_triangulation(domain.triangulation());
           background.build_patches(*mapping);
