@@ -89,7 +89,8 @@ namespace ImmersX::Vascularization::internal
                                  companion.seed_radius,
                                  companion.murray_exponent,
                                  companion.terminal_separation,
-                                 companion.microvascular_resistance};
+                                 companion.microvascular_resistance,
+                                 static_cast<double>(p.enforce_geometry)};
     for (const auto &point :
          {companion.seed_position, companion.seed_inward_port_normal})
       for (unsigned int d = 0; d < 3; ++d)
@@ -113,12 +114,17 @@ namespace ImmersX::Vascularization::internal
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
     const double minimum_radius =
-      scale.physical_length(p.minimum_radius, scale.minimum());
-    const double halo = scale.physical_length(p.clearance, scale.maximum());
+      p.enforce_geometry ?
+        scale.physical_length(p.minimum_radius, scale.minimum()) :
+        0.;
+    const double halo      = p.enforce_geometry ?
+                               scale.physical_length(p.clearance, scale.maximum()) :
+                               0.;
     unsigned int available = 0;
     for (const auto &[id, t] : network.terminals)
       if (t.owner == rank && t.system == system &&
-          geometry.containing(network.nodes.at(t.node).position))
+          (!p.enforce_geometry ||
+           geometry.containing(network.nodes.at(t.node).position)))
         ++available;
     if (Utilities::MPI::sum(available, comm) > 0)
       return result;
@@ -127,7 +133,7 @@ namespace ImmersX::Vascularization::internal
         {"companion outlet", invalid_id, message});
     };
     if (!(companion.seed_radius > 0.) || !(p.viscosity > 0.) ||
-        companion.seed_radius < minimum_radius)
+        (p.enforce_geometry && companion.seed_radius < minimum_radius))
       {
         fail(
           "A new companion outlet requires an explicit admissible positive radius and dynamic viscosity.");
@@ -138,13 +144,15 @@ namespace ImmersX::Vascularization::internal
     const bool containing = static_cast<bool>(
       geometry.containing(companion.seed_position,
                           normal.norm_square() > 0. ? 1.e-12 : 0.));
-    const Rank source = Utilities::MPI::min(containing ? rank : size, comm);
+    Rank source = Utilities::MPI::min(containing ? rank : size, comm);
+    if (!p.enforce_geometry && source == size)
+      source = 0;
     if (source == size)
       {
         fail("Companion outlet position is outside the background.");
         return result;
       }
-    if (normal.norm_square() > 0. &&
+    if (p.enforce_geometry && normal.norm_square() > 0. &&
         Utilities::MPI::max(static_cast<unsigned int>(geometry.planar_section(
                               companion.seed_position, normal)),
                             comm) == 0)
@@ -193,6 +201,12 @@ namespace ImmersX::Vascularization::internal
                   BackgroundGeometry             *shared_geometry)
   {
     using namespace dealii;
+    const auto geometry_mode = static_cast<unsigned int>(p.enforce_geometry);
+    const auto geometry_min  = Utilities::MPI::min(geometry_mode, comm);
+    const auto geometry_max  = Utilities::MPI::max(geometry_mode, comm);
+    AssertThrow(geometry_min == geometry_max,
+                ExcMessage(
+                  "Companion startup requires matching geometry modes."));
     const auto &companion = companion_parameters(p, system);
     const Rank  rank      = Utilities::MPI::this_mpi_process(comm),
                size       = Utilities::MPI::n_mpi_processes(comm);
@@ -218,11 +232,17 @@ namespace ImmersX::Vascularization::internal
     auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
-    const double halo  = scale.physical_length(p.clearance, scale.maximum());
+    const double halo  = p.enforce_geometry ?
+                           scale.physical_length(p.clearance, scale.maximum()) :
+                           0.;
     const double minimum_radius =
-      scale.physical_length(p.minimum_radius, scale.minimum());
+      p.enforce_geometry ?
+        scale.physical_length(p.minimum_radius, scale.minimum()) :
+        0.;
     const double minimum_length =
-      scale.physical_length(p.minimum_length, scale.minimum());
+      p.enforce_geometry ?
+        scale.physical_length(p.minimum_length, scale.minimum()) :
+        0.;
     scale.physical_length(companion.terminal_separation, scale.minimum());
     scale.physical_length(companion.terminal_separation, scale.maximum());
     auto snapshot = redistribute_with_owners(
@@ -289,6 +309,7 @@ namespace ImmersX::Vascularization::internal
           {
             const auto &node = snapshot.nodes.at(t.node);
             const bool  interior =
+              !p.enforce_geometry ||
               static_cast<bool>(geometry.containing(node.position));
             if (requested.count(id) && !interior)
               fail(
@@ -309,7 +330,7 @@ namespace ImmersX::Vascularization::internal
             root.input_terminal = id;
             root.position       = node.position;
             root.properties     = snapshot.vessels.at(incoming.at(t.node)[0]);
-            if (root.properties.radii[1] < minimum_radius)
+            if (p.enforce_geometry && root.properties.radii[1] < minimum_radius)
               fail(
                 id,
                 "Fixed attachment radius is below the minimum admissible new radius.");
@@ -333,14 +354,15 @@ namespace ImmersX::Vascularization::internal
     for (auto &root : roots)
       {
         const auto cell = attachment_cells.find(root.start);
-        if (cell == attachment_cells.end())
+        if (cell == attachment_cells.end() && p.enforce_geometry)
           {
             fail(root.start,
                  "Companion seed attachment is outside the background.");
             continue;
           }
-        root.seed_length =
-          scale.physical_length(p.seed_length, cell->second.diameter);
+        const double h   = cell == attachment_cells.end() ? scale.minimum() :
+                                                            cell->second.diameter;
+        root.seed_length = scale.physical_length(p.seed_length, h);
         std::optional<Point<3>> preferred;
         if (root.input_terminal != invalid_id)
           preferred =
@@ -348,13 +370,15 @@ namespace ImmersX::Vascularization::internal
                      snapshot.nodes.at(root.properties.nodes[0]).position);
         else if (root.normal.norm_square() > 0.)
           preferred = root.normal;
-        root.seed_directions = initial_root_directions(root.position,
-                                                       cell->second.center,
-                                                       cell->second.vertices,
-                                                       {},
-                                                       preferred,
-                                                       nullptr,
-                                                       0.);
+        root.seed_directions = initial_root_directions(
+          root.position,
+          cell == attachment_cells.end() ? root.position : cell->second.center,
+          cell == attachment_cells.end() ? std::vector<Point<3>>{} :
+                                           cell->second.vertices,
+          {},
+          preferred,
+          nullptr,
+          0.);
       }
     if (!valid())
       return result;
@@ -405,8 +429,16 @@ namespace ImmersX::Vascularization::internal
       {
         const auto cell = tissue_cells.find(id);
         if (cell == tissue_cells.end())
-          fail(id,
-               "A common territory centre is outside the prepared background.");
+          {
+            if (p.enforce_geometry)
+              fail(
+                id,
+                "A common territory centre is outside the prepared background.");
+            else
+              separations[id] =
+                scale.physical_length(companion.terminal_separation,
+                                      scale.minimum());
+          }
         else
           separations[id] = scale.physical_length(companion.terminal_separation,
                                                   cell->second.diameter);
@@ -574,9 +606,11 @@ namespace ImmersX::Vascularization::internal
                                                 direction_length *
                                                 knee_direction;
             const auto end = root.position + end_direction;
-            if (root.position.distance(knee) < minimum_length ||
-                knee.distance(end) < minimum_length ||
-                !(knee.distance(end) > 0.))
+            if (!(root.position.distance(knee) > 0.) ||
+                !(knee.distance(end) > 0.) ||
+                (p.enforce_geometry &&
+                 (root.position.distance(knee) < minimum_length ||
+                  knee.distance(end) < minimum_length)))
               continue;
             BatchProposal proposal;
             proposal.id = id;

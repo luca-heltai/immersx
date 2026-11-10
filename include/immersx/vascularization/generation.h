@@ -105,6 +105,11 @@ namespace ImmersX::Vascularization
     /** Star-arm resistances in arterial, portal, venous order; zero derives
      * them. */
     std::array<double, 3> compartment_resistances{};
+    /** In network-resistance mode, multiply supplied arms by the mean new
+     * territory demand divided by the local demand. Equal demands retain the
+     * supplied per-bed resistances; otherwise conductance scales with demand.
+     */
+    bool scale_compartment_resistances_by_demand = false;
     /** Explicit port pressures, Robin data and optional loads on unpaired input
      * terminals.
      */
@@ -117,25 +122,30 @@ namespace ImmersX::Vascularization
     /** Zero retains a closed seed; otherwise declares a planar inlet section.
      */
     dealii::Point<3> seed_inward_port_normal;
-    double           seed_radius              = 0.;
-    double           seed_length              = 1.;
-    double           viscosity                = 0.;
-    double           clearance                = 0.;
-    unsigned int     geometry_depth           = 18;
-    unsigned int     geometry_work            = 100000;
-    unsigned int     terminal_count           = 1;
-    unsigned int     random_seed              = 1;
-    unsigned int     sample_budget            = 2000;
-    unsigned int     candidate_count          = 12;
-    unsigned int     optimization_steps       = 10;
-    double           arterial_murray_exponent = 3.;
-    double           minimum_radius           = 0.;
-    double           minimum_length           = .1;
-    double           minimum_angle            = 15.;
-    double           dissipation_weight       = 0.;
-    double           density_beta             = 3.;
-    std::string      terminal_weight          = "1";
-    double           terminal_weight_bound    = 1.;
+    double           seed_radius = 0.;
+    double           seed_length = 1.;
+    double           viscosity   = 0.;
+    double           clearance   = 0.;
+    /** Enforce geometric growth heuristics and wall/vessel admissibility.
+     * Disable to defer geometric repair while retaining positive finite
+     * hydraulic data, graph ownership and topology, and reference-flow checks.
+     */
+    bool         enforce_geometry         = true;
+    unsigned int geometry_depth           = 18;
+    unsigned int geometry_work            = 100000;
+    unsigned int terminal_count           = 1;
+    unsigned int random_seed              = 1;
+    unsigned int sample_budget            = 2000;
+    unsigned int candidate_count          = 12;
+    unsigned int optimization_steps       = 10;
+    double       arterial_murray_exponent = 3.;
+    double       minimum_radius           = 0.;
+    double       minimum_length           = .1;
+    double       minimum_angle            = 15.;
+    double       dissipation_weight       = 0.;
+    double       density_beta             = 3.;
+    std::string  terminal_weight          = "1";
+    double       terminal_weight_bound    = 1.;
     /** Relative tissue-demand density in x,y,z, integrated with physical JxW.
      */
     std::string tissue_demand = "1";
@@ -143,6 +153,12 @@ namespace ImmersX::Vascularization
      * Portal mode splits this total between arterial and portal supply.
      */
     double reference_flow = 0.;
+    /** Final reference flow policy: tissue demand matches each new terminal;
+     * network resistance checks only per-system totals, using supplied positive
+     * bed resistances and the explicit reference boundary conditions.
+     * Growth still uses demand-weighted design flows in either mode.
+     */
+    std::string reference_flow_distribution = "tissue demand";
     /** Multiply the initial count by one, global active cells or used vertices.
      * Calibration limits remain absolute terminal counts. */
     std::string terminal_count_multiplier_factor = "background cell count";
@@ -206,7 +222,8 @@ namespace ImmersX::Vascularization
     CalibrationReport             calibration;
     /** Actual coupled Poiseuille solution, evaluated with venous drainage. */
     ReferenceResult reference;
-    /** Desired m^3/s by NEW Terminal id, populated when reference_flow>0. */
+    /** Demand-weighted design m^3/s by NEW Terminal id when reference_flow>0.
+     * These are final constraints only for the tissue demand policy. */
     std::map<Id, double> target_terminal_flows;
     /** Desired m^3/s by NEW attachment Vessel id, using the same demand split.
      */

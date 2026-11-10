@@ -212,12 +212,13 @@ namespace ImmersX::Vascularization::internal
       valid = valid && mutable_owned.count(id);
     if (!phase(valid, "Invalid local ownership or split destination."))
       return result;
-    const std::array<double, 5> controls{
+    const std::array<double, 6> controls{
       {p.clearance,
        p.minimum_length,
        p.minimum_angle,
        static_cast<double>(p.geometry_depth),
-       static_cast<double>(p.geometry_work)}};
+       static_cast<double>(p.geometry_work),
+       static_cast<double>(p.enforce_geometry)}};
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
     if (!phase(valid,
@@ -235,7 +236,9 @@ namespace ImmersX::Vascularization::internal
       return result;
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
-    const double halo  = scale.physical_length(p.clearance, scale.maximum());
+    const double halo  = p.enforce_geometry ?
+                           scale.physical_length(p.clearance, scale.maximum()) :
+                           0.;
     std::map<unsigned int, std::vector<GrowthSplit>> send;
     for (const auto &s : local)
       send[s.owner].push_back(s);
@@ -291,49 +294,52 @@ namespace ImmersX::Vascularization::internal
     trial                        = migrate(
       bg, mapping, trial, ids, roots, halo, comm, changes, &geometry, work);
     result.redistribution_seconds += timer.wall_time() - migration_begin;
-    const double               certification_begin = timer.wall_time();
-    std::vector<BatchProposal> checks;
-    for (Id id : ids)
+    const double certification_begin = timer.wall_time();
+    if (p.enforce_geometry)
       {
-        const auto   &v = trial.vessels.at(id);
-        BatchProposal check;
-        check.id            = id;
-        check.owners[id]    = rank;
-        check.old_nodes[id] = v.nodes;
-        check.changed.push_back({id,
-                                 v.nodes,
-                                 {{trial.nodes.at(v.nodes[0]).position,
-                                   trial.nodes.at(v.nodes[1]).position}},
-                                 v.radii[0]});
-        for (Id node : v.nodes)
+        std::vector<BatchProposal> checks;
+        for (Id id : ids)
           {
-            const auto &n = trial.nodes.at(node);
-            if (std::max({std::abs(n.inward_port_normal[0]),
-                          std::abs(n.inward_port_normal[1]),
-                          std::abs(n.inward_port_normal[2])}) > 0.)
+            const auto   &v = trial.vessels.at(id);
+            BatchProposal check;
+            check.id            = id;
+            check.owners[id]    = rank;
+            check.old_nodes[id] = v.nodes;
+            check.changed.push_back({id,
+                                     v.nodes,
+                                     {{trial.nodes.at(v.nodes[0]).position,
+                                       trial.nodes.at(v.nodes[1]).position}},
+                                     v.radii[0]});
+            for (Id node : v.nodes)
               {
-                check.port_owners[node] = n.owner;
-                check.normals[node]     = n.inward_port_normal;
+                const auto &n = trial.nodes.at(node);
+                if (std::max({std::abs(n.inward_port_normal[0]),
+                              std::abs(n.inward_port_normal[1]),
+                              std::abs(n.inward_port_normal[2])}) > 0.)
+                  {
+                    check.port_owners[node] = n.owner;
+                    check.normals[node]     = n.inward_port_normal;
+                  }
               }
+            checks.push_back(std::move(check));
           }
-        checks.push_back(std::move(check));
+        const auto certified = select_growth_batch(
+          geometry,
+          trial,
+          checks,
+          p,
+          comm,
+          [&](Id id) { return trial.vessels.at(id).radii; },
+          true);
+        for (const auto &[id, accepted] : certified.local)
+          valid = valid && accepted;
+        const bool certified_all = phase(
+          valid,
+          "Joint radius normalization invalidates final vessel geometry; the entire batch was discarded.");
+        result.certification_seconds = timer.wall_time() - certification_begin;
+        if (!certified_all)
+          return result;
       }
-    const auto certified = select_growth_batch(
-      geometry,
-      trial,
-      checks,
-      p,
-      comm,
-      [&](Id id) { return trial.vessels.at(id).radii; },
-      true);
-    for (const auto &[id, accepted] : certified.local)
-      valid = valid && accepted;
-    const bool certified_all = phase(
-      valid,
-      "Joint radius normalization invalidates final vessel geometry; the entire batch was discarded.");
-    result.certification_seconds = timer.wall_time() - certification_begin;
-    if (!certified_all)
-      return result;
     result.committed         = true;
     result.network           = std::move(trial);
     result.mutable_owned     = std::move(ids);

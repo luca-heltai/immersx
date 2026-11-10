@@ -7,7 +7,9 @@
 #include <boost/serialization/vector.hpp>
 
 #include <cmath>
+#include <iomanip>
 #include <set>
+#include <sstream>
 
 #include "reference_flow_internal.h"
 
@@ -65,9 +67,12 @@ namespace ImmersX::Vascularization::internal
         fail(invalid_id, "Terminal pairing failed on another process.");
       return all;
     };
-    const auto triple_controls =
-      std::make_pair(p.compartment_resistances,
-                     std::make_pair(p.portal.enabled, p.portal_flow_fraction));
+    const auto triple_controls = std::make_pair(
+      p.compartment_resistances,
+      std::make_pair(
+        std::make_pair(p.portal.enabled, p.portal_flow_fraction),
+        std::make_pair(p.reference_flow_distribution,
+                       p.scale_compartment_resistances_by_demand)));
     for (const auto &other : Utilities::MPI::all_gather(comm, triple_controls))
       if (other != triple_controls)
         fail(invalid_id,
@@ -322,6 +327,19 @@ namespace ImmersX::Vascularization::internal
                 id,
                 "A design terminal pressure must have one authoritative owner.");
       }
+    double mean_demand = 0.;
+    if (p.scale_compartment_resistances_by_demand)
+      {
+        for (const auto &[id, endpoints] : paired)
+          mean_demand += endpoints[0].demand;
+        mean_demand = Utilities::MPI::sum(mean_demand, comm) /
+                      Utilities::MPI::sum(static_cast<Id>(paired.size()), comm);
+        if (!(mean_demand > 0.) || !std::isfinite(mean_demand))
+          fail(invalid_id,
+               "The mean new-territory demand must be positive and finite.");
+      }
+    if (!valid())
+      return;
     for (const auto &[id, endpoints] : paired)
       {
         const auto &a = endpoints[0], &v = endpoints[1], &portal = endpoints[2];
@@ -336,15 +354,28 @@ namespace ImmersX::Vascularization::internal
                 const double pt = pv + .5 * (std::min(pa, pp) - pv);
                 if (!(pv < pt && pt < pa && pt < pp))
                   {
-                    fail(
-                      id,
-                      "The requested supply split and pressures leave no common microvascular pressure.");
+                    std::ostringstream message;
+                    message
+                      << std::setprecision(17)
+                      << "The requested supply split and pressures leave no common microvascular pressure."
+                      << " Pressures (Pa): arterial=" << pa << ", portal=" << pp
+                      << ", venous=" << pv
+                      << "; desired flows (m3/s): arterial=" << a.desired
+                      << ", portal=" << portal.desired
+                      << ", venous=" << v.desired
+                      << "; physical node ids: arterial=" << a.node
+                      << ", portal=" << portal.node << ", venous=" << v.node
+                      << '.';
+                    fail(id, message.str());
                     continue;
                   }
                 arms = {{(pa - pt) / a.desired,
                          (pp - pt) / portal.desired,
                          (pt - pv) / v.desired}};
               }
+            if (p.scale_compartment_resistances_by_demand)
+              for (double &arm : arms)
+                arm *= mean_demand / a.demand;
             for (const double arm : arms)
               if (!std::isfinite(arm) || !(arm > 0.))
                 fail(id, "Microvascular arms must be positive and finite.");
@@ -377,7 +408,41 @@ namespace ImmersX::Vascularization::internal
                                r.reference.validation.issues.end());
     if (!valid())
       return;
-    if (p.reference_flow > 0.)
+    if (p.reference_flow_distribution == "network resistance")
+      {
+        std::array<double, 3> total{};
+        for (const auto &[id, endpoints] : paired)
+          {
+            const auto &actual = r.reference.territories.at(id);
+            total[0] += actual.arterial_flow;
+            total[1] += actual.venous_flow;
+            total[2] += actual.portal_flow;
+          }
+        const std::array<double, 3> expected{
+          {(p.portal.enabled ? 1. - p.portal_flow_fraction : 1.) *
+             p.reference_flow,
+           p.reference_flow,
+           p.portal.enabled ? p.portal_flow_fraction * p.reference_flow : 0.}};
+        for (unsigned int arm = 0; arm < (p.portal.enabled ? 3u : 2u); ++arm)
+          {
+            total[arm] = Utilities::MPI::sum(total[arm], comm);
+            if (std::abs(total[arm] - expected[arm]) >
+                p.reference_parameters.absolute_flow_tolerance +
+                  p.reference_parameters.conservation_relative_tolerance *
+                    expected[arm])
+              {
+                std::ostringstream message;
+                message
+                  << std::setprecision(17)
+                  << "The resistance-driven reference flow does not match the requested per-system total."
+                  << " System=" << arm << "; actual=" << total[arm]
+                  << "; requested=" << expected[arm] << " m3/s.";
+                fail(invalid_id, message.str());
+              }
+          }
+      }
+    else if (p.reference_flow_distribution == "tissue demand" &&
+             p.reference_flow > 0.)
       for (const auto &[id, endpoints] : paired)
         {
           const auto                 &actual = r.reference.territories.at(id);

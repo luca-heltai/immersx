@@ -11,6 +11,12 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report actual coupled block DoFs in a setup-only run without initializing or integrating the coupled state.
+
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Allow supplied microvascular resistances to determine local perfusion while checking the prescribed total reference flow separately for arterial, portal and venous networks, with optional conductance scaling by relative territory demand.
+
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Make geometric CCO admissibility optional while retaining hydraulic, graph ownership and topology checks, and save separate input and result vascular datasets for inspection.
+
 - [PR #372](https://github.com/luca-heltai/immersx/pull/372) Co-refine solid and fluid meshes on physical MetricFlowX lift supports with separate axial and circumferential scale checks, retained input fields, consistent hanging-node condensation and a one-cube manufactured-solution sequence.
 
 - [PR #373](https://github.com/luca-heltai/immersx/pull/373) Write the lifted wall of `LiftedElasticity` and `LiftedPoisson` as particles, one per lifted quadrature point. A `Particle output/Properties` list selects the stored quantities: weight, mode shapes, modal coefficients, lifted value, prescribed modal data, representative point, radius, quadrature indices and the interpolated background field.
@@ -296,6 +302,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Use the native configurable minimum positive area when importing physical vascular radii, retaining the fixed threshold for older MetricFlowX backends.
+
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) The default `elastodynamics` parameter file runs: `Fixed step/Number of time steps` defaults to 10, and the printed `Domain/Initial refinement` default is the 2 actually used. `elastodynamics` no longer prints the unused `IDA` section, and `elastodynamics_adapter` no longer prints the unused `Fixed step` section.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) Give the MetricFlowX copy of every shared `MetricFlowSystem<1, 3>/IDA parameters` entry the value that ImmersX uses and prints. Entries missing from the input previously kept the deal.II defaults on the MetricFlowX side, so consistent initial conditions and the IDA statistics used a different step size, order and tolerances.
@@ -502,6 +510,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
 
 ### Tutorial
+
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report accepted dense resistance-driven liver references, local perfusion plots and measured coupled-space sizes, with explicit mesh-length and transient-validation limits.
+
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Document optional geometric checks for three-network liver growth, measured rigid capacity and matched terminal radius/flow diagnostics, and dense inspection sets.
 
 - [PR #366](https://github.com/luca-heltai/immersx/pull/366) Add the completed A4245 arterial inspection, its measured coarse-mesh coverage and terminal occupancy, and ParaView paths while retaining the historical A3073 diagnostics.
 

@@ -126,16 +126,19 @@ namespace ImmersX::Vascularization::internal
     const TissueIntegrationParameters &parameters,
     unsigned int                       requested_terminals,
     const std::vector<TissueCentre>   &owned_centres,
-    MPI_Comm                           communicator)
+    MPI_Comm                           communicator,
+    bool                               require_interior_centres)
     : state(std::make_unique<State>(geometry, parameters, communicator))
   {
     auto      &s        = *state;
     const auto controls = std::make_pair(
-      std::array<unsigned int, 5>{{parameters.quadrature_order,
-                                   parameters.samples_per_terminal,
-                                   parameters.maximum_points,
-                                   parameters.refinement_budget,
-                                   requested_terminals}},
+      std::array<unsigned int, 6>{
+        {parameters.quadrature_order,
+         parameters.samples_per_terminal,
+         parameters.maximum_points,
+         parameters.refinement_budget,
+         requested_terminals,
+         static_cast<unsigned int>(require_interior_centres)}},
       density);
     bool valid = true;
     for (const auto &other : Utilities::MPI::all_gather(communicator, controls))
@@ -158,15 +161,18 @@ namespace ImmersX::Vascularization::internal
       valid,
       communicator,
       "Tissue integration requires matching controls, a finite density expression and a prepared congruent background.");
-    std::map<Id, Point<3>> centre_queries;
-    for (const auto &centre : owned_centres)
-      centre_queries.emplace(centre.territory, centre.position);
-    const auto centre_cells =
-      geometry.locate_points(centre_queries, communicator);
-    require_all(
-      centre_cells.size() == owned_centres.size(),
-      communicator,
-      "Tissue territory centres must lie inside the prepared background.");
+    if (require_interior_centres)
+      {
+        std::map<Id, Point<3>> centre_queries;
+        for (const auto &centre : owned_centres)
+          centre_queries.emplace(centre.territory, centre.position);
+        const auto centre_cells =
+          geometry.locate_points(centre_queries, communicator);
+        require_all(
+          centre_cells.size() == owned_centres.size(),
+          communicator,
+          "Tissue territory centres must lie inside the prepared background.");
+      }
     std::uint64_t local_base = 0;
     try
       {

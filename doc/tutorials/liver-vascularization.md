@@ -361,6 +361,328 @@ capillaries, or guarantee that every point of the liver is adequately served.
 Use the existing [coverage and calibration controls](../how-to/vascular-generation)
 when imposing a service distance or a volume objective.
 
+(liver-unchecked-growth)=
+## Defer geometric admissibility during three-network growth
+
+To generate arterial, portal and hepatic venous forests before geometric
+repair, disable the optional CCO admissibility gates:
+
+```text
+subsection Liver
+  subsection Vascularization
+    subsection Growth
+      set Enforce geometry = false
+    end
+  end
+end
+```
+
+The default is `true`. The disabled gates include wall and vessel clearance,
+junction-angle heuristics, and configured lower bounds on scaled vessel
+length and radius. Positive finite physical lengths, radii, viscosity and
+resistance, graph ownership and topology, Murray consistency and the native
+reference-flow checks remain required. Tissue sampling still uses the liver
+volume. This option does not repair geometry or certify nonintersection.
+
+Use the anatomical three-tree inputs and remap the reference-pressure keys
+to their actual imported roots. The earlier coupled release contains only
+three feeder stubs; reusing that archive does not generate a whole-organ
+vasculature. Keep every new physical archive with the exact input trees,
+root identifiers and parameters that produced it.
+
+The restarted scale campaign uses one new common territory per global
+background cell as its initial count. Coverage remains a separate objective:
+the maximum service distance is `2` with `Length scale = local mesh size`.
+The detailed settings and the distinction between total count and per-cell
+occupancy are described below.
+
+A successful `liver_vascular` run writes three physical inspection datasets:
+
+```text
+physical-vtk/arterial.pvtu
+physical-vtk/portal.pvtu
+physical-vtk/venous.pvtu
+```
+
+Open each PVTU with its referenced VTU pieces present. These files preserve
+physical vessel endpoint traces; they accompany the accepted `network/`
+archive. On failure, the same three roles are written under
+`invalid-result/` and must not be treated as an accepted archive. Before
+generation starts, `initial-input/` saves the three imported networks.
+If generation throws or a run stops before returning a network, these input
+snapshots remain available; they contain no intermediate grown state.
+
+The new profile targets are approximately 100k, 1M and 10M total coupled DoFs.
+Count displacement, velocity, native flow and multiplier blocks after
+rediscretizing all three networks on each final background. Historical scale
+labels from the 14-vessel archive are not counts for the new forests. The
+[tracking issue](https://github.com/luca-heltai/immersx/issues/343) and
+[draft PR](https://github.com/luca-heltai/immersx/pull/375) distinguish prepared
+backgrounds, successful hydraulic generation and converged coupled results.
+New databases will be linked here after successful generation and checksum
+verification; the old release remains a separate example.
+
+### Check hydraulic capacity before scaling
+
+The first anatomical 64-territory probe retained 835 input segments and grew
+382 CCO segments. With distinct portal and venous endpoint offsets, all three
+forests grew but the native common-compartment check rejected the requested
+pressures and supply split. Disabling geometric checks did not make that
+hydraulic state admissible.
+
+An independent rigid Poiseuille calculation gives each role an ideal
+equipressure manifold at its generated leaves. It omits all microvascular
+and other-role losses. At the prescribed mean flows, its minimum possible
+pressure drops are:
+
+| Role | Mean flow (mL/s) | Minimum drop (Pa) | Available per-role head (Pa) |
+| --- | ---: | ---: | ---: |
+| Hepatic artery | 6.3391 | 5917.37 | 9434.94 |
+| Portal vein | 14.4973 | 634.92 | 436.98 |
+| Hepatic veins | 20.8364 | 781.56 | 436.98 |
+
+The portal and hepatic venous comparisons assume forward flow in every
+portal and venous compartment arm. Each role is tested separately, so a pass
+would be necessary rather than sufficient. The failed portal bound already
+limits its optimistic flow to about 9.98 mL/s. These are bounds for this rigid
+generated graph, not measured physiological values or a conclusion about a
+compliant coupled model.
+
+```{figure} ../_static/liver-unchecked-growth/rigid-capacity-bounds.png
+:alt: Optimistic pressure-drop bounds for anatomical inputs and a rejected 64-territory CCO result, split between retained and generated vessels
+:width: 100%
+
+Necessary rigid pressure-drop bounds at the prescribed mean flows. The stacked
+bars partition the grown-network optimum between retained and generated
+vessels using the same currents. Dashed lines show the available per-role
+head; panel scales differ. This witness failed native hydraulic validation.
+```
+
+The [numeric table](../_static/liver-unchecked-growth/data.csv),
+[plot script](../_static/liver-unchecked-growth/script.py) and
+[provenance](../_static/liver-unchecked-growth/provenance.json) retain this
+diagnostic. The plot script reads the two adjacent audit JSON files and
+`source-records.json`; it performs no new hydraulic solve. Preserve these
+failed outputs separately from successful scale databases.
+
+### Compare radii at matched terminals
+
+A separate 64-territory native reference succeeds with an explicitly assumed
+portal reservoir of 8.5 mmHg, rather than the preceding 8 mmHg. The MOX-derived
+mean flows stay unchanged. The arterial, hepatic venous and portal input
+prefixes use radius cutoffs of 1.5, 3 and 2 mm respectively. The retained
+coordinates and radii are copied exactly from the anatomical inputs; the
+discarded distal data remain in the original preparation. These choices are
+model inputs, not a calibration of the IRCAD subject.
+
+That reference has 456 physical vessels and 64 common compartments. All three
+arm flows and resistances are positive; independent owned-CSV checks give
+maximum node KCL defect $2.58\times10^{-16}$ m³/s and minimum common-pressure
+gap 26.20 Pa. This is a successful rigid reference, not an accepted coupled
+tissue solution.
+
+Compare corresponding leaf endpoints before judging vessel sizes from the
+display. The matched terminal radii in this reference are:
+
+| Role | Minimum radius (mm) | Maximum radius (mm) |
+| --- | ---: | ---: |
+| Hepatic artery | 0.142 | 0.708 |
+| Portal vein | 0.323 | 1.340 |
+| Hepatic veins | 0.439 | 1.945 |
+
+```{figure} ../_static/liver-terminal-radii/terminal-radius-flow.png
+:alt: Radius and absolute reference flow at 192 matched leaf endpoints, grouped into arterial, portal and hepatic venous systems
+:width: 100%
+
+Exact radius and flow traces at the 64 matched terminals of each role.
+Trunk and root values are excluded; radii at a junction are not averaged.
+These relationships reflect the generated model and its Murray normalization,
+rather than independent anatomical validation.
+```
+
+The [matched records](../_static/liver-terminal-radii/data.csv),
+[renderer](../_static/liver-terminal-radii/script.py) and
+[provenance](../_static/liver-terminal-radii/provenance.json) retain the physical
+identifiers and endpoint selection. The renderer can replay the figure from
+the CSV without generating or solving a network.
+
+### Prescribe total supply and solve for local perfusion
+
+The default `Reference flow distribution = tissue demand` requires each new
+terminal to realize its demand-weighted design flow. To prescribe only the
+total supply and let physical resistances determine local perfusion, use
+`network resistance` under `Vascularization/Physiology`. This mode requires
+explicit positive microvascular resistances and a positive total reference
+flow. Growth still uses demand-weighted design flows for its objective; they
+are no longer constraints on the final flow in each territory.
+
+For a three-system steady reference, prescribe arterial and portal root
+inflows and anchor the venous root pressure. Remove the two supply-root
+pressure conditions: a root cannot receive both pressure and flow.
+For the proximal input described above, the root Node IDs are arterial 6,
+venous 7 and portal 47:
+
+```text
+subsection Physiology
+  set Reference flow distribution = network resistance
+  set Total new-tissue reference flow = 2.0836421871998312e-5
+  set Reference pressures = 7:629.59739556
+  set Unpaired reference inflows = 6:6.339078457494437e-6,47:1.4497343414503875e-5
+end
+subsection Portal network
+  set Flow fraction = .69576933619234205
+  # Supply three positive resistances in arterial, portal, venous order.
+  set Compartment resistances = 1e12,1e11,1e11
+end
+```
+
+The resistances above illustrate the parameter contract, rather than a fitted
+liver model. They apply per territory in Pa s/m³ and must be chosen for the
+number of represented compartments. There is no automatic rescaling by demand.
+For a triplet, the native solve determines the common pressure and three arm
+flows from these resistances, enforcing local Kirchhoff balance. Generation
+checks the summed new-territory arterial, portal and venous flows against
+$(1-f_P)Q, f_P Q, Q$, respectively. Retained beds remain active but do not
+contribute to these new-territory totals.
+
+Positive finite resistances, positive supply and drainage in every compartment,
+physical node balance and declared vessel orientation remain required.
+For unequal territories, `Scale compartment resistances by demand = true`
+under `Portal network` multiplies every supplied arm resistance by
+$\bar d/d_i$, where $d_i$ is the territory demand and $\bar d$ is its
+mean over **new** territories. The supplied values then represent one
+mean-size territory; equal demands reproduce the uniform per-bed model.
+Retained beds are unchanged. With uniform tissue-demand density, this makes
+conductance proportional to territory volume. It does not prescribe local
+flow: the pressure drops remain part of the network solution. The option
+requires `network resistance` and three supplied positive arm resistances.
+The default is `false`.
+
+The two inlet pressures are outputs: matching the total MOX flows alone does
+not calibrate those pressures or establish patient-specific physiology.
+The archived transient consumer currently uses an arterial inflow and portal
+and venous pressure reservoirs; loading this archive does not automatically
+impose the same portal inflow in that consumer.
+
+### Resistance-driven reference results
+
+With the new policy, both dense CCO forests pass the native rigid reference
+solve and an independent CSV audit. All three arm flows and resistances are
+positive. The maximum relative defect in the prescribed global flows is
+$3.5\times10^{-14}$ across the two cases; node balance, bed balance and
+pressure-work versus dissipation are checked independently.
+
+| Common territories | Physical vessels, all roles | Arterial root pressure (Pa) | Portal root pressure (Pa) | Resistance model |
+| --- | --- | --- | --- | --- |
+| 512 | 3144 | 11933.97 | 1431.61 | Demand-scaled arms |
+| 2048 | 12360 | 12226.22 | 1736.42 | Demand-scaled arms, portal coefficient ×2 |
+
+Both prescribe arterial supply $6.3390784575\times10^{-6}$ m³/s and portal
+supply $1.4497343415\times10^{-5}$ m³/s, with venous pressure 629.5974 Pa.
+The 512 and 2048 physical graphs, radii and IDs are unchanged from their
+earlier rejected attempts: the reference closure changes. The 2048 case
+needs the stated portal-arm sensitivity to retain positive perfusion.
+It is therefore a comparison of model variants, rather than an isolated
+terminal-count or convergence study. These are rigid references, not
+patient-calibrated or coupled transient results.
+
+```{figure} ../_static/liver-reference-perfusion/demand-versus-perfusion.png
+:alt: Demand fraction versus actual arterial, portal and venous flow fractions
+:width: 100%
+
+Each point is a matched common territory. The dashed line is proportional
+perfusion. Local flows follow the resistance graph and can differ from the
+demand-weighted design flows.
+```
+
+```{figure} ../_static/liver-reference-perfusion/portal-fraction-distribution.png
+:alt: Histograms of local portal fractions in the two accepted rigid references
+:width: 100%
+
+Local portal supply fractions vary around the prescribed global fraction.
+The 2048 case uses twice the portal resistance coefficient of the 512 case.
+```
+
+The [matched numeric records](../_static/liver-reference-perfusion/perfusion-distribution.csv),
+[renderer](../_static/liver-reference-perfusion/plot_perfusion.py) and
+[provenance](../_static/liver-reference-perfusion/provenance.json) retain the
+territory/terminal IDs, actual flows and three arm resistances. The renderer
+uses only the bundled CSV.
+
+(liver-resistance-space-sizes)=
+### Coupled space sizes
+
+The accepted 2048-territory physical archive is reused unchanged on three
+tissue backgrounds. The solid uses P2 displacement and velocity; the native
+flow and multiplier use degree one. The measured block sizes are:
+
+| Tissue tetrahedra | Displacement + velocity DoFs | Native flow DoFs | Multiplier DoFs | Total DoFs | MPI ranks |
+| --- | --- | --- | --- | --- | --- |
+| 2776 | 30864 | 105648 | 26412 | 162924 | 8 |
+| 111250 | 992034 | 111912 | 27978 | 1131924 | 32 |
+| 1222373 | 10206420 | 151280 | 37820 | 10395520 | 112 |
+
+These are completed `Setup only` runs. They construct the coupled spaces and
+stop before initializing the coupled state or invoking IDA. Setup wall times
+are 100.85, 531.37 and 669.11 seconds, respectively; these are not
+time-integration or solver benchmarks. The transient consumer still uses
+arterial inflow and portal/venous pressure reservoirs, whereas the rigid
+reference prescribes both supply totals. The coupled boundary model and
+initial state still need validation.
+
+The configured interval band is $0.5H_{\max}\le L\le2H_{\min}$, where
+$H$ is the background cell diameter over native overlaps. It is not met by
+all intervals:
+
+| Tissue tetrahedra | Median $L/H_{\max}$ | Intervals below $0.5H_{\max}$ among intervals with overlap |
+| --- | --- | --- |
+| 2776 | 0.13082 | 11676 / 11835 (98.66%) |
+| 111250 | 0.41242 | 7279 / 12576 (57.88%) |
+| 1222373 | 0.82864 | 4228 / 17262 (24.49%) |
+
+No interval exceeds the upper limit. Intervals without native overlap have
+zero recorded $H$ and are excluded from these ratios. An overlap flag does
+not mean an entire interval is inside the tissue. These measurements do not
+establish an inf-sup condition; short physical branches remain a numerical
+issue for the coupled solve.
+
+Coverage is a separate measurement. On the **2776-cell generation background**,
+each tetrahedron has, for each vascular role, a terminal whose ball of radius
+$2H$ contains all four vertices with a floating-point margin. Convexity then
+covers the entire affine tetrahedron. This gives a 100% volume lower bound
+for joint terminal coverage of this 1.4554 L background. It does not measure
+coverage relative to the finer solver backgrounds.
+
+The [reference and setup data release](https://github.com/luca-heltai/immersx/releases/tag/liver-resistance-reference-2026-11-10)
+contains the accepted physical networks, all three generated volume meshes,
+parameters, numeric tables, independent audits and portable preparation
+scripts. The setup package retains the exact block counts and per-interval
+mesh-scale records. Its README gives commands for preparing a new output
+directory; it does not start a simulation automatically.
+
+### Earlier demand-constrained inspection attempts
+
+Three denser inspection sets have completed all three forests on the same
+2,776-cell background:
+
+| Inspection set | Generated leaf terminals per role | Physical vessels, all roles | Native hydraulic result |
+| --- | ---: | ---: | --- |
+| 512 | 512 / 512 / 512 | 3,144 | Rejected common-compartment pressures |
+| 2048 | 2,048 / 2,048 / 2,048 | 12,360 | Rejected common-compartment pressures |
+| 2499 | 2,499 / 2,499 / 2,499 | 15,066 | Rejected common-compartment pressures |
+
+The counts come from physical node identities and graph degree, not the
+requested target. All three retain 73 anatomical input segments and use the 8.5
+mmHg portal sensitivity. Their sampling, quadrature and local optimization
+controls differ; their wall times are not an isolated performance comparison.
+They are inspection data, not successful coupled scale profiles.
+
+For each attempt, open the three `generated/invalid-result/*.pvtu` files
+with their VTU pieces. The `Radius` point array retains separate physical
+endpoint traces. The campaign records in the tracking issue identify the
+parameter files, numerical tables, checksums and failed checks. A complete
+growth count does not override a failed hydraulic validation.
+
 (liver-terminal-density)=
 ## Set terminal density and coverage
 
@@ -854,6 +1176,21 @@ sealed. This needs the native sealed-endpoint API from
 [MetricFlowX #88](https://github.com/luca-heltai/metric-flow-x/pull/88) and a
 matching rebuild. A sealed end has exactly zero flow and adds no reservoir;
 it is an explicit model assumption and must not count as a perfused terminal.
+
+Set `Setup only = true` under `MetricFlowX coupling` to construct the
+coupled spaces and report their block DoFs, then stop before state
+initialization or IDA. This measures the configured discretization without
+claiming a converged reference, initial condition or timestep. The default is
+`false`.
+
+For fine physical vessels, a compatible backend exposes
+`Minimum positive area` under `MetricFlowSystem<1, 3>`, in m².
+This option requires
+[MetricFlowX #90](https://github.com/luca-heltai/metric-flow-x/pull/90).
+The physical-network importer uses that same threshold and preserves the
+supplied radii. Older backends retain their fixed $10^{-10}$ m² threshold.
+Choose a smaller value only after checking the actual minimum reference area;
+the importer rejects reference areas at or below the configured threshold.
 
 The coupled output reports each block's DoFs and the total. Per-rank
 `mesh_scale-*.csv` files retain each numerical interval's length and the

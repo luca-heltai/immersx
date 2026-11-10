@@ -1,0 +1,84 @@
+{
+  "kind": "EXACT_MATCHED_MODEL_TERMINAL_RECORDS",
+  "native_case": "probe-proximal-64-portal85-attempt-01",
+  "native_generation_success": true,
+  "patient_calibrated": false,
+  "coupled_PDE_steps": 0,
+  "portal_reservoir_assumption_mmHg": 8.5,
+  "input_model": "proximal-anatomical-inputs-1p5-3-2mm-v1",
+  "matching": "triplet TerminalId -> terminal.node -> unique incident vessel -> radius0 or radius1 at that exact endpoint",
+  "flow": "abs(exported leaf-vessel signed flow), checked against the same triplet role flow",
+  "matching_flow_consistency_relative_tolerance": 1e-09,
+  "maximum_observed_relative_flow_difference": 9.964470731969084e-12,
+  "no_averaging_fitting_new_geometry_or_hydraulic_solve": true,
+  "source_hashes": {
+    "nodes-0.csv": "0646cf200209621ff5f05746da69a680217d75cb590520ae5545b1c2558ff41c",
+    "nodes-1.csv": "04d23f56954d07ca9cdecf261cb9286e1eee7ee8d8fa91082a9c9b90ac00720a",
+    "nodes-2.csv": "c6bd9f52bcb0682742c1ebb19f4deaac2abe767109d5ca0a25881ccbcd5b0d8e",
+    "nodes-3.csv": "7ff305424c36d934f0437a481fd2db99459868aff9b702c2bab18cd32d9a047f",
+    "nodes-4.csv": "29a3c1b9c2ad0e891f470ac257c7441ba5f6570ac4f9a4b9a0795945228e87b1",
+    "nodes-5.csv": "6092e4ac618421116a6ab45b3c310377628c4771224aebf7b986f204ad0c7100",
+    "nodes-6.csv": "691e87004b383de29c7b4a62c9003326a6c1e5cee3553afce99a97b5bb90679a",
+    "nodes-7.csv": "ec9bb2e898b21e576118819b832b8c0b9f800107b8f4dc8ebea309436ccc7660",
+    "parameters.prm": "fbd1f4f5cc3c590e59c86f93a07e33864f9dd85cb97db84e95b2e42ffcdaf3b0",
+    "run.json": "2758387857481e22aeceae5bfede910c2e11de715c45329dd88c5d66f7191d7f",
+    "terminals-0.csv": "12247be7cf5dd0611fafdc907cfe28ec56a74086e7ce9109205779a69d760c61",
+    "terminals-1.csv": "0695e1e8d7108bfaf560474818dcc6a26cece84679724193629a8b6550fe3192",
+    "terminals-2.csv": "d1b935e45ecdad955df6bcbbf65b58e49eba94852876dcbc6ef8e4fcf97d3047",
+    "terminals-3.csv": "c23e2c3fea49590510ac5c71bbdafb685dbb2d6cbd33ed5e0c74d9f6d63c777f",
+    "terminals-4.csv": "2b1629967760de5d71cfdfa76d4c6d161706fe8880866538d2cba72a80810b65",
+    "terminals-5.csv": "02e5acc6e3e15a7f831013fcf31bfdc8f99681fbab219e1b06145f1380dc9d66",
+    "terminals-6.csv": "8b5aa251e574b1dfba0627739bb7cc6b08531270b371affaa56d00a1c4599962",
+    "terminals-7.csv": "5debfefef67ea79e22e790d0fd36844367b45653fc19105a76fa265a35d0d5f9",
+    "triplets-0.csv": "2f285f1d364cfef298088e6cb3259a221a650c4816a876cc076c84b2362b7397",
+    "triplets-1.csv": "2078e7cfdb18528455a075f4aec686128ecb02c5355e6af1a9a9c8aef1244dc1",
+    "triplets-2.csv": "7796262b9cece964d220cb62a356bf727e3a6360ba74940fecf74e668e676f4f",
+    "triplets-3.csv": "fcc05d00eb88893acf4051682665af37d067dded64b2a49d79eeb847b6f5f063",
+    "triplets-4.csv": "1d5c70e4ae216ddc09c85a5eb88f8011fbbf842dcc783ebd55c889d20bb81782",
+    "triplets-5.csv": "e46b1835b864c01c546a4fa076633132b947c4428183c5a7bd7e120712841809",
+    "triplets-6.csv": "05736854f5d6a8b8675b2f5430e7060b56a6652b1ef8cb8857a9d426ee0ff747",
+    "triplets-7.csv": "9f597751bbe27d82a89b1d8d27ac10a36e0c77cab3421c5ce6eceae22487540c",
+    "vessels-0.csv": "98337fee10c90040c79e2631c8072c0feebd4f16ef7924974d822e5c1acb68f7",
+    "vessels-1.csv": "b31882454ab84cd2d3b820c8f08ab5f7d4594695116ab11cb11796b086d9f9e2",
+    "vessels-2.csv": "1a8cb8cad00f7c2727dd490735f4244f9c6a8c1a5b442f1196c899802ae3f5a7",
+    "vessels-3.csv": "5bf2dff08cca879e5419c7ada5123f1944ecb31006a607601817a240c92f1742",
+    "vessels-4.csv": "f48ca718ad1ecaaa6e53a6aea7cd6781849b8f37915c26477da4de07e7e17795",
+    "vessels-5.csv": "87dbdcdbaff838855f8d33a68df0230fe483e3f781595f68c05f5d3c6f978a87",
+    "vessels-6.csv": "e2fdc35b0e764faa146fc521e9dba641b47ce23a50bb1434434717b7a2240f08",
+    "vessels-7.csv": "ed43cd3b75e75e7c2f851374505ce05023236513abc68b51a5b90c8e3db5d330"
+  },
+  "script_sha256": "5277345f4101a301f64ee3009de8885a127bf7a61b671ae12d9f25384b9b40fc",
+  "matplotlib_version": "3.10.9",
+  "per_role_ranges": {
+    "arterial": {
+      "terminals": 64,
+      "radius_min_m": 0.00014172622790831378,
+      "radius_max_m": 0.0007076390198022813,
+      "absflow_min_m3_s": 3.456047714302684e-09,
+      "absflow_max_m3_s": 4.3019401232899e-07
+    },
+    "portal": {
+      "terminals": 64,
+      "radius_min_m": 0.0003228187909932263,
+      "radius_max_m": 0.0013400554600818662,
+      "absflow_min_m3_s": 7.903910782474833e-09,
+      "absflow_max_m3_s": 9.838449505572666e-07
+    },
+    "venous": {
+      "terminals": 64,
+      "radius_min_m": 0.0004387797412163255,
+      "radius_max_m": 0.001944677455019425,
+      "absflow_min_m3_s": 1.1359958496782301e-08,
+      "absflow_max_m3_s": 1.4140389628859984e-06
+    }
+  },
+  "text_normalization": {
+    "csv": "LF",
+    "svg": "rstrip each line"
+  },
+  "output_hashes": {
+    "data.csv": "241db228f7432d2701d98e900dfb8537c2b146f70b90f8f0baf791cacdd99a2c",
+    "terminal-radius-flow.png": "2a5a2468c877d846e140bb1026a6e614fb36a6e518e2e6c907754124f7e18ae2",
+    "terminal-radius-flow.svg": "e75879b912e05140b4bef6d79e6ed4a1a728d5f822d704a59b3e382628bf0ef5"
+  }
+}

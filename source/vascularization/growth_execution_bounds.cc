@@ -19,7 +19,8 @@ namespace ImmersX::Vascularization::internal
     result.system            = branch.system;
     result.valid =
       std::isfinite(minimum_radius) && minimum_radius > 0. &&
-      radius * summary.minimum_scaled_ratio >= parameters.minimum_radius;
+      (!parameters.enforce_geometry ||
+       radius * summary.minimum_scaled_ratio >= parameters.minimum_radius);
     if (parameters.reference_flow > 0.)
       {
         const long double factor =

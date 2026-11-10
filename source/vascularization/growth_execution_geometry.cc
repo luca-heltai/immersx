@@ -159,6 +159,8 @@ namespace ImmersX::Vascularization::internal
                            ValidationReport             &validation)
   {
     using namespace dealii;
+    if (!parameters.enforce_geometry)
+      return true;
     const auto comm = communicator;
     const auto rank = Utilities::MPI::this_mpi_process(comm);
     for (const auto &[id, value] : measures)
