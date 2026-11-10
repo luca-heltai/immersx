@@ -434,6 +434,7 @@ namespace
     Vascularization::Parameters generation_parameters;
     bool                        use_native_tolerances      = false;
     bool                        stop_at_output_times       = false;
+    bool                        setup_only                 = false;
     int                         mumps_workspace_relaxation = -1;
     double displacement_tolerance = 0., velocity_tolerance = 0.,
            pressure_tolerance = 0.;
@@ -445,6 +446,10 @@ namespace
       "Stop at output times",
       stop_at_output_times,
       "Take an internal IDA step at every saved time to preserve nonlinear algebraic constraints in output.");
+    coupling.add_parameter(
+      "Setup only",
+      setup_only,
+      "Build the coupled spaces and report block DoFs without initializing the state, correcting initial conditions or integrating.");
     coupling.add_parameter(
       "MUMPS workspace relaxation",
       mumps_workspace_relaxation,
@@ -501,6 +506,11 @@ namespace
         "Remove fictitious modal response requires MetricFlowX with "
         "add_external_pressure_state_jacobian(). Rebuild against matching "
         "headers and libraries from a compatible MetricFlowX installation."));
+    const auto setup_policy = static_cast<unsigned int>(setup_only);
+    AssertThrow(Utilities::MPI::min(setup_policy, MPI_COMM_WORLD) ==
+                  Utilities::MPI::max(setup_policy, MPI_COMM_WORLD),
+                ExcMessage(
+                  "All ranks must use the same coupled setup-only policy."));
     const bool archived_network = !archive_parameters.directory.empty();
     AssertThrow(!archived_network || !generate_network,
                 ExcMessage(
@@ -1115,6 +1125,14 @@ namespace
         for (unsigned int b = 0; b < state.n_blocks(); ++b)
           std::cout << ' ' << state.block(b).size();
         std::cout << "\nCoupled total DoFs: " << state.size() << std::endl;
+      }
+    if (setup_only)
+      {
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout
+            << "Coupled setup completed without state initialization or integration."
+            << std::endl;
+        return;
       }
     auto state_dot = adapter.make_state();
     initialize_elastodynamics_adapter_state(

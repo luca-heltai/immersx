@@ -1081,6 +1081,19 @@ sealed. This needs the native sealed-endpoint API from
 matching rebuild. A sealed end has exactly zero flow and adds no reservoir;
 it is an explicit model assumption and must not count as a perfused terminal.
 
+Set `Setup only = true` under `MetricFlowX coupling` to construct the
+coupled spaces and report their block DoFs, then stop before state
+initialization or IDA. This measures the configured discretization without
+claiming a converged reference, initial condition or timestep. The default is
+`false`.
+
+For fine physical vessels, a compatible backend exposes
+`Minimum positive area` under `MetricFlowSystem<1, 3>`, in m².
+The physical-network importer uses that same threshold and preserves the
+supplied radii. Older backends retain their fixed $10^{-10}$ m² threshold.
+Choose a smaller value only after checking the actual minimum reference area;
+the importer rejects reference areas at or below the configured threshold.
+
 The coupled output reports each block's DoFs and the total. Per-rank
 `mesh_scale-*.csv` files retain each numerical interval's length and the
 minimum/maximum diameter of crossed tissue cells. Short-cell exceptions are
