@@ -1,0 +1,14 @@
+[
+  {
+    "name": "input-r034-rigid-capacity-audit-v1",
+    "path": "/data/home/lheltai/codes/liver-icar-20261105/input-r034-rigid-capacity-audit-v1/report.json",
+    "sha256": "bb6eba8aaefb679634a7cb33a800dfc3560bd9b609da427058e2a0a4912561f7",
+    "local_original_json_normalized_sha256": "bb6eba8aaefb679634a7cb33a800dfc3560bd9b609da427058e2a0a4912561f7"
+  },
+  {
+    "name": "attempt02-rigid-capacity-audit-v1",
+    "path": "/data/home/lheltai/codes/liver-icar-20261105/attempt02-rigid-capacity-audit-v1/report.json",
+    "sha256": "db1b359ac2a29df6d1332ca04cc61922d8bd44c760ef8c8bfc41aec874bcb134",
+    "local_original_json_normalized_sha256": "db1b359ac2a29df6d1332ca04cc61922d8bd44c760ef8c8bfc41aec874bcb134"
+  }
+]

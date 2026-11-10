@@ -1,0 +1,92 @@
+{
+  "created_utc": "2026-11-10T15:58:14.581006+00:00",
+  "status": "INPUT_ONLY_NECESSARY_RIGID_BOUND_NO_MODEL_ADOPTION",
+  "mu_Pa_s": 0.00371,
+  "pressures_Pa": {
+    "arterial": 10064.536060032478,
+    "portal": 1066.57909932,
+    "venous": 629.59739556
+  },
+  "Q_targets_m3_s": {
+    "arterial": 6.33907845749445e-06,
+    "portal": 1.4497343414503862e-05,
+    "venous": 2.083642187199831e-05
+  },
+  "portal_venous_head_Pa": 436.9817037600001,
+  "roles": {
+    "arterial": {
+      "input_sha256": "88bd77f8a14b40ef98328f219824352f1479980e042c2343598fca8d0e493c47",
+      "nodes": 55,
+      "edges": 54,
+      "root_local": 38,
+      "root_global": 38,
+      "Grow": 2,
+      "sealed_original_global_ids": [
+        9
+      ],
+      "Req_Pa_s_m3": 357386104.03965,
+      "target_Q_m3_s": 6.33907845749445e-06,
+      "minimum_dissipation_Q2Req_W": 0.014361173073603434,
+      "ideal_manifold_drop_Pa": 2265.4985531256157,
+      "available_head_Pa": 9434.938664472478,
+      "individual_necessary_bound_passes": true,
+      "optimistic_Qmax_m3_s": 2.6399847553741832e-05,
+      "unit_manifold_KCL_fraction_defect": 3.3306690738754696e-16,
+      "energy_relative_defect": -3.3306690738754696e-16,
+      "native_reservoir_Rroot_Pa_s_m3": 100000.0,
+      "optimistic_Qmax_including_own_Rroot_m3_s": 2.639246269395136e-05
+    },
+    "venous": {
+      "input_sha256": "074c9629f385d19db6564483ace9b1b81ddefad623055682b5a906971afb6c73",
+      "nodes": 449,
+      "edges": 448,
+      "root_local": 0,
+      "root_global": 55,
+      "Grow": 32,
+      "sealed_original_global_ids": [
+        476
+      ],
+      "Req_Pa_s_m3": 5978325.503977,
+      "target_Q_m3_s": 2.083642187199831e-05,
+      "minimum_dissipation_Q2Req_W": 0.0025955287357456417,
+      "ideal_manifold_drop_Pa": 124.56691228899169,
+      "available_head_Pa": 436.9817037600001,
+      "individual_necessary_bound_passes": true,
+      "optimistic_Qmax_m3_s": 7.309433109142416e-05,
+      "unit_manifold_KCL_fraction_defect": 2.220446049250313e-16,
+      "energy_relative_defect": 8.881784197001252e-16,
+      "native_reservoir_Rroot_Pa_s_m3": 100000.0,
+      "optimistic_Qmax_including_own_Rroot_m3_s": 7.189179050613305e-05
+    },
+    "portal": {
+      "input_sha256": "b26823780662732a2313ed42e30e2c6e39f686ab12df53e240a522ef8e0907e7",
+      "nodes": 334,
+      "edges": 333,
+      "root_local": 0,
+      "root_global": 504,
+      "Grow": 22,
+      "sealed_original_global_ids": [],
+      "Req_Pa_s_m3": 11644483.13270582,
+      "target_Q_m3_s": 1.4497343414503862e-05,
+      "minimum_dissipation_Q2Req_W": 0.0024473555584467047,
+      "ideal_manifold_drop_Pa": 168.81407085923402,
+      "available_head_Pa": 436.9817037600001,
+      "individual_necessary_bound_passes": true,
+      "optimistic_Qmax_m3_s": 3.752693003029486e-05,
+      "unit_manifold_KCL_fraction_defect": 0.0,
+      "energy_relative_defect": -3.3306690738754696e-16,
+      "native_reservoir_Rroot_Pa_s_m3": 100000.0,
+      "optimistic_Qmax_including_own_Rroot_m3_s": 3.720740187732072e-05
+    }
+  },
+  "scope": [
+    "Exact tapered Poiseuille on unchanged imported r034 input. All marked Grow are ideal equipressure caps; unmarked original leaves sealed.",
+    "Req minimizes dissipation for a total role flow, before any generated resistance or positive 0D arms.",
+    "PV ideal-HV-root bound is necessary when every portal/hepatic arm is forward. No proof of full matched closure or compliant/static coupled convergence.",
+    "HV individual head bound also requires all portal arms forward, so every hepatic cut lies below the portal reservoir pressure.",
+    "No generated tissue demands/matching or hydraulic fit assumed. Per-cap fractions are ideal-manifold diagnostics, not prescriptions.",
+    "No collision, wall separation or geometric compatibility test performed; no CCO/PDE/native solve/source/input/parameter changes."
+  ],
+  "input_provenance_sha256": "6f5b3e1cd0772fde8940fadda6af14c94f80d076c275a9b99c9aa0981e31e829",
+  "script_sha256": "e9bc5e81dbea0fcee8ccde2ef33859b8c3e145f8ef33a7c81cae21629f209063"
+}

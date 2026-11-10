@@ -1,0 +1,7 @@
+role,scenario,current_solution,Q_target_m3_s,total_minimum_drop_Pa,retained_contribution_Pa,generated_contribution_Pa,available_head_Pa,source_json
+arterial,input_only,input_only_ideal_manifold_optimum,6.33907845749445e-06,2265.4985531256157,2265.4985531256157,0.0,9434.938664472478,input-r034-rigid-capacity-audit-v1-report.json
+arterial,grown_64,grown_network_ideal_manifold_optimum,6.33907845749445e-06,5917.367049188622,2698.8057291171826,3218.5613200714374,9434.938664472478,attempt02-rigid-capacity-audit-v1-report.json
+portal,input_only,input_only_ideal_manifold_optimum,1.4497343414503862e-05,168.81407085923402,168.81407085923402,0.0,436.9817037600001,input-r034-rigid-capacity-audit-v1-report.json
+portal,grown_64,grown_network_ideal_manifold_optimum,1.4497343414503862e-05,634.9198253453319,263.6530100309383,371.26681531439385,436.9817037600001,attempt02-rigid-capacity-audit-v1-report.json
+venous,input_only,input_only_ideal_manifold_optimum,2.083642187199831e-05,124.56691228899169,124.56691228899169,0.0,436.9817037600001,input-r034-rigid-capacity-audit-v1-report.json
+venous,grown_64,grown_network_ideal_manifold_optimum,2.083642187199831e-05,781.5550684932072,326.51468069694664,455.0403877962604,436.9817037600001,attempt02-rigid-capacity-audit-v1-report.json
