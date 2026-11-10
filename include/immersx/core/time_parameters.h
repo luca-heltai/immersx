@@ -15,6 +15,7 @@
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/patterns.h>
+#include <deal.II/base/utilities.h>
 
 #ifdef DEAL_II_WITH_SUNDIALS
 #  include <immersx/compatibility/dealii_9_9/ida.h>
@@ -22,7 +23,11 @@
 
 #include <immersx/core/ida_tolerance_ramp.h>
 
+#include <algorithm>
+#include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace ImmersX
 {
@@ -230,11 +235,6 @@ namespace ImmersX
           prm.add_parameter("Final time", shared_interval_->final_time);
           prm.add_parameter("Time interval between each output",
                             shared_interval_->output_time_interval);
-          // A native solver may already have bound these same entries.
-          for (const auto &entry : {"Initial time",
-                                    "Final time",
-                                    "Time interval between each output"})
-            prm.set(entry, prm.get(entry));
         }
       Controls::add_parameters(prm, false, false, shared_interval_ != nullptr);
       tolerance_ramp.add_parameters(prm);
@@ -250,17 +250,61 @@ namespace ImmersX
                         "",
                         dealii::Patterns::Selection(
                           "none|use_y_diff|use_y_dot"));
-      if (shared_interval_ != nullptr)
-        for (const auto &entry : {"Correction type at initial time",
-                                  "Correction type after restart"})
-          prm.set(entry, prm.get(entry));
       prm.leave_subsection();
+      if (shared_interval_ != nullptr)
+        copy_values_to_all_bindings(prm);
 #else
       (void)prm;
 #endif
     }
 
   private:
+    /** Set every entry of this section to its current value.
+     *
+     * A native solver may have bound the same entries to its own variables
+     * before this object redeclared them with ImmersX defaults. An entry that
+     * is missing from the input file runs no action, so without this copy the
+     * native variables keep their own defaults while the printed file shows
+     * the ImmersX ones.
+     */
+    void
+    copy_values_to_all_bindings(dealii::ParameterHandler &prm) const
+    {
+      std::ostringstream printed;
+      prm.print_parameters(printed, dealii::ParameterHandler::ShortPRM);
+
+      const auto section = this->get_section_path();
+      std::vector<std::string> path;
+      std::vector<std::pair<std::vector<std::string>, std::string>> entries;
+      std::istringstream                                            input(
+        printed.str());
+      std::string line;
+      while (std::getline(input, line))
+        {
+          line = dealii::Utilities::trim(line);
+          if (line.rfind("subsection ", 0) == 0)
+            path.push_back(dealii::Utilities::trim(line.substr(11)));
+          else if (line == "end")
+            path.pop_back();
+          else if (line.rfind("set ", 0) == 0 &&
+                   path.size() >= section.size() &&
+                   std::equal(section.begin(), section.end(), path.begin()))
+            entries.emplace_back(
+              std::vector<std::string>(path.begin() + section.size(),
+                                       path.end()),
+              dealii::Utilities::trim(line.substr(4, line.find('=') - 4)));
+        }
+
+      for (const auto &[subsections, name] : entries)
+        {
+          for (const auto &subsection : subsections)
+            prm.enter_subsection(subsection);
+          prm.set(name, prm.get(name));
+          for (std::size_t i = 0; i < subsections.size(); ++i)
+            prm.leave_subsection();
+        }
+    }
+
     TimeIntervalParameters *shared_interval_;
   };
 

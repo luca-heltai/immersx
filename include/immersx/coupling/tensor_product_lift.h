@@ -158,7 +158,6 @@ namespace ImmersX
                 "Cross section/")
     {
       add_parameter("Thickness", thickness);
-      add_parameter("Constant thickness", constant_thickness);
 
       enter_subsection("Representative quadrature");
       add_parameter("Type",
@@ -174,9 +173,6 @@ namespace ImmersX
 
     /** Thickness expression; a numeric string is the modern default path. */
     std::string thickness = "0.01";
-
-    /** Fallback used when the thickness expression is constant. */
-    double constant_thickness = 0.01;
 
     std::string  representative_quadrature_type = "gauss";
     unsigned int representative_n_q_points      = 0;

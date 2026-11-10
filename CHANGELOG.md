@@ -296,6 +296,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Give the MetricFlowX copy of every shared `MetricFlowSystem<1, 3>/IDA parameters` entry the value that ImmersX uses and prints. Entries missing from the input previously kept the deal.II defaults on the MetricFlowX side, so consistent initial conditions and the IDA statistics used a different step size, order and tolerances.
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Declare `/MetricFlowX domain/` before the input is parsed, so `Grid scale` and `Triangulation type` can be set and the section is accepted in input files.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Stop with an error, also in Release builds, when `Inclusions file`, `Data file` or a `file` grid of `elasticity` cannot be opened, when `Read fields = true` names no existing mesh file, when `Coupling type = TensorProduct` is used without VTK, and when `MetricFlowX coupling/Embedded partitioning policy = immersed` is combined with an archived or generated network. These cases previously ran with zero inclusions, without fields, with point coupling or with default partitioning.
 
 - [PR #365](https://github.com/luca-heltai/immersx/pull/365) Keep cell and trace area coefficients positive during coupled flow–tissue IDA solves. Report nonfinite trial residuals collectively as recoverable callback errors instead of passing them to the linear solver; equilibrium initialization may still fail when IDA cannot recover.
@@ -438,6 +442,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #67](https://github.com/luca-heltai/immersx/pull/67) Fixed the inclusion basis-function scaling.
 
 ### Removed
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Remove the unused `Constant thickness` lift entry; a numeric `Thickness` is the constant thickness.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Remove the `Immersed Problem/Time parameters` entries that elasticity never read: `Output frequency`, `Number of time steps`, `Policy` and the IDA subsections `Running parameters`, `Error control` and `Initial condition correction parameters`. `elasticity` and `coupled_elasticity` always advance by `Time step`.
 

@@ -489,6 +489,10 @@ namespace
                            outlet_pressure,
                            "Native terminal outlet pressure in Pa.");
 
+    // Only Grid scale and Triangulation type are read from this section. The
+    // mesh file, field import and refinement come from MetricFlowX.
+    DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
+
     initialize_parameters(parameter_file);
     AssertThrow(
       !remove_fictitious_modes ||
@@ -557,7 +561,6 @@ namespace
         solid_problem.setup_fe();
       }
 
-    DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
     flow_domain_parameters.name_of_grid =
       metric_flow_parameter("Vtk file path for mesh input");
     flow_domain_parameters.read_vtk_fields = true;

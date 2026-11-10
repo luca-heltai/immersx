@@ -85,7 +85,6 @@ end
 
 subsection MetricFlowX vessel wall lift
   set Thickness = 0.01
-  set Constant thickness = 0.01
   subsection Cross section
     set Refinement level = 1
     set Geometry type = hyper_ball
