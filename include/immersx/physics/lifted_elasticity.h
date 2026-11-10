@@ -20,12 +20,14 @@
 #include <immersx/core/symbolic_field_evaluator.h>
 #include <immersx/coupling/lifted_modal_load.h>
 #include <immersx/grid/local_co_refinement.h>
+#include <immersx/io/lifted_particle_output.h>
 #include <immersx/io/output_handler.h>
 #include <immersx/physics/elastic_static.h>
 #include <immersx/physics/static_elasticity_term.h>
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -49,6 +51,7 @@ namespace ImmersX
       , geometry("/Lifted elasticity/Lift/")
       , co_refinement("/Lifted elasticity/Co-refinement/")
       , execution("/Lifted elasticity/Linear adapter/")
+      , particle_output("/Lifted elasticity/Particle output/")
     {
       this->add_parameter("Coupling",
                           coupling,
@@ -85,10 +88,12 @@ namespace ImmersX
     TensorProductLift<1, 2, dim, dim>    geometry;
     RefinementParameters<1>              co_refinement;
     LinearAdapterParameters              execution;
-    std::string              coupling = dim == 3 ? "multiplier" : "none";
-    std::vector<std::string> modal_data{"0", "0", "0"};
-    std::string              radius_field;
-    std::string              modal_data_fields;
+    /** Lifted-wall particles written next to the bulk and modal output. */
+    LiftedParticleOutputParameters particle_output;
+    std::string                    coupling = dim == 3 ? "multiplier" : "none";
+    std::vector<std::string>       modal_data{"0", "0", "0"};
+    std::string                    radius_field;
+    std::string                    modal_data_fields;
     std::set<dealii::types::boundary_id> weak_dirichlet_ids, normal_flux_ids;
     double                               penalty_term        = 100.;
     std::string                          refinement_strategy = "global";
@@ -475,6 +480,7 @@ namespace ImmersX
               };
               lifts.push_back(make_lift());
             }
+          store_wall_points(lifts, data_at);
           dealii::GridTools::Cache<3> background(
             displacement_->dof_handler().get_triangulation(),
             displacement_->mapping());
@@ -561,6 +567,126 @@ namespace ImmersX
           for (const auto &field : multipliers_)
             modal_output.add_field(field);
           adapter_->write_output(modal_output, state_, cycle);
+          if (parameters_.particle_output.enabled())
+            write_wall_particles(cycle);
+        }
+    }
+
+    /** Keep the geometry of the lifted wall for the particle output.
+     *
+     * Each lift selects one mode, so its points carry the values of one
+     * vector mode shape. The wall points of all lifts coincide; the retained
+     * copy collects the mode shapes of every lift and drops the FE stencils,
+     * which the output does not need.
+     */
+    template <typename Lifted, typename DataAt>
+    void
+    store_wall_points(const std::vector<Lifted> &lifts, const DataAt &data_at)
+    {
+      wall_points_.clear();
+      wall_data_.clear();
+      if (!parameters_.particle_output.enabled() || lifts.empty())
+        return;
+      const auto        &first   = lifts.front().lifted_points();
+      const auto         n_modes = lifts.size();
+      const unsigned int width   = Lifted::vector_lift ? dim : 1;
+      wall_mode_components_      = width;
+      wall_points_.reserve(first.size());
+      for (const auto &lifted : lifts)
+        AssertThrow(lifted.lifted_points().size() == first.size(),
+                    dealii::ExcMessage(
+                      "All modal lifts must share the same wall points."));
+      const bool with_data = parameters_.particle_output.selected("modal_data");
+      if (with_data)
+        wall_data_.reserve(first.size() * n_modes);
+      for (std::size_t q = 0; q < first.size(); ++q)
+        {
+          LiftedWallPoint<dim> point = first[q];
+          point.dof_indices.clear();
+          point.basis_values.clear();
+          point.source_basis_values.clear();
+          point.mode_values.clear();
+          point.mode_values.reserve(n_modes * width);
+          for (std::size_t slot = 0; slot < n_modes; ++slot)
+            {
+              const auto &values = lifts[slot].lifted_points()[q].mode_values;
+              AssertThrow(values.size() == width,
+                          dealii::ExcMessage(
+                            "A single-mode lift needs one mode shape per "
+                            "point."));
+              point.mode_values.insert(point.mode_values.end(),
+                                       values.begin(),
+                                       values.end());
+            }
+          if (with_data)
+            for (unsigned int slot = 0; slot < n_modes; ++slot)
+              wall_data_.push_back(data_at(first[q], slot));
+          wall_points_.push_back(std::move(point));
+        }
+    }
+
+    /** Write the lifted-wall particles of one cycle and update their PVD
+     * record. The modal coefficients are the multiplier (multiplier coupling)
+     * or the pressure (pressure coupling).
+     */
+    void
+    write_wall_particles(const unsigned int cycle)
+    {
+      const auto &options = parameters_.particle_output;
+      const auto &modal   = multipliers_.front();
+
+      LiftedParticleLabels labels;
+      labels.value_name      = parameters_.coupling;
+      labels.mode_components = wall_mode_components_;
+      for (unsigned int slot = 0; slot < multipliers_.size(); ++slot)
+        labels.mode_labels.push_back(std::to_string(slot));
+
+      std::vector<double> coefficients;
+      if (options.selected("modal_coefficients") ||
+          options.selected("lifted_value"))
+        {
+          Vector ghosted(modal.locally_owned_dofs(),
+                         modal.locally_relevant_dofs(),
+                         communicator_);
+          ghosted = modal_coefficients();
+          ghosted.update_ghost_values();
+          coefficients = sample_at_representative_points(modal.dof_handler(),
+                                                         modal.mapping(),
+                                                         ghosted,
+                                                         wall_points_);
+        }
+      const auto columns = make_lifted_particle_columns(
+        options, labels, wall_points_, coefficients, wall_data_);
+
+      std::optional<Vector> displacement;
+      if (options.selected("bulk_field"))
+        {
+          displacement.emplace(displacement_->locally_owned_dofs(),
+                               displacement_->locally_relevant_dofs(),
+                               communicator_);
+          *displacement = solution();
+          displacement->update_ghost_values();
+        }
+      const LiftedBulkField<dim, Vector> bulk{"displacement",
+                                              displacement_->dof_handler(),
+                                              displacement_->mapping(),
+                                              displacement ? &*displacement :
+                                                             nullptr,
+                                              0,
+                                              dim};
+
+      const std::filesystem::path directory(parameters_.output_directory);
+      const std::string filename = parameters_.output_name + "_particles_" +
+                                   std::to_string(cycle) + ".vtu";
+      write_lifted_particles(
+        options, columns, wall_points_, bulk, (directory / filename).string());
+
+      particle_records_.emplace_back(static_cast<double>(cycle), filename);
+      if (dealii::Utilities::MPI::this_mpi_process(communicator_) == 0)
+        {
+          std::ofstream pvd(directory /
+                            (parameters_.output_name + "_particles.pvd"));
+          dealii::DataOutBase::write_pvd_record(pvd, particle_records_);
         }
     }
 
@@ -625,6 +751,14 @@ namespace ImmersX
     GlobalVector                                    state_;
     std::optional<LocalCoRefinementReport>          co_refinement_report_;
     double                                          residual_norm_ = 0.;
+    /** Lifted-wall points without FE stencils, for the particle output. */
+    std::vector<LiftedWallPoint<dim>> wall_points_;
+    /** Components of one mode shape in wall_points_. */
+    unsigned int wall_mode_components_ = 1;
+    /** Prescribed modal data at wall_points_, point-major. */
+    std::vector<double> wall_data_;
+    /** Time and file name of every particle output, for the PVD record. */
+    std::vector<std::pair<double, std::string>> particle_records_;
   };
 } // namespace ImmersX
 #endif

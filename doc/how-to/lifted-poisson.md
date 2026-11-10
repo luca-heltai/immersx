@@ -174,7 +174,13 @@ stencils. There is no transient history to transfer.
 Each cycle writes:
 
 - bulk FE output and all selected representative coefficient fields;
-- a lifted particle VTU with reconstructed `lambda` and quadrature `weight`;
+- a lifted particle VTU, `lifted_<cycle>.vtu`, with one particle per lifted
+  quadrature point. `Particle output/Properties` selects what each particle
+  carries; the default is the reconstructed `lambda` and quadrature `weight`.
+  See the lifted-wall particle section of [lifted static elasticity](lifted-static-elasticity)
+  for the list. `bulk_field` writes `u`, and `modal_coefficients` writes
+  `lambda_<k>` with `k` the selected cross-section coefficient. An empty list
+  disables the file;
 - a row of `diagnostics.csv` with cell/DoF counts, physical residual norm, and
   bulk/multiplier coefficient-vector norms.
 

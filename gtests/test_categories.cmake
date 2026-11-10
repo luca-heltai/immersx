@@ -27,6 +27,7 @@ set(IMMERSX_UNIT_TEST_SUITES
     FieldCatalog
     MixedField
     TensorProductLift
+    LiftedParticleOutput
     TensorProductSpace0D
     ReducedPoisson0D)
 
