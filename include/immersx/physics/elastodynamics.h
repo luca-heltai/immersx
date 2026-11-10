@@ -51,6 +51,7 @@
 #include <immersx/core/second_order_preconditioner.h>
 #include <immersx/core/time_parameters.h>
 
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -241,6 +242,13 @@ namespace ImmersX
     void
     make_grid();
 
+    /** Build the mesh through a coupled Domain preparation policy.
+     * The callback must prepare and finalize the Domain before returning.
+     * This runs before attaching the application DoFHandler.
+     */
+    void
+    make_grid(const std::function<void(Domain<dim, spacedim> &)> &initialize);
+
     /** Create the vector FE, quadratures, and mapping for the mesh cells. */
     void
     setup_fe();
@@ -319,10 +327,6 @@ namespace ImmersX
     /** Return whether both current state vectors have finite norms. */
     bool
     state_is_finite() const;
-
-    /** Refine the spatial mesh before setup_system() distributes DoFs. */
-    dealii::parallel::TriangulationBase<dim, spacedim> &
-    triangulation();
 
     /** Return the distributed mesh. */
     const dealii::parallel::TriangulationBase<dim, spacedim> &

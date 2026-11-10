@@ -152,8 +152,8 @@ check this geometry error as well as solution errors.
 
 The implementation rejects branching, curved, disconnected, nonuniform-radius,
 partly uncovered, or heterogeneously stiff/damped interiors. Hanging-node
-constraints and prescribed
-boundary values are supported; other multipoint constraints are rejected.
+constraints and prescribed boundary values are supported; other multipoint
+constraints are rejected.
 Mesh constraints use the same condensation in the native solid operators and
 the modal moments. Coverage is checked
 at the existing wall quadrature points; it is not a proof of geometric

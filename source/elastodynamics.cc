@@ -386,8 +386,20 @@ namespace ImmersX
   void
   ElastodynamicsSolver<dim, spacedim>::make_grid()
   {
+    make_grid([](auto &mesh_domain) { mesh_domain.make_grid(); });
+  }
+
+
+  template <int dim, int spacedim>
+  void
+  ElastodynamicsSolver<dim, spacedim>::make_grid(
+    const std::function<void(Domain<dim, spacedim> &)> &initialize)
+  {
     TimerOutput::Scope t(computing_timer, "Make grid");
-    domain.make_grid();
+    initialize(domain);
+    AssertThrow(!domain.grid_is_prepared() &&
+                  domain.triangulation().n_global_active_cells() > 0,
+                ExcMessage("The grid policy must finalize the solid Domain."));
     tria = &domain.triangulation();
     dh.reinit(*tria);
     pcout << "   Triangulation backend: "
@@ -1844,13 +1856,6 @@ namespace ImmersX
            std::isfinite(velocity_storage.l2_norm());
   }
 
-
-  template <int dim, int spacedim>
-  parallel::TriangulationBase<dim, spacedim> &
-  ElastodynamicsSolver<dim, spacedim>::triangulation()
-  {
-    return *tria;
-  }
 
   template <int dim, int spacedim>
   const AffineConstraints<double> &

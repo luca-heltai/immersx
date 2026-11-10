@@ -241,15 +241,19 @@ TEST(ElastodynamicsAdapterMMS, BOTH_LocalAffineMovingBoundary)
     end
   )");
   Problem problem(parameters);
-  problem.make_grid();
-  auto &mesh = problem.triangulation();
-  mesh.set_mesh_smoothing(Triangulation<2>::limit_level_difference_at_vertices);
-  for (const auto &cell : mesh.active_cell_iterators())
-    if (cell->is_locally_owned() && cell->center()[0] < .5 &&
-        cell->center()[1] < .5)
-      cell->set_refine_flag();
-  mesh.execute_coarsening_and_refinement();
-  ASSERT_EQ(mesh.n_global_active_cells(), 7u);
+  problem.make_grid([](auto &domain) {
+    domain.prepare_grid();
+    auto &mesh = domain.refinement_triangulation();
+    mesh.set_mesh_smoothing(
+      Triangulation<2>::limit_level_difference_at_vertices);
+    for (const auto &cell : mesh.active_cell_iterators())
+      if (cell->is_locally_owned() && cell->center()[0] < .5 &&
+          cell->center()[1] < .5)
+        cell->set_refine_flag();
+    mesh.execute_coarsening_and_refinement();
+    domain.finalize_grid();
+  });
+  ASSERT_EQ(problem.triangulation().n_global_active_cells(), 7u);
   problem.setup_fe();
   problem.setup_system();
   problem.assemble_operators();

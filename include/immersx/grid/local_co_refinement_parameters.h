@@ -150,11 +150,7 @@ namespace ImmersX
   struct RefinementParameters<0> : public ParameterAcceptor
   {
     RefinementParameters()
-      : RefinementParameters("Local refinement parameters")
-    {}
-
-    explicit RefinementParameters(const std::string &subsection)
-      : ParameterAcceptor(subsection)
+      : ParameterAcceptor("Local refinement parameters")
     {
       this->add_parameter("Refinement factor", refinement_factor);
       this->add_parameter("Max refinement level", max_refinement_level);

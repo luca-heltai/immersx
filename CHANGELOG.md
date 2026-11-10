@@ -13,7 +13,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #373](https://github.com/luca-heltai/immersx/pull/373) Write the lifted wall of `LiftedElasticity` and `LiftedPoisson` as particles, one per lifted quadrature point. A `Particle output/Properties` list selects the stored quantities: weight, mode shapes, modal coefficients, lifted value, prescribed modal data, representative point, radius, quadrature indices and the interpolated background field.
 
-- [PR #372](https://github.com/luca-heltai/immersx/pull/372) Enable optional local solid refinement around MetricFlowX wall-lift supports, with configurable refinement controls, hanging-node condensation and a manufactured-solution sequence starting from one cube.
+- [PR #372](https://github.com/luca-heltai/immersx/pull/372) Co-refine solid and fluid meshes on physical MetricFlowX lift supports with separate axial and circumferential scale checks, retained input fields, consistent hanging-node condensation and a one-cube manufactured-solution sequence.
 
 - [PR #370](https://github.com/luca-heltai/immersx/pull/370) Save separate diagnostic arterial, portal and venous VTK datasets when liver growth is rejected, preserving crossings and collapsed edges without adopting the invalid network.
 
