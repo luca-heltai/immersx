@@ -114,6 +114,10 @@ namespace ImmersX::Vascularization
     leave_subsection();
     enter_subsection("Growth");
     add_parameter(
+      "Enforce geometry",
+      enforce_geometry,
+      "Enforce wall/vessel admissibility and scaled geometric growth bounds; false defers geometry repair while retaining hydraulic, topology and ownership checks.");
+    add_parameter(
       "Seed length",
       seed_length,
       "Initial vessel length times H at its attachment; its radius stays physical.");
@@ -329,8 +333,8 @@ namespace ImmersX::Vascularization
       dealii::ExcMessage(
         "Supply a positive initial length coefficient and, for an empty input, a positive seed radius and viscosity in SI units."));
     AssertThrow(
-      std::isfinite(clearance) && clearance >= 0. && geometry_depth <= 30 &&
-        geometry_work > 0,
+      std::isfinite(clearance) && clearance >= 0. &&
+        (!enforce_geometry || (geometry_depth <= 30 && geometry_work > 0)),
       dealii::ExcMessage(
         "Clearance must be finite and nonnegative; geometry depth must be at most 30 and its patch budget positive."));
     AssertThrow(
@@ -342,7 +346,7 @@ namespace ImmersX::Vascularization
       positive(arterial_murray_exponent) && std::isfinite(minimum_radius) &&
         minimum_radius >= 0. && std::isfinite(minimum_length) &&
         minimum_length >= 0. && std::isfinite(minimum_angle) &&
-        minimum_angle > 0. && minimum_angle < 120. &&
+        (!enforce_geometry || (minimum_angle > 0. && minimum_angle < 120.)) &&
         std::isfinite(dissipation_weight) && dissipation_weight >= 0. &&
         dissipation_weight <= 1. && std::isfinite(density_beta) &&
         positive(terminal_weight_bound),
@@ -701,50 +705,55 @@ namespace ImmersX::Vascularization
               (s == static_cast<unsigned int>(System::portal) &&
                active == System::venous))
             {
-              // Skipped completed phases still need the native final geometry
-              // certificate, using the exact stored endpoint radius profiles.
-              std::vector<internal::BatchProposal> checks;
-              for (Id id : result.mutable_owned[s])
+              if (parameters.enforce_geometry)
                 {
-                  const auto             &v = result.network.vessels.at(id);
-                  internal::BatchProposal check;
-                  check.id            = id;
-                  check.owners[id]    = rank;
-                  check.old_nodes[id] = v.nodes;
-                  check.changed.push_back(
-                    {id,
-                     v.nodes,
-                     {{result.network.nodes.at(v.nodes[0]).position,
-                       result.network.nodes.at(v.nodes[1]).position}},
-                     v.radii[0]});
-                  for (Id node : v.nodes)
+                  // Skipped completed phases still need the native final
+                  // geometry certificate, using the exact stored endpoint
+                  // radius profiles.
+                  std::vector<internal::BatchProposal> checks;
+                  for (Id id : result.mutable_owned[s])
                     {
-                      const auto &n = result.network.nodes.at(node);
-                      if (std::max({std::abs(n.inward_port_normal[0]),
-                                    std::abs(n.inward_port_normal[1]),
-                                    std::abs(n.inward_port_normal[2])}) > 0.)
+                      const auto             &v = result.network.vessels.at(id);
+                      internal::BatchProposal check;
+                      check.id            = id;
+                      check.owners[id]    = rank;
+                      check.old_nodes[id] = v.nodes;
+                      check.changed.push_back(
+                        {id,
+                         v.nodes,
+                         {{result.network.nodes.at(v.nodes[0]).position,
+                           result.network.nodes.at(v.nodes[1]).position}},
+                         v.radii[0]});
+                      for (Id node : v.nodes)
                         {
-                          check.port_owners[node] = n.owner;
-                          check.normals[node]     = n.inward_port_normal;
+                          const auto &n = result.network.nodes.at(node);
+                          if (std::max({std::abs(n.inward_port_normal[0]),
+                                        std::abs(n.inward_port_normal[1]),
+                                        std::abs(n.inward_port_normal[2])}) >
+                              0.)
+                            {
+                              check.port_owners[node] = n.owner;
+                              check.normals[node]     = n.inward_port_normal;
+                            }
                         }
+                      checks.push_back(std::move(check));
                     }
-                  checks.push_back(std::move(check));
+                  const auto certified = internal::select_growth_batch(
+                    geometry,
+                    result.network,
+                    checks,
+                    parameters,
+                    comm,
+                    [&](Id id) { return result.network.vessels.at(id).radii; },
+                    true);
+                  for (const auto &[id, accepted] : certified.local)
+                    if (!accepted)
+                      fail(
+                        id,
+                        "Completed checkpoint geometry failed native certification.");
+                  if (!valid())
+                    return result;
                 }
-              const auto certified = internal::select_growth_batch(
-                geometry,
-                result.network,
-                checks,
-                parameters,
-                comm,
-                [&](Id id) { return result.network.vessels.at(id).radii; },
-                true);
-              for (const auto &[id, accepted] : certified.local)
-                if (!accepted)
-                  fail(
-                    id,
-                    "Completed checkpoint geometry failed native certification.");
-              if (!valid())
-                return result;
               result.terminal_flows.insert(physical.terminal_flows.begin(),
                                            physical.terminal_flows.end());
               if (parameters.reference_flow > 0.)
@@ -1343,16 +1352,18 @@ namespace ImmersX::Vascularization
     auto p = parameters.calibration;
 
     const auto modes = std::make_pair(
-      std::array<double, 10>{{p.volume_fraction,
-                              p.minimum_coverage,
-                              p.relative_tolerance,
-                              static_cast<double>(p.minimum_terminals),
-                              static_cast<double>(p.maximum_terminals),
-                              static_cast<double>(p.attempt_budget),
-                              static_cast<double>(parameters.terminal_count),
-                              static_cast<double>(parameters.venous.enabled),
-                              static_cast<double>(parameters.portal.enabled),
-                              parameters.portal_flow_fraction}},
+      std::array<double, 11>{
+        {p.volume_fraction,
+         p.minimum_coverage,
+         p.relative_tolerance,
+         static_cast<double>(p.minimum_terminals),
+         static_cast<double>(p.maximum_terminals),
+         static_cast<double>(p.attempt_budget),
+         static_cast<double>(parameters.terminal_count),
+         static_cast<double>(parameters.venous.enabled),
+         static_cast<double>(parameters.portal.enabled),
+         parameters.portal_flow_fraction,
+         static_cast<double>(parameters.enforce_geometry)}},
       std::array<std::string, 2>{{parameters.terminal_count_multiplier_factor,
                                   parameters.length_scale}});
     bool matching_modes = true;
@@ -1631,7 +1642,7 @@ namespace ImmersX::Vascularization
     using namespace dealii;
     const auto controls = std::make_pair(
       std::make_pair(
-        std::array<double, 10>{
+        std::array<double, 11>{
           {static_cast<double>(active_companion),
            parameters.seed_length,
            static_cast<double>(parameters.venous.enabled),
@@ -1641,7 +1652,8 @@ namespace ImmersX::Vascularization
            parameters.calibration.relative_tolerance,
            static_cast<double>(parameters.calibration.minimum_terminals),
            static_cast<double>(parameters.calibration.maximum_terminals),
-           static_cast<double>(parameters.terminal_count)}},
+           static_cast<double>(parameters.terminal_count),
+           static_cast<double>(parameters.enforce_geometry)}},
         std::array<std::string, 2>{{parameters.terminal_count_multiplier_factor,
                                     parameters.length_scale}}),
       std::array<std::vector<Id>, 3>{{parameters.selected_terminals,
