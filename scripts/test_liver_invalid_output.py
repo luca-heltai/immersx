@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--ranks", default=1, type=int)
     parser.add_argument("--mpiexec", default="mpirun")
+    parser.add_argument("--exception", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     # Keep failed and successful attempts available for inspection.
@@ -26,12 +27,17 @@ def main():
     parameters = args.parameters.read_text()
     parameters = re.sub(r"(?m)^  set Output directory = .*$",
                         f"  set Output directory = {output}", parameters)
-    parameters = parameters.replace("set Minimum vessel length = .0002",
-                                    "set Minimum vessel length = 10")
-    parameters = parameters.replace("set Sample budget per insertion = 2000",
-                                    "set Sample budget per insertion = 1")
-    parameters = parameters.replace("set Terminal count = 8",
-                                    "set Terminal count = 1")
+    if args.exception:
+        parameters += ("\nsubsection Liver\n  subsection Vascularization\n"
+                       "    subsection Physiology\n      set Tissue demand = 0\n"
+                       "    end\n  end\nend\n")
+    else:
+        parameters = parameters.replace("set Minimum vessel length = .0002",
+                                        "set Minimum vessel length = 10")
+        parameters = parameters.replace("set Sample budget per insertion = 2000",
+                                        "set Sample budget per insertion = 1")
+        parameters = parameters.replace("set Terminal count = 8",
+                                        "set Terminal count = 1")
     prm = attempt / "input.prm"
     prm.write_text(parameters)
     command = [str(args.executable.resolve()), str(prm.resolve())]
@@ -41,12 +47,31 @@ def main():
         process = subprocess.run(command, cwd=attempt, stdout=log,
                                  stderr=subprocess.STDOUT, timeout=100)
     assert process.returncode != 0, "This fixture must be rejected"
+    initial = output / "initial-input"
+    initial_metadata = json.loads((initial / "diagnostic.json").read_text())
+    assert initial_metadata["diagnostic_only"]
+    assert not initial_metadata["generation_complete"]
+    assert not initial_metadata["archive_adoptable"]
+    for role in ("arterial", "portal", "venous"):
+        pieces = ET.parse(initial / f"{role}.pvtu").findall(".//Piece")
+        assert len(pieces) == args.ranks
+        count = sum(int(record.attrib["NumberOfCells"])
+                    for piece in pieces
+                    for record in ET.parse(initial / piece.attrib["Source"]).findall(
+                        ".//UnstructuredGrid/Piece"))
+        assert count > 0, (role, count)
+    assert not (output / "network").exists()
+    if args.exception:
+        log_text = (attempt / "run.log").read_text()
+        assert "Tissue density and physical quadrature masses" in log_text
+        assert not (output / "invalid-result").exists()
+        print(f"Generation exception retained imported inputs only: {initial}")
+        return
     diagnostics = output / "invalid-result"
     metadata = json.loads((diagnostics / "diagnostic.json").read_text())
     assert metadata["diagnostic_only"] and not metadata["validation_valid"]
     assert not metadata["generation_complete"] and not metadata["archive_adoptable"]
     assert metadata["omitted_vessels"] == 0
-    assert not (output / "network").exists()
     for role in ("arterial", "portal", "venous"):
         pieces = ET.parse(diagnostics / f"{role}.pvtu").findall(".//Piece")
         assert len(pieces) == args.ranks

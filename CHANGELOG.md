@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Make geometric CCO admissibility optional while retaining hydraulic, graph ownership and topology checks, with diagnostic vascular outputs for inspection.
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Make geometric CCO admissibility optional while retaining hydraulic, graph ownership and topology checks, and save separate input and result vascular datasets for inspection.
 
 - [PR #372](https://github.com/luca-heltai/immersx/pull/372) Co-refine solid and fluid meshes on physical MetricFlowX lift supports with separate axial and circumferential scale checks, retained input fields, consistent hanging-node condensation and a one-cube manufactured-solution sequence.
 

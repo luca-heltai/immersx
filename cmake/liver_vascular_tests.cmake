@@ -43,6 +43,16 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
         --parameters "${CMAKE_BINARY_DIR}/data/vascularization/liver_smoke/portal.prm"
         --output "${TEST_OUTPUT_DIR}/liver-invalid-output/${_target}/${_ranks}"
         --ranks "${_ranks}" --mpiexec "${_liver_mpiexec}")
+    add_test(NAME "${_name}.ExceptionInputOutput"
+      COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/test_liver_invalid_output.py"
+        --executable "$<TARGET_FILE:${_target}>"
+        --parameters "${CMAKE_BINARY_DIR}/data/vascularization/liver_smoke/portal.prm"
+        --output "${TEST_OUTPUT_DIR}/liver-exception-output/${_target}/${_ranks}"
+        --exception --ranks "${_ranks}" --mpiexec "${_liver_mpiexec}")
+    set_tests_properties("${_name}.ExceptionInputOutput" PROPERTIES LABELS "application"
+      TIMEOUT 115 PROCESSORS "${_ranks}"
+      ENVIRONMENT "${IMMERSX_NUMERICAL_TEST_ENVIRONMENT}")
     set_tests_properties("${_name}.InvalidOutput" PROPERTIES LABELS "application"
       TIMEOUT 115 PROCESSORS "${_ranks}"
       ENVIRONMENT "${IMMERSX_NUMERICAL_TEST_ENVIRONMENT}")
@@ -55,7 +65,7 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
     set_tests_properties("${_name}.Portal" PROPERTIES LABELS "application" TIMEOUT 115 PROCESSORS "${_ranks}"
       ENVIRONMENT "${IMMERSX_NUMERICAL_TEST_ENVIRONMENT}")
     if(_ranks GREATER 1)
-      set_property(TEST "${_name}" "${_name}.Portal" "${_name}.Robin" "${_name}.InvalidOutput" APPEND PROPERTY LABELS "mpi")
+      set_property(TEST "${_name}" "${_name}.Portal" "${_name}.Robin" "${_name}.InvalidOutput" "${_name}.ExceptionInputOutput" APPEND PROPERTY LABELS "mpi")
     endif()
   endforeach()
 endforeach()
