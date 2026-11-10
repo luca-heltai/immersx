@@ -323,8 +323,25 @@ main(int argc, char **argv)
         mapping = std::make_unique<MappingQ1<3>>();
       V::GenerationResult result;
       if (settings.companion_checkpoint.empty())
-        result = V::generate(
-          domain.triangulation(), *mapping, initial, settings.growth, comm);
+        {
+          try
+            {
+              result = V::generate(domain.triangulation(),
+                                   *mapping,
+                                   initial,
+                                   settings.growth,
+                                   comm);
+            }
+          catch (const std::exception &error)
+            {
+              result.network = initial;
+              result.validation.issues.push_back(
+                {"generation exception",
+                 V::invalid_id,
+                 std::string(error.what()) +
+                   " No intermediate growth state is available; diagnostic VTK contains only the imported input."});
+            }
+        }
       else
         {
           AssertThrow(

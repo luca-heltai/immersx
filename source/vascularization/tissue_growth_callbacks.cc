@@ -14,6 +14,7 @@ namespace ImmersX::Vascularization::internal
       const std::string                        density;
       const TissueIntegrationParameters        parameters;
       const unsigned int                       requested_terminals;
+      const bool                               enforce_geometry;
       const MPI_Comm                           comm;
       std::unique_ptr<TissueDemandIntegration> integration;
       struct Descriptor
@@ -71,6 +72,7 @@ namespace ImmersX::Vascularization::internal
         , density(configuration.tissue_demand)
         , parameters(configuration.tissue_integration)
         , requested_terminals(requested)
+        , enforce_geometry(configuration.enforce_geometry)
         , comm(communicator)
       {}
 
@@ -111,9 +113,15 @@ namespace ImmersX::Vascularization::internal
           }
         require(valid,
                 "Tissue bootstrap requires native arterial leaf terminals.");
-        snapshot    = revision;
-        integration = std::make_unique<TissueDemandIntegration>(
-          geometry, density, parameters, requested_terminals, centres, comm);
+        snapshot = revision;
+        integration =
+          std::make_unique<TissueDemandIntegration>(geometry,
+                                                    density,
+                                                    parameters,
+                                                    requested_terminals,
+                                                    centres,
+                                                    comm,
+                                                    enforce_geometry);
         account(integration->initialization_work());
         if (!integration->validation().valid())
           {
