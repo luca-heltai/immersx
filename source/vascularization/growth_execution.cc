@@ -195,6 +195,10 @@ namespace ImmersX::Vascularization::internal
                  p.minimum_radius >= 0. && std::isfinite(p.minimum_angle) &&
                  p.minimum_angle >= 0. && p.minimum_angle <= 180. &&
                  initial_measures.size() == rows.network().vessels.size();
+    const auto geometry_mode = static_cast<unsigned int>(p.enforce_geometry);
+    const auto geometry_min  = dealii::Utilities::MPI::min(geometry_mode, comm);
+    const auto geometry_max  = dealii::Utilities::MPI::max(geometry_mode, comm);
+    valid                    = valid && geometry_min == geometry_max;
     for (const auto &[id, v] : rows.network().vessels)
       {
         const auto found = initial_measures.find(id);
@@ -225,30 +229,31 @@ namespace ImmersX::Vascularization::internal
     controls           = demand_state.root_controls(wanted, preview, report);
     if (!report.valid())
       return;
-    for (const auto &[id, v] : rows.network().vessels)
-      {
-        Certificate entry;
-        entry.cap             = {id,
-                                 v.nodes,
-                                 {{rows.network().nodes.at(v.nodes[0]).position,
-                                   rows.network().nodes.at(v.nodes[1]).position}},
-                                 std::max(v.radii[0], v.radii[1])};
-        entry.clearance_scale = initial_measures.at(id).clearance_scale;
-        clearance_bound   = std::max(clearance_bound, entry.clearance_scale);
-        const auto branch = demand_state.branches.find(id);
-        if (branch != demand_state.branches.end())
-          {
-            entry.root            = branch->second.topology.root;
-            entry.mass            = branch->second.value.mass;
-            entry.lower_root_mass = controls.at(entry.root).summary.mass;
-            entry.upper_root_mass =
-              id == entry.root ? Mass(0) : 2 * entry.lower_root_mass;
-            entry.cap.radius = radius(id, preview);
-            if (entry.cap.radius == controls.at(entry.root).radius)
-              entry.lower_root_mass = 0;
-          }
-        replace_certificate(id, std::move(entry), false);
-      }
+    if (p.enforce_geometry)
+      for (const auto &[id, v] : rows.network().vessels)
+        {
+          Certificate entry;
+          entry.cap             = {id,
+                                   v.nodes,
+                                   {{rows.network().nodes.at(v.nodes[0]).position,
+                                     rows.network().nodes.at(v.nodes[1]).position}},
+                                   std::max(v.radii[0], v.radii[1])};
+          entry.clearance_scale = initial_measures.at(id).clearance_scale;
+          clearance_bound   = std::max(clearance_bound, entry.clearance_scale);
+          const auto branch = demand_state.branches.find(id);
+          if (branch != demand_state.branches.end())
+            {
+              entry.root            = branch->second.topology.root;
+              entry.mass            = branch->second.value.mass;
+              entry.lower_root_mass = controls.at(entry.root).summary.mass;
+              entry.upper_root_mass =
+                id == entry.root ? Mass(0) : 2 * entry.lower_root_mass;
+              entry.cap.radius = radius(id, preview);
+              if (entry.cap.radius == controls.at(entry.root).radius)
+                entry.lower_root_mass = 0;
+            }
+          replace_certificate(id, std::move(entry), false);
+        }
     clearance_bound =
       dealii::Utilities::MPI::max(clearance_bound, communicator);
     root_members_changed.clear();

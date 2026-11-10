@@ -126,7 +126,9 @@ namespace ImmersX::Vascularization::internal
         scale.validate();
         valid_scale = scale.name() == parameters.length_scale;
         physical_minimum_radius =
-          scale.physical_length(parameters.minimum_radius, scale.minimum());
+          parameters.enforce_geometry ?
+            scale.physical_length(parameters.minimum_radius, scale.minimum()) :
+            0.;
       }
     catch (const std::exception &)
       {
@@ -163,7 +165,7 @@ namespace ImmersX::Vascularization::internal
         valid,
         "Forest evaluation requires valid owned mutable ids, fixed roots, colocated terminal authority and finite physiological controls."))
       return result;
-    const std::array<double, 8> controls{
+    const std::array<double, 9> controls{
       {parameters.arterial_murray_exponent,
        parameters.venous.murray_exponent,
        parameters.minimum_radius,
@@ -171,7 +173,8 @@ namespace ImmersX::Vascularization::internal
        parameters.dissipation_weight,
        parameters.portal.murray_exponent,
        parameters.portal_flow_fraction,
-       static_cast<double>(parameters.portal.enabled)}};
+       static_cast<double>(parameters.portal.enabled),
+       static_cast<double>(parameters.enforce_geometry)}};
     for (const auto &other : Utilities::MPI::all_gather(comm, controls))
       valid = valid && other == controls;
     if (!phase(valid,

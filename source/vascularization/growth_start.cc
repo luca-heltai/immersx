@@ -149,7 +149,8 @@ namespace ImmersX::Vascularization::internal
                                  static_cast<double>(p.geometry_work),
                                  p.arterial_murray_exponent,
                                  p.reference_flow,
-                                 p.dissipation_weight};
+                                 p.dissipation_weight,
+                                 static_cast<double>(p.enforce_geometry)};
     for (const auto &point :
          {p.seed_position, p.seed_direction, p.seed_inward_port_normal})
       for (unsigned int d = 0; d < 3; ++d)
@@ -184,7 +185,9 @@ namespace ImmersX::Vascularization::internal
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
     const double minimum_length =
-      scale.physical_length(p.minimum_length, scale.minimum());
+      p.enforce_geometry ?
+        scale.physical_length(p.minimum_length, scale.minimum()) :
+        0.;
     std::vector<SeedCell> local_cells;
     if (const auto cell =
           geometry.containing(p.seed_position,
@@ -211,12 +214,20 @@ namespace ImmersX::Vascularization::internal
         }
     if (!best)
       {
-        fail("Seed position is outside the background.");
-        return result;
+        if (p.enforce_geometry)
+          {
+            fail("Seed position is outside the background.");
+            return result;
+          }
+        // Hmin defines a seed coefficient, not a containing-cell certificate.
+        best.emplace();
+        best->diameter = scale.minimum();
+        best->center   = p.seed_position;
+        source         = 0;
       }
     const double seed_length =
       scale.physical_length(p.seed_length, best->diameter);
-    if (normal.norm_square() > 0. &&
+    if (p.enforce_geometry && normal.norm_square() > 0. &&
         Utilities::MPI::max(static_cast<unsigned int>(
                               geometry.planar_section(p.seed_position, normal)),
                             comm) == 0)
@@ -258,7 +269,9 @@ namespace ImmersX::Vascularization::internal
             if (norm > 0. && std::isfinite(norm))
               {
                 end = p.seed_position + seed_length / norm * directions[i];
-                if (end.distance(p.seed_position) >= minimum_length)
+                if (end.distance(p.seed_position) > 0. &&
+                    (!p.enforce_geometry ||
+                     end.distance(p.seed_position) >= minimum_length))
                   {
                     BatchProposal proposal;
                     proposal.id = 0;
@@ -305,8 +318,10 @@ namespace ImmersX::Vascularization::internal
                                trial,
                                mutable_owned,
                                roots,
-                               scale.physical_length(p.clearance,
-                                                     scale.maximum()),
+                               (p.enforce_geometry ?
+                                  scale.physical_length(p.clearance,
+                                                        scale.maximum()) :
+                                  0.),
                                comm,
                                &geometry);
         if (committed.prepared)
@@ -354,7 +369,8 @@ namespace ImmersX::Vascularization::internal
                                  p.arterial_murray_exponent,
                                  p.reference_flow,
                                  p.dissipation_weight,
-                                 static_cast<double>(terminal_count)};
+                                 static_cast<double>(terminal_count),
+                                 static_cast<double>(p.enforce_geometry)};
     for (unsigned int d = 0; d < 3; ++d)
       controls.push_back(p.seed_direction[d]);
     const auto local_controls = std::make_pair(controls, p.tissue_demand);
@@ -371,11 +387,17 @@ namespace ImmersX::Vascularization::internal
     auto &geometry = shared_geometry ? *shared_geometry : *local_geometry;
     geometry.configure_length_scale(p.length_scale, comm);
     const auto  &scale = *geometry.length_scale;
-    const double halo  = scale.physical_length(p.clearance, scale.maximum());
+    const double halo  = (p.enforce_geometry ?
+                            scale.physical_length(p.clearance, scale.maximum()) :
+                            0.);
     const double minimum_radius =
-      scale.physical_length(p.minimum_radius, scale.minimum());
+      p.enforce_geometry ?
+        scale.physical_length(p.minimum_radius, scale.minimum()) :
+        0.;
     const double minimum_length =
-      scale.physical_length(p.minimum_length, scale.minimum());
+      p.enforce_geometry ?
+        scale.physical_length(p.minimum_length, scale.minimum()) :
+        0.;
     scale.physical_length(p.seed_length, scale.minimum());
     scale.physical_length(p.seed_length, scale.maximum());
     // Native ownership and endpoint incidence are established before selecting
@@ -514,8 +536,29 @@ namespace ImmersX::Vascularization::internal
             (hint.diameter == hints.at(id).diameter &&
              hint.id < hints.at(id).id))
           hints[id] = hint;
+    if (!p.enforce_geometry)
+      for (const auto &[id, t] : snapshot.terminals)
+        if (t.owner == rank && t.system == System::arterial &&
+            (explicit_ids.empty() || explicit_ids.count(id)) &&
+            !hints.count(id))
+          {
+            const auto &node = snapshot.nodes.at(t.node);
+            if (incoming[t.node].size() != 1 || !outgoing[t.node].empty() ||
+                node.port != Port::none || node.owner != rank)
+              {
+                fail(
+                  id,
+                  "An unchecked attachment must still be a native non-port outward leaf.");
+                continue;
+              }
+            SeedCell hint;
+            hint.diameter = scale.minimum();
+            hint.center   = node.position;
+            hints.emplace(id, std::move(hint));
+          }
     for (const auto &[id, t] : snapshot.terminals)
-      if (t.owner == rank && explicit_ids.count(id) && !hints.count(id))
+      if (p.enforce_geometry && t.owner == rank && explicit_ids.count(id) &&
+          !hints.count(id))
         fail(
           id,
           "An explicitly selected exterior terminal cannot be extended by interior vessels.");
@@ -554,7 +597,7 @@ namespace ImmersX::Vascularization::internal
         const auto &terminal = snapshot.terminals.at(id);
         const auto &v = snapshot.vessels.at(incoming.at(terminal.node)[0]);
         const auto &position = snapshot.nodes.at(terminal.node).position;
-        if (v.radii[1] < minimum_radius)
+        if (p.enforce_geometry && v.radii[1] < minimum_radius)
           fail(
             id,
             "Fixed attachment radius is below the minimum admissible new radius.");
@@ -600,7 +643,8 @@ namespace ImmersX::Vascularization::internal
               position +
               scale.physical_length(p.seed_length, hints.at(id).diameter) /
                 norm * direction;
-            if (position.distance(end) < minimum_length)
+            if (!(position.distance(end) > 0.) ||
+                (p.enforce_geometry && position.distance(end) < minimum_length))
               continue;
             BatchProposal proposal;
             proposal.id = id;
@@ -653,8 +697,10 @@ namespace ImmersX::Vascularization::internal
                                trial,
                                mutable_owned,
                                roots,
-                               scale.physical_length(p.clearance,
-                                                     scale.maximum()),
+                               (p.enforce_geometry ?
+                                  scale.physical_length(p.clearance,
+                                                        scale.maximum()) :
+                                  0.),
                                comm,
                                &geometry);
         if (!committed.prepared)
