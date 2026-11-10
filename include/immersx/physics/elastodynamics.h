@@ -362,8 +362,8 @@ namespace ImmersX
 
     /** Return the consistent mass operator with mesh slaves eliminated.
      * Prescribed-value boundary columns remain. Hanging-node rows and columns
-     * are zero; adapter unknowns on these rows are zero, while physical state
-     * and output reconstruct their values using hanging_node_constraints().
+     * are zero; the adapter enforces constraint inhomogeneities in these slots.
+     * Physical state and output reconstruct mesh-slave values.
      */
     const MatrixType &
     mass_matrix() const;

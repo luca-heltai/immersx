@@ -266,10 +266,18 @@ TEST(ElastodynamicsAdapterMMS, BOTH_LocalAffineMovingBoundary)
   auto       state_dot = adapter.make_state();
   initialize_elastodynamics_adapter_state(
     adapter, fields, problem, state, state_dot);
+  unsigned int nonzero_mesh_data = 0;
   for (const auto &line : problem.constraints().get_lines())
     if (!line.entries.empty() &&
         problem.locally_owned_dofs().is_element(line.index))
-      EXPECT_EQ(state.block(0)[line.index], 0.);
+      {
+        EXPECT_EQ(state.block(0)[line.index], line.inhomogeneity);
+        nonzero_mesh_data += line.inhomogeneity != 0.;
+      }
+  EXPECT_GT(Utilities::MPI::sum(nonzero_mesh_data, MPI_COMM_WORLD), 0u);
+  auto initial_residual = adapter.make_state();
+  adapter.solver().residual(.1, state, state_dot, initial_residual);
+  EXPECT_LT(initial_residual.l2_norm(), 1.e-9);
   adapter.solve(state, state_dot);
   problem.accept_state(state.block(0), state.block(1), .13, 1);
   parameters.exact_solution.set_time(.13);

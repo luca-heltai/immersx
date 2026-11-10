@@ -513,6 +513,9 @@ TEST_F(FictitiousInteriorAssembly, BOTH_HangingNodeProjectionAndEnergy)
   for (const auto &line : refined.hanging_node_constraints().get_lines())
     if (affine_state.locally_owned_elements().is_element(line.index))
       affine_state[line.index] = 0.;
+  const auto algebraic_modes = local.modes(affine_state);
+  EXPECT_NEAR(algebraic_modes[0], .13, 2.e-14);
+  EXPECT_NEAR(algebraic_modes[1], -.07, 2.e-14);
   const auto elastic = local.elastic_operator();
   const auto viscous = local.viscous_operator();
   for (unsigned int sample = 0; sample < 7; ++sample)
