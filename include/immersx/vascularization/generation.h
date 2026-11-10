@@ -117,25 +117,30 @@ namespace ImmersX::Vascularization
     /** Zero retains a closed seed; otherwise declares a planar inlet section.
      */
     dealii::Point<3> seed_inward_port_normal;
-    double           seed_radius              = 0.;
-    double           seed_length              = 1.;
-    double           viscosity                = 0.;
-    double           clearance                = 0.;
-    unsigned int     geometry_depth           = 18;
-    unsigned int     geometry_work            = 100000;
-    unsigned int     terminal_count           = 1;
-    unsigned int     random_seed              = 1;
-    unsigned int     sample_budget            = 2000;
-    unsigned int     candidate_count          = 12;
-    unsigned int     optimization_steps       = 10;
-    double           arterial_murray_exponent = 3.;
-    double           minimum_radius           = 0.;
-    double           minimum_length           = .1;
-    double           minimum_angle            = 15.;
-    double           dissipation_weight       = 0.;
-    double           density_beta             = 3.;
-    std::string      terminal_weight          = "1";
-    double           terminal_weight_bound    = 1.;
+    double           seed_radius = 0.;
+    double           seed_length = 1.;
+    double           viscosity   = 0.;
+    double           clearance   = 0.;
+    /** Enforce geometric growth heuristics and wall/vessel admissibility.
+     * Disable to defer geometric repair while retaining positive finite
+     * hydraulic data, graph ownership and topology, and reference-flow checks.
+     */
+    bool         enforce_geometry         = true;
+    unsigned int geometry_depth           = 18;
+    unsigned int geometry_work            = 100000;
+    unsigned int terminal_count           = 1;
+    unsigned int random_seed              = 1;
+    unsigned int sample_budget            = 2000;
+    unsigned int candidate_count          = 12;
+    unsigned int optimization_steps       = 10;
+    double       arterial_murray_exponent = 3.;
+    double       minimum_radius           = 0.;
+    double       minimum_length           = .1;
+    double       minimum_angle            = 15.;
+    double       dissipation_weight       = 0.;
+    double       density_beta             = 3.;
+    std::string  terminal_weight          = "1";
+    double       terminal_weight_bound    = 1.;
     /** Relative tissue-demand density in x,y,z, integrated with physical JxW.
      */
     std::string tissue_demand = "1";
