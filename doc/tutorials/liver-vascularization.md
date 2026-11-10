@@ -564,7 +564,103 @@ The archived transient consumer currently uses an arterial inflow and portal
 and venous pressure reservoirs; loading this archive does not automatically
 impose the same portal inflow in that consumer.
 
-### Inspect denser growth attempts
+### Resistance-driven reference results
+
+With the new policy, both dense CCO forests pass the native rigid reference
+solve and an independent CSV audit. All three arm flows and resistances are
+positive. The maximum relative defect in the prescribed global flows is
+$3.5\times10^{-14}$ across the two cases; node balance, bed balance and
+pressure-work versus dissipation are checked independently.
+
+| Common territories | Physical vessels, all roles | Arterial root pressure (Pa) | Portal root pressure (Pa) | Resistance model |
+| --- | --- | --- | --- | --- |
+| 512 | 3144 | 11933.97 | 1431.61 | Demand-scaled arms |
+| 2048 | 12360 | 12226.22 | 1736.42 | Demand-scaled arms, portal coefficient ×2 |
+
+Both prescribe arterial supply $6.3390784575\times10^{-6}$ m³/s and portal
+supply $1.4497343415\times10^{-5}$ m³/s, with venous pressure 629.5974 Pa.
+The 512 and 2048 physical graphs, radii and IDs are unchanged from their
+earlier rejected attempts: the reference closure changes. The 2048 case
+needs the stated portal-arm sensitivity to retain positive perfusion.
+It is therefore a comparison of model variants, rather than an isolated
+terminal-count or convergence study. These are rigid references, not
+patient-calibrated or coupled transient results.
+
+```{figure} ../_static/liver-reference-perfusion/demand-versus-perfusion.png
+:alt: Demand fraction versus actual arterial, portal and venous flow fractions
+:width: 100%
+
+Each point is a matched common territory. The dashed line is proportional
+perfusion. Local flows follow the resistance graph and can differ from the
+demand-weighted design flows.
+```
+
+```{figure} ../_static/liver-reference-perfusion/portal-fraction-distribution.png
+:alt: Histograms of local portal fractions in the two accepted rigid references
+:width: 100%
+
+Local portal supply fractions vary around the prescribed global fraction.
+The 2048 case uses twice the portal resistance coefficient of the 512 case.
+```
+
+The [matched numeric records](../_static/liver-reference-perfusion/perfusion-distribution.csv),
+[renderer](../_static/liver-reference-perfusion/plot_perfusion.py) and
+[provenance](../_static/liver-reference-perfusion/provenance.json) retain the
+territory/terminal IDs, actual flows and three arm resistances. The renderer
+uses only the bundled CSV.
+
+(liver-resistance-space-sizes)=
+### Coupled space sizes
+
+The accepted 2048-territory physical archive is reused unchanged on three
+tissue backgrounds. The solid uses P2 displacement and velocity; the native
+flow and multiplier use degree one. The measured block sizes are:
+
+| Tissue tetrahedra | Displacement + velocity DoFs | Native flow DoFs | Multiplier DoFs | Total DoFs | MPI ranks |
+| --- | --- | --- | --- | --- | --- |
+| 2776 | 30864 | 105648 | 26412 | 162924 | 8 |
+| 111250 | 992034 | 111912 | 27978 | 1131924 | 32 |
+| 1222373 | 10206420 | 151280 | 37820 | 10395520 | 112 |
+
+These are completed `Setup only` runs. They construct the coupled spaces and
+stop before initializing the coupled state or invoking IDA. Setup wall times
+are 100.85, 531.37 and 669.11 seconds, respectively; these are not
+time-integration or solver benchmarks. The transient consumer still uses
+arterial inflow and portal/venous pressure reservoirs, whereas the rigid
+reference prescribes both supply totals. The coupled boundary model and
+initial state still need validation.
+
+The configured interval band is $0.5H_{\max}\le L\le2H_{\min}$, where
+$H$ is the background cell diameter over native overlaps. It is not met by
+all intervals:
+
+| Tissue tetrahedra | Median $L/H_{\max}$ | Intervals below $0.5H_{\max}$ among intervals with overlap |
+| --- | --- | --- |
+| 2776 | 0.13082 | 11676 / 11835 (98.66%) |
+| 111250 | 0.41242 | 7279 / 12576 (57.88%) |
+| 1222373 | 0.82864 | 4228 / 17262 (24.49%) |
+
+No interval exceeds the upper limit. Intervals without native overlap have
+zero recorded $H$ and are excluded from these ratios. An overlap flag does
+not mean an entire interval is inside the tissue. These measurements do not
+establish an inf-sup condition; short physical branches remain a numerical
+issue for the coupled solve.
+
+Coverage is a separate measurement. On the **2776-cell generation background**,
+each tetrahedron has, for each vascular role, a terminal whose ball of radius
+$2H$ contains all four vertices with a floating-point margin. Convexity then
+covers the entire affine tetrahedron. This gives a 100% volume lower bound
+for joint terminal coverage of this 1.4554 L background. It does not measure
+coverage relative to the finer solver backgrounds.
+
+The [reference and setup data release](https://github.com/luca-heltai/immersx/releases/tag/liver-resistance-reference-2026-11-10)
+contains the accepted physical networks, all three generated volume meshes,
+parameters, numeric tables, independent audits and portable preparation
+scripts. The setup package retains the exact block counts and per-interval
+mesh-scale records. Its README gives commands for preparing a new output
+directory; it does not start a simulation automatically.
+
+### Earlier demand-constrained inspection attempts
 
 Three denser inspection sets have completed all three forests on the same
 2,776-cell background:
@@ -1089,6 +1185,8 @@ claiming a converged reference, initial condition or timestep. The default is
 
 For fine physical vessels, a compatible backend exposes
 `Minimum positive area` under `MetricFlowSystem<1, 3>`, in m².
+This option requires
+[MetricFlowX #90](https://github.com/luca-heltai/metric-flow-x/pull/90).
 The physical-network importer uses that same threshold and preserves the
 supplied radii. Older backends retain their fixed $10^{-10}$ m² threshold.
 Choose a smaller value only after checking the actual minimum reference area;

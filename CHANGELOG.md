@@ -483,6 +483,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report accepted dense resistance-driven liver references, local perfusion plots and measured coupled-space sizes, with explicit mesh-length and transient-validation limits.
+
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Document optional geometric checks for three-network liver growth, measured rigid capacity and matched terminal radius/flow diagnostics, and dense inspection sets.
 
 - [PR #366](https://github.com/luca-heltai/immersx/pull/366) Add the completed A4245 arterial inspection, its measured coarse-mesh coverage and terminal occupancy, and ParaView paths while retaining the historical A3073 diagnostics.
