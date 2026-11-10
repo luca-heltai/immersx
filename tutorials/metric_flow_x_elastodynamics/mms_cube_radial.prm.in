@@ -1,0 +1,22 @@
+# h=0 reduction with nonzero elasticity, viscosity, forcing and boundary data.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube.prm
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-radial
+  subsection Functions
+    subsection Body force
+      set Function expression = 0; 6*t*y*R2/max(y^2+z^2,R2); 6*t*z*R2/max(y^2+z^2,R2)
+    end
+    subsection Displacement boundary
+      set Function expression = 0; t^3*y*R2/max(y^2+z^2,R2); t^3*z*R2/max(y^2+z^2,R2)
+    end
+    subsection Velocity boundary
+      set Function expression = 0; 3*t^2*y*R2/max(y^2+z^2,R2); 3*t^2*z*R2/max(y^2+z^2,R2)
+    end
+    subsection Exact solution
+      set Function expression = 0; t^3*y*R2/max(y^2+z^2,R2); t^3*z*R2/max(y^2+z^2,R2)
+    end
+  end
+end
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-radial
+end

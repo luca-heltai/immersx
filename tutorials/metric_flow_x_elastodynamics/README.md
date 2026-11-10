@@ -1,34 +1,67 @@
-# MetricFlowX vessel-wall coupling
+# MetricFlowX–elastodynamics examples
 
-`two_way.prm.in` is the nonzero-inflow example for the
-`metric_flow_x_elastodynamics` application. It configures the flow and solid
-Problems, the tensor-product wall lift, the material data, time integration,
-initial and boundary functions, and output directories.
+The two_way.prm.in input retains ordinary extended-solid coupling.
+The mms_cube*.prm.in cases remove projected fictitious elasticity and viscosity
+while retaining mass.
 
-The template is generated below the build tree. Run the application with that
-generated file, as described in the [tutorial](../../doc/tutorials/metric-flow-x-elastodynamics.md).
+See [the coupling tutorial](../../doc/tutorials/metric-flow-x-elastodynamics-coupling.md)
+and [the manufactured-solution derivation](../../doc/tutorials/metric-flow-x-elastodynamics-mms.md).
 
-The [mathematical formulation](../../doc/tutorials/metric-flow-x-elastodynamics-coupling.md)
-is documented in the tutorial documentation.
+~~~bash
+cmake -S . -B build-mms -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_COUPLED_PROBLEMS=OFF \
+  -DMetricFlowX_DIR=/path/to/metric-flow-x/lib/cmake/MetricFlowX
+cmake --build build-mms --target metric_flow_x_elastodynamics -j2
+python3 scripts/mfx_modal_convergence.py --build build-mms --run \
+  --cases base refined
+~~~
 
-The [one-vessel manufactured solution](../../doc/tutorials/metric-flow-x-elastodynamics-mms.md)
-derives a continuous, piecewise solid displacement and nonzero pressure-jump
-target. Its inlet supplies the changing vessel volume. Run
-`mms_cube.prm.in`, `mms_cube_refined.prm.in`, and
-`mms_cube_mpi.prm.in` through their generated build-tree `.prm`
-files. These inputs use the corrected momentum and continuity rows, with the
-native pressure feedback described in the tutorial. The application does not
-compute their errors automatically.
+Use MetricFlowX with the native external-pressure state-Jacobian API and matching
+headers and libraries. The reproducibility revision is main commit
+`e98b2333ed41d0fcef027849e0efb460d9ada64d` (version 1.0.0); see the
+manufactured-solution derivation for the required APIs. Older incompatible
+packages give an error before mesh setup when the correction is enabled.
 
-The default cube inputs prescribe exact time-dependent displacement and velocity
-on the outer boundary. `mms_cube_neumann.prm.in` and
-`mms_cube_neumann_refined.prm.in` retain the exact-traction version on the base
-and refined meshes. They use separate output directories so both boundary
-choices can be compared.
+Run a supplied iterative case with MPI through the same runner:
 
-`mms_cube_mumps.prm.in` selects native `dealii::SparseDirectMUMPS` for serial
-or MPI runs. It requires deal.II configured with `DEAL_II_WITH_MUMPS`.
+~~~bash
+python3 scripts/mfx_modal_convergence.py --build build-mms --run \
+  --cases finer --mpi-ranks 4
+~~~
 
-The cube MMS cases share `single_vessel_centered.vtk`. Their flow refinement
-levels are `1` (base and MPI) and `2` (refined); separate pre-refined VTK inputs
-are not needed. Domain retains `a0` while refining the native coarse mesh.
+The default --mpi-ranks 1 retains serial execution. Multiple ranks require
+finer, finer-original, iterative or mpi cases and a matching MPI launcher on PATH. Saved output
+and execution metadata can be reprocessed with the same --output path and no
+--run flag.
+
+The base and refined cases use UMFPACK; finer uses factored iteration.
+The measured finest case uses four MPI ranks. Ordinary flow meshes have 1/2/4
+cells for 4/8/16 solid axial cells, with four axial quadrature repetitions.
+The finer-original diagnostic retains the former eight-flow-cell pairing.
+Common tolerances remain unchanged; all analytical targets and densities are
+retained. The finest ordinary multiplier error is still 55%, so these
+measurements do not establish pressure convergence or general stability.
+The iterative case compares solvers on the base mesh. The optional MPI input
+also uses iteration; only the explicitly named MUMPS input requires MUMPS.
+Outputs and JSON errors remain in separate build-tree directories. The finest
+case has 65,536 solid cells. An earlier SDK 0.1.0 diagnostic of the optional
+finer_direct benchmark exceeded 59 GiB during initial factorization. That
+benchmark is outside the ordinary sequence.
+
+The MMS uses distinct radial and axial strains, nonzero solid viscosity and
+forcing, and source-free continuity. The radial case checks $h=0$; tight checks
+sensitivity to adaptive time tolerances. No convergence rate is assumed.
+
+The local MMS family starts from one solid cube and one fluid cell.
+The `/MetricFlowX coupling/Co-refinement/` group exposes `both`, the lower/upper
+ratio factors, mesh and section caps, and pre/post refinement controls.
+Physical wall points identify the interacting cells without radius padding.
+The loop compares fluid-cell length and physical section-quadrature length
+separately with the solid cell size, refining the solid, fluid and section
+as needed before creating the final spaces.
+
+The `local`, `local-refined` and `local-finer` cases increase the initial section
+resolution while the loop selects both physical meshes. `local-tight` checks
+time-tolerance sensitivity. The report verifies that both meshes refine,
+checks both ratio intervals and records mesh diagnostics. Imported fields
+follow the mesh through refinement. See the MMS derivation for the exact criterion and commands.

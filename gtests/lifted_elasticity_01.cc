@@ -8,6 +8,11 @@
 #include <immersx/physics/elasticity.h>
 #include <immersx/physics/lifted_elasticity.h>
 
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+
 #include "test_paths.h"
 
 using namespace ImmersX;
@@ -681,4 +686,47 @@ TEST(LiftedElasticity, BOTH_HalfWallPressureKeepsNominalAmplitude)
   EXPECT_NEAR(translation * adapter.field(residual, probe),
               .5 * 2. * nominal_measure,
               1.e-11);
+}
+
+TEST(LiftedElasticity, BOTH_WallParticleOutput)
+{
+  ParameterAcceptor::clear();
+  LiftedElasticityParameters<3> parameters;
+  initialize_parameters();
+  parameters.coupling                             = "pressure";
+  parameters.execution.solver                     = LinearSolver::direct;
+  parameters.domain_parameters.initial_refinement = 1;
+  parameters.immersed_domain.initial_refinement   = 0;
+  parameters.geometry.thickness                   = "0.1";
+  parameters.modal_data                           = {"2", "0", "0"};
+  parameters.co_refinement.lower_factor           = 0.0001;
+  parameters.co_refinement.upper_factor           = 1000.;
+  parameters.particle_output.properties =
+    LiftedParticleOutputParameters::available_properties();
+  const auto directory = TestPaths::output_path(
+    "lifted_elasticity_wall_particles-" +
+    std::to_string(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD)));
+  parameters.output_directory = directory.string();
+  parameters.output_name      = "wall";
+  LiftedElasticity<3> problem(parameters);
+  problem.run();
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  EXPECT_TRUE(
+    std::filesystem::is_regular_file(directory / "wall_particles.pvd"));
+  const auto filename = directory / "wall_particles_0.vtu";
+  ASSERT_TRUE(std::filesystem::is_regular_file(filename));
+  std::ifstream     input(filename);
+  const std::string text((std::istreambuf_iterator<char>(input)), {});
+  for (const std::string name : {"weight",
+                                 "mode_0",
+                                 "pressure_0",
+                                 "pressure",
+                                 "data_0",
+                                 "representative_point",
+                                 "radius",
+                                 "source_cell",
+                                 "section_qpoint",
+                                 "displacement"})
+    EXPECT_NE(text.find("Name=\"" + name + "\""), std::string::npos) << name;
 }

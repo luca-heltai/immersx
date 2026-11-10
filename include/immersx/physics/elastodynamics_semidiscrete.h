@@ -214,6 +214,25 @@ namespace ImmersX
     typename ElastodynamicsSolver<dim, spacedim>::VectorType acceleration;
     problem.initial_acceleration(acceleration);
     adapter.field(state_dot, fields.fields().velocity) = acceleration;
+    // Mesh slaves are eliminated from the physical operators. Their rows
+    // enforce only the inhomogeneous part of the closed boundary constraints.
+    const auto initialize_mesh_slots =
+      [](auto &values, auto &rates, const auto &constraints) {
+        for (const auto &line : constraints.get_lines())
+          if (!line.entries.empty() &&
+              values.locally_owned_elements().is_element(line.index))
+            {
+              values[line.index] = line.inhomogeneity;
+              rates[line.index]  = 0.;
+            }
+      };
+    initialize_mesh_slots(adapter.field(state, fields.fields().displacement),
+                          adapter.field(state_dot,
+                                        fields.fields().displacement),
+                          problem.constraints());
+    initialize_mesh_slots(adapter.field(state, fields.fields().velocity),
+                          adapter.field(state_dot, fields.fields().velocity),
+                          problem.velocity_constraints());
   }
 } // namespace ImmersX
 

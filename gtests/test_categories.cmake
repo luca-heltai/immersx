@@ -2,6 +2,7 @@
 # applied to the unit and integration category tests below; MPI is orthogonal
 # and is selected by the process-count-specific test command.
 set(IMMERSX_UNIT_TEST_SUITES
+    FictitiousInterior
     VascularNetworkData
     TestCategoryTyped/*
     ContributorCore
@@ -26,10 +27,12 @@ set(IMMERSX_UNIT_TEST_SUITES
     FieldCatalog
     MixedField
     TensorProductLift
+    LiftedParticleOutput
     TensorProductSpace0D
     ReducedPoisson0D)
 
 set(IMMERSX_INTEGRATION_TEST_SUITES
+    FictitiousInteriorAssembly
     ReplicatedOperators
     VascularTissueDemand
     VascularCompletion
@@ -76,6 +79,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ImportedFiniteElementFields
     Domain
     LocalCoRefinement
+    LiftCoRefinement
     OverlapClassification
     LiftedElasticity
     LegacyInclusions

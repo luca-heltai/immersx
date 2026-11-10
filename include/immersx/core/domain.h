@@ -156,6 +156,16 @@ namespace ImmersX
     void
     prepare_grid(const dealii::Triangulation<dim, spacedim> &coarse_mesh);
 
+    /** Evaluate an imported component on a serial preparation cell.
+     * Geometry policies may use retained data before final field views exist.
+     * The coefficients follow every refinement through Domain's transfer hooks.
+     */
+    double
+    prepared_field_value(const std::string        &name,
+                         const dealii::CellId     &cell,
+                         const dealii::Point<dim> &unit_point,
+                         unsigned int              component = 0) const;
+
     /** Partition the prepared mesh and transfer its refined input fields. */
     void
     finalize_grid();

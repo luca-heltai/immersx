@@ -660,6 +660,45 @@ namespace ImmersX
   }
 
   template <int dim, int spacedim>
+  double
+  Domain<dim, spacedim>::prepared_field_value(
+    const std::string        &name,
+    const dealii::CellId     &cell_id,
+    const dealii::Point<dim> &unit_point,
+    const unsigned int        component) const
+  {
+    AssertThrow(
+      grid_prepared_ && serial_fields_ != nullptr,
+      dealii::ExcMessage(
+        "Prepared field evaluation requires retained serial input fields."));
+    const auto &fields = *serial_fields_;
+    const auto  entry =
+      std::find_if(fields.catalog.begin(),
+                   fields.catalog.end(),
+                   [&](const auto &field) { return field.name == name; });
+    AssertThrow(entry != fields.catalog.end(),
+                dealii::ExcMessage("Unknown prepared input field '" + name +
+                                   "'."));
+    AssertThrow(component < entry->n_components,
+                dealii::ExcMessage(
+                  "Prepared input component is out of range."));
+    const auto raw_cell =
+      fields.dof_handler.get_triangulation().create_cell_iterator(cell_id);
+    AssertThrow(raw_cell->is_active(),
+                dealii::ExcMessage("Prepared field requires an active cell."));
+    const auto cell = raw_cell->as_dof_handler_iterator(fields.dof_handler);
+    std::vector<dealii::types::global_dof_index> indices(
+      fields.fe->n_dofs_per_cell());
+    cell->get_dof_indices(indices);
+    double     value    = 0.;
+    const auto selected = entry->first_fe_component + component;
+    for (unsigned int i = 0; i < indices.size(); ++i)
+      value += fields.coefficients[indices[i]] *
+               fields.fe->shape_value_component(i, unit_point, selected);
+    return value;
+  }
+
+  template <int dim, int spacedim>
   void
   Domain<dim, spacedim>::finalize_grid()
   {
