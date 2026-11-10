@@ -499,6 +499,11 @@ namespace
     DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
 
     initialize_parameters(parameter_file);
+    const auto setup_policy = static_cast<unsigned int>(setup_only);
+    AssertThrow(Utilities::MPI::min(setup_policy, MPI_COMM_WORLD) ==
+                  Utilities::MPI::max(setup_policy, MPI_COMM_WORLD),
+                ExcMessage(
+                  "All ranks must use the same coupled setup-only policy."));
     AssertThrow(
       !remove_fictitious_modes ||
         detail::has_external_pressure_state_jacobian<FlowProblem>::value,
@@ -506,11 +511,6 @@ namespace
         "Remove fictitious modal response requires MetricFlowX with "
         "add_external_pressure_state_jacobian(). Rebuild against matching "
         "headers and libraries from a compatible MetricFlowX installation."));
-    const auto setup_policy = static_cast<unsigned int>(setup_only);
-    AssertThrow(Utilities::MPI::min(setup_policy, MPI_COMM_WORLD) ==
-                  Utilities::MPI::max(setup_policy, MPI_COMM_WORLD),
-                ExcMessage(
-                  "All ranks must use the same coupled setup-only policy."));
     const bool archived_network = !archive_parameters.directory.empty();
     AssertThrow(!archived_network || !generate_network,
                 ExcMessage(
