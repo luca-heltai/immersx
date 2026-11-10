@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "profile": "small",
+      "coupled_total_dofs": 132932,
+      "background_tetrahedra": 13351,
+      "numerical_1d_intervals": 26,
+      "minimum_length_over_h_decimal": "0.70761683721541491",
+      "maximum_length_over_h_decimal": "1.961664423192053",
+      "dof_source_key": "small",
+      "dof_source_JSON_pointer": "/degrees_of_freedom",
+      "ratio_source_JSON_pointer": "/scale_audits/small"
+    },
+    {
+      "profile": "medium",
+      "coupled_total_dofs": 992584,
+      "background_tetrahedra": 111250,
+      "numerical_1d_intervals": 55,
+      "minimum_length_over_h_decimal": "0.63531885206911798",
+      "maximum_length_over_h_decimal": "1.7683629726244814",
+      "dof_source_key": "medium",
+      "dof_source_JSON_pointer": "/degrees_of_freedom",
+      "ratio_source_JSON_pointer": "/scale_audits/medium"
+    },
+    {
+      "profile": "large",
+      "coupled_total_dofs": 10207700,
+      "background_tetrahedra": 1222373,
+      "numerical_1d_intervals": 128,
+      "minimum_length_over_h_decimal": "0.78248998215022114",
+      "maximum_length_over_h_decimal": "1.3069946321410226",
+      "dof_source_key": "large",
+      "dof_source_JSON_pointer": "/actual_DoFs",
+      "ratio_source_JSON_pointer": "/scale_audits/large"
+    }
+  ],
+  "discretization": "P2 solid displacement and velocity, DG1 flow and multiplier",
+  "physical_CCO_architecture": {
+    "physical_vessel_edges": 14,
+    "tissue_leaves": 6,
+    "triplets": 2
+  },
+  "range_definition": "Observed minimum and maximum of numerical interval length / local background-cell scale reported by the saved geometric audit; not uncertainty intervals.",
+  "comparison_reference": 1.0,
+  "limits": "Three independently generated background meshes, with common physical CCO architecture and profile-specific 1D rediscretization. No mesh-convergence or inf-sup conclusion."
+}

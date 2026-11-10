@@ -511,6 +511,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #354](https://github.com/luca-heltai/immersx/pull/354) Document the two-territory IRCAD12 solver pilot, model assumptions and recorded checks, with reproducible scalar plots and snapshots, complete references, and verified ParaView entrypoints.
+
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report accepted dense resistance-driven liver references, local perfusion plots and measured coupled-space sizes, with explicit mesh-length and transient-validation limits.
 
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Document optional geometric checks for three-network liver growth, measured rigid capacity and matched terminal radius/flow diagnostics, and dense inspection sets.

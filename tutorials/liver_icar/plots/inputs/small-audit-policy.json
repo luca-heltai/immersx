@@ -1,0 +1,15 @@
+{
+  "original_tolerances": {
+    "bed_absolute_m3_s": 1e-12,
+    "bed_relative": 1e-06,
+    "flux_crosscheck_absolute_m3_s": 1e-12,
+    "flux_crosscheck_relative": 1e-06,
+    "volume_absolute_m3": 1e-12,
+    "volume_relative": 0.005,
+    "flow_scale_floor_m3_s": 1e-12,
+    "minimum_area_m2_exclusive": 0.0
+  },
+  "root_volume_quadrature": "trapezoidal on saved output times; assumes no unreported compartment storage",
+  "budget_ratio_definition": "absolute saved defect divided by the original per-sample allowed defect; acceptance boundary 1",
+  "zero_policy": "Exact zero KCL defects remain in CSV and are omitted on logarithmic axes; no artificial floor."
+}
