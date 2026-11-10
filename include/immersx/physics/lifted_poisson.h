@@ -20,6 +20,7 @@
 #include <immersx/core/robin_term.h>
 #include <immersx/core/symbolic_field_evaluator.h>
 #include <immersx/grid/local_co_refinement.h>
+#include <immersx/io/lifted_particle_output.h>
 #include <immersx/io/output_handler.h>
 
 #include <fstream>
@@ -40,6 +41,7 @@ namespace ImmersX
       , co_refinement("/Lifted Poisson/Co-refinement/")
       , solver("/Lifted Poisson/Solver/")
       , output("/Lifted Poisson/Output/")
+      , particle_output("/Lifted Poisson/Particle output/")
       , forcing("/Lifted Poisson/Forcing/")
       , boundary("/Lifted Poisson/Boundary/")
       , robin_coefficient("/Lifted Poisson/Robin coefficient/", 1)
@@ -84,6 +86,8 @@ namespace ImmersX
     RefinementParameters<1>            co_refinement;
     LinearAdapterParameters            solver;
     OutputHandlerParameters            output;
+    /** Lifted-wall particles written as lifted_<cycle>.vtu. */
+    LiftedParticleOutputParameters     particle_output;
     dealii::ParameterAcceptorProxy<dealii::Functions::ParsedFunction<3>>
       forcing, boundary;
     mutable dealii::ParameterAcceptorProxy<dealii::Functions::ParsedFunction<3>>
@@ -331,11 +335,6 @@ namespace ImmersX
                      FEValuesExtractors::Scalar(c))
               .with_id(lambda.id()));
         modal_output.write(accessor, cycle);
-        geometry.write_lifted_output(u,
-                                     adapter.field(state, lambda),
-                                     parameters.output.output_directory +
-                                       "/lifted_" + std::to_string(cycle) +
-                                       ".vtu");
         auto physical_solution = adapter.field(state, u);
         view.constraints().distribute(physical_solution);
         LiftedPoissonVector ghosted_solution;
@@ -344,6 +343,15 @@ namespace ImmersX
                                 bulk.communicator());
         ghosted_solution = physical_solution;
         ghosted_solution.update_ghost_values();
+        if (parameters.particle_output.enabled())
+          geometry.write_lifted_output(u,
+                                       adapter.field(state, lambda),
+                                       parameters.output.output_directory +
+                                         "/lifted_" + std::to_string(cycle) +
+                                         ".vtu",
+                                       parameters.particle_output,
+                                       data,
+                                       &ghosted_solution);
         double l2_error = std::numeric_limits<double>::quiet_NaN(),
                h1_error = l2_error;
         if (parameters.compute_errors)

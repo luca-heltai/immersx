@@ -11,8 +11,13 @@
 #include <immersx/core/observable_lift.h>
 #include <immersx/core/overlap_integration_support.h>
 #include <immersx/coupling/lifted_modal_load.h>
+#include <immersx/io/lifted_particle_output.h>
 
 #include <filesystem>
+#include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace ImmersX
 {
@@ -196,53 +201,99 @@ namespace ImmersX
       return result;
     }
 
+    /** Write the lifted wall with the lifted value and quadrature weight. */
     template <typename BulkField, typename VectorType>
     void
     write_lifted_output(const BulkField   &bulk,
                         const VectorType  &coefficients,
                         const std::string &filename) const
     {
-      VectorType relevant;
-      relevant.reinit(field_.locally_owned_dofs(),
-                      field_.locally_relevant_dofs(),
-                      field_.space().mpi_communicator());
-      relevant = coefficients;
-      relevant.update_ghost_values();
-      std::vector<dealii::Point<3>>    positions;
-      std::vector<std::vector<double>> properties;
-      for (const auto &point : points_)
+      const LiftedParticleOutputParameters defaults(
+        "/Lifted output particles/");
+      write_lifted_output(bulk, coefficients, filename, defaults);
+    }
+
+    /** Write the lifted wall as particles carrying the properties selected in
+     * options. The lifted value is named lambda and the modal coefficients
+     * lambda_k, with k the selected cross-section coefficient. data is only
+     * needed for the modal_data property, bulk_values only for bulk_field;
+     * bulk_values must be ghosted with constraints distributed.
+     */
+    template <typename BulkField, typename VectorType>
+    void
+    write_lifted_output(const BulkField                      &bulk,
+                        const VectorType                     &coefficients,
+                        const std::string                    &filename,
+                        const LiftedParticleOutputParameters &options,
+                        const ModalDataEvaluator             &data = {},
+                        const VectorType *bulk_values = nullptr) const
+    {
+      const auto   communicator = field_.space().mpi_communicator();
+      const auto  &modes        = support_.selected_modes();
+      const auto   n_modes      = modes.size();
+      LiftedParticleLabels labels;
+      labels.value_name = "lambda";
+      for (const auto mode : modes)
+        labels.mode_labels.push_back(std::to_string(mode));
+
+      std::vector<double> modal_values;
+      if (options.selected("modal_coefficients") ||
+          options.selected("lifted_value"))
         {
-          positions.push_back(point.point);
-          std::vector<double> local(point.dof_indices.size());
-          field_.constraints().get_dof_values(relevant,
-                                              point.dof_indices.begin(),
-                                              local.begin(),
-                                              local.end());
-          double lambda = 0.;
-          for (unsigned int i = 0; i < local.size(); ++i)
-            lambda += local[i] * point.basis_values[i];
-          properties.push_back({lambda, point.weight});
+          // The solver state need not satisfy the hanging-node constraints;
+          // the sampled FE function must.
+          VectorType owned;
+          owned.reinit(field_.locally_owned_dofs(), communicator);
+          owned = coefficients;
+          field_.constraints().distribute(owned);
+          VectorType relevant;
+          relevant.reinit(field_.locally_owned_dofs(),
+                          field_.locally_relevant_dofs(),
+                          communicator);
+          relevant = owned;
+          relevant.update_ghost_values();
+          modal_values = sample_at_representative_points(field_.dof_handler(),
+                                                         field_.mapping(),
+                                                         relevant,
+                                                         points_);
         }
-      ParticleCouplingParameters<3> parameters("/Lifted output search/");
-      ParticleCoupling<3>           search(parameters);
-      search.initialize_particle_handler(bulk.dof_handler().get_triangulation(),
-                                         bulk.mapping(),
-                                         2);
-      search.insert_points(positions, properties);
-      dealii::Particles::DataOut<3> output;
-      output.build_patches(
-        search.get_particles(),
-        {"lambda", "weight"},
-        std::vector<
-          dealii::DataComponentInterpretation::DataComponentInterpretation>(
-          2, dealii::DataComponentInterpretation::component_is_scalar));
-      const auto communicator = field_.space().mpi_communicator();
-      const auto directory    = std::filesystem::path(filename).parent_path();
-      if (!directory.empty() &&
-          dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
-        std::filesystem::create_directories(directory);
-      MPI_Barrier(communicator);
-      output.write_vtu_in_parallel(filename, communicator);
+
+      std::vector<double> modal_data;
+      if (options.selected("modal_data"))
+        {
+          AssertThrow(data,
+                      dealii::ExcMessage(
+                        "The modal_data particle property needs the modal "
+                        "data evaluator."));
+          modal_data.reserve(points_.size() * n_modes);
+          std::map<std::pair<dealii::CellId, unsigned int>, std::vector<double>>
+            cache;
+          for (const auto &point : points_)
+            {
+              const auto key =
+                std::make_pair(point.source_cell_id, point.representative_qpoint);
+              auto found = cache.find(key);
+              if (found == cache.end())
+                found =
+                  cache
+                    .emplace(key,
+                             data(point.source_cell_id,
+                                  point.representative_point))
+                    .first;
+              AssertThrow(found->second.size() == n_modes,
+                          dealii::ExcMessage(
+                            "Provide one modal data value per selected mode."));
+              modal_data.insert(modal_data.end(),
+                                found->second.begin(),
+                                found->second.end());
+            }
+        }
+
+      const auto columns = make_lifted_particle_columns(
+        options, labels, points_, modal_values, modal_data);
+      const LiftedBulkField<3, VectorType> bulk_field{
+        "u", bulk.dof_handler(), bulk.mapping(), bulk_values, 0, 1};
+      write_lifted_particles(options, columns, points_, bulk_field, filename);
     }
 
     template <typename Support>

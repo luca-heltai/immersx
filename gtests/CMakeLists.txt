@@ -85,6 +85,7 @@ set(_public_headers
     immersx/algebra/local_preconditioner.h
     immersx/coupling/particle_coupling.h
     immersx/io/imported_finite_element_fields.h
+    immersx/io/lifted_particle_output.h
     immersx/io/output_handler.h
     immersx/physics/elasticity_freq.h
     immersx/physics/elasticity_freq_contributor.h

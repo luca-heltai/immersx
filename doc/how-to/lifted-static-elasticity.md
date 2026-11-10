@@ -172,6 +172,31 @@ residuals. Each CLI cycle prints its residual, and
 which also appear on stdout. Component accessors expose native FE coefficient
 vectors for physical diagnostics without exposing execution block numbers.
 
+### Lifted-wall particles
+
+With `Coupling = multiplier` or `pressure`, each cycle also writes
+`<Output name>_particles_<cycle>.vtu` and the record
+`<Output name>_particles.pvd`. There is one particle per lifted quadrature
+point: each representative quadrature point times each cross-section
+quadrature point. Points outside the background mesh are dropped.
+`Particle output/Properties` is a comma-separated list of what each particle
+carries:
+
+| Property | Particle data |
+|---|---|
+| `weight` | Quadrature weight of the wall point |
+| `mode_values` | Selected mode shapes `mode_<k>`, vectors for elasticity |
+| `modal_coefficients` | Modal coefficients `<Coupling>_<k>` at the representative point |
+| `lifted_value` | `<Coupling>`, the sum over modes of coefficient times mode shape |
+| `modal_data` | Prescribed modal data `data_<k>` |
+| `representative_point` | Curve point the wall point is lifted from |
+| `radius` | Distance from the representative point |
+| `indices` | `source_cell`, `representative_qpoint`, `section_qpoint` |
+| `bulk_field` | Background displacement interpolated at the wall point |
+
+`<k>` is the selected-mode slot. The default is `lifted_value, weight`; an
+empty list disables the particle output.
+
 ## Coral graph
 
 The configured `build-coral/coral/examples/lifted_elasticity_3d.json` is an
@@ -228,7 +253,8 @@ Serial and two-rank tests check graph execution and both output files.
 | Selectable higher-order curved mappings | Not implemented; the FE spaces use `MappingQ1` |
 | Transient, frequency-domain, nonlinear or fiber elasticity | Outside this static application |
 | Legacy stress/reaction reports, weighted errors, condition-number estimates and iteration-summary format | Not reproduced; standard error tables and adapter residual/solver diagnostics are available |
-| Legacy exact/material/subdomain arrays, particle dumps and aggregate PVD naming | Not reproduced; output contains displacement and modal coefficients in per-cycle VTU/PVD files |
+| Legacy exact/material/subdomain arrays and aggregate PVD naming | Not reproduced; output contains displacement and modal coefficients in per-cycle VTU/PVD files |
+| Legacy particle dumps | Replaced by lifted-wall particles with selectable properties (see above) |
 
 Native parity uses homogeneous strong boundary data with nonzero body/modal
 loads and compares full displacement and multiplier fields, RHS vectors, and
