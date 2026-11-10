@@ -315,7 +315,9 @@ namespace ImmersX
       if (inclusions_file != "")
         {
           std::ifstream infile(inclusions_file);
-          Assert(infile, ExcIO());
+          AssertThrow(infile,
+                      ExcMessage("Cannot open Inclusions file '" +
+                                 inclusions_file + "'."));
 
           double buffer_double;
           // cx, cy, R or cx,cy,cz,dx,dy,dz,R,vesselID
@@ -337,7 +339,8 @@ namespace ImmersX
       if (data_file != "")
         {
           std::ifstream infile(data_file);
-          Assert(infile, ExcIO());
+          AssertThrow(infile,
+                      ExcMessage("Cannot open Data file '" + data_file + "'."));
 
           std::string line;
           while (std::getline(infile, line))

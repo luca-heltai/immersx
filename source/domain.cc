@@ -544,9 +544,13 @@ namespace ImmersX
   Domain<dim, spacedim>::import_vtk_fields_if_requested()
   {
     vtk_fields_.reset();
-    if (!parameters_.read_vtk_fields ||
-        !std::filesystem::is_regular_file(parameters_.name_of_grid))
+    if (!parameters_.read_vtk_fields)
       return;
+    AssertThrow(std::filesystem::is_regular_file(parameters_.name_of_grid),
+                dealii::ExcMessage("Read fields = true requires Grid "
+                                   "generator to be an existing mesh file, "
+                                   "not '" +
+                                   parameters_.name_of_grid + "'."));
 
     std::string extension;
     const auto  dot = parameters_.name_of_grid.find_last_of('.');

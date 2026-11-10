@@ -294,6 +294,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Stop with an error, also in Release builds, when `Inclusions file`, `Data file` or a `file` grid of `elasticity` cannot be opened, when `Read fields = true` names no existing mesh file, when `Coupling type = TensorProduct` is used without VTK, and when `MetricFlowX coupling/Embedded partitioning policy = immersed` is combined with an archived or generated network. These cases previously ran with zero inclusions, without fields, with point coupling or with default partitioning.
+
 - [PR #365](https://github.com/luca-heltai/immersx/pull/365) Keep cell and trace area coefficients positive during coupled flow–tissue IDA solves. Report nonfinite trial residuals collectively as recoverable callback errors instead of passing them to the linear solver; equilibrium initialization may still fail when IDA cannot recover.
 
 - [PR #361](https://github.com/luca-heltai/immersx/pull/361) Certify separation of tapered anatomical vessels using their actual endpoint radii when maximum-radius containers overlap, while retaining current Murray radii for mutable branches and conservative rejection without a separating witness.

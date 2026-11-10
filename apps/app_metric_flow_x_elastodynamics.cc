@@ -514,6 +514,10 @@ namespace
                     ExcMessage("Conflicting embedded partitioning policies."));
         co_refinement.embedded_partitioning_policy = embedded_partitioning;
       }
+    AssertThrow(!physical_network || embedded_partitioning == "default",
+                ExcMessage("Embedded partitioning policy = immersed applies "
+                           "only to the flow mesh read from the VTK file, not "
+                           "to archived or generated networks."));
     if (archived_network)
       {
         auto path = std::filesystem::path(archive_parameters.directory);

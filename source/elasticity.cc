@@ -180,7 +180,9 @@ namespace ImmersX
             std::string infile(par.name_of_grid);
 #else
             std::ifstream infile(par.name_of_grid);
-            Assert(infile.good(), ExcIO());
+            AssertThrow(infile.good(),
+                        ExcMessage("Cannot open Grid generator file '" +
+                                   par.name_of_grid + "'."));
 #endif
             try
               {
@@ -241,7 +243,9 @@ namespace ImmersX
         std::string infile(par.name_of_grid);
 #else
         std::ifstream infile(par.name_of_grid);
-        Assert(infile.good(), ExcIO());
+        AssertThrow(infile.good(),
+                    ExcMessage("Cannot open Grid generator file '" +
+                               par.name_of_grid + "'."));
 #endif
         try
           {
