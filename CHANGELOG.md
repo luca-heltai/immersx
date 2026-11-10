@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Write the lifted wall of `LiftedElasticity` and `LiftedPoisson` as particles, one per lifted quadrature point. A `Particle output/Properties` list selects the stored quantities: weight, mode shapes, modal coefficients, lifted value, prescribed modal data, representative point, radius, quadrature indices and the interpolated background field.
+- [PR #373](https://github.com/luca-heltai/immersx/pull/373) Write the lifted wall of `LiftedElasticity` and `LiftedPoisson` as particles, one per lifted quadrature point. A `Particle output/Properties` list selects the stored quantities: weight, mode shapes, modal coefficients, lifted value, prescribed modal data, representative point, radius, quadrature indices and the interpolated background field.
 
 - [PR #370](https://github.com/luca-heltai/immersx/pull/370) Save separate diagnostic arterial, portal and venous VTK datasets when liver growth is rejected, preserving crossings and collapsed edges without adopting the invalid network.
 
