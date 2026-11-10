@@ -148,6 +148,12 @@ namespace ImmersX::Vascularization
      * Portal mode splits this total between arterial and portal supply.
      */
     double reference_flow = 0.;
+    /** Final reference flow policy: tissue demand matches each new terminal;
+     * network resistance checks only per-system totals, using supplied positive
+     * bed resistances and the explicit reference boundary conditions.
+     * Growth still uses demand-weighted design flows in either mode.
+     */
+    std::string reference_flow_distribution = "tissue demand";
     /** Multiply the initial count by one, global active cells or used vertices.
      * Calibration limits remain absolute terminal counts. */
     std::string terminal_count_multiplier_factor = "background cell count";
@@ -211,7 +217,8 @@ namespace ImmersX::Vascularization
     CalibrationReport             calibration;
     /** Actual coupled Poiseuille solution, evaluated with venous drainage. */
     ReferenceResult reference;
-    /** Desired m^3/s by NEW Terminal id, populated when reference_flow>0. */
+    /** Demand-weighted design m^3/s by NEW Terminal id when reference_flow>0.
+     * These are final constraints only for the tissue demand policy. */
     std::map<Id, double> target_terminal_flows;
     /** Desired m^3/s by NEW attachment Vessel id, using the same demand split.
      */

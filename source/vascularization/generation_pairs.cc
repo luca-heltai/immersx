@@ -69,7 +69,9 @@ namespace ImmersX::Vascularization::internal
     };
     const auto triple_controls =
       std::make_pair(p.compartment_resistances,
-                     std::make_pair(p.portal.enabled, p.portal_flow_fraction));
+                     std::make_pair(std::make_pair(p.portal.enabled,
+                                                   p.portal_flow_fraction),
+                                    p.reference_flow_distribution));
     for (const auto &other : Utilities::MPI::all_gather(comm, triple_controls))
       if (other != triple_controls)
         fail(invalid_id,
@@ -389,7 +391,41 @@ namespace ImmersX::Vascularization::internal
                                r.reference.validation.issues.end());
     if (!valid())
       return;
-    if (p.reference_flow > 0.)
+    if (p.reference_flow_distribution == "network resistance")
+      {
+        std::array<double, 3> total{};
+        for (const auto &[id, endpoints] : paired)
+          {
+            const auto &actual = r.reference.territories.at(id);
+            total[0] += actual.arterial_flow;
+            total[1] += actual.venous_flow;
+            total[2] += actual.portal_flow;
+          }
+        const std::array<double, 3> expected{
+          {(p.portal.enabled ? 1. - p.portal_flow_fraction : 1.) *
+             p.reference_flow,
+           p.reference_flow,
+           p.portal.enabled ? p.portal_flow_fraction * p.reference_flow : 0.}};
+        for (unsigned int arm = 0; arm < (p.portal.enabled ? 3u : 2u); ++arm)
+          {
+            total[arm] = Utilities::MPI::sum(total[arm], comm);
+            if (std::abs(total[arm] - expected[arm]) >
+                p.reference_parameters.absolute_flow_tolerance +
+                  p.reference_parameters.conservation_relative_tolerance *
+                    expected[arm])
+              {
+                std::ostringstream message;
+                message
+                  << std::setprecision(17)
+                  << "The resistance-driven reference flow does not match the requested per-system total."
+                  << " System=" << arm << "; actual=" << total[arm]
+                  << "; requested=" << expected[arm] << " m3/s.";
+                fail(invalid_id, message.str());
+              }
+          }
+      }
+    else if (p.reference_flow_distribution == "tissue demand" &&
+             p.reference_flow > 0.)
       for (const auto &[id, endpoints] : paired)
         {
           const auto                 &actual = r.reference.territories.at(id);
