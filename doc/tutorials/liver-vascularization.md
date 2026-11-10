@@ -390,8 +390,12 @@ three feeder stubs; reusing that archive does not generate a whole-organ
 vasculature. Keep every new physical archive with the exact input trees,
 root identifiers and parameters that produced it.
 
-The restarted scale campaign uses one new common territory per global
-background cell as its initial count. Coverage remains a separate objective:
+The restarted scale campaign grows a separate arterial, portal and hepatic
+venous family for each background. Its initial common-terminal target is one
+per global background cell and per system; a completed family is not reused
+on the other campaign backgrounds. This is a global count target, not a
+claim that every cell contains exactly one terminal. Coverage remains a
+separate objective:
 the maximum service distance is `2` with `Length scale = local mesh size`.
 The detailed settings and the distinction between total count and per-cell
 occupancy are described below.
@@ -417,10 +421,16 @@ Count displacement, velocity, native flow and multiplier blocks after
 rediscretizing all three networks on each final background. Historical scale
 labels from the 14-vessel archive are not counts for the new forests. The
 [tracking issue](https://github.com/luca-heltai/immersx/issues/343) and
-[draft PR](https://github.com/luca-heltai/immersx/pull/375) distinguish prepared
-backgrounds, successful hydraulic generation and converged coupled results.
-New databases will be linked here after successful generation and checksum
-verification; the old release remains a separate example.
+[implementation PR](https://github.com/luca-heltai/immersx/pull/375) distinguish
+prepared backgrounds, successful hydraulic generation and converged coupled
+results.
+
+The first [new small-family example](https://github.com/luca-heltai/immersx/releases/tag/liver-h-scaled-2026-11-10)
+uses 2316 background cells and newly grown forests with 2316 terminals per
+role. Its native hydraulic reference and continuous `2H` coverage checks
+passed on that generation background. Coupled DoF counts and time integration
+remain pending. This example is separate from the historical fixed-network
+setup diagnostics below.
 
 ### Check hydraulic capacity before scaling
 
@@ -610,11 +620,14 @@ territory/terminal IDs, actual flows and three arm resistances. The renderer
 uses only the bundled CSV.
 
 (liver-resistance-space-sizes)=
-### Coupled space sizes
+### Historical fixed-network setup diagnostics
 
-The accepted 2048-territory physical archive is reused unchanged on three
-tissue backgrounds. The solid uses P2 displacement and velocity; the native
-flow and multiplier use degree one. The measured block sizes are:
+These earlier diagnostics reuse the accepted 2048-territory physical archive
+unchanged on three tissue backgrounds. They do not form the per-background
+CCO campaign above: that campaign requires a separately grown three-system
+family whose terminal target scales with its own background cell count.
+The solid uses P2 displacement and velocity; the native flow and multiplier
+use degree one. The measured block sizes are:
 
 | Tissue tetrahedra | Displacement + velocity DoFs | Native flow DoFs | Multiplier DoFs | Total DoFs | MPI ranks |
 | --- | --- | --- | --- | --- | --- |
@@ -653,12 +666,14 @@ covers the entire affine tetrahedron. This gives a 100% volume lower bound
 for joint terminal coverage of this 1.4554 L background. It does not measure
 coverage relative to the finer solver backgrounds.
 
-The [reference and setup data release](https://github.com/luca-heltai/immersx/releases/tag/liver-resistance-reference-2026-11-10)
-contains the accepted physical networks, all three generated volume meshes,
-parameters, numeric tables, independent audits and portable preparation
-scripts. The setup package retains the exact block counts and per-interval
-mesh-scale records. Its README gives commands for preparing a new output
-directory; it does not start a simulation automatically.
+The [historical reference and fixed-network setup release](https://github.com/luca-heltai/immersx/releases/tag/liver-resistance-reference-2026-11-10)
+contains the accepted 512- and 2048-territory reference examples, the three
+background meshes, parameters, numeric tables, independent audits and
+portable preparation scripts. Its setup package retains the fixed-network
+block counts and per-interval mesh-scale records; it does not supply three
+new forest families generated at one terminal per background cell. The
+archived files remain unchanged. Its README gives commands for preparing a
+new output directory; it does not start a simulation automatically.
 
 ### Earlier demand-constrained inspection attempts
 

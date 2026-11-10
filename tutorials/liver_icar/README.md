@@ -1,7 +1,9 @@
 # Coupled IRCAD12 liver profiles
 
-This example couples an IRCAD12 liver volume to separate arterial, portal and
-hepatic venous networks through the vessel wall. The solid exterior uses
+This historical two-territory pilot couples an IRCAD12 liver volume to
+separate arterial, portal and hepatic venous networks through the vessel
+wall. It is not the campaign that grows a new three-system family for each
+background at one terminal per global cell. The solid exterior uses
 `traction + 1e5*u = 0`, with no essential displacement boundary. The physical
 vascular archive is reused at every scale; its numerical intervals are rebuilt
 against the selected tissue mesh.
