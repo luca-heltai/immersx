@@ -158,27 +158,21 @@ namespace ImmersX
                 "Cross section/")
     {
       add_parameter("Thickness", thickness);
-      add_parameter("Constant thickness", constant_thickness);
 
       enter_subsection("Representative quadrature");
-      add_parameter("Type", representative_quadrature_type);
-      add_parameter("Number of points", representative_n_q_points);
-      add_parameter("Number of repetitions", representative_n_repetitions);
-      leave_subsection();
-
-      add_parameter("Representative quadrature type",
+      add_parameter("Type",
                     representative_quadrature_type,
-                    "Deprecated flat alias for the nested setting.",
+                    "",
                     this->prm,
                     Patterns::Selection(
                       dealii::QuadratureSelector<1>::get_quadrature_names()));
+      add_parameter("Number of points", representative_n_q_points);
+      add_parameter("Number of repetitions", representative_n_repetitions);
+      leave_subsection();
     }
 
     /** Thickness expression; a numeric string is the modern default path. */
     std::string thickness = "0.01";
-
-    /** Fallback used when the thickness expression is constant. */
-    double constant_thickness = 0.01;
 
     std::string  representative_quadrature_type = "gauss";
     unsigned int representative_n_q_points      = 0;

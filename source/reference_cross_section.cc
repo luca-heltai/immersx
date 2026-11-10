@@ -403,10 +403,9 @@ namespace ImmersX
     ReferenceCrossSectionParameters(const std::string &subsection)
     : ParameterAcceptor(subsection)
   {
-    add_parameter("Maximum inclusion degree", inclusion_degree);
     add_parameter("Maximum basis degree", inclusion_degree);
     add_parameter(
-      "Selected indices",
+      "Selected modes",
       selected_coefficients,
       "This allows one to select a subset of the components of the "
       "basis functions used for the representation of the data "
@@ -415,8 +414,6 @@ namespace ImmersX
       "is, dimension of the space P^{inclusion_degree} number of Fourier coefficients x number of vector "
       "components. In particular any entry of this list must be in "
       "the set [0,inclusion_degree*n_components). ");
-    add_parameter("Selected modes", selected_coefficients);
-    add_parameter("Inclusion type", inclusion_type);
     add_parameter("Geometry type", inclusion_type);
     add_parameter("Refinement level", refinement_level);
     add_parameter("Quadrature type",
@@ -425,9 +422,7 @@ namespace ImmersX
                   this->prm,
                   Patterns::Selection(
                     QuadratureSelector<1>::get_quadrature_names()));
-    add_parameter("Number of quadrature points", n_q_points);
     add_parameter("Number of points", n_q_points);
-    add_parameter("Number of quadrature repetitions", n_quadrature_repetitions);
     add_parameter("Number of repetitions", n_quadrature_repetitions);
   }
 

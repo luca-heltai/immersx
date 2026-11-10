@@ -130,10 +130,10 @@ subsection Immersed Problem
 end
 subsection Tensor product coupling
   subsection Cross section
-    set Inclusion type           = hyper_ball
-    set Maximum inclusion degree = 0
+    set Geometry type            = hyper_ball
+    set Maximum basis degree     = 0
     set Refinement level         = 3
-    set Selected indices         = 0, 1, 2
+    set Selected modes           = 0, 1, 2
   end
   subsection Local refinement parameters
     set Embedded post-refinement cycles = 0

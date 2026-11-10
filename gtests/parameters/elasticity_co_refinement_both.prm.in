@@ -23,7 +23,7 @@ subsection Immersed Problem
 end
 subsection Tensor product coupling
   subsection Cross section
-    set Maximum inclusion degree = 0
+    set Maximum basis degree = 0
   end
   subsection Representative domain
     set Finite element degree = 1

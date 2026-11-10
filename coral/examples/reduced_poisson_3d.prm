@@ -49,10 +49,10 @@ subsection Reduced Poisson
 end
 subsection Tensor product coupling
   subsection Cross section
-    set Inclusion type           = hyper_ball
-    set Maximum inclusion degree = 0
+    set Geometry type            = hyper_ball
+    set Maximum basis degree     = 0
     set Refinement level         = 1
-    set Selected indices         = 0
+    set Selected modes           = 0
   end
   subsection Local refinement parameters
     set Max refinement level            = 2

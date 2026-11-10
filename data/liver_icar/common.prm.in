@@ -106,12 +106,11 @@ subsection MetricFlowX multiplier space
 end
 subsection MetricFlowX vessel wall lift
   set Thickness = .01
-  set Constant thickness = .01
   subsection Cross section
     set Refinement level = 1
-    set Inclusion type = hyper_ball
-    set Maximum inclusion degree = 1
-    set Selected indices = 3, 7
+    set Geometry type = hyper_ball
+    set Maximum basis degree = 1
+    set Selected modes = 3, 7
     set Quadrature type = gauss
     set Number of points = 3
   end

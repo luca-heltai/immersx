@@ -110,9 +110,9 @@ end
 subsection MetricFlowX vessel wall lift
   subsection Cross section
     set Refinement level = 2
-    set Inclusion type = hyper_ball
-    set Maximum inclusion degree = 1
-    set Selected indices = 3, 7
+    set Geometry type = hyper_ball
+    set Maximum basis degree = 1
+    set Selected modes = 3, 7
     set Quadrature type = gauss
     set Number of points = 4
   end

@@ -1,4 +1,4 @@
-include @IMMERSX_BINARY_DIR@/gtests/parameters/elastodynamics_adapter_simplex.prm
+include @IMMERSX_BINARY_DIR@/gtests/parameters/elastodynamics_simplex_problem.prm
 subsection Elastodynamics
   set Output directory = @TEST_OUTPUT_DIR@/elastodynamics-native-simplex
   subsection Solver

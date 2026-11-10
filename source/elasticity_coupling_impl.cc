@@ -11,6 +11,9 @@ namespace ImmersX
 #ifdef DEAL_II_WITH_VTK
     return par.coupling_type == CouplingType::TensorProduct;
 #else
+    AssertThrow(par.coupling_type != CouplingType::TensorProduct,
+                ExcMessage("Coupling type = TensorProduct requires deal.II "
+                           "built with VTK."));
     return false;
 #endif
   }

@@ -233,7 +233,15 @@ namespace ImmersX
                      "Solver/Control")
     , convergence_table(std::vector<std::string>(spacedim, "d"))
   {
+    // DomainParameters declared Initial refinement with its own default of 0;
+    // redeclare it so the printed default is the value used.
     domain_parameters.initial_refinement = 2;
+    domain_parameters.enter_my_subsection(this->prm);
+    this->prm.declare_entry("Initial refinement", "2", Patterns::Integer(0));
+    domain_parameters.leave_my_subsection(this->prm);
+    // A default file must run: 10 steps match the default Time step.
+    if (owned_fixed_step_parameters)
+      owned_fixed_step_parameters->number_of_steps = 10;
     add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);

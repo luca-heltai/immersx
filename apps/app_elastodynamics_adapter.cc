@@ -32,7 +32,11 @@ namespace
   void
   run_elastodynamics_adapter(const std::string &parameter_file)
   {
-    ElastodynamicsParameters<dim, spacedim> parameters;
+    // IDA chooses the steps; the fixed-step controls are not used.
+    FixedStepParameters                     fixed_step("/", false);
+    ElastodynamicsParameters<dim, spacedim> parameters("/Elastodynamics/",
+                                                       nullptr,
+                                                       &fixed_step);
     initialize_parameters(parameter_file);
 
     ElastodynamicsSolver<dim, spacedim> problem(parameters);

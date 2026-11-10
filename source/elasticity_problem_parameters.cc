@@ -57,14 +57,20 @@ namespace ImmersX
     add_parameter("Output name", output_name);
     add_parameter("Output every n steps",
                   output_every_n_steps,
-                  "Write VTU output every n time steps.",
+                  "Write VTU output every n time steps. Newmark and "
+                  "quasi-static runs always write the initial step; Newmark "
+                  "runs also write the final state. coupled_elasticity counts "
+                  "one step per coupled 3D solve.",
                   this->prm,
                   Patterns::Integer(1));
     add_parameter(
       "Coupling type",
       coupling_type,
-      "Point uses discrete inclusion centers with finite radii. TensorProduct "
-      "uses a VTK reduced mesh and a reference cross section.");
+      "Point uses discrete inclusion centers with finite radii and reads "
+      "\"Immersed Problem/Immersed inclusions\". TensorProduct uses a VTK "
+      "reduced mesh and a reference cross section, reads \"Tensor product "
+      "coupling\", and ignores \"Immersed inclusions\", including its "
+      "\"Boundary data\".");
     add_parameter("Output results also before solving",
                   output_results_before_solving);
     add_parameter("Estimate condition number", estimate_condition_number);
@@ -108,7 +114,13 @@ namespace ImmersX
                     "",
                     this->prm,
                     Patterns::Selection("distributed|fullydistributed"));
-      add_parameter("Grid generator", name_of_grid);
+      add_parameter(
+        "Grid generator",
+        name_of_grid,
+        "With Domain type = generate, a GridGenerator name; if generation "
+        "fails, it is read as a mesh file and \"Grid generator arguments\" "
+        "as CAD files. With file, a mesh file. Ignored with cheese and "
+        "cylinder.");
       add_parameter("Grid generator arguments", arguments_for_grid);
       add_parameter("Grid scale", grid_scale);
     }

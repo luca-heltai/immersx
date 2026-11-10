@@ -180,7 +180,9 @@ namespace ImmersX
             std::string infile(par.name_of_grid);
 #else
             std::ifstream infile(par.name_of_grid);
-            Assert(infile.good(), ExcIO());
+            AssertThrow(infile.good(),
+                        ExcMessage("Cannot open Grid generator file '" +
+                                   par.name_of_grid + "'."));
 #endif
             try
               {
@@ -241,7 +243,9 @@ namespace ImmersX
         std::string infile(par.name_of_grid);
 #else
         std::ifstream infile(par.name_of_grid);
-        Assert(infile.good(), ExcIO());
+        AssertThrow(infile.good(),
+                    ExcMessage("Cannot open Grid generator file '" +
+                               par.name_of_grid + "'."));
 #endif
         try
           {
@@ -2703,7 +2707,8 @@ namespace ImmersX
           {
             compute_system_rhs();
             solve_quasistatic();
-            output_results();
+            if (time_step % par.output_every_n_steps == 0)
+              output_results();
             const bool openfilefirsttime = (cycle == 0 && time_step == 0);
 
             if (par.domain_type == "generate")
@@ -2890,7 +2895,8 @@ namespace ImmersX
              current_time < par.time_parameters.final_time;
              current_time += par.time_parameters.time_step, ++time_step)
           {
-            output_results();
+            if (time_step % par.output_every_n_steps == 0)
+              output_results();
             const bool openfilefirsttime = (cycle == 0 && time_step == 0);
             compute_system_rhs();
             solve_newmark();
