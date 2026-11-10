@@ -18,8 +18,8 @@ subsection Lifted graph
   end
   subsection Lift
     subsection Cross section
-      set Maximum inclusion degree = 1
-      set Selected indices = 0,1,2
+      set Maximum basis degree = 1
+      set Selected modes = 0,1,2
     end
   end
   subsection Co-refinement

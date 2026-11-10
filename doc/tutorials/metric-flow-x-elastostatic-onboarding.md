@@ -163,7 +163,7 @@ association and the software version in use. If projection is needed, document
 the source and target FE spaces and check its error.
 
 The relevant legacy parameters are `Reduced grid name`, `Input file fields`,
-`Reduced right hand side`, and `Selected indices`. Imported-field expressions
+`Reduced right hand side`, and `Selected modes`. Imported-field expressions
 require a compatible build, including SymEngine where used by this path.
 
 The vascular example selects modes `3, 7` for radial reconstruction. Verify

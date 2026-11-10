@@ -433,6 +433,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Removed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Give each `Cross section` entry one name. `Maximum inclusion degree`, `Selected indices`, `Inclusion type`, `Number of quadrature points` and `Number of quadrature repetitions` are removed; use `Maximum basis degree`, `Selected modes`, `Geometry type`, `Number of points` and `Number of repetitions`. The flat lift entry `Representative quadrature type` is removed; use `Representative quadrature/Type`. Before this change both names of a pair were printed and the alphabetically later one silently overrode the other.
+
 - [PR #276](https://github.com/luca-heltai/immersx/pull/276) Remove the fiber driver's `matrix_only_displacement_difference()` diagnostic; validation evolves an independent dense reference instead.
 - [PR #192](https://github.com/luca-heltai/immersx/pull/192) Purged the transitional representation architecture.
 - [PR #186](https://github.com/luca-heltai/immersx/pull/186) Removed the obsolete representation load interaction.

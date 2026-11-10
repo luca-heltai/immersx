@@ -174,10 +174,10 @@ namespace
       end
       subsection Tensor product coupling
         subsection Cross section
-          set Inclusion type           = hyper_ball
-          set Maximum inclusion degree = 1
+          set Geometry type            = hyper_ball
+          set Maximum basis degree     = 1
           set Refinement level         = 3
-          set Selected indices         = 3, 7
+          set Selected modes           = 3, 7
         end
         subsection Particle coupling
           set RTree extraction level = 1

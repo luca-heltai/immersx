@@ -36,10 +36,10 @@ subsection Reduced Poisson
 end
 subsection Tensor product coupling
   subsection Cross section
-    set Inclusion type = hyper_cube
-    set Maximum inclusion degree = 0
-    set Selected indices = 0
-    set Number of quadrature points = 3
+    set Geometry type = hyper_cube
+    set Maximum basis degree = 0
+    set Selected modes = 0
+    set Number of points = 3
     set Refinement level = 0
   end
   subsection Local refinement parameters

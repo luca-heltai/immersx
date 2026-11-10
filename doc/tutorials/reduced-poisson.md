@@ -18,7 +18,7 @@ canonical input is `tutorials/reduced_poisson/single_cylinder_3d.prm.in`:
 The bulk problem lives in 3D, while the representative geometry is a 1D
 centerline. A reference cross section is swept along that centerline to form
 the represented interface. The multiplier is expanded in the selected
-cross-section basis, so `Selected indices = 0` is the smallest useful case.
+cross-section basis, so `Selected modes = 0` is the smallest useful case.
 
 The root entries explicitly select `dimension`, `space dimension`, and
 `reduced dimension`. As with the other applications, the filename has no role

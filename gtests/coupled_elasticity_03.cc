@@ -191,10 +191,10 @@ namespace
       end
       subsection Tensor product coupling
         subsection Cross section
-          set Inclusion type           = hyper_ball
-          set Maximum inclusion degree = 1
+          set Geometry type            = hyper_ball
+          set Maximum basis degree     = 1
           set Refinement level         = 1
-          set Selected indices         = 3, 7
+          set Selected modes           = 3, 7
         end
         subsection Particle coupling
           set RTree extraction level = 1
@@ -1050,7 +1050,7 @@ TEST(CoupledElasticity, BOTH_PressureZeroExtendsMissingWallSamples)
             {"Selection of Fourier coefficients", "1,3,7"},
             {"Reference inclusion data",
              rigid_only ? "0,1,0,0,0,0,0,0,0" : "0,0,0,.1,0,0,0,.1,0"},
-            {"Selected indices", "1,3,7"},
+            {"Selected modes", "1,3,7"},
             {"Reduced right hand side", rigid_only ? "1;0;0" : "0;.1;.1"}};
           with_problem(
             parameters(point_coupling, line, "vessel_id", overrides),

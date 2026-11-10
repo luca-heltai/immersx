@@ -37,7 +37,7 @@ namespace
            TestPaths::data_filename("tests/simplex_interior_line_3d.vtk") +
            "\nend\nsubsection Background space\nset Finite element = " +
            (simplex ? "FE_SimplexP<3>(1)" : "FE_Q<3>(1)") +
-           "\nend\nsubsection Lift\nset Thickness = .1\nsubsection Cross section\nset Maximum inclusion degree = 0\nset Selected indices = 0\nend\nend\n"
+           "\nend\nsubsection Lift\nset Thickness = .1\nsubsection Cross section\nset Maximum basis degree = 0\nset Selected modes = 0\nend\nend\n"
            "subsection Co-refinement\nset Max refinement level = 0\nset Space pre-refinement cycles = 0\nset Space post-refinement cycles = 0\nset Embedded pre-refinement cycles = 0\nset Embedded post-refinement cycles = 0\nend\n"
            "subsection Boundary\nset Function expression = " +
            (simplex ? "1" : "1+x") +
