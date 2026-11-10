@@ -105,6 +105,11 @@ namespace ImmersX::Vascularization
     /** Star-arm resistances in arterial, portal, venous order; zero derives
      * them. */
     std::array<double, 3> compartment_resistances{};
+    /** In network-resistance mode, multiply supplied arms by the mean new
+     * territory demand divided by the local demand. Equal demands retain the
+     * supplied per-bed resistances; otherwise conductance scales with demand.
+     */
+    bool scale_compartment_resistances_by_demand = false;
     /** Explicit port pressures, Robin data and optional loads on unpaired input
      * terminals.
      */

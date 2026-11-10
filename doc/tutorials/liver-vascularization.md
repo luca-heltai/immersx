@@ -547,6 +547,17 @@ contribute to these new-territory totals.
 
 Positive finite resistances, positive supply and drainage in every compartment,
 physical node balance and declared vessel orientation remain required.
+For unequal territories, `Scale compartment resistances by demand = true`
+under `Portal network` multiplies every supplied arm resistance by
+$\bar d/d_i$, where $d_i$ is the territory demand and $\bar d$ is its
+mean over **new** territories. The supplied values then represent one
+mean-size territory; equal demands reproduce the uniform per-bed model.
+Retained beds are unchanged. With uniform tissue-demand density, this makes
+conductance proportional to territory volume. It does not prescribe local
+flow: the pressure drops remain part of the network solution. The option
+requires `network resistance` and three supplied positive arm resistances.
+The default is `false`.
+
 The two inlet pressures are outputs: matching the total MOX flows alone does
 not calibrate those pressures or establish patient-specific physiology.
 The archived transient consumer currently uses an arterial inflow and portal

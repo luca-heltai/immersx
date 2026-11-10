@@ -255,6 +255,10 @@ namespace ImmersX::Vascularization
       "Compartment resistances",
       compartment_resistances,
       "Arterial, portal and venous star-arm resistances; all zero derives positive arms from demand flow.");
+    add_parameter(
+      "Scale compartment resistances by demand",
+      scale_compartment_resistances_by_demand,
+      "In network resistance mode, multiply supplied arms by mean new-territory demand/local demand. The supplied values are per mean-size territory; local flows remain unknown.");
     leave_subsection();
   }
 
@@ -321,6 +325,11 @@ namespace ImmersX::Vascularization
           dealii::ExcMessage(
             "Network-resistance flow distribution requires venous drainage, positive total reference flow and supplied positive bed resistances."));
       }
+    AssertThrow(
+      !scale_compartment_resistances_by_demand ||
+        (portal.enabled && reference_flow_distribution == "network resistance"),
+      dealii::ExcMessage(
+        "Demand-scaled compartment resistances require portal growth and network-resistance flow distribution."));
     if (venous.enabled)
       {
         reference_parameters.validate();
