@@ -228,9 +228,9 @@ namespace ImmersX
                         const ModalDataEvaluator             &data = {},
                         const VectorType *bulk_values = nullptr) const
     {
-      const auto   communicator = field_.space().mpi_communicator();
-      const auto  &modes        = support_.selected_modes();
-      const auto   n_modes      = modes.size();
+      const auto           communicator = field_.space().mpi_communicator();
+      const auto          &modes        = support_.selected_modes();
+      const auto           n_modes      = modes.size();
       LiftedParticleLabels labels;
       labels.value_name = "lambda";
       for (const auto mode : modes)
@@ -270,16 +270,15 @@ namespace ImmersX
             cache;
           for (const auto &point : points_)
             {
-              const auto key =
-                std::make_pair(point.source_cell_id, point.representative_qpoint);
-              auto found = cache.find(key);
+              const auto key   = std::make_pair(point.source_cell_id,
+                                              point.representative_qpoint);
+              auto       found = cache.find(key);
               if (found == cache.end())
-                found =
-                  cache
-                    .emplace(key,
-                             data(point.source_cell_id,
-                                  point.representative_point))
-                    .first;
+                found = cache
+                          .emplace(key,
+                                   data(point.source_cell_id,
+                                        point.representative_point))
+                          .first;
               AssertThrow(found->second.size() == n_modes,
                           dealii::ExcMessage(
                             "Provide one modal data value per selected mode."));

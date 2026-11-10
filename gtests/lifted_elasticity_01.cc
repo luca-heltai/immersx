@@ -712,7 +712,8 @@ TEST(LiftedElasticity, BOTH_WallParticleOutput)
   problem.run();
   MPI_Barrier(MPI_COMM_WORLD);
 
-  EXPECT_TRUE(std::filesystem::is_regular_file(directory / "wall_particles.pvd"));
+  EXPECT_TRUE(
+    std::filesystem::is_regular_file(directory / "wall_particles.pvd"));
   const auto filename = directory / "wall_particles_0.vtu";
   ASSERT_TRUE(std::filesystem::is_regular_file(filename));
   std::ifstream     input(filename);

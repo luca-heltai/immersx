@@ -87,7 +87,7 @@ namespace ImmersX
     LinearAdapterParameters            solver;
     OutputHandlerParameters            output;
     /** Lifted-wall particles written as lifted_<cycle>.vtu. */
-    LiftedParticleOutputParameters     particle_output;
+    LiftedParticleOutputParameters particle_output;
     dealii::ParameterAcceptorProxy<dealii::Functions::ParsedFunction<3>>
       forcing, boundary;
     mutable dealii::ParameterAcceptorProxy<dealii::Functions::ParsedFunction<3>>

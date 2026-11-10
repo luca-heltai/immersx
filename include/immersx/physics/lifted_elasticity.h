@@ -89,11 +89,11 @@ namespace ImmersX
     RefinementParameters<1>              co_refinement;
     LinearAdapterParameters              execution;
     /** Lifted-wall particles written next to the bulk and modal output. */
-    LiftedParticleOutputParameters       particle_output;
-    std::string              coupling = dim == 3 ? "multiplier" : "none";
-    std::vector<std::string> modal_data{"0", "0", "0"};
-    std::string              radius_field;
-    std::string              modal_data_fields;
+    LiftedParticleOutputParameters particle_output;
+    std::string                    coupling = dim == 3 ? "multiplier" : "none";
+    std::vector<std::string>       modal_data{"0", "0", "0"};
+    std::string                    radius_field;
+    std::string                    modal_data_fields;
     std::set<dealii::types::boundary_id> weak_dirichlet_ids, normal_flux_ids;
     double                               penalty_term        = 100.;
     std::string                          refinement_strategy = "global";
@@ -676,9 +676,8 @@ namespace ImmersX
                                               dim};
 
       const std::filesystem::path directory(parameters_.output_directory);
-      const std::string           filename =
-        parameters_.output_name + "_particles_" + std::to_string(cycle) +
-        ".vtu";
+      const std::string filename = parameters_.output_name + "_particles_" +
+                                   std::to_string(cycle) + ".vtu";
       write_lifted_particles(
         options, columns, wall_points_, bulk, (directory / filename).string());
 
