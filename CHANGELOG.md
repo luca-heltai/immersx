@@ -505,7 +505,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Document optional geometric checks for three-network liver growth and show measured rigid hydraulic capacity diagnostics before scaling dense anatomical forests.
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Document optional geometric checks for three-network liver growth, measured rigid capacity and matched terminal radius/flow diagnostics, and dense inspection sets.
 
 - [PR #366](https://github.com/luca-heltai/immersx/pull/366) Add the completed A4245 arterial inspection, its measured coarse-mesh coverage and terminal occupancy, and ParaView paths while retaining the historical A3073 diagnostics.
 
