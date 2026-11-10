@@ -193,6 +193,10 @@ namespace ImmersX::Vascularization
       "Total new-tissue reference flow",
       reference_flow,
       "m^3/s through newly generated terminals, split by tissue demand; required for a nonzero dissipation weight.");
+    add_parameter(
+      "Reference flow distribution",
+      reference_flow_distribution,
+      "tissue demand matches every new terminal flow; network resistance requires supplied positive bed resistances and checks only the per-system totals. Boundary data remain explicit; do not prescribe pressure and flow at the same inlet.");
     add_parameter("Arterial Murray exponent", arterial_murray_exponent);
     add_parameter(
       "Reference pressures",
@@ -299,6 +303,23 @@ namespace ImmersX::Vascularization
                         std::isfinite(portal.seed_inward_port_normal[d]),
                       dealii::ExcMessage(
                         "Portal seed coordinates and normals must be finite."));
+      }
+    AssertThrow(reference_flow_distribution == "tissue demand" ||
+                  reference_flow_distribution == "network resistance",
+                dealii::ExcMessage("Invalid reference flow distribution."));
+    if (reference_flow_distribution == "network resistance")
+      {
+        bool supplied = positive(venous.microvascular_resistance);
+        if (portal.enabled)
+          {
+            supplied = true;
+            for (const double arm : compartment_resistances)
+              supplied = supplied && positive(arm);
+          }
+        AssertThrow(
+          venous.enabled && positive(reference_flow) && supplied,
+          dealii::ExcMessage(
+            "Network-resistance flow distribution requires venous drainage, positive total reference flow and supplied positive bed resistances."));
       }
     if (venous.enabled)
       {

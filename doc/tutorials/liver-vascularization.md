@@ -506,6 +506,53 @@ The [matched records](../_static/liver-terminal-radii/data.csv),
 identifiers and endpoint selection. The renderer can replay the figure from
 the CSV without generating or solving a network.
 
+### Prescribe total supply and solve for local perfusion
+
+The default `Reference flow distribution = tissue demand` requires each new
+terminal to realize its demand-weighted design flow. To prescribe only the
+total supply and let physical resistances determine local perfusion, use
+`network resistance` under `Vascularization/Physiology`. This mode requires
+explicit positive microvascular resistances and a positive total reference
+flow. Growth still uses demand-weighted design flows for its objective; they
+are no longer constraints on the final flow in each territory.
+
+For a three-system steady reference, prescribe arterial and portal root
+inflows and anchor the venous root pressure. Remove the two supply-root
+pressure conditions: a root cannot receive both pressure and flow.
+For the proximal input described above, the root Node IDs are arterial 6,
+venous 7 and portal 47:
+
+```text
+subsection Physiology
+  set Reference flow distribution = network resistance
+  set Total new-tissue reference flow = 2.0836421871998312e-5
+  set Reference pressures = 7:629.59739556
+  set Unpaired reference inflows = 6:6.339078457494437e-6,47:1.4497343414503875e-5
+end
+subsection Portal network
+  set Flow fraction = .69576933619234205
+  # Supply three positive resistances in arterial, portal, venous order.
+  set Compartment resistances = 1e12,1e11,1e11
+end
+```
+
+The resistances above illustrate the parameter contract, rather than a fitted
+liver model. They apply per territory in Pa s/m³ and must be chosen for the
+number of represented compartments. There is no automatic rescaling by demand.
+For a triplet, the native solve determines the common pressure and three arm
+flows from these resistances, enforcing local Kirchhoff balance. Generation
+checks the summed new-territory arterial, portal and venous flows against
+$(1-f_P)Q, f_P Q, Q$, respectively. Retained beds remain active but do not
+contribute to these new-territory totals.
+
+Positive finite resistances, positive supply and drainage in every compartment,
+physical node balance and declared vessel orientation remain required.
+The two inlet pressures are outputs: matching the total MOX flows alone does
+not calibrate those pressures or establish patient-specific physiology.
+The archived transient consumer currently uses an arterial inflow and portal
+and venous pressure reservoirs; loading this archive does not automatically
+impose the same portal inflow in that consumer.
+
 ### Inspect denser growth attempts
 
 Three denser inspection sets have completed all three forests on the same
