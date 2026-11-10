@@ -464,6 +464,70 @@ diagnostic. The plot script reads the two adjacent audit JSON files and
 `source-records.json`; it performs no new hydraulic solve. Preserve these
 failed outputs separately from successful scale databases.
 
+### Compare radii at matched terminals
+
+A separate 64-territory native reference succeeds with an explicitly assumed
+portal reservoir of 8.5 mmHg, rather than the preceding 8 mmHg. The MOX-derived
+mean flows stay unchanged. The arterial, hepatic venous and portal input
+prefixes use radius cutoffs of 1.5, 3 and 2 mm respectively. The retained
+coordinates and radii are copied exactly from the anatomical inputs; the
+discarded distal data remain in the original preparation. These choices are
+model inputs, not a calibration of the IRCAD subject.
+
+That reference has 456 physical vessels and 64 common compartments. All three
+arm flows and resistances are positive; independent owned-CSV checks give
+maximum node KCL defect $2.58\times10^{-16}$ m³/s and minimum common-pressure
+gap 26.20 Pa. This is a successful rigid reference, not an accepted coupled
+tissue solution.
+
+Compare corresponding leaf endpoints before judging vessel sizes from the
+display. The matched terminal radii in this reference are:
+
+| Role | Minimum radius (mm) | Maximum radius (mm) |
+| --- | ---: | ---: |
+| Hepatic artery | 0.142 | 0.708 |
+| Portal vein | 0.323 | 1.340 |
+| Hepatic veins | 0.439 | 1.945 |
+
+```{figure} ../_static/liver-terminal-radii/terminal-radius-flow.png
+:alt: Radius and absolute reference flow at 192 matched leaf endpoints, grouped into arterial, portal and hepatic venous systems
+:width: 100%
+
+Exact radius and flow traces at the 64 matched terminals of each role.
+Trunk and root values are excluded; radii at a junction are not averaged.
+These relationships reflect the generated model and its Murray normalization,
+rather than independent anatomical validation.
+```
+
+The [matched records](../_static/liver-terminal-radii/data.csv),
+[renderer](../_static/liver-terminal-radii/script.py) and
+[provenance](../_static/liver-terminal-radii/provenance.json) retain the physical
+identifiers and endpoint selection. The renderer can replay the figure from
+the CSV without generating or solving a network.
+
+### Inspect denser growth attempts
+
+Three denser inspection sets have completed all three forests on the same
+2,776-cell background:
+
+| Inspection set | Generated leaf terminals per role | Physical vessels, all roles | Native hydraulic result |
+| --- | ---: | ---: | --- |
+| 512 | 512 / 512 / 512 | 3,144 | Rejected common-compartment pressures |
+| 2048 | 2,048 / 2,048 / 2,048 | 12,360 | Rejected common-compartment pressures |
+| 2499 | 2,499 / 2,499 / 2,499 | 15,066 | Rejected common-compartment pressures |
+
+The counts come from physical node identities and graph degree, not the
+requested target. All three retain 73 anatomical input segments and use the 8.5
+mmHg portal sensitivity. Their sampling, quadrature and local optimization
+controls differ; their wall times are not an isolated performance comparison.
+They are inspection data, not successful coupled scale profiles.
+
+For each attempt, open the three `generated/invalid-result/*.pvtu` files
+with their VTU pieces. The `Radius` point array retains separate physical
+endpoint traces. The campaign records in the tracking issue identify the
+parameter files, numerical tables, checksums and failed checks. A complete
+growth count does not override a failed hydraulic validation.
+
 (liver-terminal-density)=
 ## Set terminal density and coverage
 
