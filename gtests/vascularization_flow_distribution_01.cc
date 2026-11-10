@@ -349,6 +349,12 @@ TEST(VascularReferenceFlow,
   diagnostic("legacy-rejection", legacy);
   EXPECT_TRUE(legacy.reference.validation.valid());
   EXPECT_FALSE(legacy.validation.valid());
+  EXPECT_EQ(Utilities::MPI::max(static_cast<unsigned int>(
+                                  issues(legacy).find(
+                                    "per-system demand flow") !=
+                                  std::string::npos),
+                                MPI_COMM_WORLD),
+            1u);
   p.reference_flow_distribution = "network resistance";
   p.reference_flow *= 2.;
   auto mismatch = fixture(true, false);
@@ -396,6 +402,139 @@ TEST(VascularReferenceFlow, MPI_ReferenceFlowDistributionControlsMustAgree)
   diagnostic("asymmetric-controls-input", r);
   ImmersX::Vascularization::internal::pair_territories(r, p, MPI_COMM_WORLD);
   diagnostic("asymmetric-controls-rejection", r);
+  EXPECT_FALSE(r.validation.valid());
+  EXPECT_TRUE(r.reference.vessels.empty());
+}
+
+namespace
+{
+  GenerationResult
+  unequal_fixture()
+  {
+    auto r = fixture(true, true);
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0)
+      return r;
+    const std::array<Id, 3> branches{{11, 21, 31}}, terminals{{100, 200, 300}};
+    const std::array<std::array<double, 2>, 3> ratios{
+      {{{.25, 1.625}}, {{.25, .625}}, {{1.25, .625}}}};
+    for (unsigned int role = 0; role < 3; ++role)
+      for (unsigned int k = 0; k < 2; ++k)
+        {
+          const double demand       = k + 1.;
+          const double child_radius = radius * std::cbrt(2. * demand / 3.);
+          auto        &v            = r.network.vessels.at(branches[role] + k);
+          v.radii                   = {{child_radius, child_radius}};
+          auto tip                  = r.network.nodes.at(v.nodes[0]).position;
+          tip[k] +=
+            base_length * ratios[role][k] * std::pow(child_radius / radius, 4);
+          r.network.nodes.at(v.nodes[1]).position            = tip;
+          r.network.terminals.at(terminals[role] + k).demand = demand;
+          r.target_terminal_flows.at(terminals[role] + k) =
+            (role == 1 ? 6. : 3.) * q0 * demand / 3.;
+        }
+    for (unsigned int k = 0; k < 2; ++k)
+      {
+        r.territories[k].position = r.network.nodes.at(2 + k).position;
+        r.territories[k].demand   = k + 1.;
+      }
+    return r;
+  }
+} // namespace
+
+TEST(VascularReferenceFlow, BOTH_CompartmentDemandScalingUsesOnlyNewTerritories)
+{
+  Parameters p("/Resistance distribution demand scaling/");
+  controls(p, true, true);
+  p.reference_flow_distribution = "network resistance";
+  EXPECT_FALSE(p.scale_compartment_resistances_by_demand);
+  for (const bool scaled : {false, true})
+    {
+      p.scale_compartment_resistances_by_demand = scaled;
+      auto              r                       = unequal_fixture();
+      const auto        design                  = r.target_terminal_flows;
+      const auto        attachments             = r.target_attachment_flows;
+      const std::string stage = scaled ? "scaled-arms" : "uniform-arms";
+      diagnostic(stage + "-input", r);
+      ImmersX::Vascularization::internal::pair_territories(r,
+                                                           p,
+                                                           MPI_COMM_WORLD,
+                                                           retained_beds(true));
+      diagnostic(stage + "-reference", r);
+      ASSERT_TRUE(r.validation.valid()) << issues(r);
+      expect_reference(r);
+      EXPECT_EQ(r.target_terminal_flows, design);
+      EXPECT_EQ(r.target_attachment_flows, attachments);
+      // New demands 1 and 2 have mean 1.5; retained demand 999 is excluded.
+      // Scaled branch+arm resistances are (R,2R,R) and (2R,R,R).
+      // Uniform-arm values solve the four rational node-balance equations.
+      const std::array<std::array<double, 3>, 2> expected =
+        scaled ? std::array<std::array<double, 3>, 2>{{{{2., 1., 3.}},
+                                                       {{1., 2., 3.}}}} :
+                 std::array<std::array<double, 3>, 2>{
+                   {{{2775. / 1219., 1503. / 1219., 186. / 53.}},
+                    {{882. / 1219., 2154. / 1219., 132. / 53.}}}};
+      for (unsigned int k = 0; k < 2; ++k)
+        {
+          const std::array<double, 3> actual{
+            {owned_value(r.reference.terminal_outflows, 100 + k) / q0,
+             owned_value(r.reference.terminal_outflows, 300 + k) / q0,
+             -owned_value(r.reference.terminal_outflows, 200 + k) / q0}};
+          for (unsigned int arm = 0; arm < 3; ++arm)
+            EXPECT_NEAR(actual[arm], expected[k][arm], 1.e-8);
+          EXPECT_NEAR(actual[0] + actual[1] - actual[2], 0., 1.e-8);
+          EXPECT_NEAR(owned_value(r.target_terminal_flows, 100 + k) / q0,
+                      k + 1.,
+                      1.e-14);
+        }
+      EXPECT_NEAR(owned_value(r.reference.boundary_inflows, 0) / q0, 3., 1.e-8);
+      EXPECT_NEAR(owned_value(r.reference.boundary_inflows, 20) / q0,
+                  3.,
+                  1.e-8);
+      EXPECT_NEAR(owned_value(r.reference.boundary_inflows, 10) / q0,
+                  -6.,
+                  1.e-8);
+      for (const auto &bed : r.terminal_triplets)
+        {
+          const double factor =
+            scaled ? (bed.territory == 1000 ? .75 : .375) : .5;
+          for (double arm : bed.resistances)
+            EXPECT_NEAR(arm / R(), factor, 1.e-13);
+        }
+      for (const auto &bed : r.terminal_pairs)
+        EXPECT_DOUBLE_EQ(bed.resistance, R());
+      EXPECT_NEAR(owned_value(r.reference.terminal_outflows, 400),
+                  20. / (3. * R()),
+                  1.e-16);
+    }
+}
+
+TEST(VascularReferenceFlow, BOTH_CompartmentDemandScalingRequiresResistanceMode)
+{
+  Parameters p("/Resistance distribution scaling validation/");
+  controls(p, true, false);
+  p.reference_flow_distribution             = "network resistance";
+  p.scale_compartment_resistances_by_demand = true;
+  EXPECT_NO_THROW(p.validate(false));
+  p.reference_flow_distribution = "tissue demand";
+  EXPECT_THROW(p.validate(false), ExceptionBase);
+  p.reference_flow_distribution     = "network resistance";
+  p.portal.enabled                  = false;
+  p.venous.microvascular_resistance = R();
+  EXPECT_THROW(p.validate(false), ExceptionBase);
+}
+
+TEST(VascularReferenceFlow, MPI_CompartmentDemandScalingControlsMustAgree)
+{
+  ASSERT_GT(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 1u);
+  Parameters p("/Resistance distribution collective scaling/");
+  controls(p, true, false);
+  p.reference_flow_distribution = "network resistance";
+  p.scale_compartment_resistances_by_demand =
+    Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0;
+  auto r = fixture(true, false);
+  diagnostic("asymmetric-scaling-input", r);
+  ImmersX::Vascularization::internal::pair_territories(r, p, MPI_COMM_WORLD);
+  diagnostic("asymmetric-scaling-rejection", r);
   EXPECT_FALSE(r.validation.valid());
   EXPECT_TRUE(r.reference.vessels.empty());
 }
