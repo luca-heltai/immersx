@@ -29,6 +29,22 @@ namespace ImmersX::Vascularization
 {
   namespace internal
   {
+    template <class Flow>
+    auto
+    metric_flow_x_minimum_positive_area(const Flow &flow, int)
+      -> decltype(flow.get_minimum_positive_area())
+    {
+      return flow.get_minimum_positive_area();
+    }
+
+    // Older backends expose only their fixed area floor.
+    template <class Flow>
+    double
+    metric_flow_x_minimum_positive_area(const Flow &, long)
+    {
+      return 1.e-10;
+    }
+
     template <class Flow, class = void>
     struct HasNetworkPhysics : std::false_type
     {};
@@ -141,6 +157,15 @@ namespace ImmersX::Vascularization
             generation.discretization.validation.valid() &&
             flow.triangulation().n_global_active_cells() == 0,
           "Flow preparation requires a valid result and an empty native mesh.");
+        const double minimum_area =
+          internal::metric_flow_x_minimum_positive_area(flow, 0);
+        bool matching_area = std::isfinite(minimum_area) && minimum_area > 0.;
+        for (const double other :
+             Utilities::MPI::all_gather(comm, minimum_area))
+          matching_area = matching_area && other == minimum_area;
+        require_all(
+          matching_area,
+          "All ranks must use the same positive finite native minimum area.");
         using Physics = typename Flow::NetworkPhysics;
         std::set<Id> sealed;
         for (const auto &ids :
@@ -184,7 +209,7 @@ namespace ImmersX::Vascularization
                     }
                   AssertThrow(
                     numbers::PI * std::pow(std::min(radii[0], radii[1]), 2) >
-                      1.e-10,
+                      minimum_area,
                     ExcMessage(
                       "A physical reference area reaches MetricFlowX's numerical floor."));
                   properties.r_in = properties.r_d = radii[0];

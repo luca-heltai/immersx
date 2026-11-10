@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report actual coupled block DoFs in a setup-only run without initializing or integrating the coupled state.
+
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Allow supplied microvascular resistances to determine local perfusion while checking the prescribed total reference flow separately for arterial, portal and venous networks, with optional conductance scaling by relative territory demand.
 
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Make geometric CCO admissibility optional while retaining hydraulic, graph ownership and topology checks, and save separate input and result vascular datasets for inspection.
@@ -289,6 +291,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Use the native configurable minimum positive area when importing physical vascular radii, retaining the fixed threshold for older MetricFlowX backends.
 
 - [PR #365](https://github.com/luca-heltai/immersx/pull/365) Keep cell and trace area coefficients positive during coupled flow–tissue IDA solves. Report nonfinite trial residuals collectively as recoverable callback errors instead of passing them to the linear solver; equilibrium initialization may still fail when IDA cannot recover.
 
