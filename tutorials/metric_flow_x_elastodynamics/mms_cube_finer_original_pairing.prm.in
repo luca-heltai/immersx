@@ -1,0 +1,16 @@
+# Original two-solid-cell-per-flow-cell pairing used in pressure diagnostics.
+# Keep outside the ordinary sequence; the uniform analytical oracle is unchanged.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube_finer.prm
+
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-finer-original
+end
+subsection MetricFlowSystem<1, 3>
+  set Number of global refinement = 3
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-finer-original
+end
+subsection MetricFlowX vessel wall lift
+  subsection Representative quadrature
+    set Number of repetitions = 2
+  end
+end

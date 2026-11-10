@@ -21,6 +21,7 @@
 #include <immersx/core/state.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <functional>
 #include <map>
@@ -417,6 +418,40 @@ namespace ImmersX
       preconditioners_.emplace(field, std::move(factory));
     }
 
+    using SecondOrderOperators = std::array<MatrixOperator, 3>;
+
+    /** Supply sparse approximate M, K, D for second-order preconditioning.
+     * Exact residual/Jacobian operators are unchanged.
+     */
+    void
+    set_second_order_preconditioner_operators(const FieldId        displacement,
+                                              SecondOrderOperators operators)
+    {
+      AssertThrow(std::any_of(second_order_pairs_.begin(),
+                              second_order_pairs_.end(),
+                              [displacement](const auto &pair) {
+                                return pair.displacement == displacement;
+                              }),
+                  dealii::ExcMessage(
+                    "A second-order preconditioner needs a registered pair."));
+      const bool inserted =
+        second_order_surrogates_.emplace(displacement, std::move(operators))
+          .second;
+      AssertThrow(
+        inserted,
+        dealii::ExcMessage(
+          "A second-order preconditioning surrogate was registered twice."));
+    }
+
+    std::optional<SecondOrderOperators>
+    second_order_preconditioner_operators(const FieldId displacement) const
+    {
+      const auto entry = second_order_surrogates_.find(displacement);
+      if (entry == second_order_surrogates_.end())
+        return std::nullopt;
+      return entry->second;
+    }
+
     void
     add_second_order_pair(SecondOrderPair pair)
     {
@@ -620,6 +655,7 @@ namespace ImmersX
     std::map<FieldId, MatrixOperatorFactory>       multiplier_metrics_;
     std::vector<SaddlePointMetadata>               saddle_points_;
     std::vector<SecondOrderPair>                   second_order_pairs_;
+    std::map<FieldId, SecondOrderOperators>        second_order_surrogates_;
     std::vector<ContextUpdateFactory>              context_updates_;
   };
 } // namespace ImmersX

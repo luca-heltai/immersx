@@ -246,6 +246,19 @@ namespace ImmersX
                                     std::move(preconditioner_data)});
     }
 
+    /** Use sparse native M, K, D as a second-order preconditioning surrogate.
+     * This does not replace contributions to the exact residual or Jacobian.
+     */
+    void
+    second_order_preconditioner(const FieldId displacement,
+                                const typename Model::MatrixOperator &mass,
+                                const typename Model::MatrixOperator &stiffness,
+                                const typename Model::MatrixOperator &damping)
+    {
+      model_.set_second_order_preconditioner_operators(
+        displacement, {{mass, stiffness, damping}});
+    }
+
     /** Register a semantic multiplier/primal saddle-point relation. */
     void
     saddle_point(const FieldId multiplier, std::vector<FieldId> participants)

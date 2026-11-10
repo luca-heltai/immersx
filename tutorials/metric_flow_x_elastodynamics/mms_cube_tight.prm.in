@@ -1,0 +1,14 @@
+# Tolerance sensitivity on the base spatial mesh; this does not prescribe fixed timesteps.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube.prm
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-tight
+end
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-tight
+  subsection IDA parameters
+    subsection Error control
+      set Absolute error tolerance = 1e-10
+      set Relative error tolerance = 1e-8
+    end
+  end
+end

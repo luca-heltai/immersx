@@ -11,6 +11,8 @@
 #include <deal.II/base/mpi_remote_point_evaluation.h>
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <deal.II/fe/fe_dgq.h>
 
 #include <deal.II/numerics/data_out.h>
@@ -29,6 +31,7 @@
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastodynamics.h>
 #  include <immersx/physics/elastodynamics_semidiscrete.h>
+#  include <immersx/physics/fictitious_interior.h>
 #  include <immersx/physics/metric_flow_x.h>
 #  include <immersx/physics/metric_flow_x_pressure.h>
 #  include <immersx/vascularization/io.h>
@@ -40,6 +43,7 @@
 #  include <fstream>
 #  include <iomanip>
 #  include <iostream>
+#  include <limits>
 #  include <memory>
 #  include <optional>
 #  include <set>
@@ -397,7 +401,12 @@ namespace
       "Cache Schur columns up to this global multiplier size per Jacobian; zero keeps matrix-free inner actions.");
 
     ParameterAcceptor coupling("/MetricFlowX coupling/");
-    std::string       embedded_partitioning = "default";
+    bool              remove_fictitious_modes = false;
+    coupling.add_parameter(
+      "Remove fictitious modal response",
+      remove_fictitious_modes,
+      "Remove two averaged elastic and viscous strain modes in one straight uniform-radius reference cylinder, retaining all native inertia.");
+    std::string embedded_partitioning = "default";
     coupling.add_parameter(
       "Embedded partitioning policy",
       embedded_partitioning,
@@ -465,6 +474,13 @@ namespace
                            "Native terminal outlet pressure in Pa.");
 
     initialize_parameters(parameter_file);
+    AssertThrow(
+      !remove_fictitious_modes ||
+        detail::has_external_pressure_state_jacobian<FlowProblem>::value,
+      ExcMessage(
+        "Remove fictitious modal response requires MetricFlowX with "
+        "add_external_pressure_state_jacobian(). Rebuild against matching "
+        "headers and libraries from a compatible MetricFlowX installation."));
     const bool archived_network = !archive_parameters.directory.empty();
     AssertThrow(!archived_network || !generate_network,
                 ExcMessage(
@@ -753,6 +769,112 @@ namespace
         };
     const auto flow_fields = adapter.add(flow_description, "blood-flow");
 
+    using ModalCorrection =
+      FictitiousInteriorCorrection<FieldVector,
+                                   typename SolidProblem::MatrixType>;
+    std::shared_ptr<ModalCorrection> modal_correction;
+    if (remove_fictitious_modes)
+      {
+        std::vector<Point<3>> local_points, points;
+        for (const auto &cell :
+             flow_problem.triangulation().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              local_points.push_back(cell->vertex(0));
+              local_points.push_back(cell->vertex(1));
+            }
+        for (const auto &part :
+             Utilities::MPI::all_gather(MPI_COMM_WORLD, local_points))
+          points.insert(points.end(), part.begin(), part.end());
+        AssertThrow(points.size() >= 2,
+                    ExcMessage("Modal correction requires a cylinder."));
+        const auto origin  = points[0];
+        auto       tangent = points[1] - origin;
+        tangent /= tangent.norm();
+        std::vector<std::pair<double, double>> intervals;
+        bool                                   straight = true;
+        for (unsigned int i = 0; i < points.size(); i += 2)
+          {
+            const auto a = points[i] - origin, b = points[i + 1] - origin;
+            straight = straight &&
+                       (a - (a * tangent) * tangent).norm() < 1.e-10 &&
+                       (b - (b * tangent) * tangent).norm() < 1.e-10;
+            intervals.emplace_back(std::min(a * tangent, b * tangent),
+                                   std::max(a * tangent, b * tangent));
+          }
+        std::sort(intervals.begin(), intervals.end());
+        for (unsigned int i = 1; i < intervals.size(); ++i)
+          straight = straight && std::abs(intervals[i].first -
+                                          intervals[i - 1].second) < 1.e-10;
+        double     minimum = std::numeric_limits<double>::max(), maximum = 0.;
+        const auto selected_reference_dofs =
+          DoFTools::extract_dofs(reference_field.dof_handler(),
+                                 reference_field.component_mask());
+        for (const auto i : selected_reference_dofs)
+          if (reference_field.dof_handler().locally_owned_dofs().is_element(i))
+            {
+              const double area =
+                reference_area[reference_field.execution_index(i)];
+              minimum = std::min(minimum, area);
+              maximum = std::max(maximum, area);
+            }
+        minimum      = Utilities::MPI::min(minimum, MPI_COMM_WORLD);
+        maximum      = Utilities::MPI::max(maximum, MPI_COMM_WORLD);
+        bool covered = true;
+        for (const auto &point : reference_wall.lifted_points())
+          covered = covered && supports.overlap.includes_lifted_point(point);
+        covered = Utilities::MPI::min(covered ? 1u : 0u, MPI_COMM_WORLD) == 1;
+        AssertThrow(
+          straight,
+          ExcMessage(
+            "Modal correction requires one straight, connected, nonoverlapping cylinder."));
+        AssertThrow(
+          minimum > 0 && maximum - minimum < 1.e-12 * maximum,
+          ExcMessage(
+            "Modal correction requires a positive, uniform reference area."));
+        AssertThrow(
+          covered,
+          ExcMessage(
+            "Modal correction requires full reference-wall quadrature coverage."));
+        FictitiousInteriorCylinder cylinder{origin +
+                                              intervals.front().first * tangent,
+                                            origin +
+                                              intervals.back().second * tangent,
+                                            std::sqrt(minimum / numbers::PI)};
+        modal_correction   = std::make_shared<ModalCorrection>(solid_problem,
+                                                             solid_parameters,
+                                                             cylinder);
+        const auto elastic = modal_correction->elastic_operator();
+        const auto viscous = modal_correction->viscous_operator();
+        const auto displacement_id = solid_fields.fields().displacement.id();
+        const auto velocity_id     = solid_fields.fields().velocity.id();
+        adapter.add(
+          [=, &solid_problem](auto &builder) {
+            builder.second_order_preconditioner(
+              displacement_id,
+              matrix_operator<FieldVector>(solid_problem.mass_matrix()),
+              matrix_operator<FieldVector>(solid_problem.stiffness_matrix()),
+              matrix_operator<FieldVector>(solid_problem.damping_matrix()));
+            auto term = builder.term(velocity_id, "fictitious-interior-modes");
+            term.residual([=](const auto &context) {
+              return -1. * (elastic.view * context.state(displacement_id) +
+                            viscous.view * context.state(velocity_id));
+            });
+            if (linear_solver == "iterative")
+              term.state(displacement_id, -1. * elastic.view)
+                .state(velocity_id, -1. * viscous.view);
+            else if (linear_solver == "umfpack" || linear_solver == "mumps")
+              term.state(displacement_id, -1. * elastic)
+                .state(velocity_id, -1. * viscous);
+            return velocity_id;
+          },
+          "fictitious-interior");
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout << "Modal lumen volume: " << std::setprecision(17)
+                    << modal_correction->volume() << " (reference "
+                    << modal_correction->reference_volume() << ")" << std::endl;
+      }
+
     const auto coupling_fields = adapter.add(
       [&](auto &builder) {
         const auto id          = builder.algebraic_field(lambda.name(),
@@ -898,6 +1020,7 @@ namespace
                          &flow_output_records,
                          coupling_fields,
                          pressure_projection,
+                         modal_correction,
                          flow_fields,
                          flow_output_name,
                          flow_output_directory](
@@ -952,7 +1075,32 @@ namespace
       const double elastic_energy =
         .5 * (solid_problem.displacement() * stiffness_action);
       const double applied_work = solid_problem.displacement() * applied_load;
-      bool         energy_output_ok = true;
+      FieldVector  velocity_action;
+      velocity_action.reinit(solid_problem.velocity());
+      solid_problem.mass_matrix().vmult(velocity_action,
+                                        solid_problem.velocity());
+      const double kinetic_energy =
+        .5 * (solid_problem.velocity() * velocity_action);
+      solid_problem.damping_matrix().vmult(velocity_action,
+                                           solid_problem.velocity());
+      const double native_dissipation =
+        solid_problem.velocity() * velocity_action;
+      const double removed_dissipation =
+        modal_correction ? modal_correction->removed_viscous_dissipation(
+                             solid_problem.velocity()) :
+                           0.;
+      const double removed_energy = modal_correction ?
+                                      modal_correction->removed_elastic_energy(
+                                        solid_problem.displacement()) :
+                                      0.;
+      const auto   modal_strain =
+        modal_correction ?
+            modal_correction->modes(solid_problem.displacement()) :
+            std::array<double, 2>{};
+      const auto modal_rate =
+        modal_correction ? modal_correction->modes(solid_problem.velocity()) :
+                           std::array<double, 2>{};
+      bool energy_output_ok = true;
       if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
         {
           std::ofstream energy(
@@ -960,9 +1108,19 @@ namespace
               "energies.csv",
             step == 0 ? std::ios::out : std::ios::out | std::ios::app);
           if (step == 0)
-            energy << "time_s,elastic_and_robin_energy_J,applied_load_work_J\n";
+            energy
+              << "time_s,elastic_and_robin_energy_J,applied_load_work_J,removed_modal_elastic_energy_J,effective_elastic_and_robin_energy_J,modal_g,modal_h,modal_g_dot,modal_h_dot,sampled_lumen_volume_m3,reference_lumen_volume_m3,kinetic_energy_J,native_dissipation_W,removed_modal_dissipation_W,effective_dissipation_W\n";
           energy << std::setprecision(17) << time << ',' << elastic_energy
-                 << ',' << applied_work << '\n';
+                 << ',' << applied_work << ',' << removed_energy << ','
+                 << elastic_energy - removed_energy << ',' << modal_strain[0]
+                 << ',' << modal_strain[1] << ',' << modal_rate[0] << ','
+                 << modal_rate[1] << ','
+                 << (modal_correction ? modal_correction->volume() : 0.) << ','
+                 << (modal_correction ? modal_correction->reference_volume() :
+                                        0.)
+                 << ',' << kinetic_energy << ',' << native_dissipation << ','
+                 << removed_dissipation << ','
+                 << native_dissipation - removed_dissipation << '\n';
           energy.close();
           energy_output_ok = energy.good();
         }
