@@ -7,7 +7,9 @@
 #include <boost/serialization/vector.hpp>
 
 #include <cmath>
+#include <iomanip>
 #include <set>
+#include <sstream>
 
 #include "reference_flow_internal.h"
 
@@ -336,9 +338,19 @@ namespace ImmersX::Vascularization::internal
                 const double pt = pv + .5 * (std::min(pa, pp) - pv);
                 if (!(pv < pt && pt < pa && pt < pp))
                   {
-                    fail(
-                      id,
-                      "The requested supply split and pressures leave no common microvascular pressure.");
+                    std::ostringstream message;
+                    message
+                      << std::setprecision(17)
+                      << "The requested supply split and pressures leave no common microvascular pressure."
+                      << " Pressures (Pa): arterial=" << pa << ", portal=" << pp
+                      << ", venous=" << pv
+                      << "; desired flows (m3/s): arterial=" << a.desired
+                      << ", portal=" << portal.desired
+                      << ", venous=" << v.desired
+                      << "; physical node ids: arterial=" << a.node
+                      << ", portal=" << portal.node << ", venous=" << v.node
+                      << '.';
+                    fail(id, message.str());
                     continue;
                   }
                 arms = {{(pa - pt) / a.desired,

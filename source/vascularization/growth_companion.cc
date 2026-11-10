@@ -429,8 +429,16 @@ namespace ImmersX::Vascularization::internal
       {
         const auto cell = tissue_cells.find(id);
         if (cell == tissue_cells.end())
-          fail(id,
-               "A common territory centre is outside the prepared background.");
+          {
+            if (p.enforce_geometry)
+              fail(
+                id,
+                "A common territory centre is outside the prepared background.");
+            else
+              separations[id] =
+                scale.physical_length(companion.terminal_separation,
+                                      scale.minimum());
+          }
         else
           separations[id] = scale.physical_length(companion.terminal_separation,
                                                   cell->second.diameter);

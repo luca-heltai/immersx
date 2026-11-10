@@ -411,11 +411,16 @@ namespace ImmersX::Vascularization::internal
         for (const auto &territory : owned_territories)
           {
             const auto found = tissue_cells.find(territory.id);
-            found_all        = found_all && found != tissue_cells.end();
+            found_all =
+              found_all && (found != tissue_cells.end() || !p.enforce_geometry);
             if (found != tissue_cells.end())
               territory_separations[territory.id] =
                 scale.physical_length(companion.terminal_separation,
                                       found->second.diameter);
+            else if (!p.enforce_geometry)
+              territory_separations[territory.id] =
+                scale.physical_length(companion.terminal_separation,
+                                      scale.minimum());
           }
         if (
           !phase(
