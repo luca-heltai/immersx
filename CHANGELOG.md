@@ -449,6 +449,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Describe in the parameter help which coupling section `Coupling type` reads, how `Inclusions`, `Inclusions file`, `Data file` and `Reference inclusion data` combine, when the legacy `Selection of Fourier coefficients` is used, which quadrature the `Representative domain` entries control, and what `Grid generator` means for each `Domain type`.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Document the Robin condition and parameter owner for every application, with static and transient solid examples, physical fiber end sections, lifted scalar data and native terminal flow models.
 
 - [PR #328](https://github.com/luca-heltai/immersx/pull/328) Start GitHub CI after a successful compilation by pushing authorized changes early, while local tests and documentation checks continue in parallel.

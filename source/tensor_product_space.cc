@@ -119,10 +119,14 @@ namespace ImmersX
                   this->prm,
                   Patterns::Selection(
                     QuadratureSelector<1>::get_quadrature_names()));
-    add_parameter("Number of quadrature points", n_q_points);
+    add_parameter("Number of quadrature points",
+                  n_q_points,
+                  "Quadrature points along the reduced grid. The cross-section "
+                  "quadrature is set in \"Cross section\".");
     add_parameter("Number of quadrature repetitions",
                   n_quadrature_repetitions,
-                  "How many times to repeat the quadrature formula.");
+                  "How many times to repeat the quadrature formula along the "
+                  "reduced grid.");
     add_parameter("Thickness", thickness);
     add_parameter("Input file fields", input_file_fields);
     add_parameter("Reduced grid name", reduced_grid_name);
@@ -134,11 +138,22 @@ namespace ImmersX
     add_parameter("Data file",
                   data_file,
                   "Legacy per-record data input. It is imported as normal "
-                  "representative properties.");
-    add_parameter("Number of fourier coefficients", legacy_n_coefficients);
-    add_parameter("Selection of Fourier coefficients",
-                  legacy_selected_coefficients);
-    add_parameter("Reference inclusion data", legacy_reference_inclusion_data);
+                  "representative properties. When set, \"Reference "
+                  "inclusion data\" is ignored.");
+    add_parameter("Number of fourier coefficients",
+                  legacy_n_coefficients,
+                  "Number of legacy Fourier modes. Used only with "
+                  "\"Inclusions file\".");
+    add_parameter(
+      "Selection of Fourier coefficients",
+      legacy_selected_coefficients,
+      "Legacy Fourier indices, converted to the reference cross-section "
+      "basis. Used only when \"Inclusions file\" is set and \"Cross "
+      "section/Selected modes\" is empty; ignored otherwise.");
+    add_parameter("Reference inclusion data",
+                  legacy_reference_inclusion_data,
+                  "Legacy coefficients used for every record. Used only with "
+                  "\"Inclusions file\" and an empty \"Data file\".");
   }
 
   // Constructor for TensorProductSpace

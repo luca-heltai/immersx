@@ -142,8 +142,15 @@ namespace ImmersX
     {
       static_assert(spacedim > 1, "Not implemented in dim = 1");
       add_parameter("Inclusions refinement", n_q_points);
-      add_parameter("Inclusions", inclusions);
-      add_parameter("Reference inclusion data", reference_inclusion_data);
+      add_parameter("Inclusions",
+                    inclusions,
+                    "Inline inclusions. The inclusions read from "
+                    "\"Inclusions file\" are appended to this list, and both "
+                    "are used.");
+      add_parameter("Reference inclusion data",
+                    reference_inclusion_data,
+                    "Coefficients used for every inclusion. Ignored when "
+                    "\"Data file\" is set.");
 
       add_parameter(
         "Number of fourier coefficients",
@@ -171,9 +178,21 @@ namespace ImmersX
         "starting from the constant mode, so the data for index c is entry c "
         "of the line. Leave empty to select coefficients with \"Number of "
         "fourier coefficients\" instead.");
-      add_parameter("Bounding boxes extraction level", rtree_extraction_level);
-      add_parameter("Inclusions file", inclusions_file);
-      add_parameter("Data file", data_file);
+      add_parameter("Bounding boxes extraction level",
+                    rtree_extraction_level,
+                    "Point coupling only. Tensor-product coupling reads "
+                    "\"Tensor product coupling/Particle coupling/RTree "
+                    "extraction level\" instead.");
+      add_parameter("Inclusions file",
+                    inclusions_file,
+                    "File with one inclusion per line. Its inclusions are "
+                    "appended to \"Inclusions\".");
+      add_parameter("Data file",
+                    data_file,
+                    "File with one line of coefficients per inclusion, for "
+                    "the combined \"Inclusions\" and \"Inclusions file\" "
+                    "list. When set, \"Reference inclusion data\" is "
+                    "ignored.");
       add_parameter("Cluster inclusions with segments", cluster_with_segments);
 
       enter_subsection("Boundary data");
