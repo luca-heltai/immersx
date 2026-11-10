@@ -734,5 +734,6 @@ At fixed base spatial inputs, `local-tight` changes the displacement $L^2$
 error by 0.0118% and the multiplier error by 0.00117% relative to `local`.
 The largest relative change among the five reported $L^2$ errors is 0.675%
 for area. This is a base-mesh tolerance check, not a temporal error bound for
-the finest MPI run. The commands above reproduce the complete four-case
-`report.json`, including the unrounded errors and execution metadata.
+the finest MPI run. The [machine-readable measurements](../_static/metric-flow-x-corefinement/measurements.json)
+retain the unrounded errors, mesh diagnostics, solver/rank metadata and code
+versions. The commands above reproduce the complete four-case `report.json`.
