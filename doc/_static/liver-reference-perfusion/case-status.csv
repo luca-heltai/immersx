@@ -1,0 +1,6 @@
+case,native_status,exit_code,plotted
+network-resistance-512-attempt-01,FINISHED,1,False
+network-resistance-512-attempt-02,FINISHED,1,False
+network-resistance-512-attempt-03,FINISHED,0,True
+network-resistance-2048-attempt-03,FINISHED,1,False
+network-resistance-2048-attempt-04,FINISHED,0,True
