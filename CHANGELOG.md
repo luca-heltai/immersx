@@ -11,13 +11,13 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #373](https://github.com/luca-heltai/immersx/pull/373) Write the lifted wall of `LiftedElasticity` and `LiftedPoisson` as particles, one per lifted quadrature point. A `Particle output/Properties` list selects the stored quantities: weight, mode shapes, modal coefficients, lifted value, prescribed modal data, representative point, radius, quadrature indices and the interpolated background field.
-
 - [PR #372](https://github.com/luca-heltai/immersx/pull/372) Co-refine solid and fluid meshes on physical MetricFlowX lift supports with separate axial and circumferential scale checks, retained input fields, consistent hanging-node condensation and a one-cube manufactured-solution sequence.
 
-- [PR #370](https://github.com/luca-heltai/immersx/pull/370) Save separate diagnostic arterial, portal and venous VTK datasets when liver growth is rejected, preserving crossings and collapsed edges without adopting the invalid network.
+- [PR #373](https://github.com/luca-heltai/immersx/pull/373) Write the lifted wall of `LiftedElasticity` and `LiftedPoisson` as particles, one per lifted quadrature point. A `Particle output/Properties` list selects the stored quantities: weight, mode shapes, modal coefficients, lifted value, prescribed modal data, representative point, radius, quadrature indices and the interpolated background field.
 
 - [PR #369](https://github.com/luca-heltai/immersx/pull/369) Add an optional energy projection that removes two fictitious interior elastic and viscous modes in a straight uniform-radius vessel while retaining native inertia, with analytical checks, measured error tables, coarser MMS multiplier meshes, portable serial/MPI runs, and an early error for MetricFlowX packages missing the pressure-state Jacobian API.
+
+- [PR #370](https://github.com/luca-heltai/immersx/pull/370) Save separate diagnostic arterial, portal and venous VTK datasets when liver growth is rejected, preserving crossings and collapsed edges without adopting the invalid network.
 
 - [PR #367](https://github.com/luca-heltai/immersx/pull/367) Continue portal and venous CCO growth from a physical checkpoint while retaining the completed arterial forest and matching its existing common territories.
 
@@ -207,9 +207,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) A legacy `Representative domain/Inclusions file` reads the radius column only with `Thickness = radius`. Previously the exact default string `0.01` meant the radius column and any other spelling of the same number was a constant.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) A legacy `Representative domain/Inclusions file` reads the radius column only with `Thickness = radius`. Previously the exact default string `0.01` meant the radius column and any other spelling of the same number was a constant.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) `elasticity` and `coupled_elasticity` honour `Immersed Problem/Output every n steps` for transient runs; they previously wrote VTU output at every step. Its default is now 1 for these and for `elasticity_explicit`, which used 100.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) `elasticity` and `coupled_elasticity` honour `Immersed Problem/Output every n steps` for transient runs; they previously wrote VTU output at every step. Its default is now 1 for these and for `elasticity_explicit`, which used 100.
 
 - [PR #362](https://github.com/luca-heltai/immersx/pull/362) Index CCO candidate obstacles with their own radius envelopes while retaining the existing trial-radius, taper and clearance checks.
 
@@ -296,13 +296,13 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) The default `elastodynamics` parameter file runs: `Fixed step/Number of time steps` defaults to 10, and the printed `Domain/Initial refinement` default is the 2 actually used. `elastodynamics` no longer prints the unused `IDA` section, and `elastodynamics_adapter` no longer prints the unused `Fixed step` section.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) The default `elastodynamics` parameter file runs: `Fixed step/Number of time steps` defaults to 10, and the printed `Domain/Initial refinement` default is the 2 actually used. `elastodynamics` no longer prints the unused `IDA` section, and `elastodynamics_adapter` no longer prints the unused `Fixed step` section.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Give the MetricFlowX copy of every shared `MetricFlowSystem<1, 3>/IDA parameters` entry the value that ImmersX uses and prints. Entries missing from the input previously kept the deal.II defaults on the MetricFlowX side, so consistent initial conditions and the IDA statistics used a different step size, order and tolerances.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Give the MetricFlowX copy of every shared `MetricFlowSystem<1, 3>/IDA parameters` entry the value that ImmersX uses and prints. Entries missing from the input previously kept the deal.II defaults on the MetricFlowX side, so consistent initial conditions and the IDA statistics used a different step size, order and tolerances.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Declare `/MetricFlowX domain/` before the input is parsed, so `Grid scale` and `Triangulation type` can be set and the section is accepted in input files.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Declare `/MetricFlowX domain/` before the input is parsed, so `Grid scale` and `Triangulation type` can be set and the section is accepted in input files.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Stop with an error, also in Release builds, when `Inclusions file`, `Data file` or a `file` grid of `elasticity` cannot be opened, when `Read fields = true` names no existing mesh file, when `Coupling type = TensorProduct` is used without VTK, and when `MetricFlowX coupling/Embedded partitioning policy = immersed` is combined with an archived or generated network. These cases previously ran with zero inclusions, without fields, with point coupling or with default partitioning.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Stop with an error, also in Release builds, when `Inclusions file`, `Data file` or a `file` grid of `elasticity` cannot be opened, when `Read fields = true` names no existing mesh file, when `Coupling type = TensorProduct` is used without VTK, and when `MetricFlowX coupling/Embedded partitioning policy = immersed` is combined with an archived or generated network. These cases previously ran with zero inclusions, without fields, with point coupling or with default partitioning.
 
 - [PR #365](https://github.com/luca-heltai/immersx/pull/365) Keep cell and trace area coefficients positive during coupled flow–tissue IDA solves. Report nonfinite trial residuals collectively as recoverable callback errors instead of passing them to the linear solver; equilibrium initialization may still fail when IDA cannot recover.
 
@@ -445,11 +445,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Removed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Remove the unused `Constant thickness` lift entry; a numeric `Thickness` is the constant thickness.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Remove the unused `Constant thickness` lift entry; a numeric `Thickness` is the constant thickness.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Remove the `Immersed Problem/Time parameters` entries that elasticity never read: `Output frequency`, `Number of time steps`, `Policy` and the IDA subsections `Running parameters`, `Error control` and `Initial condition correction parameters`. `elasticity` and `coupled_elasticity` always advance by `Time step`.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Remove the `Immersed Problem/Time parameters` entries that elasticity never read: `Output frequency`, `Number of time steps`, `Policy` and the IDA subsections `Running parameters`, `Error control` and `Initial condition correction parameters`. `elasticity` and `coupled_elasticity` always advance by `Time step`.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Give each `Cross section` entry one name. `Maximum inclusion degree`, `Selected indices`, `Inclusion type`, `Number of quadrature points` and `Number of quadrature repetitions` are removed; use `Maximum basis degree`, `Selected modes`, `Geometry type`, `Number of points` and `Number of repetitions`. The flat lift entry `Representative quadrature type` is removed; use `Representative quadrature/Type`. Before this change both names of a pair were printed and the alphabetically later one silently overrode the other.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Give each `Cross section` entry one name. `Maximum inclusion degree`, `Selected indices`, `Inclusion type`, `Number of quadrature points` and `Number of quadrature repetitions` are removed; use `Maximum basis degree`, `Selected modes`, `Geometry type`, `Number of points` and `Number of repetitions`. The flat lift entry `Representative quadrature type` is removed; use `Representative quadrature/Type`. Before this change both names of a pair were printed and the alphabetically later one silently overrode the other.
 
 - [PR #276](https://github.com/luca-heltai/immersx/pull/276) Remove the fiber driver's `matrix_only_displacement_difference()` diagnostic; validation evolves an independent dense reference instead.
 - [PR #192](https://github.com/luca-heltai/immersx/pull/192) Purged the transitional representation architecture.
@@ -459,9 +459,9 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Explain the point, tensor-product, lift and direct-overlap coupling discretisations, the parameter sections each one reads, and which application uses which.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Explain the point, tensor-product, lift and direct-overlap coupling discretisations, the parameter sections each one reads, and which application uses which.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Describe in the parameter help which coupling section `Coupling type` reads, how `Inclusions`, `Inclusions file`, `Data file` and `Reference inclusion data` combine, when the legacy `Selection of Fourier coefficients` is used, which quadrature the `Representative domain` entries control, and what `Grid generator` means for each `Domain type`.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Describe in the parameter help which coupling section `Coupling type` reads, how `Inclusions`, `Inclusions file`, `Data file` and `Reference inclusion data` combine, when the legacy `Selection of Fourier coefficients` is used, which quadrature the `Representative domain` entries control, and what `Grid generator` means for each `Domain type`.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Document the Robin condition and parameter owner for every application, with static and transient solid examples, physical fiber end sections, lifted scalar data and native terminal flow models.
 
@@ -554,7 +554,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Check that a native IDA binding and `IDAParameters` on the same section hold the same value for every entry, including entries missing from the input.
+- [PR #374](https://github.com/luca-heltai/immersx/pull/374) Check that a native IDA binding and `IDAParameters` on the same section hold the same value for every entry, including entries missing from the input.
 
 - [PR #370](https://github.com/luca-heltai/immersx/pull/370) Check diagnostic VTK identifiers exactly when VTK readers return native unsigned arrays instead of the writer's array subclass.
 
