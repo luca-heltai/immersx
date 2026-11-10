@@ -278,12 +278,11 @@ namespace ImmersX
       std::ostringstream printed;
       prm.print_parameters(printed, dealii::ParameterHandler::ShortPRM);
 
-      const auto section = this->get_section_path();
+      const auto               section = this->get_section_path();
       std::vector<std::string> path;
       std::vector<std::pair<std::vector<std::string>, std::string>> entries;
-      std::istringstream                                            input(
-        printed.str());
-      std::string line;
+      std::istringstream input(printed.str());
+      std::string        line;
       while (std::getline(input, line))
         {
           line = dealii::Utilities::trim(line);
