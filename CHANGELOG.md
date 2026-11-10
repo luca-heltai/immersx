@@ -207,6 +207,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) `elasticity` and `coupled_elasticity` honour `Immersed Problem/Output every n steps` for transient runs; they previously wrote VTU output at every step. Its default is now 1 for these and for `elasticity_explicit`, which used 100.
+
 - [PR #362](https://github.com/luca-heltai/immersx/pull/362) Index CCO candidate obstacles with their own radius envelopes while retaining the existing trial-radius, taper and clearance checks.
 
 - [PR #348](https://github.com/luca-heltai/immersx/pull/348) Reuse Schur operator graphs and lifted trial derivatives during coupled IDA Jacobian setup, preserving the equations, meshes, time intervals and solver tolerances.
@@ -432,6 +434,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #67](https://github.com/luca-heltai/immersx/pull/67) Fixed the inclusion basis-function scaling.
 
 ### Removed
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Remove the `Immersed Problem/Time parameters` entries that elasticity never read: `Output frequency`, `Number of time steps`, `Policy` and the IDA subsections `Running parameters`, `Error control` and `Initial condition correction parameters`. `elasticity` and `coupled_elasticity` always advance by `Time step`.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Give each `Cross section` entry one name. `Maximum inclusion degree`, `Selected indices`, `Inclusion type`, `Number of quadrature points` and `Number of quadrature repetitions` are removed; use `Maximum basis degree`, `Selected modes`, `Geometry type`, `Number of points` and `Number of repetitions`. The flat lift entry `Representative quadrature type` is removed; use `Representative quadrature/Type`. Before this change both names of a pair were printed and the alphabetically later one silently overrode the other.
 

@@ -57,7 +57,10 @@ namespace ImmersX
     add_parameter("Output name", output_name);
     add_parameter("Output every n steps",
                   output_every_n_steps,
-                  "Write VTU output every n time steps.",
+                  "Write VTU output every n time steps. Newmark and "
+                  "quasi-static runs always write the initial step; Newmark "
+                  "runs also write the final state. coupled_elasticity counts "
+                  "one step per coupled 3D solve.",
                   this->prm,
                   Patterns::Integer(1));
     add_parameter(

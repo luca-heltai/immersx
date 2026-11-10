@@ -159,7 +159,7 @@ namespace ImmersX
     /// @{
     std::string  output_directory     = ".";        ///< Output folder.
     std::string  output_name          = "solution"; ///< Output stem.
-    unsigned int output_every_n_steps = 100;       ///< Transient output period.
+    unsigned int output_every_n_steps = 1;         ///< Transient output period.
     unsigned int fe_degree            = 1;         ///< FE degree.
     unsigned int initial_refinement   = 5;         ///< Global refinements.
     std::set<types::boundary_id> dirichlet_ids{0}; ///< Strong Dirichlet ids.

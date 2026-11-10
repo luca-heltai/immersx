@@ -788,8 +788,9 @@ namespace ImmersX
       }
 
 
-    // if (this->par.output_results)
-    this->output_results();
+    // `cycle` counts the coupled steps taken so far.
+    if (this->cycle % this->par.output_every_n_steps == 0)
+      this->output_results();
 
     pressure_at_immersed_surface.clear();
     pressure_at_immersed_surface_by_inclusion.clear();

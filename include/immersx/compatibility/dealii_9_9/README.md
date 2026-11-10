@@ -27,8 +27,8 @@ Local packaging changes:
   rather than unconditionally including IDAS in the implementation.
 - Apply the repository formatter.
 
-`IDAAdapter`, `IDAParameters::additional_data()`, and
-`TimeParameters::ida_parameters()` use this implementation. The installed
+`IDAAdapter` and `IDAParameters::additional_data()` use this
+implementation. The installed
 KINSOL implementation is unchanged. Solver controls, constraints, setup hooks,
 and accessors follow the pinned upstream implementation and SUNDIALS version
 guards. Direct `AdditionalData` defaults follow upstream (including the
