@@ -514,7 +514,7 @@ namespace ImmersX::Vascularization::internal
           result.emplace(id,
                          GrowthGeometryMeasure{length / scale.minimum(),
                                                scale.minimum(),
-                                               0.,
+                                               scale.minimum(),
                                                true});
         }
       AssertThrow(
