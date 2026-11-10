@@ -37,7 +37,8 @@ namespace ImmersX::Vascularization::internal
                             const TissueIntegrationParameters &parameters,
                             unsigned int requested_terminals,
                             const std::vector<TissueCentre> &owned_centres,
-                            MPI_Comm                         communicator);
+                            MPI_Comm                         communicator,
+                            bool require_interior_centres = true);
     ~TissueDemandIntegration();
     const ValidationReport &
     validation() const;
