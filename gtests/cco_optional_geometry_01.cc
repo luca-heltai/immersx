@@ -390,3 +390,87 @@ TEST(VascularCCO, BOTH_UncheckedIntegratedThreeSystemGrowth)
   EXPECT_EQ(n, 2u);
   EXPECT_LT(result.reference.relative_flow_defect, 1.e-9);
 }
+
+TEST(VascularCCO, BOTH_UncheckedExteriorAttachmentIntegratesTissue)
+{
+  const auto                              comm = MPI_COMM_WORLD;
+  parallel::distributed::Triangulation<3> bg(comm);
+  GridGenerator::subdivided_hyper_cube(bg, 2);
+  MappingQ1<3> mapping;
+  Parameters   p("/Optional geometry exterior tissue bootstrap/");
+  unchecked(p);
+  p.selected_terminals            = {101};
+  p.seed_direction                = Point<3>(1., 0., 0.);
+  p.seed_length                   = .1;
+  p.viscosity                     = .004;
+  p.terminal_count                = 1;
+  p.tissue_demand                 = "1+3*x";
+  p.coverage.service_radius       = 10.;
+  p.calibration.minimum_coverage  = .5;
+  p.calibration.minimum_terminals = p.calibration.maximum_terminals = 1;
+  p.calibration.attempt_budget                                      = 1;
+  p.venous.enabled = p.portal.enabled = true;
+  p.portal.seed_position              = Point<3>(1.2, .5, .5);
+  p.venous.seed_position              = Point<3>(1.3, .6, .5);
+  p.portal.seed_radius                = .015;
+  p.venous.seed_radius                = .02;
+  p.portal.terminal_separation        = .015;
+  p.venous.terminal_separation        = .01;
+  p.reference_conditions.pressures    = {{0, 10000.}, {3, 500.}, {4, 2000.}};
+  NetworkData initial;
+  if (Utilities::MPI::this_mpi_process(comm) == owner())
+    {
+      initial.nodes[0] = {Point<3>(-.6, .5, .5), owner(), Port::arterial_inlet};
+      initial.nodes[1] = {Point<3>(-.2, .5, .5), owner()};
+      Vessel vessel;
+      vessel.nodes           = {{0, 1}};
+      vessel.radii           = {{.01, .01}};
+      vessel.viscosity       = .004;
+      vessel.owner           = owner();
+      initial.vessels[10]    = vessel;
+      initial.terminals[101] = {1, 201, System::arterial, owner(), 1.};
+    }
+  output("exterior-input", initial);
+  const auto result = generate(bg, mapping, initial, p, comm);
+  output("integrated-result", result.network, result.validation);
+  for (const auto &issue : result.validation.issues)
+    ADD_FAILURE() << issue.entity << ": " << issue.message;
+  ASSERT_TRUE(result.validation.valid());
+  EXPECT_TRUE(result.reference.validation.valid());
+  EXPECT_EQ(result.calibration.status, CalibrationStatus::converged);
+  EXPECT_EQ(result.calibration.attempts.size(), 1u);
+  EXPECT_EQ(result.effective_terminal_count, 1u);
+  EXPECT_TRUE(result.tissue.coverage_evaluated);
+  EXPECT_NEAR(result.tissue.background_volume, 1., 1.e-13);
+  EXPECT_NEAR(result.tissue.coverage_quadrature_volume, 1., 1.e-13);
+  EXPECT_NEAR(result.tissue.arterial_coverage, 1., 1.e-13);
+  std::array<double, 3> demand{}, terminal_flow{};
+  unsigned int          leaves = 0;
+  const auto            rank   = Utilities::MPI::this_mpi_process(comm);
+  for (const auto &[id, terminal] : result.network.terminals)
+    if (terminal.owner == rank)
+      {
+        ++leaves;
+        demand[static_cast<unsigned int>(terminal.system)] += terminal.demand;
+      }
+  for (const auto &[id, flow] : result.reference.terminal_outflows)
+    terminal_flow[static_cast<unsigned int>(
+      result.network.terminals.at(id).system)] += flow;
+  // The demand integral over the unit cube is independent of its exterior
+  // centre.
+  const std::array<double, 3> fractions{{.5, -1., .5}};
+  for (unsigned int system = 0; system < 3; ++system)
+    {
+      EXPECT_NEAR(Utilities::MPI::sum(demand[system], comm), 2.5, 1.e-13);
+      EXPECT_NEAR(Utilities::MPI::sum(terminal_flow[system], comm) /
+                    p.reference_flow,
+                  fractions[system],
+                  1.e-12);
+    }
+  EXPECT_EQ(Utilities::MPI::sum(leaves, comm), 3u);
+  EXPECT_EQ(Utilities::MPI::sum(
+              static_cast<unsigned int>(result.terminal_triplets.size()), comm),
+            1u);
+  EXPECT_NEAR(result.tissue.triple_coverage, 1., 1.e-13);
+  EXPECT_LT(result.reference.relative_flow_defect, 1.e-9);
+}
