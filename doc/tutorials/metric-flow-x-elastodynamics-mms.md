@@ -693,3 +693,46 @@ The `local-tight` case changes all base time tolerances by one order of
 magnitude at fixed spatial inputs. Comparing spatial levels changes the
 solid, fluid and section together, so an error reduction does not isolate
 one discretization error.
+
+
+### Measured co-refinement sequence
+
+The following runs reached $T=0.1$ on gpu04-codex with a Release build,
+deal.II 9.8 and MetricFlowX 1.0.0 at
+`e98b2333ed41d0fcef027849e0efb460d9ada64d`. The first two levels used serial
+UMFPACK; the last used four MPI ranks and the factored iterative solver.
+These are the bidirectional runs, with both physical meshes initially having
+one cell. No radius padding or extra local post passes were used.
+
+| Case | Solid cells | Active solid levels | Solid DoFs | Hanging DoFs | Fluid cells | Section level |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| `local` | 400 | 2–4 | 1947 | 912 | 4 | 0 |
+| `local-refined` | 848 | 2–5 | 3963 | 2088 | 8 | 1 |
+| `local-finer` | 5104 | 2–6 | 20523 | 8568 | 16 | 2 |
+
+Every case has zero uncovered lift points and zero violations in all four
+directional checks. The axial ratio is 2.30940; the section ratios are
+0.267105, 0.289113 and 0.294777, respectively, inside $(0.25,4)$.
+The multiplier remains DG1, with 8, 16 and 32 DoFs respectively.
+
+The relative $L^2$ errors are dimensionless fractions:
+
+| Case | Displacement | Solid velocity | Area | Fluid velocity | Multiplier |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `local` | 1.67008e-1 | 1.26267e-1 | 2.14001e-6 | 1.93200e-4 | 1.04015e1 |
+| `local-refined` | 2.17051e-2 | 1.65046e-2 | 3.47648e-7 | 2.16763e-5 | 9.59823e-1 |
+| `local-finer` | 1.56724e-2 | 1.18697e-2 | 4.49357e-7 | 2.66362e-5 | 7.25085e-1 |
+
+The solid and multiplier errors decrease at both transitions, but their second
+reduction is much weaker. The finest multiplier error is still 72.5%; area
+and fluid-velocity errors increase slightly in the last transition. This
+sequence does not establish an asymptotic rate or converged pressure accuracy.
+The absolute sampled reference-volume errors decrease from 25.64% to 11.54%
+and 2.24%; they measure a separate geometric quadrature error.
+
+At fixed base spatial inputs, `local-tight` changes the displacement $L^2$
+error by 0.0118% and the multiplier error by 0.00117% relative to `local`.
+The largest relative change among the five reported $L^2$ errors is 0.675%
+for area. This is a base-mesh tolerance check, not a temporal error bound for
+the finest MPI run. The commands above reproduce the complete four-case
+`report.json`, including the unrounded errors and execution metadata.
