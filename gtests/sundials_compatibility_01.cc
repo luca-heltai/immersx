@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/compatibility/dealii_9_9/ida.h>
+#include <immersx/core/time_parameters.h>
 
 // Both implementations must be usable in the same translation unit.
 #include <deal.II/sundials/ida.h>
@@ -194,6 +195,41 @@ TEST(SundialsCompatibility, ParametersAreInstanceLocal)
   EXPECT_DOUBLE_EQ(first.linear_tolerance_factor, 0.1);
   EXPECT_EQ(first.ic_type, IDA::AdditionalData::use_y_diff);
   EXPECT_EQ(second.ic_type, IDA::AdditionalData::use_y_dot);
+}
+
+TEST(SundialsCompatibility, SharedIDASectionGivesOneValuePerEntry)
+{
+  using dealii::ParameterAcceptor;
+  ParameterAcceptor::clear();
+  auto &prm = ParameterAcceptor::prm;
+
+  // A native solver binds the section first, as MetricFlowX does.
+  dealii::SUNDIALS::IDA<Vector>::AdditionalData native;
+  prm.enter_subsection("Shared IDA");
+  native.add_parameters(prm);
+  prm.leave_subsection();
+
+  ImmersX::TimeIntervalParameters interval("/", false);
+  ImmersX::IDAParameters          ida("/Shared IDA/", &interval);
+  ParameterAcceptor::initialize();
+  prm.parse_input_from_string("subsection Shared IDA\n"
+                              " subsection Error control\n"
+                              "  set Relative error tolerance = 0.5\n"
+                              " end\n"
+                              "end\n");
+
+  // Entries missing from the input hold the ImmersX defaults in both copies.
+  EXPECT_DOUBLE_EQ(native.initial_step_size, 1.e-5);
+  EXPECT_EQ(native.maximum_order, 1u);
+  EXPECT_DOUBLE_EQ(native.absolute_tolerance, 1.e-4);
+  EXPECT_DOUBLE_EQ(native.initial_step_size, ida.initial_step_size);
+  EXPECT_EQ(native.maximum_order, ida.maximum_order);
+  EXPECT_DOUBLE_EQ(native.absolute_tolerance, ida.absolute_tolerance);
+  EXPECT_DOUBLE_EQ(native.relative_tolerance, 0.5);
+  EXPECT_DOUBLE_EQ(ida.relative_tolerance, 0.5);
+
+  // The global handler holds actions bound to the local variables above.
+  ParameterAcceptor::clear();
 }
 #else
 TEST(SundialsCompatibility, Unavailable)
