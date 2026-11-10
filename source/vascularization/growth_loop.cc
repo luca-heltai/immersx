@@ -755,7 +755,7 @@ namespace ImmersX::Vascularization::internal
             ++run.sampled_points;
           }
         std::map<Id, Point<3>> point_queries;
-        if (raw)
+        if (raw && (system == System::arterial || p.enforce_geometry))
           point_queries.emplace(0, *raw);
         const auto located       = geometry.locate_points(point_queries, comm);
         const auto selected_cell = located.find(0);
@@ -765,7 +765,7 @@ namespace ImmersX::Vascularization::internal
         std::optional<Point<3>> target;
         double                  terminal_demand = 0.;
         if ((system == System::venous || system == System::portal) && raw &&
-            point_owner < size)
+            (!p.enforce_geometry || point_owner < size))
           {
             target          = raw;
             terminal_demand = pending.find(shared_territory)->demand;
