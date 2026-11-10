@@ -1,0 +1,138 @@
+{
+  "created_utc": "2026-11-10T16:02:33.002235+00:00",
+  "case": "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02",
+  "scope": "Optimistic rigid per-role necessary bounds, all generated leaf caps equipressure, unused original leaves closed. No terminal-demand assumption, no matching/0D fit, no native run/PDE/source/input changes, no intersections or wall checks.",
+  "conditions": [
+    "Supply caps may be connected to ideal HV root, omitting all 0D and HV losses, for a necessary capacity upper bound when all arms are forward.",
+    "Venous role uses portal-HV pressure budget only under all portal/venous arms forward.",
+    "Pass is necessary only, not matched or coupled feasibility.",
+    "Energy partition uses identical minimum-dissipation currents for both classes; it is not obtained by subtracting separately optimized networks."
+  ],
+  "P_root_Pa": {
+    "0": 10064.536060032478,
+    "1": 629.59739556,
+    "2": 1066.57909932
+  },
+  "Q_targets_m3_s": {
+    "0": 6.33907845749445e-06,
+    "1": 2.083642187199831e-05,
+    "2": 1.4497343414503862e-05
+  },
+  "roles": {
+    "arterial": {
+      "physical_vessels": 180,
+      "physical_nodes": 181,
+      "imported_vessels": 54,
+      "generated_vessels": 126,
+      "active_final_leaves": 64,
+      "sealed_original_leaf_ids": [
+        9
+      ],
+      "Q_target_m3_s": 6.33907845749445e-06,
+      "available_head_Pa": 9434.938664472478,
+      "Req_Pa_s_m3": 933474335.2470652,
+      "minimum_drop_Pa": 5917.367049188622,
+      "necessary_individual_bound_passes": true,
+      "optimistic_Qmax_m3_s": 1.0107335904393459e-05,
+      "optimistic_Qmax_with_own_rootR100000_m3_s": 1.0106253255104292e-05,
+      "equivalent_R_by_class_Pa_s_m3": {
+        "frozen": 425741020.12043846,
+        "generated": 507733315.12662625
+      },
+      "weighted_mean_drop_by_class_Pa": {
+        "frozen": 2698.8057291171826,
+        "generated": 3218.5613200714374
+      },
+      "generated_dissipation_fraction": 0.5439178089371285,
+      "mass_fraction_defect": -3.3306690738754696e-16,
+      "energy_relative_defect": -5.551115123125783e-16
+    },
+    "venous": {
+      "physical_vessels": 576,
+      "physical_nodes": 577,
+      "imported_vessels": 448,
+      "generated_vessels": 128,
+      "active_final_leaves": 64,
+      "sealed_original_leaf_ids": [
+        476
+      ],
+      "Q_target_m3_s": 2.083642187199831e-05,
+      "available_head_Pa": 436.9817037600001,
+      "Req_Pa_s_m3": 37509082.571587056,
+      "minimum_drop_Pa": 781.5550684932072,
+      "necessary_individual_bound_passes": false,
+      "optimistic_Qmax_m3_s": 1.1650023775601793e-05,
+      "optimistic_Qmax_with_own_rootR100000_m3_s": 1.1619047152459161e-05,
+      "equivalent_R_by_class_Pa_s_m3": {
+        "frozen": 15670381.541647695,
+        "generated": 21838701.029939353
+      },
+      "weighted_mean_drop_by_class_Pa": {
+        "frozen": 326.51468069694664,
+        "generated": 455.0403877962604
+      },
+      "generated_dissipation_fraction": 0.5822243449505764,
+      "mass_fraction_defect": 0.0,
+      "energy_relative_defect": -2.220446049250313e-16
+    },
+    "portal": {
+      "physical_vessels": 461,
+      "physical_nodes": 462,
+      "imported_vessels": 333,
+      "generated_vessels": 128,
+      "active_final_leaves": 64,
+      "sealed_original_leaf_ids": [],
+      "Q_target_m3_s": 1.4497343414503862e-05,
+      "available_head_Pa": 436.9817037600001,
+      "Req_Pa_s_m3": 43795598.07558443,
+      "minimum_drop_Pa": 634.9198253453319,
+      "necessary_individual_bound_passes": false,
+      "optimistic_Qmax_m3_s": 9.977753997235915e-06,
+      "optimistic_Qmax_with_own_rootR100000_m3_s": 9.955023348982633e-06,
+      "equivalent_R_by_class_Pa_s_m3": {
+        "frozen": 18186298.171509597,
+        "generated": 25609299.904074848
+      },
+      "weighted_mean_drop_by_class_Pa": {
+        "frozen": 263.6530100309383,
+        "generated": 371.26681531439385
+      },
+      "generated_dissipation_fraction": 0.5847459797187187,
+      "mass_fraction_defect": -2.220446049250313e-16,
+      "energy_relative_defect": 4.440892098500626e-16
+    }
+  },
+  "source_sha256": {
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/parameters.prm": "cc59d41708ca46a1ddd2945c5b1090f14e4c7d0756476871a93c44174d2469a9",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/run.json": "135286d6ca849f8da105370fe338361536ad1596296bf530e79f6752d3945475",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/diagnostic.json": "d1a32029971fc70342ece761a3dd5f686f9e49c9b1a7f5651ea2b7e4e8749ff6",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial.pvtu": "1fc7ea552f80964dadd1d1e66a9789fe5b366e0f6f0916aac1e77271b0a9b481",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial-0.vtu": "91afd439698c8eedfbea63e5515c96a7f6d5d6c7fe2f5b41ce6be5f152fc7d7a",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial-4.vtu": "31a3fb3db4952b2717ffc77ce84ad374cb46447fb934ba02097f489d6073e43d",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial-6.vtu": "e5e0aa2bfa1210e4f240f5fae133de0bea6f445d53993ec6d3db22ce6821378a",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial-3.vtu": "e6c910a12f5ac3e47967efe84e46a95aaeaa74774771ad82a05cc1e2b3632dc7",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial-5.vtu": "ba4aecc4e555b8c89e5b282839862dfe0faf587507383ac2939500dccbf922e4",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial-7.vtu": "d87ed54956ce843e77acb46a0f9e5f1e52bea06064b85105d7d0e91abd1a85a1",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial-1.vtu": "ecff238a54dae413bae3c201d6d4e81a1595fafc399f6e09ec45e648154081e8",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/arterial-2.vtu": "84acde3353fd3127025c770c9c807a2bec46524a2b248bcac4e0306d87b78340",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous.pvtu": "58c24b00821edc226e49fb92f0c59051c7e7c5bb7599567c33b66b6861c6a83a",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous-0.vtu": "3632bc9f3c83a48a2536af8094d8b42c5c3dfa7351a7d78fb94fbd22df6f6f81",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous-4.vtu": "0fc690f685f11580d6cb93ee6891161be5b020f9fa3b4137cc438f0160529ffe",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous-6.vtu": "208238329a97779421d8c6dc0226f8c047b3100347d85be2e61d876b95f23f57",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous-3.vtu": "6fadb07eaa37fc23aa606a3560b563ac6e5be78adba9daad7e641abd32bfd5df",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous-5.vtu": "3d0bbbed8a874283aca5f04c230e54036beef76b70954e095def3b6a7c555740",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous-7.vtu": "c227f7f6940e50338e391a9aaabe3bd4651074f5653850748dc0b8dc2409d781",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous-1.vtu": "e2cf381cd6c3c74002aaca44c8e6ea8baeba07b133f9be3b387b635f7d4e21b8",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/venous-2.vtu": "15102a99e308227969fd38e3bff1f0e4b34fd55e7e94d364168355ef5afcdb96",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal.pvtu": "bdd84d2c419bfbece4afd1f26e34cf09d0cc4dd10ad0828fe85d574f2d56566a",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal-0.vtu": "735850abc8912d6c9e31391ce7067f748001ce9d4a6b8f75d9343b45c97afe4c",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal-4.vtu": "d03b97c0ece2d25da6afce9036253ca3ca15283c9a3b971aaee00352e284f420",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal-6.vtu": "15fe3948b90e88c7fef60b9d7e734fe7a41fd1582aa11cb89ab40901c538f44b",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal-3.vtu": "6a85dafc0c74faacda21bc84ec7792109baccd8f650242531ff779ab20282aa3",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal-5.vtu": "0b94c837554e380fd8915bbe2e38839111bc0535574811e2a33ff65838a16cc0",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal-7.vtu": "97b21e8250a65e0a2faa144802432188a3374004852de859310b9ab074a0f7ac",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal-1.vtu": "be738b3e0dd0cf12c3a450df17091fe9b7cc757599ea43575c85443222f656e6",
+    "/data/home/lheltai/codes/liver-icar-20261105/hydraulic-only-liver-scales-20261110/probe-64-attempt-02/generated/invalid-result/portal-2.vtu": "a397d74de3066ac7d208428a7b362d8941a51502011f59e79f8796c8deadb8f2"
+  },
+  "script_sha256": "8afb809bf3a734c737f0804452358c52892cc42490222feef8e474021fdbbc8b"
+}

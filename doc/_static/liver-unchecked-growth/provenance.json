@@ -1,0 +1,44 @@
+{
+  "kind": "PLOT_OF_EXISTING_NECESSARY_RIGID_BOUNDS",
+  "not_physiological_validation": true,
+  "text_output_normalization": {
+    "csv": "LF line terminator",
+    "svg": "Trailing whitespace stripped line by line"
+  },
+  "anatomical_witness_status": "INVALID",
+  "new_CCO_PDE_or_hydraulic_solve": false,
+  "generated_contribution_definition": "weighted_mean_drop_by_class_Pa.generated in the grown-network optimum; never a difference of separately optimized networks",
+  "source_records": [
+    {
+      "name": "input-r034-rigid-capacity-audit-v1",
+      "path": "/data/home/lheltai/codes/liver-icar-20261105/input-r034-rigid-capacity-audit-v1/report.json",
+      "sha256": "bb6eba8aaefb679634a7cb33a800dfc3560bd9b609da427058e2a0a4912561f7",
+      "local_original_json_normalized_sha256": "bb6eba8aaefb679634a7cb33a800dfc3560bd9b609da427058e2a0a4912561f7"
+    },
+    {
+      "name": "attempt02-rigid-capacity-audit-v1",
+      "path": "/data/home/lheltai/codes/liver-icar-20261105/attempt02-rigid-capacity-audit-v1/report.json",
+      "sha256": "db1b359ac2a29df6d1332ca04cc61922d8bd44c760ef8c8bfc41aec874bcb134",
+      "local_original_json_normalized_sha256": "db1b359ac2a29df6d1332ca04cc61922d8bd44c760ef8c8bfc41aec874bcb134"
+    }
+  ],
+  "input_file_hashes": {
+    "input-r034-rigid-capacity-audit-v1-report.json": "bb6eba8aaefb679634a7cb33a800dfc3560bd9b609da427058e2a0a4912561f7",
+    "attempt02-rigid-capacity-audit-v1-report.json": "db1b359ac2a29df6d1332ca04cc61922d8bd44c760ef8c8bfc41aec874bcb134",
+    "source-records.json": "9c7e39232de6f0b2458327ab53415350ae3df119044d6782d1af92a8664302d3"
+  },
+  "script_sha256": "6b9977e2f82843272a416614ea3e0205f127e1b83239091a9db3f73e675755fa",
+  "matplotlib_version": "3.10.9",
+  "output_hashes": {
+    "data.csv": "c4c4fef53d7afd59e1e9b11d1f5fc4e03d536a971e442daa4fd48c639132c890",
+    "rigid-capacity-bounds.png": "59b7e57393d0e24eefc0cf6b25a99c9f12ecb1fd3b06ddc919fa366bccd4a5d1",
+    "rigid-capacity-bounds.svg": "8b2dd17e8258b42fd6bcf523896f50782fc1e0c7c3ee3a39aacea65ccec963b8"
+  },
+  "units": {
+    "pressure": "Pa",
+    "flow_csv": "m3/s",
+    "flow_figure": "mL/s"
+  },
+  "bounds_include_root_boundary_resistance": false,
+  "portal_venous_budget_condition": "all portal and venous arms forward"
+}

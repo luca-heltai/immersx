@@ -361,6 +361,109 @@ capillaries, or guarantee that every point of the liver is adequately served.
 Use the existing [coverage and calibration controls](../how-to/vascular-generation)
 when imposing a service distance or a volume objective.
 
+(liver-unchecked-growth)=
+## Defer geometric admissibility during three-network growth
+
+To generate arterial, portal and hepatic venous forests before geometric
+repair, disable the optional CCO admissibility gates:
+
+```text
+subsection Liver
+  subsection Vascularization
+    subsection Growth
+      set Enforce geometry = false
+    end
+  end
+end
+```
+
+The default is `true`. The disabled gates include wall and vessel clearance,
+junction-angle heuristics, and configured lower bounds on scaled vessel
+length and radius. Positive finite physical lengths, radii, viscosity and
+resistance, graph ownership and topology, Murray consistency and the native
+reference-flow checks remain required. Tissue sampling still uses the liver
+volume. This option does not repair geometry or certify nonintersection.
+
+Use the anatomical three-tree inputs and remap the reference-pressure keys
+to their actual imported roots. The earlier coupled release contains only
+three feeder stubs; reusing that archive does not generate a whole-organ
+vasculature. Keep every new physical archive with the exact input trees,
+root identifiers and parameters that produced it.
+
+The restarted scale campaign uses one new common territory per global
+background cell as its initial count. Coverage remains a separate objective:
+the maximum service distance is `2` with `Length scale = local mesh size`.
+The detailed settings and the distinction between total count and per-cell
+occupancy are described below.
+
+A successful `liver_vascular` run writes three physical inspection datasets:
+
+```text
+physical-vtk/arterial.pvtu
+physical-vtk/portal.pvtu
+physical-vtk/venous.pvtu
+```
+
+Open each PVTU with its referenced VTU pieces present. These files preserve
+physical vessel endpoint traces; they accompany the accepted `network/`
+archive. On failure, the same three roles are written under
+`invalid-result/` and must not be treated as an accepted archive. If generation
+throws before returning a network, the diagnostic fallback contains only the
+imported input; the log identifies this case explicitly.
+
+The new profile targets are approximately 100k, 1M and 10M total coupled DoFs.
+Count displacement, velocity, native flow and multiplier blocks after
+rediscretizing all three networks on each final background. Historical scale
+labels from the 14-vessel archive are not counts for the new forests. The
+[tracking issue](https://github.com/luca-heltai/immersx/issues/343) and
+[draft PR](https://github.com/luca-heltai/immersx/pull/375) distinguish prepared
+backgrounds, successful hydraulic generation and converged coupled results.
+New databases will be linked here after successful generation and checksum
+verification; the old release remains a separate example.
+
+### Check hydraulic capacity before scaling
+
+The first anatomical 64-territory probe retained 835 input segments and grew
+382 CCO segments. With distinct portal and venous endpoint offsets, all three
+forests grew but the native common-compartment check rejected the requested
+pressures and supply split. Disabling geometric checks did not make that
+hydraulic state admissible.
+
+An independent rigid Poiseuille calculation gives each role an ideal
+equipressure manifold at its generated leaves. It omits all microvascular
+and other-role losses. At the prescribed mean flows, its minimum possible
+pressure drops are:
+
+| Role | Mean flow (mL/s) | Minimum drop (Pa) | Available per-role head (Pa) |
+| --- | ---: | ---: | ---: |
+| Hepatic artery | 6.3391 | 5917.37 | 9434.94 |
+| Portal vein | 14.4973 | 634.92 | 436.98 |
+| Hepatic veins | 20.8364 | 781.56 | 436.98 |
+
+The portal and hepatic venous comparisons assume forward flow in every
+portal and venous compartment arm. Each role is tested separately, so a pass
+would be necessary rather than sufficient. The failed portal bound already
+limits its optimistic flow to about 9.98 mL/s. These are bounds for this rigid
+generated graph, not measured physiological values or a conclusion about a
+compliant coupled model.
+
+```{figure} ../_static/liver-unchecked-growth/rigid-capacity-bounds.png
+:alt: Optimistic pressure-drop bounds for anatomical inputs and a rejected 64-territory CCO result, split between retained and generated vessels
+:width: 100%
+
+Necessary rigid pressure-drop bounds at the prescribed mean flows. The stacked
+bars partition the grown-network optimum between retained and generated
+vessels using the same currents. Dashed lines show the available per-role
+head; panel scales differ. This witness failed native hydraulic validation.
+```
+
+The [numeric table](../_static/liver-unchecked-growth/data.csv),
+[plot script](../_static/liver-unchecked-growth/script.py) and
+[provenance](../_static/liver-unchecked-growth/provenance.json) retain this
+diagnostic. The plot script reads the two adjacent audit JSON files and
+`source-records.json`; it performs no new hydraulic solve. Preserve these
+failed outputs separately from successful scale databases.
+
 (liver-terminal-density)=
 ## Set terminal density and coverage
 
