@@ -4,6 +4,7 @@
 """Exercise surface meshing and imported arterial/venous growth through the CLI."""
 import argparse
 import csv
+from contextlib import nullcontext
 import math
 from pathlib import Path
 import re
@@ -78,11 +79,16 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--ranks", type=int, default=1)
     parser.add_argument("--mpiexec", default="mpirun")
+    parser.add_argument("--keep-output", action="store_true",
+                        help="Keep generated VTK and tables after verification")
     parser.add_argument("--portal", action="store_true")
     parser.add_argument("--robin", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="liver-", dir=args.output) as temporary:
+    output_context = (nullcontext(tempfile.mkdtemp(prefix="liver-", dir=args.output))
+                      if args.keep_output else
+                      tempfile.TemporaryDirectory(prefix="liver-", dir=args.output))
+    with output_context as temporary:
         scratch = Path(temporary)
         unrelated = scratch / "unrelated"
         unrelated.mkdir()

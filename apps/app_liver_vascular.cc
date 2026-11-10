@@ -364,8 +364,29 @@ main(int argc, char **argv)
       for (const auto &issue : result.validation.issues)
         std::cerr << "Rank " << rank << ": " << issue.entity << ' ' << issue.id
                   << ": " << issue.message << '\n';
-      AssertThrow(result.validation.valid(),
-                  ExcMessage("Liver vascular growth failed."));
+      const bool growth_valid =
+        Utilities::MPI::min(result.validation.valid() ? 1u : 0u, comm) == 1;
+      if (!growth_valid)
+        {
+          V::write_diagnostic_vtk(
+            std::filesystem::path(settings.output_directory) / "invalid-result",
+            result.network,
+            result.validation,
+            comm);
+          DataOut<3> background;
+          background.attach_triangulation(domain.triangulation());
+          background.build_patches(*mapping);
+          background.write_vtu_with_pvtu_record(
+            settings.output_directory + "/invalid-result/", "liver", 0, comm);
+          if (rank == 0)
+            std::cout << "Invalid network VTK: " << settings.output_directory
+                      << "/invalid-result/" << std::endl;
+        }
+      AssertThrow(
+        growth_valid,
+        ExcMessage(
+          "Liver vascular growth failed; diagnostic VTK output was saved."));
+
       V::save_network(std::filesystem::path(settings.output_directory) /
                         "network",
                       result.network,

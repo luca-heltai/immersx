@@ -283,6 +283,23 @@ The output also contains:
 - `summary.csv`: global background, vessel and pair counts and vessel volume
   fraction.
 
+If growth returns an invalid result, the application still writes
+`invalid-result/arterial.pvtu`, `portal.pvtu` and `venous.pvtu`,
+their rank-local VTU pieces, and `liver_0.pvtu` before exiting with failure.
+Open the three PVTU files directly in ParaView. These diagnostic files preserve
+crossings, coincident endpoints, collapsed edges and the original radius at
+each vessel endpoint. Separate VTK points retain distinct radius traces at a
+shared physical node; `PhysicalNodeId` records its identity.
+
+`DiagnosticOnly=1` and `ValidationFailed=1` mark the vessel cells.
+`diagnostic.json` declares that this is not an adoptable network archive;
+no `network/` archive is produced for the rejected result. A role without
+vessels has an empty dataset. Edges with missing or nonfinite endpoint
+coordinates, or an unknown vascular system, cannot be drawn. The files
+`omitted-*.csv` list their physical IDs, and `diagnostic.json` gives the total
+omitted count. This output does not repair
+the network or change the validation result.
+
 Check the physical result independently of the generator:
 
 ```bash

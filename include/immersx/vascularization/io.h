@@ -50,6 +50,25 @@ namespace ImmersX::Vascularization
                MPI_Comm                            communicator);
 
   /**
+   * Write three diagnostic PVTU datasets and owned VTU pieces to a new
+   * shared directory, without validating or triangulating the physical graph.
+   * Crossings, coincident points, collapsed vessels and original radius traces
+   * are retained. Missing or nonfinite endpoints and unknown systems are
+   * omitted and listed by ID in omitted-rank.csv; diagnostic.json reports their
+   * global count.
+   *
+   * Every cell has DiagnosticOnly=1 and the collective ValidationFailed flag.
+   * Files are for inspection, not an adoptable network archive. Empty roles and
+   * ranks still produce readable datasets. Requires VTK support. Filesystem
+   * failures throw collectively; no graph is gathered or changed.
+   */
+  void
+  write_diagnostic_vtk(const std::filesystem::path &directory,
+                       const NetworkData           &network,
+                       const ValidationReport      &validation,
+                       MPI_Comm                     communicator);
+
+  /**
    * Restore an archive with any positive communicator size, assigning bounded
    * parts cyclically to readers before native background redistribution.
    * Interior nodes/terminals follow point ownership and vessels their midpoint;

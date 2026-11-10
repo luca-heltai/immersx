@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #370](https://github.com/luca-heltai/immersx/pull/370) Save separate diagnostic arterial, portal and venous VTK datasets when liver growth is rejected, preserving crossings and collapsed edges without adopting the invalid network.
+
 - [PR #367](https://github.com/luca-heltai/immersx/pull/367) Continue portal and venous CCO growth from a physical checkpoint while retaining the completed arterial forest and matching its existing common territories.
 
 - [PR #356](https://github.com/luca-heltai/immersx/pull/356) Allow explicit zero-flow declarations for unpaired anatomical archive ends while retaining strict checks for missing or conflicting microvascular connections.
@@ -523,6 +525,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #370](https://github.com/luca-heltai/immersx/pull/370) Check diagnostic VTK identifiers exactly when VTK readers return native unsigned arrays instead of the writer's array subclass.
 
 - [PR #348](https://github.com/luca-heltai/immersx/pull/348) Run validation and application GoogleTests in ordered batches of at most 15 cases with a 115-second CTest timeout, preserving serial and MPI coverage and exclusive access to shared output files.
 
