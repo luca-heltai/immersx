@@ -23,7 +23,12 @@ namespace
   void
   run_elastodynamics(const std::string &parameter_file)
   {
-    ElastodynamicsParameters<dim, spacedim> parameters;
+    // The fixed-step solver does not integrate with IDA.
+    IDAParameters                           ida_parameters("/", nullptr, false);
+    ElastodynamicsParameters<dim, spacedim> parameters("/Elastodynamics/",
+                                                       nullptr,
+                                                       nullptr,
+                                                       &ida_parameters);
     initialize_parameters(parameter_file);
 
     ElastodynamicsSolver<dim, spacedim> problem(parameters);

@@ -296,6 +296,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) The default `elastodynamics` parameter file runs: `Fixed step/Number of time steps` defaults to 10, and the printed `Domain/Initial refinement` default is the 2 actually used. `elastodynamics` no longer prints the unused `IDA` section, and `elastodynamics_adapter` no longer prints the unused `Fixed step` section.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Give the MetricFlowX copy of every shared `MetricFlowSystem<1, 3>/IDA parameters` entry the value that ImmersX uses and prints. Entries missing from the input previously kept the deal.II defaults on the MetricFlowX side, so consistent initial conditions and the IDA statistics used a different step size, order and tolerances.
 
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Declare `/MetricFlowX domain/` before the input is parsed, so `Grid scale` and `Triangulation type` can be set and the section is accepted in input files.

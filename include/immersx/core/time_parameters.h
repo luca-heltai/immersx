@@ -136,11 +136,14 @@ namespace ImmersX
 #endif
     /** Pass an unexposed interval to register native IDA time entries here.
      * Keep the interval alive while this object or its bindings are used.
+     * Set expose_parameters to false for a fixed-step execution path.
      */
-    explicit IDAParameters(const std::string      &subsection      = "/IDA/",
-                           TimeIntervalParameters *shared_interval = nullptr)
-      : dealii::ParameterAcceptor(subsection)
+    explicit IDAParameters(const std::string      &subsection        = "/IDA/",
+                           TimeIntervalParameters *shared_interval   = nullptr,
+                           const bool              expose_parameters = true)
+      : dealii::ParameterAcceptor(expose_parameters ? subsection : "/")
       , shared_interval_(shared_interval)
+      , expose_parameters_(expose_parameters)
     {
 #ifdef DEAL_II_WITH_SUNDIALS
       // Preserve the adapter defaults used by existing parameter files.
@@ -228,6 +231,8 @@ namespace ImmersX
     void
     declare_parameters(dealii::ParameterHandler &prm) override
     {
+      if (!expose_parameters_)
+        return;
 #ifdef DEAL_II_WITH_SUNDIALS
       if (shared_interval_ != nullptr)
         {
@@ -306,6 +311,7 @@ namespace ImmersX
     }
 
     TimeIntervalParameters *shared_interval_;
+    const bool              expose_parameters_;
   };
 
   /** Time interval, step and Newmark controls of ElasticityProblem. */
