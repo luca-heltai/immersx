@@ -42,6 +42,7 @@ set(_public_headers
     immersx/core/contributor.h
     immersx/core/domain.h
     immersx/grid/local_co_refinement.h
+    immersx/grid/lift_co_refinement.h
     immersx/grid/overlap_classification.h
     immersx/grid/local_co_refinement_parameters.h
     immersx/core/fe_space.h
@@ -470,6 +471,21 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           endif()
         endforeach()
       endforeach()
+      if(DEAL_II_WITH_SUNDIALS AND DEAL_II_WITH_UMFPACK AND
+         IMMERSX_PYTHON_EXECUTABLE)
+        set(_local_name
+            "ImmersX${${_build_type}_ctest_suffix}.application.MetricFlowXLocalRefinement.Serial")
+        add_test(NAME "${_local_name}"
+          COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/scripts/mfx_modal_convergence.py"
+            --build "${CMAKE_BINARY_DIR}"
+            --executable "$<TARGET_FILE:metric_flow_x_elastodynamics${${_build_type}_postfix}>"
+            --output "${TEST_OUTPUT_DIR}/metric-flow-x-local/${_build_type}"
+            --run --cases local --final-time 0.02 --timeout 170)
+        set_tests_properties("${_local_name}" PROPERTIES
+          LABELS "application" TIMEOUT 180
+          ENVIRONMENT "${IMMERSX_NUMERICAL_TEST_ENVIRONMENT}")
+      endif()
       list(APPEND IMMERSX_TEST_TARGETS ${_metric_flow_x_test_target})
       if(IMMERSX_INSTALL_TESTS)
         install(TARGETS ${_metric_flow_x_test_target}

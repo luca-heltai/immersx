@@ -51,3 +51,17 @@ benchmark is outside the ordinary sequence.
 The MMS uses distinct radial and axial strains, nonzero solid viscosity and
 forcing, and source-free continuity. The radial case checks $h=0$; tight checks
 sensitivity to adaptive time tolerances. No convergence rate is assumed.
+
+The local MMS family starts from one solid cube and one fluid cell.
+The `/MetricFlowX coupling/Co-refinement/` group exposes `both`, the lower/upper
+ratio factors, mesh and section caps, and pre/post refinement controls.
+Physical wall points identify the interacting cells without radius padding.
+The loop compares fluid-cell length and physical section-quadrature length
+separately with the solid cell size, refining the solid, fluid and section
+as needed before creating the final spaces.
+
+The `local`, `local-refined` and `local-finer` cases increase the initial section
+resolution while the loop selects both physical meshes. `local-tight` checks
+time-tolerance sensitivity. The report verifies that both meshes refine,
+checks both ratio intervals and records mesh diagnostics. Imported fields
+follow the mesh through refinement. See the MMS derivation for the exact criterion and commands.

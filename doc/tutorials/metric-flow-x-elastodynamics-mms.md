@@ -14,8 +14,8 @@ Without this setting the existing extended-solid model is unchanged. The current
 implementation supports one straight, circular, uniform-radius reference cylinder
 contained in the solid. It projects onto two spatially constant modes over the
 whole cylinder, rather than independent modes at every section. It does not
-support a branching-network correction. The solid must be conforming: prescribed
-Dirichlet values are supported, but hanging-node and other multipoint constraint
+support a branching-network correction. The solid supports prescribed
+Dirichlet values and hanging-node constraints; other multipoint constraint
 lines are rejected. Interior elastic and viscous coefficients must be homogeneous
 and match the configured default material.
 
@@ -578,3 +578,162 @@ The optional mms_cube_finer_direct.prm.in case is outside the ordinary sequence.
 An earlier SDK 0.1.0 diagnostic stopped its initial UMFPACK factorization after
 15 min 21 s at 59.7 GiB peak RSS, before an accepted step. It is not a completed
 measurement of the current package or ordinary pairing.
+
+## Co-refinement on the physical lift
+
+The `local`, `local-refined` and `local-finer` cases start from one solid
+cube and one fluid cell, with zero initial refinement. They use the continuum
+solution, material data and time controls above. The fluid mesh is selected
+by the compatibility loop rather than prescribed as a spatial level.
+Area, native velocity and multiplier spaces remain DG1.
+
+~~~text
+subsection MetricFlowX coupling
+  subsection Co-refinement
+    set Enabled = true
+    set Refinement strategy = both
+    set Lower factor = 0.25
+    set Upper factor = 4
+    set Max refinement level = 8
+    set Max section refinement level = 6
+    set Space pre-refinement cycles = 0
+    set Embedded pre-refinement cycles = 0
+    set Space post-refinement cycles = 0
+    set Embedded post-refinement cycles = 0
+  end
+end
+~~~
+
+`Enabled` defaults to false. The current path uses native VTK flow input,
+a hexahedral solid and a positive imported `a0` field. Generated and archived
+network preparation is separate. The `space` strategy permits solid refinement;
+`embedded` permits fluid and section refinement; `both` permits all three.
+
+### Compatibility criterion
+
+For each active fluid cell, build the same representative and section
+quadrature used by the final physical lift, evaluating the retained reference
+area at the current source-cell quadrature points. Locate the solid cells
+that contain each lifted point using a cell-box search followed by inversion
+of the solid's linear mapping. Shared-face ties can reach more than one cell.
+There is no radius expansion of the search boxes.
+
+For every reached solid cell, compare three physical lengths:
+
+- $h_s$: diagonal of the solid cell's axis-aligned bounding box;
+- $h_a$: length of the source fluid cell;
+- $h_\theta$: positive physical integration length carried by the section point,
+  computed as its lifted surface JxW divided by its representative axial JxW.
+
+Thus $h_a$ follows the fluid mesh, while $h_\theta$ changes with the section mesh,
+quadrature degree and quadrature repetitions. The radius enters the physical
+section transform; it is not a replacement for section resolution.
+Both ratios must satisfy the open interval
+$L<h_a/h_s<U$ and $L<h_\theta/h_s<U$, with the configured lower and upper factors.
+Equality requests refinement.
+
+A ratio at/below $L$ marks the reached solid cell. An axial ratio at/above $U$
+marks the source fluid cell. A section ratio at/above $U$ requests one global
+section refinement, independently of the fluid mesh. The solid pass is applied
+first; the refined solid is queried before deciding on fluid/section refinement.
+After fluid refinement, source quadrature points, reference areas and lifted
+supports are rebuilt. The loop stops when no permitted pass can change a mesh.
+
+The mesh-level cap limits adaptive solid and fluid passes. The section cap
+limits adaptive circumferential passes. Explicit global pre/post refinement
+and local solid post passes follow the ordinary refinement-parameter convention
+and can exceed an adaptive cap. A cap or a one-sided strategy can leave
+violations; the final counts retain them rather than declaring compatibility.
+Coverage concerns quadrature points, not every point on the swept surface.
+These scale tests do not establish an inf-sup condition.
+
+### Mesh and field lifecycle
+
+Both domains stay in their preparation lifecycle throughout the loop.
+Point fields follow FE_Q(1) interpolation and cell fields inherit their
+FE_DGQ(0) values through refinement. The radius is evaluated from this retained
+data; the VTK file is not reread to replace refined fields. The solid and fluid
+are finalized only after the last comparison, before the native application
+spaces, multiplier space and coupling operators are built.
+
+The solid uses vertex level-difference balancing without island-removal
+smoothing during co-refinement. Hanging nodes use the same homogeneous mesh
+condensation in native matrices, loads and modal moment vectors. Prescribed
+boundary columns remain. Eliminated algebraic slots carry only constraint
+inhomogeneities; accepted physical state and FE output reconstruct the full
+mesh constraints. The projection retains physical mass.
+
+### Convergence inputs and diagnostics
+
+The three cases request initial section refinement levels 0/1/2 with a
+two-point Gauss rule per section cell. All use the same ratio interval and
+start from a 1×1×1 solid. The axial quadrature remains four Gauss points with
+four repetitions per fluid cell. The adaptive loop must refine both physical
+meshes in every case. The two coarser cases use serial UMFPACK; the finest uses
+factored iteration.
+
+~~~bash
+python3 scripts/mfx_modal_convergence.py --build build-mms --run \
+  --cases local local-refined local-tight
+python3 scripts/mfx_modal_convergence.py --build build-mms --run \
+  --cases local-finer --mpi-ranks 4
+python3 scripts/mfx_modal_convergence.py --build build-mms \
+  --cases local local-refined local-finer local-tight
+~~~
+
+Each case writes separate build-tree output. The `flow/co_refinement.csv` and
+JSON report contain the initial/final cell counts, active solid levels,
+hanging-node DoFs, solid/fluid/section passes, final section level, physical
+point/cell pair count, coverage failures, both ratio ranges and all four
+violation counts. The local runner checks that both meshes changed and that
+both ratio intervals are satisfied. The public CTest smoke cases use
+`--final-time 0.02`; the convergence commands retain $T=0.1$.
+
+The `local-tight` case changes all base time tolerances by one order of
+magnitude at fixed spatial inputs. Comparing spatial levels changes the
+solid, fluid and section together, so an error reduction does not isolate
+one discretization error.
+
+
+### Measured co-refinement sequence
+
+The following runs reached $T=0.1$ on gpu04-codex with a Release build,
+deal.II 9.8 and MetricFlowX 1.0.0 at
+`e98b2333ed41d0fcef027849e0efb460d9ada64d`. The first two levels used serial
+UMFPACK; the last used four MPI ranks and the factored iterative solver.
+These are the bidirectional runs, with both physical meshes initially having
+one cell. No radius padding or extra local post passes were used.
+
+| Case | Solid cells | Active solid levels | Solid DoFs | Hanging DoFs | Fluid cells | Section level |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| `local` | 400 | 2–4 | 1947 | 912 | 4 | 0 |
+| `local-refined` | 848 | 2–5 | 3963 | 2088 | 8 | 1 |
+| `local-finer` | 5104 | 2–6 | 20523 | 8568 | 16 | 2 |
+
+Every case has zero uncovered lift points and zero violations in all four
+directional checks. The axial ratio is 2.30940; the section ratios are
+0.267105, 0.289113 and 0.294777, respectively, inside $(0.25,4)$.
+The multiplier remains DG1, with 8, 16 and 32 DoFs respectively.
+
+The relative $L^2$ errors are dimensionless fractions:
+
+| Case | Displacement | Solid velocity | Area | Fluid velocity | Multiplier |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `local` | 1.67008e-1 | 1.26267e-1 | 2.14001e-6 | 1.93200e-4 | 1.04015e1 |
+| `local-refined` | 2.17051e-2 | 1.65046e-2 | 3.47648e-7 | 2.16763e-5 | 9.59823e-1 |
+| `local-finer` | 1.56724e-2 | 1.18697e-2 | 4.49357e-7 | 2.66362e-5 | 7.25085e-1 |
+
+The solid and multiplier errors decrease at both transitions, but their second
+reduction is much weaker. The finest multiplier error is still 72.5%; area
+and fluid-velocity errors increase slightly in the last transition. This
+sequence does not establish an asymptotic rate or converged pressure accuracy.
+The absolute sampled reference-volume errors decrease from 25.64% to 11.54%
+and 2.24%; they measure a separate geometric quadrature error.
+
+At fixed base spatial inputs, `local-tight` changes the displacement $L^2$
+error by 0.0118% and the multiplier error by 0.00117% relative to `local`.
+The largest relative change among the five reported $L^2$ errors is 0.675%
+for area. This is a base-mesh tolerance check, not a temporal error bound for
+the finest MPI run. The [machine-readable measurements](../_static/metric-flow-x-corefinement/measurements.json)
+retain the unrounded errors, mesh diagnostics, solver/rank metadata and code
+versions. The commands above reproduce the complete four-case `report.json`.

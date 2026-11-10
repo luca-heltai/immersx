@@ -23,6 +23,8 @@ GAUSS = ((0.5 * (1 - math.sqrt(3 / 5)), 5 / 18),
          (0.5, 4 / 9),
          (0.5 * (1 + math.sqrt(3 / 5)), 5 / 18))
 CASES = {
+    "local": "mms_cube_local", "local-refined": "mms_cube_local_refined",
+    "local-finer": "mms_cube_local_finer", "local-tight": "mms_cube_local_tight",
     "base": "mms_cube", "refined": "mms_cube_refined",
     "finer": "mms_cube_finer", "finer-original": "mms_cube_finer_original_pairing",
     "tight": "mms_cube_tight",
@@ -176,12 +178,13 @@ def oracle(time, radial=False):
     }
 
 
-def assess(directory, radial=False):
+def assess(directory, radial=False, local_refinement=False, expected_time=.1):
     solid_states = collection(directory/"solid"/"solid.pvd")
     flow_states = collection(directory/"flow"/"flow.pvd")
     multiplier_states = collection(directory/"flow"/"pressure_jump.pvd")
     time = multiplier_states[-1][0]
-    require(math.isclose(time, .1, abs_tol=1.e-12), f"Did not reach T=.1: {time}")
+    require(math.isclose(time, expected_time, abs_tol=1.e-12),
+            f"Did not reach T={expected_time}: {time}")
     require(all(math.isclose(states[-1][0], time, abs_tol=1.e-12)
                 for states in (solid_states, flow_states)), "Inconsistent output times")
     exact = oracle(time, radial)
@@ -239,6 +242,52 @@ def assess(directory, radial=False):
                     "absolute_error": abs(diagnostics[column]-exact[target]),
                     "relative_error": abs((diagnostics[column]-exact[target])/exact[target])}
 
+    mesh_report = directory/"flow"/"co_refinement.csv"
+    require(not local_refinement or mesh_report.exists(),
+            "Missing local co-refinement diagnostics")
+    if mesh_report.exists():
+        with mesh_report.open() as stream:
+            rows = list(csv.DictReader(stream))
+        result["co_refinement"] = {
+            "active_cells_by_level": {
+                row["level"]: int(row["active_cells"]) for row in rows},
+            "solid_dofs": int(rows[0]["solid_dofs"]),
+            "hanging_dofs": int(rows[0]["hanging_dofs"]),
+        }
+        if local_refinement:
+            mesh = result["co_refinement"]
+            integers = (
+                "initial_solid_cells", "initial_fluid_cells", "fluid_cells",
+                "solid_passes", "fluid_passes", "section_passes", "section_level",
+                "point_cell_pairs", "outside_points",
+                "axial_lower_violations", "section_lower_violations",
+                "axial_upper_violations", "section_upper_violations")
+            for key in integers:
+                mesh[key] = int(rows[0][key])
+            for key in ("axial_min_ratio", "axial_max_ratio",
+                        "section_min_ratio", "section_max_ratio",
+                        "lower_factor", "upper_factor"):
+                mesh[key] = float(rows[0][key])
+            require(mesh["initial_solid_cells"] == 1 and
+                    mesh["initial_fluid_cells"] == 1,
+                    "Local MMS must start from one solid and one fluid cell")
+            require(mesh["fluid_cells"] > 1 and mesh["solid_passes"] > 0 and
+                    mesh["fluid_passes"] > 0,
+                    "The local MMS did not refine both physical meshes")
+            require(mesh["point_cell_pairs"] > 0 and mesh["outside_points"] == 0,
+                    "The lift is not covered by the solid")
+            for direction in ("axial", "section"):
+                require(mesh[direction+"_lower_violations"] == 0 and
+                        mesh[direction+"_upper_violations"] == 0,
+                        "Unresolved "+direction+" co-refinement violations")
+                require(mesh["lower_factor"] < mesh[direction+"_min_ratio"] <=
+                        mesh[direction+"_max_ratio"] < mesh["upper_factor"],
+                        "Reported "+direction+" ratios lie outside the interval")
+            counts = result["co_refinement"]["active_cells_by_level"]
+            require(sum(count > 0 for count in counts.values()) > 1,
+                    "The local case did not produce different active cell levels")
+            require(result["co_refinement"]["hanging_dofs"] > 0,
+                    "The local case did not exercise hanging-node constraints")
     return result
 
 
@@ -252,13 +301,18 @@ def main():
     parser.add_argument("--cases", choices=CASES, nargs="+", default=["base", "refined", "finer"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--timeout", type=float, default=7200.)
+    parser.add_argument("--final-time", type=float,
+                        help="Final time for a run/check (default: 0.1, or saved metadata when reprocessing)")
     args = parser.parse_args()
+    if args.final_time is not None and (
+            not math.isfinite(args.final_time) or args.final_time <= 0):
+        parser.error("--final-time must be positive and finite")
     if args.mpi_ranks < 1:
         parser.error("--mpi-ranks must be positive")
     launcher = None
     if args.run and args.mpi_ranks > 1:
-        if any(case not in {"finer", "finer-original", "iterative", "mpi"} for case in args.cases):
-            parser.error("MPI requires iterative inputs; select finer, finer-original, iterative or mpi cases")
+        if any(case not in {"finer", "finer-original", "iterative", "mpi", "local-finer"} for case in args.cases):
+            parser.error("MPI requires iterative inputs; select finer, finer-original, iterative, mpi or local-finer cases")
         launcher = shutil.which("mpirun") or shutil.which("mpiexec")
         if launcher is None:
             parser.error("MPI execution requires mpirun or mpiexec from the matching MPI installation")
@@ -276,16 +330,22 @@ def main():
                 template = build/"tutorials"/"metric_flow_x_elastodynamics"/(CASES[case]+".prm")
                 require(template.is_file(), f"Missing generated input: {template}")
                 parameters = directory/"run.prm"
+                final_time = .1 if args.final_time is None else args.final_time
+                interval = min(.05, final_time/2)
                 parameters.write_text(
                     f"include {template}\n"
                     f"subsection Elastodynamics\n  set Output directory = {directory/'solid'}\nend\n"
                     f"subsection MetricFlowSystem<1, 3>\n"
-                    f"  set Output directory = {directory/'flow'}\nend\n")
+                    f"  set Output directory = {directory/'flow'}\n"
+                    f"  subsection IDA parameters\n"
+                    f"    set Final time = {final_time}\n"
+                    f"    set Time interval between each output = {interval}\n"
+                    f"  end\nend\n")
                 command = [str(executable), str(parameters)]
                 if launcher:
                     command = [launcher, "-np", str(args.mpi_ranks), *command]
                 metadata = {"mpi_ranks": args.mpi_ranks, "command": command,
-                            "parameters": str(parameters)}
+                            "parameters": str(parameters), "final_time_s": final_time}
                 (directory/"run_metadata.json").write_text(json.dumps(metadata, indent=2)+"\n")
                 with (directory/"application.log").open("w") as log:
                     with subprocess.Popen(command, cwd=directory, stdout=log,
@@ -302,16 +362,25 @@ def main():
                                 process.wait()
                             raise
                 require(process.returncode == 0, f"Application failed; see {directory/'application.log'}")
-            report["cases"][case] = assess(directory, case == "radial")
-            metadata = directory/"run_metadata.json"
-            if metadata.exists():
-                report["cases"][case]["execution"] = json.loads(metadata.read_text())
+            metadata_path = directory/"run_metadata.json"
+            metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
+            expected_time = (args.final_time if args.final_time is not None
+                             else metadata.get("final_time_s", .1))
+            report["cases"][case] = assess(directory, case == "radial",
+                                          case.startswith("local"), expected_time)
+            if metadata:
+                report["cases"][case]["execution"] = metadata
         except (RuntimeError, OSError, ValueError, AssertionError, KeyError, IndexError, ET.ParseError, subprocess.TimeoutExpired) as error:
             report["failures"][case] = str(error)
         (output/"report.json").write_text(json.dumps(report, indent=2, allow_nan=False)+"\n")
     report["spatial_log2_error_reductions"] = {}
-    for coarse, fine in (("base", "refined"), ("refined", "finer")):
+    for coarse, fine in (("base", "refined"), ("refined", "finer"),
+                         ("local", "local-refined"), ("local-refined", "local-finer")):
         if coarse in report["cases"] and fine in report["cases"]:
+            if not math.isclose(report["cases"][coarse]["time_s"],
+                                report["cases"][fine]["time_s"], abs_tol=1.e-12):
+                report["failures"][coarse+"_to_"+fine] = "Cannot compare different final times"
+                continue
             values = {}
             for label, section, field in (
                     ("displacement", "solid", "displacement"),

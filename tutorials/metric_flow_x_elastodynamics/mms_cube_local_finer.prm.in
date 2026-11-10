@@ -1,0 +1,19 @@
+# Third section level; solid and fluid meshes are selected by co-refinement.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube_local_refined.prm
+
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-local-finer
+end
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-local-finer
+  subsection IDA parameters
+    subsection Linear solver
+      set Type = iterative
+    end
+  end
+end
+subsection MetricFlowX vessel wall lift
+  subsection Cross section
+    set Refinement level = 2
+  end
+end

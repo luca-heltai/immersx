@@ -63,8 +63,10 @@ namespace ImmersX
    * under the SAME quadrature as the native operators. No mass is removed.
    *
    * Matrices retain physical boundary columns, like the native raw operators;
-   * constrained momentum rows are zero. Candidate state values therefore
-   * include their prescribed boundary data without an affine-force estimate.
+   * constrained momentum rows are zero. Mesh slaves are eliminated with the
+   * same hanging-node map as the native matrices. Prescribed boundary columns
+   * remain, so candidates include boundary data without an affine-force
+   * estimate.
    */
   template <typename VectorType, typename MatrixType>
   class FictitiousInteriorCorrection
@@ -84,16 +86,18 @@ namespace ImmersX
         length > 0 && cylinder.radius > 0,
         ExcMessage("Modal correction requires a positive reference cylinder."));
       tangent /= length;
-      bool prescribed_values_only = true;
-      for (const auto &line : problem.constraints().get_lines())
-        prescribed_values_only = prescribed_values_only && line.entries.empty();
-      for (const auto &line : problem.velocity_constraints().get_lines())
-        prescribed_values_only = prescribed_values_only && line.entries.empty();
+      const auto &mesh_constraints   = problem.hanging_node_constraints();
+      bool        mesh_or_prescribed = true;
+      for (const auto *constraints :
+           {&problem.constraints(), &problem.velocity_constraints()})
+        for (const auto &line : constraints->get_lines())
+          if (!line.entries.empty())
+            mesh_or_prescribed =
+              mesh_or_prescribed && mesh_constraints.is_constrained(line.index);
       AssertThrow(
-        Utilities::MPI::min(prescribed_values_only ? 1u : 0u, communicator) ==
-          1,
+        Utilities::MPI::min(mesh_or_prescribed ? 1u : 0u, communicator) == 1,
         ExcMessage(
-          "Modal correction currently requires a conforming solid with prescribed-value constraints only."));
+          "Modal correction supports hanging nodes and prescribed values only."));
       const auto &owned = problem.locally_owned_dofs();
       for (auto &b : *integrals)
         {
@@ -120,9 +124,9 @@ namespace ImmersX
             cell->get_dof_indices(indices);
             const auto m =
               parameters.get_material_properties(cell->material_id());
-            std::array<std::vector<double>, 2> local_integrals;
+            std::array<dealii::Vector<double>, 2> local_integrals;
             for (auto &b : local_integrals)
-              b.resize(indices.size(), 0.);
+              b.reinit(indices.size());
             for (const auto q : values.quadrature_point_indices())
               {
                 const auto delta = values.quadrature_point(q) - cylinder.begin;
@@ -147,7 +151,9 @@ namespace ImmersX
                   }
               }
             for (unsigned int mode = 0; mode < 2; ++mode)
-              (*integrals)[mode].add(indices, local_integrals[mode]);
+              mesh_constraints.distribute_local_to_global(local_integrals[mode],
+                                                          indices,
+                                                          (*integrals)[mode]);
           }
       AssertThrow(
         Utilities::MPI::min(homogeneous ? 1u : 0u, communicator) == 1,

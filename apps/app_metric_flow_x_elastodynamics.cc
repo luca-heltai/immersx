@@ -28,6 +28,7 @@
 #  include <immersx/core/sundials_ida_adapter.h>
 #  include <immersx/core/weak_term.h>
 #  include <immersx/coupling/immersed_repartitioner.h>
+#  include <immersx/grid/lift_co_refinement.h>
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastodynamics.h>
 #  include <immersx/physics/elastodynamics_semidiscrete.h>
@@ -400,6 +401,21 @@ namespace
       schur_materialization_limit,
       "Cache Schur columns up to this global multiplier size per Jacobian; zero keeps matrix-free inner actions.");
 
+    RefinementParameters<1> co_refinement(
+      "/MetricFlowX coupling/Co-refinement/");
+    co_refinement.refinement_strategy = "both";
+    bool enable_co_refinement         = false;
+    co_refinement.add_parameter(
+      "Enabled",
+      enable_co_refinement,
+      "Co-refine the solid and fluid using physical lift supports before creating application FE spaces.");
+    unsigned int maximum_section_level = 10;
+    co_refinement.add_parameter(
+      "Max section refinement level",
+      maximum_section_level,
+      "Limit adaptive circumferential refinement independently of the solid/fluid mesh level cap.");
+    std::optional<LiftCoRefinementReport> co_refinement_report;
+
     ParameterAcceptor coupling("/MetricFlowX coupling/");
     bool              remove_fictitious_modes = false;
     coupling.add_parameter(
@@ -486,6 +502,18 @@ namespace
                 ExcMessage(
                   "Choose either an archived network or vascular generation."));
     const bool physical_network = archived_network || generate_network;
+    AssertThrow(
+      !enable_co_refinement || !physical_network,
+      ExcMessage(
+        "Lift co-refinement currently requires native VTK flow input."));
+    if (enable_co_refinement && embedded_partitioning != "default")
+      {
+        AssertThrow(co_refinement.embedded_partitioning_policy == "default" ||
+                      co_refinement.embedded_partitioning_policy ==
+                        embedded_partitioning,
+                    ExcMessage("Conflicting embedded partitioning policies."));
+        co_refinement.embedded_partitioning_policy = embedded_partitioning;
+      }
     if (archived_network)
       {
         auto path = std::filesystem::path(archive_parameters.directory);
@@ -519,8 +547,11 @@ namespace
         "The coupled MUMPS solver requires deal.II configured with MUMPS."));
 #  endif
     SolidProblem solid_problem(solid_parameters);
-    solid_problem.make_grid();
-    solid_problem.setup_fe();
+    if (!enable_co_refinement)
+      {
+        solid_problem.make_grid();
+        solid_problem.setup_fe();
+      }
 
     DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
     flow_domain_parameters.name_of_grid =
@@ -592,7 +623,28 @@ namespace
           [&](const auto &coarse_mesh, const unsigned int refinement) {
             flow_domain_parameters.initial_refinement = refinement;
             flow_domain.prepare_grid(coarse_mesh);
-            if (embedded_partitioning == "default")
+            if (enable_co_refinement)
+              {
+                solid_problem.make_grid([&](auto &solid_domain) {
+                  solid_domain.prepare_grid();
+                  solid_domain.refinement_triangulation().set_mesh_smoothing(
+                    Triangulation<3>::limit_level_difference_at_vertices);
+                  co_refinement_report = co_refine_lifted_domains(
+                    solid_domain,
+                    flow_domain,
+                    wall_lift,
+                    co_refinement,
+                    [&](const CellId &cell, const Point<1> &unit) {
+                      const double area =
+                        flow_domain.prepared_field_value("a0", cell, unit);
+                      AssertThrow(std::isfinite(area) && area > 0.,
+                                  ExcMessage("Reference a0 must be positive."));
+                      return std::sqrt(area / numbers::PI);
+                    },
+                    maximum_section_level);
+                });
+              }
+            else if (embedded_partitioning == "default")
               flow_domain.finalize_grid();
             else if (embedded_partitioning == "immersed")
               {
@@ -602,6 +654,9 @@ namespace
               }
           });
       }
+    if (enable_co_refinement)
+      solid_problem.setup_fe();
+
     if (lambda_parameters.finite_element == "auto")
       lambda_parameters.finite_element =
         "FE_DGQ(" +
@@ -717,14 +772,73 @@ namespace
     transfer.reset();
     const auto A0 = frozen(reference_field, reference_area);
 
+    const auto reference_radius = sqrt(A0 / numbers::PI);
+    const auto reference_wall =
+      lift(value(lambda), wall_lift, reference_radius);
     solid_problem.setup_system();
+    if (enable_co_refinement)
+      {
+        const auto               &mesh = solid_problem.triangulation();
+        std::vector<unsigned int> cells(mesh.n_global_levels(), 0);
+        unsigned int              hanging = 0;
+        for (const auto &cell : mesh.active_cell_iterators())
+          if (cell->is_locally_owned())
+            ++cells[cell->level()];
+        for (auto &count : cells)
+          count = Utilities::MPI::sum(count, MPI_COMM_WORLD);
+        for (const auto &line :
+             solid_problem.hanging_node_constraints().get_lines())
+          if (solid_problem.locally_owned_dofs().is_element(line.index))
+            ++hanging;
+        hanging            = Utilities::MPI::sum(hanging, MPI_COMM_WORLD);
+        const auto    rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+        std::ofstream mesh_report;
+        if (rank == 0)
+          mesh_report.open(std::filesystem::path(flow_output_directory) /
+                           "co_refinement.csv");
+        AssertThrow(Utilities::MPI::min(rank != 0 || mesh_report.good() ? 1u :
+                                                                          0u,
+                                        MPI_COMM_WORLD) == 1,
+                    ExcMessage("Cannot write co-refinement diagnostics."));
+        if (rank == 0)
+          {
+            const auto &report = co_refinement_report.value();
+            mesh_report.precision(17);
+            mesh_report
+              << "level,active_cells,solid_dofs,hanging_dofs,initial_solid_cells,"
+                 "initial_fluid_cells,fluid_cells,solid_passes,fluid_passes,"
+                 "section_passes,section_level,point_cell_pairs,outside_points,"
+                 "axial_lower_violations,section_lower_violations,"
+                 "axial_upper_violations,section_upper_violations,"
+                 "axial_min_ratio,axial_max_ratio,section_min_ratio,section_max_ratio,"
+                 "lower_factor,upper_factor\n";
+            for (unsigned int level = 0; level < cells.size(); ++level)
+              mesh_report << level << ',' << cells[level] << ','
+                          << solid_problem.n_dofs() << ',' << hanging << ','
+                          << report.initial_solid_cells << ','
+                          << report.initial_fluid_cells << ','
+                          << report.fluid_cells << ',' << report.solid_passes
+                          << ',' << report.fluid_passes << ','
+                          << report.section_passes << ','
+                          << report.section_level << ','
+                          << report.point_cell_pairs << ','
+                          << report.outside_points << ','
+                          << report.lower_violations[0] << ','
+                          << report.lower_violations[1] << ','
+                          << report.upper_violations[0] << ','
+                          << report.upper_violations[1] << ','
+                          << report.minimum_ratio[0] << ','
+                          << report.maximum_ratio[0] << ','
+                          << report.minimum_ratio[1] << ','
+                          << report.maximum_ratio[1] << ','
+                          << co_refinement.diameter_bounds().first << ','
+                          << co_refinement.diameter_bounds().second << '\n';
+          }
+      }
     solid_problem.assemble_operators();
     solid_problem.set_initial_conditions();
     report_vessel_geometry(flow_problem.triangulation(), solid_problem);
 
-    const auto reference_radius = sqrt(A0 / numbers::PI);
-    const auto reference_wall =
-      lift(value(lambda), wall_lift, reference_radius);
     GridTools::Cache<3> tissue_cache(solid_problem.triangulation(),
                                      solid_problem.mapping());
     const auto          supports =

@@ -51,6 +51,7 @@
 #include <immersx/core/second_order_preconditioner.h>
 #include <immersx/core/time_parameters.h>
 
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -241,6 +242,13 @@ namespace ImmersX
     void
     make_grid();
 
+    /** Build the mesh through a coupled Domain preparation policy.
+     * The callback must prepare and finalize the Domain before returning.
+     * This runs before attaching the application DoFHandler.
+     */
+    void
+    make_grid(const std::function<void(Domain<dim, spacedim> &)> &initialize);
+
     /** Create the vector FE, quadratures, and mapping for the mesh cells. */
     void
     setup_fe();
@@ -324,6 +332,10 @@ namespace ImmersX
     const dealii::parallel::TriangulationBase<dim, spacedim> &
     triangulation() const;
 
+    /** Homogeneous mesh constraints, without prescribed boundary values. */
+    const dealii::AffineConstraints<double> &
+    hanging_node_constraints() const;
+
     /** Return the vector-valued finite element. */
     const dealii::FiniteElement<dim, spacedim> &
     fe() const;
@@ -352,11 +364,16 @@ namespace ImmersX
     const dealii::IndexSet &
     locally_relevant_dofs() const;
 
-    /** Return the consistent mass operator. */
+    /** Return the consistent mass operator with mesh slaves eliminated.
+     * Prescribed-value boundary columns remain. Hanging-node rows and columns
+     * are zero; the adapter enforces constraint inhomogeneities in these slots.
+     * Physical state and output reconstruct mesh-slave values.
+     */
     const MatrixType &
     mass_matrix() const;
 
-    /** Return the linear isotropic elasticity stiffness operator. */
+    /** Return the stiffness operator with the same mesh condensation as mass.
+     */
     const MatrixType &
     stiffness_matrix() const;
 

@@ -1,0 +1,14 @@
+# Refine the section; both physical meshes then adapt to the same ratio interval.
+include @IMMERSX_BINARY_DIR@/tutorials/metric_flow_x_elastodynamics/mms_cube_local.prm
+
+subsection Elastodynamics
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-local-refined
+end
+subsection MetricFlowSystem<1, 3>
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-mms-cube-local-refined
+end
+subsection MetricFlowX vessel wall lift
+  subsection Cross section
+    set Refinement level = 1
+  end
+end
