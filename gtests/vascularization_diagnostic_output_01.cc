@@ -16,8 +16,8 @@
 #  include <vtkDataArray.h>
 #  include <vtkNew.h>
 #  include <vtkPointData.h>
-#  include <vtkTypeUInt64Array.h>
 #  include <vtkUnstructuredGrid.h>
+#  include <vtkVariant.h>
 #  include <vtkXMLPUnstructuredGridReader.h>
 #endif
 using namespace dealii;
@@ -95,25 +95,35 @@ TEST(VascularIO, BOTH_InvalidDiagnosticVTK)
           auto *grid = reader->GetOutput();
           EXPECT_EQ(grid->GetNumberOfCells(), count);
           EXPECT_EQ(grid->GetNumberOfPoints(), 2 * count);
-          auto *ids = vtkTypeUInt64Array::SafeDownCast(
-            grid->GetCellData()->GetArray("VesselId"));
-          auto *node_ids = vtkTypeUInt64Array::SafeDownCast(
-            grid->GetPointData()->GetArray("PhysicalNodeId"));
-          auto *radius = grid->GetPointData()->GetArray("Radius");
+          auto *ids      = grid->GetCellData()->GetArray("VesselId");
+          auto *node_ids = grid->GetPointData()->GetArray("PhysicalNodeId");
+          auto *radius   = grid->GetPointData()->GetArray("Radius");
           EXPECT_NE(ids, nullptr);
           EXPECT_NE(node_ids, nullptr);
           EXPECT_NE(radius, nullptr);
+          // XML readers may return native unsigned arrays instead of the
+          // vtkTypeUInt64Array subclass used by the writer.
+          // Read integer variants to preserve IDs above double's exact range.
+          for (auto *array : {ids, node_ids})
+            if (array)
+              {
+                EXPECT_TRUE(array->GetDataType() == VTK_UNSIGNED_LONG ||
+                            array->GetDataType() == VTK_UNSIGNED_LONG_LONG);
+                EXPECT_EQ(array->GetDataTypeSize(), 8);
+                EXPECT_EQ(array->GetNumberOfComponents(), 1);
+              }
           if (ids && node_ids && radius)
             for (vtkIdType c = 0; c < grid->GetNumberOfCells(); ++c)
               {
-                const auto id = ids->GetValue(c);
+                const auto id = ids->GetVariantValue(c).ToUnsignedLongLong();
                 EXPECT_GE(id, base + 100);
                 EXPECT_LE(id, base + 103);
                 auto      *cell = grid->GetCell(c);
                 const auto p0 = cell->GetPointId(0), p1 = cell->GetPointId(1);
                 for (const auto point : {p0, p1})
                   {
-                    const auto physical = node_ids->GetValue(point);
+                    const auto physical =
+                      node_ids->GetVariantValue(point).ToUnsignedLongLong();
                     EXPECT_GE(physical, base);
                     EXPECT_LT(physical, base + 6);
                     if (physical >= base && physical < base + 6)
@@ -131,16 +141,22 @@ TEST(VascularIO, BOTH_InvalidDiagnosticVTK)
                   }
                 if (id == base + 103)
                   {
-                    EXPECT_EQ(node_ids->GetValue(p0), base);
-                    EXPECT_EQ(node_ids->GetValue(p1), base);
+                    EXPECT_EQ(
+                      node_ids->GetVariantValue(p0).ToUnsignedLongLong(), base);
+                    EXPECT_EQ(
+                      node_ids->GetVariantValue(p1).ToUnsignedLongLong(), base);
                     EXPECT_DOUBLE_EQ(radius->GetTuple1(p0), -.001);
                     EXPECT_DOUBLE_EQ(radius->GetTuple1(p1), .009);
                   }
                 else
                   {
                     const auto i = id - (base + 100);
-                    EXPECT_EQ(node_ids->GetValue(p0), base + 2 * i);
-                    EXPECT_EQ(node_ids->GetValue(p1), base + 2 * i + 1);
+                    EXPECT_EQ(
+                      node_ids->GetVariantValue(p0).ToUnsignedLongLong(),
+                      base + 2 * i);
+                    EXPECT_EQ(
+                      node_ids->GetVariantValue(p1).ToUnsignedLongLong(),
+                      base + 2 * i + 1);
                     EXPECT_DOUBLE_EQ(radius->GetTuple1(p0), .012);
                     EXPECT_DOUBLE_EQ(radius->GetTuple1(p1), .010);
                   }
