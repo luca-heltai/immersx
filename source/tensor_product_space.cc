@@ -127,7 +127,11 @@ namespace ImmersX
                   n_quadrature_repetitions,
                   "How many times to repeat the quadrature formula along the "
                   "reduced grid.");
-    add_parameter("Thickness", thickness);
+    add_parameter("Thickness",
+                  thickness,
+                  "Constant thickness, or an expression of the input fields. "
+                  "With a legacy \"Inclusions file\", radius reads the radius "
+                  "column of the file.");
     add_parameter("Input file fields", input_file_fields);
     add_parameter("Reduced grid name", reduced_grid_name);
     add_parameter(
@@ -255,7 +259,7 @@ namespace ImmersX
 #endif
       }
     const bool legacy_radius_thickness =
-      !par.inclusions_file.empty() && par.thickness == "0.01";
+      !par.inclusions_file.empty() && par.thickness == "radius";
     std::string input_file_fields = par.input_file_fields;
     if (legacy_radius_thickness && input_file_fields != "*" &&
         input_file_fields.find("radius") == std::string::npos)
@@ -1208,7 +1212,7 @@ namespace ImmersX
       }
 
     const bool legacy_radius_thickness =
-      !par.inclusions_file.empty() && par.thickness == "0.01";
+      !par.inclusions_file.empty() && par.thickness == "radius";
     properties_bindings = InputFieldSelector::resolve(
       legacy_radius_thickness ?
         (par.input_file_fields.empty() || par.input_file_fields == "*" ?

@@ -28,6 +28,7 @@ TEST(LegacyInclusions, PointCloud2DUsesCanonicalPropertiesAndThickness)
   params.inclusions_file =
     ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_2d.txt")
       .string();
+  params.thickness = "radius";
   params.data_file =
     ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_2d.data")
       .string();
@@ -70,6 +71,7 @@ TEST(LegacyInclusions, Vector2DInstantiationUsesSelectedReferenceBasis)
   params.inclusions_file =
     ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_2d.txt")
       .string();
+  params.thickness = "radius";
   params.legacy_n_coefficients           = 1;
   params.legacy_reference_inclusion_data = {1., 2.};
   params.legacy_selected_coefficients    = {0, 1};
@@ -91,6 +93,7 @@ TEST(LegacyInclusions, Segment3DReconstructsCellsAndProperties)
   params.inclusions_file =
     ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_3d.txt")
       .string();
+  params.thickness = "radius";
   params.data_file = ImmersX::TestPaths::binary_path(
                        "gtests/fixtures/legacy_inclusions_3d_vector.data")
                        .string();
@@ -140,6 +143,7 @@ check_segment_3d_measure()
   params.inclusions_file =
     ImmersX::TestPaths::binary_path("gtests/fixtures/legacy_inclusions_3d.txt")
       .string();
+  params.thickness = "radius";
   params.legacy_n_coefficients         = 1;
   params.section.refinement_level      = 5;
   params.section.selected_coefficients = {0};
