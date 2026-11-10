@@ -10,5 +10,6 @@ reduced spaces, semantic fields, and additive residual contributions.
 overview
 mathematical-background
 architecture
+coupling-discretisations
 ../tutorials/metric-flow-x-elastodynamics-coupling
 ```

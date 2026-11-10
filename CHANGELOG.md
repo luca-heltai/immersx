@@ -459,6 +459,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Explain the point, tensor-product, lift and direct-overlap coupling discretisations, the parameter sections each one reads, and which application uses which.
+
 - [PR #N](https://github.com/luca-heltai/immersx/pull/N) Describe in the parameter help which coupling section `Coupling type` reads, how `Inclusions`, `Inclusions file`, `Data file` and `Reference inclusion data` combine, when the legacy `Selection of Fourier coefficients` is used, which quadrature the `Representative domain` entries control, and what `Grid generator` means for each `Domain type`.
 
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Document the Robin condition and parameter owner for every application, with static and transient solid examples, physical fiber end sections, lifted scalar data and native terminal flow models.
