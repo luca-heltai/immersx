@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #375](https://github.com/luca-heltai/immersx/pull/375) Make geometric CCO admissibility optional while retaining hydraulic, graph ownership and topology checks, with diagnostic vascular outputs for inspection.
+
 - [PR #372](https://github.com/luca-heltai/immersx/pull/372) Co-refine solid and fluid meshes on physical MetricFlowX lift supports with separate axial and circumferential scale checks, retained input fields, consistent hanging-node condensation and a one-cube manufactured-solution sequence.
 
 - [PR #373](https://github.com/luca-heltai/immersx/pull/373) Write the lifted wall of `LiftedElasticity` and `LiftedPoisson` as particles, one per lifted quadrature point. A `Particle output/Properties` list selects the stored quantities: weight, mode shapes, modal coefficients, lifted value, prescribed modal data, representative point, radius, quadrature indices and the interpolated background field.
