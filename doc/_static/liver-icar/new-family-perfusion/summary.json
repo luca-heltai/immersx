@@ -1,0 +1,244 @@
+{
+  "small": {
+    "scope": "Rigid generated hydraulic reference, not coupled PDE simulation; speed=abs(Q)/(pi*min(endpoint radius)^2). Solved CSV flow provenance checked against writer and independently against pressure differences and resistances. Demand-normalized ratios compare solved terminal share with recorded positive territory-demand share; not a physiological calibration target or per-terminal constraint.",
+    "vessels": 13968,
+    "triplets": 2316,
+    "roles": {
+      "arterial": {
+        "vessel_speed_m_s": {
+          "min": 0.0009995567927473575,
+          "p01": 0.004747585455609896,
+          "p10": 0.011395573244949617,
+          "median": 0.040733049299658666,
+          "p90": 0.11860735930633125,
+          "p99": 0.39421954348151633,
+          "max": 0.8048449498904459
+        },
+        "terminal_flow_m3_s": {
+          "min": 4.781378200383787e-14,
+          "p01": 1.9745777843029217e-12,
+          "p10": 2.219901837093564e-11,
+          "median": 6.136461989337041e-10,
+          "p90": 8.125458028194706e-09,
+          "p99": 2.4198066201544082e-08,
+          "max": 4.5828909168882654e-08
+        },
+        "terminal_flow_sum_m3_s": 6.3390784574944e-06,
+        "terminal_cv": 1.8480594714860652,
+        "terminals_below_1pct_role_mean": 280,
+        "vessels_above_1m_s": 0,
+        "vessels_above_10m_s": 0,
+        "terminal_flow_to_relative_demand_ratio": {
+          "min": 0.6181608919268777,
+          "p01": 0.7311214216970254,
+          "p10": 0.8367182766507766,
+          "median": 0.9681920679618785,
+          "p90": 1.069577355873574,
+          "p99": 1.13559167728136,
+          "max": 1.186400749994522
+        },
+        "demand_weighted_fraction_ratio_below_0p1": 0.0,
+        "demand_weighted_fraction_ratio_above_10": 0.0
+      },
+      "venous": {
+        "vessel_speed_m_s": {
+          "min": 0.00031279336140037454,
+          "p01": 0.001599524989817763,
+          "p10": 0.004278664262874128,
+          "median": 0.0157570263515993,
+          "p90": 0.046826514694955704,
+          "p99": 0.13962148885978845,
+          "max": 0.24669182352090643
+        },
+        "terminal_flow_m3_s": {
+          "min": 1.4017148700115188e-13,
+          "p01": 5.451186183614147e-12,
+          "p10": 6.732348925786678e-11,
+          "median": 1.9220945336500656e-09,
+          "p90": 2.704739515362974e-08,
+          "p99": 8.244593063462781e-08,
+          "max": 1.4762074975564168e-07
+        },
+        "terminal_flow_sum_m3_s": 2.083642187199807e-05,
+        "terminal_cv": 1.865991207453929,
+        "terminals_below_1pct_role_mean": 297,
+        "vessels_above_1m_s": 0,
+        "vessels_above_10m_s": 0,
+        "terminal_flow_to_relative_demand_ratio": {
+          "min": 0.36461687373388846,
+          "p01": 0.6103519641316001,
+          "p10": 0.7632791473698444,
+          "median": 0.9357772153857286,
+          "p90": 1.081002613953725,
+          "p99": 1.1891335629654216,
+          "max": 1.2565937800120979
+        },
+        "demand_weighted_fraction_ratio_below_0p1": 0.0,
+        "demand_weighted_fraction_ratio_above_10": 0.0
+      },
+      "portal": {
+        "vessel_speed_m_s": {
+          "min": 0.0004120432833849996,
+          "p01": 0.0018818499413337584,
+          "p10": 0.005474145577750408,
+          "median": 0.020628722300137774,
+          "p90": 0.06091985201852865,
+          "p99": 0.1767462178924805,
+          "max": 0.26982060076113856
+        },
+        "terminal_flow_m3_s": {
+          "min": 9.235770499731401e-14,
+          "p01": 3.592923260525165e-12,
+          "p10": 4.553551960687382e-11,
+          "median": 1.3238930838804862e-09,
+          "p90": 1.871181441304069e-08,
+          "p99": 5.842564900953705e-08,
+          "max": 1.0410775712309043e-07
+        },
+        "terminal_flow_sum_m3_s": 1.4497343414503655e-05,
+        "terminal_cv": 1.8777716082504772,
+        "terminals_below_1pct_role_mean": 303,
+        "vessels_above_1m_s": 0,
+        "vessels_above_10m_s": 0,
+        "terminal_flow_to_relative_demand_ratio": {
+          "min": 0.18671757034914052,
+          "p01": 0.5225390371902213,
+          "p10": 0.718394136213371,
+          "median": 0.9204768309574258,
+          "p90": 1.1024021575143532,
+          "p99": 1.2429203200122192,
+          "max": 1.3601537338558045
+        },
+        "demand_weighted_fraction_ratio_below_0p1": 0.0,
+        "demand_weighted_fraction_ratio_above_10": 0.0
+      }
+    },
+    "flow_provenance": {
+      "writer": "app_liver_vascular.cc writes result.reference.vessels resistance/flow and reference.territories solved flows, not target flow columns",
+      "independent_ohm_max_absolute_defect_Pa": 1.1368683772161603e-12,
+      "independent_ohm_max_relative_defect_with_1Pa_floor": 2.2737367544323206e-13,
+      "node_count": 13971
+    }
+  },
+  "medium": {
+    "scope": "Rigid generated hydraulic reference, not coupled PDE simulation; speed=abs(Q)/(pi*min(endpoint radius)^2). Solved CSV flow provenance checked against writer and independently against pressure differences and resistances. Demand-normalized ratios compare solved terminal share with recorded positive territory-demand share; not a physiological calibration target or per-terminal constraint.",
+    "vessels": 80178,
+    "triplets": 13351,
+    "roles": {
+      "arterial": {
+        "vessel_speed_m_s": {
+          "min": 0.0007117496652962898,
+          "p01": 0.00527231133996301,
+          "p10": 0.012565304670642947,
+          "median": 0.031729342618870164,
+          "p90": 0.06769698243670932,
+          "p99": 0.23143791010053308,
+          "max": 0.8048449498946791
+        },
+        "terminal_flow_m3_s": {
+          "min": 2.2767472029255198e-14,
+          "p01": 2.5124684206341476e-12,
+          "p10": 2.4955574899545573e-11,
+          "median": 3.612793911442719e-10,
+          "p90": 1.0821156332349091e-09,
+          "p99": 1.8703090908997382e-09,
+          "max": 4.057217060505628e-09
+        },
+        "terminal_flow_sum_m3_s": 6.339078457494434e-06,
+        "terminal_cv": 0.9402436794958847,
+        "terminals_below_1pct_role_mean": 282,
+        "vessels_above_1m_s": 0,
+        "vessels_above_10m_s": 0,
+        "terminal_flow_to_relative_demand_ratio": {
+          "min": 0.3892263192347216,
+          "p01": 0.7684520533099657,
+          "p10": 0.8688362581975348,
+          "median": 0.9887365893827799,
+          "p90": 1.1000290127200234,
+          "p99": 1.1736158179122702,
+          "max": 1.248290893549956
+        },
+        "demand_weighted_fraction_ratio_below_0p1": 0.0,
+        "demand_weighted_fraction_ratio_above_10": 0.0
+      },
+      "venous": {
+        "vessel_speed_m_s": {
+          "min": 0.00013518060835130056,
+          "p01": 0.001772542206359628,
+          "p10": 0.004584778275921024,
+          "median": 0.01246846011406809,
+          "p90": 0.027196673725251686,
+          "p99": 0.09203086728453953,
+          "max": 0.2522223474355227
+        },
+        "terminal_flow_m3_s": {
+          "min": 4.7729966777349394e-14,
+          "p01": 7.534812110438704e-12,
+          "p10": 7.773975536426499e-11,
+          "median": 1.166074023568601e-09,
+          "p90": 3.5955127938057397e-09,
+          "p99": 6.337465401406474e-09,
+          "max": 1.321310692251908e-08
+        },
+        "terminal_flow_sum_m3_s": 2.0836421871998322e-05,
+        "terminal_cv": 0.9571499295272697,
+        "terminals_below_1pct_role_mean": 317,
+        "vessels_above_1m_s": 0,
+        "vessels_above_10m_s": 0,
+        "terminal_flow_to_relative_demand_ratio": {
+          "min": 0.14173831868524642,
+          "p01": 0.6690226437829392,
+          "p10": 0.8100761194326221,
+          "median": 0.9756963849039552,
+          "p90": 1.1238737103787806,
+          "p99": 1.2235327000702414,
+          "max": 1.3376679580923558
+        },
+        "demand_weighted_fraction_ratio_below_0p1": 0.0,
+        "demand_weighted_fraction_ratio_above_10": 0.0
+      },
+      "portal": {
+        "vessel_speed_m_s": {
+          "min": 4.6057182355652595e-05,
+          "p01": 0.002210617318030975,
+          "p10": 0.006037428444135611,
+          "median": 0.016114772123436684,
+          "p90": 0.035529271924555975,
+          "p99": 0.11972824426007699,
+          "max": 0.2749034503602197
+        },
+        "terminal_flow_m3_s": {
+          "min": 2.4962494748094196e-14,
+          "p01": 4.864908480650355e-12,
+          "p10": 5.2671479045913867e-11,
+          "median": 8.027054650366369e-10,
+          "p90": 2.506227526729815e-09,
+          "p99": 4.463959526695037e-09,
+          "max": 9.46895991712575e-09
+        },
+        "terminal_flow_sum_m3_s": 1.4497343414503813e-05,
+        "terminal_cv": 0.9675687262860819,
+        "terminals_below_1pct_role_mean": 339,
+        "vessels_above_1m_s": 0,
+        "vessels_above_10m_s": 0,
+        "terminal_flow_to_relative_demand_ratio": {
+          "min": 0.02207065723676537,
+          "p01": 0.6030830936361461,
+          "p10": 0.7728800858447282,
+          "median": 0.9665713334639987,
+          "p90": 1.1522109680161954,
+          "p99": 1.293838544440649,
+          "max": 1.483234723479281
+        },
+        "demand_weighted_fraction_ratio_below_0p1": 8.349972931879497e-06,
+        "demand_weighted_fraction_ratio_above_10": 0.0
+      }
+    },
+    "flow_provenance": {
+      "writer": "app_liver_vascular.cc writes result.reference.vessels resistance/flow and reference.territories solved flows, not target flow columns",
+      "independent_ohm_max_absolute_defect_Pa": 1.0231815394945443e-12,
+      "independent_ohm_max_relative_defect_with_1Pa_floor": 2.274846977456946e-13,
+      "node_count": 80181
+    }
+  }
+}

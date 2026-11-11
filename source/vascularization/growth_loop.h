@@ -17,6 +17,7 @@ namespace ImmersX::Vascularization::internal
     std::uint64_t sampled_points = 0, proposed_insertions = 0,
                   accepted_insertions = 0, batches = 0, rejected_batches = 0;
     unsigned int maximum_batch_insertions = 0;
+    bool         controlled_stop          = false;
     /** Venous terminal ids on the authoritative common-territory owner. */
     std::map<Id, Id> owned_venous_terminals;
   };
@@ -39,6 +40,7 @@ namespace ImmersX::Vascularization::internal
               System                          system         = System::arterial,
               const std::vector<Territory>   &owned_territories = {},
               GrowthDemandCallbacks           demand_callbacks  = {},
-              BackgroundGeometry             *shared_geometry   = nullptr);
+              BackgroundGeometry             *shared_geometry   = nullptr,
+              const GenerationControl        &control           = {});
 } // namespace ImmersX::Vascularization::internal
 #endif

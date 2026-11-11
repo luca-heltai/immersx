@@ -25,11 +25,14 @@
 #endif
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <queue>
 #include <set>
 
@@ -44,6 +47,7 @@ namespace
       : ParameterAcceptor("/Liver/")
       , domain("/Liver/Domain/")
       , growth("/Liver/Vascularization/")
+      , monitoring_parameters("/Liver/Growth monitoring/")
     {
       add_parameter("Arterial grid", arterial_grid);
       add_parameter("Venous grid", venous_grid);
@@ -68,6 +72,18 @@ namespace
         "Only generate mesh",
         only_generate_mesh,
         "Stop after writing the volume mesh; requires Write volume mesh.");
+      monitoring_parameters.add_parameter(
+        "Progress interval",
+        progress_interval,
+        "Seconds between progress CSV records; zero disables periodic records.");
+      monitoring_parameters.add_parameter(
+        "Checkpoint interval",
+        checkpoint_interval,
+        "Seconds between diagnostic latest-state VTK checkpoints; zero disables periodic checkpoints.");
+      monitoring_parameters.add_parameter(
+        "Maximum generation wall time",
+        maximum_generation_wall_time,
+        "Cooperative generation deadline in seconds; zero disables it. Checked after bootstrap and completed batches, with finalization afterwards.");
       domain.triangulation_type               = "fullydistributed";
       domain.surface_mesh_size                = .012;
       domain.surface_feature_angle            = 60.;
@@ -88,7 +104,305 @@ namespace
     bool        write_volume_mesh = false, only_generate_mesh = false;
     ImmersX::DomainParameters<3> domain;
     V::Parameters                growth;
+    ParameterAcceptor            monitoring_parameters;
+    double progress_interval = 0., checkpoint_interval = 0.,
+           maximum_generation_wall_time = 0.;
   };
+
+  using MonitoringClock = std::chrono::steady_clock;
+
+  struct MonitoringState
+  {
+    MPI_Comm                              communicator = MPI_COMM_NULL;
+    unsigned int                          rank         = 0;
+    std::filesystem::path                 directory;
+    std::shared_ptr<const V::NetworkData> initial;
+    MonitoringClock::time_point           started;
+    double progress_interval = 0., checkpoint_interval = 0.,
+           maximum_wall_time                   = 0.;
+    double                       last_progress = 0., last_checkpoint = 0.;
+    std::ofstream                progress;
+    std::array<bool, 3>          growing{}, completed{};
+    std::array<std::uint64_t, 3> accepted{};
+    unsigned int                 requested = 0, checkpoint_index = 0;
+    V::System                    active     = V::System::arterial;
+    bool                         has_active = false, deadline_requested = false;
+  };
+
+  unsigned int
+  role_index(const V::System role)
+  {
+    if (role == V::System::arterial)
+      return 0;
+    else if (role == V::System::venous)
+      return 1;
+    else if (role == V::System::portal)
+      return 2;
+    AssertThrow(false,
+                ExcMessage("Unknown vascular role in growth monitoring."));
+    return 0;
+  }
+
+  const char *
+  role_name(const V::System role)
+  {
+    if (role == V::System::arterial)
+      return "arterial";
+    else if (role == V::System::venous)
+      return "venous";
+    else if (role == V::System::portal)
+      return "portal";
+    AssertThrow(false,
+                ExcMessage("Unknown vascular role in growth monitoring."));
+    return "";
+  }
+
+  double
+  monitoring_elapsed(const MonitoringState &state)
+  {
+    return std::chrono::duration<double>(MonitoringClock::now() - state.started)
+      .count();
+  }
+
+  std::shared_ptr<MonitoringState>
+  make_monitoring_state(const Settings       &settings,
+                        const V::NetworkData &initial,
+                        const MPI_Comm        comm)
+  {
+    if (settings.progress_interval == 0. &&
+        settings.checkpoint_interval == 0. &&
+        settings.maximum_generation_wall_time == 0.)
+      return {};
+    AssertThrow(
+      settings.companion_checkpoint.empty(),
+      ExcMessage(
+        "Growth monitoring applies to fresh generation, not companion continuation."));
+    for (const auto interval : {settings.progress_interval,
+                                settings.checkpoint_interval,
+                                settings.maximum_generation_wall_time})
+      AssertThrow(
+        std::isfinite(interval) && interval >= 0.,
+        ExcMessage(
+          "Growth monitoring intervals must be finite and nonnegative."));
+    auto state          = std::make_shared<MonitoringState>();
+    state->communicator = comm;
+    state->rank         = Utilities::MPI::this_mpi_process(comm);
+    state->directory    = settings.output_directory;
+    // One immutable input copy is retained only when monitoring is enabled.
+    // Callback copies share it; they never copy a growing physical network.
+    if (settings.checkpoint_interval > 0. ||
+        settings.maximum_generation_wall_time > 0.)
+      state->initial = std::make_shared<const V::NetworkData>(initial);
+    state->progress_interval   = settings.progress_interval;
+    state->checkpoint_interval = settings.checkpoint_interval;
+    state->maximum_wall_time   = settings.maximum_generation_wall_time;
+    state->started             = MonitoringClock::now();
+    return state;
+  }
+
+  V::GenerationAction
+  poll_monitoring(MonitoringState &state, const V::GenerationProgress &progress)
+  {
+    if (state.requested != progress.requested_terminals)
+      {
+        state.growing.fill(false);
+        state.completed.fill(false);
+        state.accepted.fill(0);
+        state.has_active = false;
+        state.requested  = progress.requested_terminals;
+      }
+    const bool changed = !state.has_active || state.active != progress.system;
+    if (state.has_active && changed)
+      {
+        const auto previous       = role_index(state.active);
+        state.completed[previous] = state.accepted[previous] >= state.requested;
+      }
+    state.active          = progress.system;
+    state.has_active      = true;
+    const auto index      = role_index(progress.system);
+    state.growing[index]  = true;
+    state.accepted[index] = progress.accepted_terminals;
+    V::GenerationAction action;
+    if (state.rank == 0)
+      {
+        const double elapsed = monitoring_elapsed(state);
+        // Opening and flushing the rank-zero stream belongs to poll: any I/O
+        // error then participates in the core's collective decision.
+        if (state.progress_interval > 0. && !state.progress.is_open())
+          {
+            state.progress.open(state.directory / "progress.csv");
+            state.progress.precision(17);
+            state.progress
+              << "elapsed_s,system,requested_terminals,accepted_terminals,batches\n";
+            state.progress.flush();
+            AssertThrow(state.progress.good(),
+                        ExcMessage("Cannot open the growth progress CSV."));
+          }
+        if (state.progress.is_open() &&
+            (changed ||
+             elapsed - state.last_progress >= state.progress_interval))
+          {
+            state.progress << elapsed << ',' << role_name(progress.system)
+                           << ',' << progress.requested_terminals << ','
+                           << progress.accepted_terminals << ','
+                           << progress.batches << '\n';
+            state.progress.flush();
+            AssertThrow(state.progress.good(),
+                        ExcMessage("Cannot flush growth progress CSV."));
+            state.last_progress = elapsed;
+          }
+        action.checkpoint =
+          state.checkpoint_interval > 0. &&
+          elapsed - state.last_checkpoint >= state.checkpoint_interval;
+        action.stop =
+          state.maximum_wall_time > 0. && elapsed >= state.maximum_wall_time;
+        state.deadline_requested = state.deadline_requested || action.stop;
+      }
+    return action;
+  }
+
+  V::NetworkData
+  checkpoint_view(V::NetworkData network, const MonitoringState &state)
+  {
+    // A reserved companion port is not a grown companion forest. Keep those
+    // roles equal to the imported snapshots until their growth actually starts.
+    for (auto entry = network.vessels.begin(); entry != network.vessels.end();)
+      if (!state.growing[role_index(entry->second.system)])
+        entry = network.vessels.erase(entry);
+      else
+        ++entry;
+    for (auto entry = network.terminals.begin();
+         entry != network.terminals.end();)
+      if (!state.growing[role_index(entry->second.system)])
+        entry = network.terminals.erase(entry);
+      else
+        ++entry;
+    std::set<V::Id> needed;
+    for (const auto &[id, vessel] : network.vessels)
+      needed.insert(vessel.nodes.begin(), vessel.nodes.end());
+    for (const auto &[id, terminal] : network.terminals)
+      needed.insert(terminal.node);
+    for (auto entry = network.nodes.begin(); entry != network.nodes.end();)
+      if (needed.count(entry->first) == 0)
+        entry = network.nodes.erase(entry);
+      else
+        ++entry;
+    for (const auto &[id, vessel] : state.initial->vessels)
+      if (!state.growing[role_index(vessel.system)])
+        {
+          network.vessels.emplace(id, vessel);
+          for (const auto node : vessel.nodes)
+            network.nodes.emplace(node, state.initial->nodes.at(node));
+        }
+    for (const auto &[id, terminal] : state.initial->terminals)
+      if (!state.growing[role_index(terminal.system)])
+        {
+          network.terminals.emplace(id, terminal);
+          network.nodes.emplace(terminal.node,
+                                state.initial->nodes.at(terminal.node));
+        }
+    return network;
+  }
+
+  void
+  publish_checkpoint(MonitoringState             &state,
+                     const V::GenerationProgress &progress,
+                     V::NetworkData               network,
+                     const bool                   stopping)
+  {
+    const auto staging  = state.directory / "checkpoint-staging";
+    const auto latest   = state.directory / "latest-checkpoint";
+    const auto previous = state.directory / "checkpoint-previous";
+    bool       ready    = true;
+    if (state.rank == 0)
+      try
+        {
+          AssertThrow(
+            !std::filesystem::exists(staging) &&
+              !std::filesystem::exists(previous),
+            ExcMessage(
+              "Checkpoint staging or previous output already exists."));
+        }
+      catch (const std::exception &error)
+        {
+          std::cerr << error.what() << '\n';
+          ready = false;
+        }
+    AssertThrow(Utilities::MPI::min(ready ? 1u : 0u, state.communicator) == 1,
+                ExcMessage("Cannot prepare a growth checkpoint directory."));
+    network = checkpoint_view(std::move(network), state);
+    V::ValidationReport diagnostic;
+    diagnostic.issues.push_back(
+      {"checkpoint",
+       V::invalid_id,
+       "Incomplete generation checkpoint: diagnostic only, not adoptable or resumable."});
+    V::write_diagnostic_vtk(staging, network, diagnostic, state.communicator);
+    std::array<std::uint64_t, 3> vessels{};
+    for (const auto &[id, vessel] : network.vessels)
+      if (vessel.owner == state.rank)
+        ++vessels[role_index(vessel.system)];
+    for (auto &count : vessels)
+      count = Utilities::MPI::sum(count, state.communicator);
+    ++state.checkpoint_index;
+    bool published = true;
+    if (state.rank == 0)
+      try
+        {
+          std::ofstream marker(staging / "checkpoint.json");
+          marker
+            << std::boolalpha << std::setprecision(17)
+            << "{\n  \"diagnostic_only\": true,\n  \"generation_complete\": false,\n"
+               "  \"archive_adoptable\": false,\n  \"resumable\": false,\n"
+               "  \"hydraulic_fields_final\": false,\n  \"controlled_stop\": "
+            << stopping
+            << ",\n  \"checkpoint_index\": " << state.checkpoint_index
+            << ",\n  \"elapsed_s\": " << monitoring_elapsed(state)
+            << ",\n  \"active_role\": \"" << role_name(progress.system)
+            << "\",\n  \"requested_terminals_per_role\": "
+            << progress.requested_terminals << ",\n  \"roles\": {\n";
+          unsigned int written = 0;
+          for (const auto role :
+               {V::System::arterial, V::System::portal, V::System::venous})
+            {
+              const auto i = role_index(role);
+              marker
+                << "    \"" << role_name(role) << "\": {\"source\": \""
+                << (state.growing[i] ? "accepted_growth" : "original_input")
+                << "\", \"growth_accepted_terminals\": " << state.accepted[i]
+                << ", \"growth_phase_complete\": " << state.completed[i]
+                << ", \"hydraulic_fields_final\": false, \"physical_vessels\": "
+                << vessels[i] << "}" << (++written == 3 ? "\n" : ",\n");
+            }
+          marker << "  }\n}\n";
+          marker.close();
+          AssertThrow(marker.good(),
+                      ExcMessage("Cannot finish the checkpoint manifest."));
+          if (std::filesystem::exists(latest))
+            std::filesystem::rename(latest, previous);
+          try
+            {
+              std::filesystem::rename(staging, latest);
+            }
+          catch (...)
+            {
+              if (std::filesystem::exists(previous) &&
+                  !std::filesystem::exists(latest))
+                std::filesystem::rename(previous, latest);
+              throw;
+            }
+          if (std::filesystem::exists(previous))
+            std::filesystem::remove_all(previous);
+        }
+      catch (const std::exception &error)
+        {
+          std::cerr << error.what() << '\n';
+          published = false;
+        }
+    AssertThrow(Utilities::MPI::min(published ? 1u : 0u, state.communicator) ==
+                  1,
+                ExcMessage("Cannot publish a complete growth checkpoint."));
+    state.last_checkpoint = monitoring_elapsed(state);
+  }
 
 #ifdef DEAL_II_WITH_VTK
   void
@@ -329,10 +643,32 @@ main(int argc, char **argv)
       if (rank == 0)
         std::cout << "Initial input VTK: " << settings.output_directory
                   << "/initial-input/" << std::endl;
+      const auto monitoring = make_monitoring_state(settings, initial, comm);
+      V::GenerationControl control;
+      if (monitoring)
+        {
+          control.poll = [monitoring](const V::GenerationProgress &progress) {
+            return poll_monitoring(*monitoring, progress);
+          };
+          if (monitoring->initial)
+            control.checkpoint =
+              [monitoring](const V::GenerationProgress &progress,
+                           V::NetworkData               snapshot,
+                           const bool                   stopping) {
+                publish_checkpoint(*monitoring,
+                                   progress,
+                                   std::move(snapshot),
+                                   stopping);
+              };
+        }
       V::GenerationResult result;
       if (settings.companion_checkpoint.empty())
-        result = V::generate(
-          domain.triangulation(), *mapping, initial, settings.growth, comm);
+        result = V::generate(domain.triangulation(),
+                             *mapping,
+                             initial,
+                             settings.growth,
+                             comm,
+                             control);
       else
         {
           AssertThrow(
@@ -374,6 +710,9 @@ main(int argc, char **argv)
                   << ": " << issue.message << '\n';
       const bool growth_valid =
         Utilities::MPI::min(result.validation.valid() ? 1u : 0u, comm) == 1;
+      if (result.controlled_stop && monitoring && monitoring->initial)
+        result.network =
+          checkpoint_view(std::move(result.network), *monitoring);
       V::write_diagnostic_vtk(std::filesystem::path(settings.output_directory) /
                                 (growth_valid ? "physical-vtk" :
                                                 "invalid-result"),
@@ -391,6 +730,12 @@ main(int argc, char **argv)
             std::cout << "Invalid network VTK: " << settings.output_directory
                       << "/invalid-result/" << std::endl;
         }
+      if (result.controlled_stop)
+        return Utilities::MPI::max(
+                 monitoring && monitoring->deadline_requested ? 1u : 0u,
+                 comm) == 1 ?
+                 2 :
+                 1;
       AssertThrow(
         growth_valid,
         ExcMessage(
