@@ -632,6 +632,7 @@ ENABLE_TESTING()
 set(IMMERSX_NUMERICAL_TEST_ENVIRONMENT
   "DEAL_II_NUM_THREADS=1;OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1")
 include(cmake/container_tests.cmake)
+include(cmake/mfx_modal_tests.cmake)
 include(cmake/lifted_elasticity_tests.cmake)
 include(cmake/vascular_network_tests.cmake)
 include(cmake/liver_vascular_tests.cmake)
