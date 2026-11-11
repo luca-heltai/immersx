@@ -18,6 +18,9 @@ support a branching-network correction. The solid supports prescribed
 Dirichlet values and hanging-node constraints; other multipoint constraint
 lines are rejected. Interior elastic and viscous coefficients must be homogeneous
 and match the configured default material.
+[Pressure on the vessel walls](../concepts/vessel-pressure.md) compares this
+correction with the analytic interior stress that `VesselElasticityProblem`
+adds to its reported pressure.
 
 ## Model and pressure normalization
 
