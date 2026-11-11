@@ -5204,53 +5204,60 @@ namespace ImmersX
         }
       else
         {
-          const auto pairing =
-            make_pairing(builder, multiplier_expression, region_);
-          const auto reaction =
-            ImmersX::transpose_operator(pairing.operator_with_matrix);
-          const auto source_id = pairing.source_id;
-          builder.term(multiplier, suffix + ".multiplier")
-            .residual([pairing, source_id, sign](const auto &context) {
-              auto       result = sign * (pairing.operator_with_matrix.view *
-                                    context.state(source_id));
-              const auto affine_rhs = pairing.affine_rhs_factory ?
-                                        pairing.affine_rhs_factory() :
-                                        pairing.affine_rhs;
-              if (affine_rhs != nullptr)
-                {
-                  const auto apply     = result.apply;
-                  const auto apply_add = result.apply_add;
-                  result.apply =
-                    [apply, affine_rhs, sign](VectorType &destination) {
-                      apply(destination);
-                      destination.add(-sign, *affine_rhs);
-                    };
-                  result.apply_add =
-                    [apply_add, affine_rhs, sign](VectorType &destination) {
-                      apply_add(destination);
-                      destination.add(-sign, *affine_rhs);
-                    };
-                }
-              return result;
-            })
-            .state(source_id, sign * pairing.operator_with_matrix);
-
-          const auto multiplier_field = multiplier_expression.source();
-          detail::assert_homogeneous_weak_constraints(
-            multiplier_field,
-            "Linear constraint reactions require homogeneous multiplier "
-            "constraints.");
-          builder.term(source_id, suffix + ".participant")
-            .residual([reaction, multiplier, sign, multiplier_field](
-                        const auto &context) {
-              detail::assert_homogeneous_weak_constraints(
-                multiplier_field,
-                "Linear constraint reactions require homogeneous multiplier "
-                "constraints.");
-              return sign * (reaction.view * context.state(multiplier));
-            })
-            .state(multiplier, sign * reaction);
+          add_linear_constraint_terms(builder,
+                                      multiplier_expression,
+                                      multiplier,
+                                      sign,
+                                      suffix,
+                                      std::nullopt);
         }
+    }
+
+    /**
+     * Add a linear multiplier row and its transpose on a distinct reaction
+     * Field. Source and reaction must share the identical Space and component
+     * mask, without execution reindexing. Source affine offsets are retained;
+     * the reaction uses the shared Space's homogeneous test constraints.
+     * Geometry may be cached; candidate values are always current.
+     */
+    template <typename VectorType, typename MatrixType, typename ReactionField>
+    void
+    add_constraint_terms(SemidiscreteBuilder<VectorType, MatrixType> &builder,
+                         const FieldId        multiplier,
+                         const double         sign,
+                         const std::size_t    index,
+                         const ReactionField &reaction_field) const
+    {
+      static_assert(detail::is_linear_observable<TrialExpression>::value,
+                    "A distinct reaction Field requires a linear weak term.");
+      const auto source = observable_.source();
+      static_assert(
+        std::is_same_v<std::decay_t<decltype(source)>, ReactionField>,
+        "Source and reaction must have the same Field type.");
+      const bool compatible =
+        &source.space() == &reaction_field.space() &&
+        source.component_mask() == reaction_field.component_mask() &&
+        !source.is_reindexed() && !reaction_field.is_reindexed() &&
+        &source.constraints() == &reaction_field.constraints();
+      AssertThrow(
+        dealii::Utilities::MPI::min(static_cast<unsigned int>(compatible),
+                                    source.space().mpi_communicator()) != 0,
+        dealii::ExcMessage(
+          "Shared linear reactions require the same Space, "
+          "component mask, effective constraints and native layout."));
+      const auto multiplier_field      = target_.source().with_id(multiplier);
+      const auto multiplier_expression = [&]() {
+        if constexpr (detail::is_lifted_observable<TestExpression>::value)
+          return target_.with_id(multiplier);
+        else
+          return test(multiplier_field);
+      }();
+      add_linear_constraint_terms(builder,
+                                  multiplier_expression,
+                                  multiplier,
+                                  sign,
+                                  "constraint." + std::to_string(index),
+                                  reaction_field.field_id());
     }
 
     template <typename VectorType, typename MatrixType>
@@ -5285,6 +5292,64 @@ namespace ImmersX
   private:
     template <typename, typename, typename>
     friend class WeakTerm;
+
+    template <typename VectorType, typename MatrixType, typename Target>
+    void
+    add_linear_constraint_terms(
+      SemidiscreteBuilder<VectorType, MatrixType> &builder,
+      const Target                                &multiplier_expression,
+      const FieldId                                multiplier,
+      const double                                 sign,
+      const std::string                           &suffix,
+      const std::optional<FieldId>                 reaction_id) const
+    {
+      const auto pairing =
+        make_pairing(builder, multiplier_expression, region_);
+      const auto reaction =
+        ImmersX::transpose_operator(pairing.operator_with_matrix);
+      const auto source_id = pairing.source_id;
+      builder.term(multiplier, suffix + ".multiplier")
+        .residual([pairing, source_id, sign](const auto &context) {
+          auto       result     = sign * (pairing.operator_with_matrix.view *
+                                context.state(source_id));
+          const auto affine_rhs = pairing.affine_rhs_factory ?
+                                    pairing.affine_rhs_factory() :
+                                    pairing.affine_rhs;
+          if (affine_rhs != nullptr)
+            {
+              const auto apply     = result.apply;
+              const auto apply_add = result.apply_add;
+              result.apply =
+                [apply, affine_rhs, sign](VectorType &destination) {
+                  apply(destination);
+                  destination.add(-sign, *affine_rhs);
+                };
+              result.apply_add =
+                [apply_add, affine_rhs, sign](VectorType &destination) {
+                  apply_add(destination);
+                  destination.add(-sign, *affine_rhs);
+                };
+            }
+          return result;
+        })
+        .state(source_id, sign * pairing.operator_with_matrix);
+
+      const auto multiplier_field = multiplier_expression.source();
+      detail::assert_homogeneous_weak_constraints(
+        multiplier_field,
+        "Linear constraint reactions require homogeneous multiplier "
+        "constraints.");
+      builder.term(reaction_id.value_or(source_id), suffix + ".participant")
+        .residual(
+          [reaction, multiplier, sign, multiplier_field](const auto &context) {
+            detail::assert_homogeneous_weak_constraints(
+              multiplier_field,
+              "Linear constraint reactions require homogeneous multiplier "
+              "constraints.");
+            return sign * (reaction.view * context.state(multiplier));
+          })
+        .state(multiplier, sign * reaction);
+    }
 
     template <typename VectorType, typename MatrixType>
     struct Pairing

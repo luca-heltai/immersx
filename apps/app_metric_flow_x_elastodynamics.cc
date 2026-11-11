@@ -1022,16 +1022,13 @@ namespace
         weak_term(value(solid_fields.fields().displacement), test(lambda_wall))
           .on(supports.overlap)
           .with_cached_assembly()
-          .add(builder);
+          .add_constraint_terms(
+            builder, id, 1., 0, solid_fields.fields().velocity);
         weak_term(negative_wall_displacement, test(multiplier))
           .on(supports.overlap)
           .add(builder);
         weak_term(-1. * value(multiplier), test(multiplier))
           .on(supports.outside)
-          .add(builder);
-        weak_term(lambda_wall, test(solid_fields.fields().velocity))
-          .on(supports.overlap)
-          .with_cached_assembly()
           .add(builder);
 
         const auto pressure      = -1. * value(multiplier);
