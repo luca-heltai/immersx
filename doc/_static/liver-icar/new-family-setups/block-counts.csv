@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+family,background_tets,terminals_each_role,intervals,short,no_overlap,vertex_exterior,displacement,velocity,flow,multiplier,total_dofs
+Small,2316,2316,14787,13286,1399,1389,12984,12984,118296,29574,173838
+Medium,13351,13351,83026,77675,4650,4626,66336,66336,664208,166052,962932

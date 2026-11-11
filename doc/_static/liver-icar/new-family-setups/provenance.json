@@ -1,0 +1,260 @@
+{
+  "SPDX-License-Identifier": "LGPL-2.1-or-later",
+  "sources": {
+    "Small": {
+      "run": "/data/home/lheltai/codes/liver-icar-20261105/coupled-periodic-small-20261110/new-small2316-setup-only-attempt-01",
+      "summary": {
+        "created_utc": "2026-11-11T08:58:24.577458+00:00",
+        "case": "/data/home/lheltai/codes/liver-icar-20261105/coupled-periodic-small-20261110/new-small2316-setup-only-attempt-01",
+        "status": "FINISHED_SETUP_ONLY",
+        "setup_completion_marker": true,
+        "setup_count_audit_pass": true,
+        "global_background_tets_independent_mesh_count": 2316,
+        "background_count_method": "Count all type4 tetrahedra in complete archived Gmsh mesh; not local+ghost runtime n_active_cells.",
+        "global_1d_cells": 14787,
+        "global_1d_count_method": "Sum of owned cells via native MPI report, crosschecked against unique(vessel,begin,end) rows across all rank mesh_scale CSV files.",
+        "vertex_exterior_cells": 1389,
+        "discretization_short_cells": 13286,
+        "discretization_exterior_cells": 1399,
+        "coupled_block_dofs": [
+          12984,
+          12984,
+          118296,
+          29574
+        ],
+        "coupled_total_dofs": 173838,
+        "actual_total_dofs_per_background_tet": 75.05958549222798,
+        "interval_length_m": {
+          "count": 14787,
+          "min": 1.1875282890122105e-06,
+          "p05": 0.00022088401244750797,
+          "median": 0.0019633876619278732,
+          "p95": 0.009348317982294926,
+          "max": 0.046269305030803745
+        },
+        "inside_cell_h_min_m": {
+          "count": 13388,
+          "min": 0.001962983518079514,
+          "p05": 0.0051541777494718746,
+          "median": 0.01816665614696701,
+          "p95": 0.0400162929731758,
+          "max": 0.05596867135947977
+        },
+        "inside_cell_h_max_m": {
+          "count": 13388,
+          "min": 0.002527855621539162,
+          "p05": 0.005540744190772442,
+          "median": 0.020261916575405298,
+          "p95": 0.041524266054279495,
+          "max": 0.05596867135947977
+        },
+        "inside_length_over_h_min": {
+          "count": 13388,
+          "min": 0.0001468346824699026,
+          "p05": 0.018401177407243483,
+          "median": 0.12423529111099907,
+          "p95": 0.39249973338477046,
+          "max": 1.8457441058181272
+        },
+        "inside_length_over_h_max": {
+          "count": 13388,
+          "min": 0.0001468346824699026,
+          "p05": 0.018071651093335545,
+          "median": 0.11506797596067332,
+          "p95": 0.327583218868399,
+          "max": 0.9212748314248433
+        },
+        "short_interval_fraction": 0.8984919185771285,
+        "discretization_limitation": "Short intervals are retained by the current discretization; their frequency and L/h distributions are limitations, not an inf-sup or stability certificate.",
+        "scope": "Numerical setup and discretization statistics only; no IDA/time integration or convergence. Exterior discretization flag and vertex-outside geometric counter are distinct.",
+        "mesh_sha256": "3c9926d60ec26415a633581d11537d4e9954fc9cac8d9b547f94e9c8824c23ee"
+      },
+      "sha256": {
+        "measured-setup-summary.json": "a1588330820d804eb95ff763b0943cda83a54faa7358dfad39a87761ec5bcbd5",
+        "run.json": "4cdf4195dd32faff417d479e52013563e2bf40ab6f967ddac4a9a67d7419a065",
+        "run.log": "415ba6b8556811a51a815d815d549c60a6a167d546092cf0bcbd95c3c97632ee",
+        "flow/mesh_scale-0.csv": "6a30b5ac9b8f4979467548a3a51e1c4f288e2c22e9d2a3af64f4db116b0a4a87",
+        "flow/mesh_scale-1.csv": "bcb26a384c5ef6eff2c97b2c456a82c81a122354db40f8dd880e8a495bc3b9e8",
+        "flow/mesh_scale-2.csv": "e49c2b2bf35048f362ff9489a2f4872ee8d5caf886c301699f74a14e0dbcfffb",
+        "flow/mesh_scale-3.csv": "9168203518b2ef4698c57b3a90dee6bb6a5f05b472be1c0d9ce21dbecb79976c",
+        "flow/mesh_scale-4.csv": "85b12ff670852fea3119816713e7dc2253bc1500dab6f366def7f598273a2731",
+        "flow/mesh_scale-5.csv": "a12ec1d250e5deeaa1a3b6826fe9537a1d57998f90d4e142317bc9433428b87c",
+        "flow/mesh_scale-6.csv": "3dd0b5df12dc4b0271625bde12f15fc6bc90af67f33d325d7321cf09fc6b8a87",
+        "flow/mesh_scale-7.csv": "8030c9e1e9957f4bd571684f5ff4a37dc4b31fb88e6ce88db3ac6136e7da989c"
+      },
+      "runtime": {
+        "base_source": "c88c5fd8cada30a152d39e8d67d4ae2be61e6987",
+        "change": "SharedimmutableWeakTerm/Targetsnapshot, appsideinline templates; identicalv1markers; productionintegrationneedscoherentfullrebuild",
+        "runtime_sha256": {
+          "metric_flow_x_elastodynamics": "b7c998cf7d551f638c554cc534550d4a8e44f50a613e3eb4fd75d2bae446d5f3",
+          "libimmersx_lib.so": "d396c4bcd60c6f128ab1ea64f7df7b50ec1b698e500f5ea14a6d9014efb15589"
+        },
+        "build_status": {
+          "started_utc": "2026-11-10T22:50:29.113409+00:00",
+          "pid": 1966335,
+          "status": "PASS",
+          "stages": [
+            {
+              "tag": "a",
+              "stage": "compile",
+              "exit": 0,
+              "seconds": 96.29063383117318
+            },
+            {
+              "tag": "a",
+              "stage": "link",
+              "exit": 0,
+              "seconds": 4.7637101747095585
+            },
+            {
+              "tag": "b",
+              "stage": "compile",
+              "exit": 0,
+              "seconds": 0.29966121166944504
+            }
+          ],
+          "cross_directory_cache_hit": true,
+          "executable_sha256": "b7c998cf7d551f638c554cc534550d4a8e44f50a613e3eb4fd75d2bae446d5f3"
+        },
+        "patches_sha256": {
+          "source-sharing.patch": "9116e48e06d0cdaa427fc9698df53ece23912712d6ffd8709640b515855321ff",
+          "source-markers.patch": "7d9bd715a9e841bf081393a329421c646b9a10524570b037c107006d5df8cc9f"
+        }
+      }
+    },
+    "Medium": {
+      "run": "/data/home/lheltai/codes/liver-icar-20261105/coupled-periodic-small-20261110/new-medium13351-setup-only-attempt-01",
+      "summary": {
+        "created_utc": "2026-11-11T09:01:59.880300+00:00",
+        "case": "/data/home/lheltai/codes/liver-icar-20261105/coupled-periodic-small-20261110/new-medium13351-setup-only-attempt-01",
+        "status": "FINISHED_SETUP_ONLY",
+        "setup_completion_marker": true,
+        "setup_count_audit_pass": true,
+        "global_background_tets_independent_mesh_count": 13351,
+        "background_count_method": "Count all type4 tetrahedra in complete archived Gmsh mesh; not local+ghost runtime n_active_cells.",
+        "global_1d_cells": 83026,
+        "global_1d_count_method": "Sum of owned cells via native MPI report, crosschecked against unique(vessel,begin,end) rows across all rank mesh_scale CSV files.",
+        "vertex_exterior_cells": 4626,
+        "discretization_short_cells": 77675,
+        "discretization_exterior_cells": 4650,
+        "coupled_block_dofs": [
+          66336,
+          66336,
+          664208,
+          166052
+        ],
+        "coupled_total_dofs": 962932,
+        "actual_total_dofs_per_background_tet": 72.12433525578608,
+        "interval_length_m": {
+          "count": 83026,
+          "min": 1.1213848242454674e-07,
+          "p05": 0.0002021881345842035,
+          "median": 0.001542558642298155,
+          "p95": 0.005260411378148983,
+          "max": 0.02141960106951728
+        },
+        "inside_cell_h_min_m": {
+          "count": 78376,
+          "min": 0.0015629664007663407,
+          "p05": 0.004798944749263513,
+          "median": 0.013320873522529277,
+          "p95": 0.017875604521275967,
+          "max": 0.021676528879969435
+        },
+        "inside_cell_h_max_m": {
+          "count": 78376,
+          "min": 0.0015629664007663407,
+          "p05": 0.0051980497414035815,
+          "median": 0.0141100370127305,
+          "p95": 0.018486700027005334,
+          "max": 0.021676528879969435
+        },
+        "inside_length_over_h_min": {
+          "count": 78376,
+          "min": 1.5746343477943944e-05,
+          "p05": 0.021031627156627423,
+          "median": 0.13530724558663218,
+          "p95": 0.40218554470951184,
+          "max": 1.9684846459781804
+        },
+        "inside_length_over_h_max": {
+          "count": 78376,
+          "min": 1.5746343477943944e-05,
+          "p05": 0.02088396728025048,
+          "median": 0.1290160968999633,
+          "p95": 0.35617169036957547,
+          "max": 1.3441872686538479
+        },
+        "short_interval_fraction": 0.9355503095415894,
+        "discretization_limitation": "Short intervals are retained by the current discretization; their frequency and L/h distributions are limitations, not an inf-sup or stability certificate.",
+        "scope": "Numerical setup and discretization statistics only; no IDA/time integration or convergence. Exterior discretization flag and vertex-outside geometric counter are distinct.",
+        "mesh_sha256": "966cfd8246bd2153a0a96a50893ed84b96ef87b3f837b5f5b418c223f12e4704"
+      },
+      "sha256": {
+        "measured-setup-summary.json": "e2807fa7675f41dbd756a38decef5cc18808e14036ae58f03ab581944d8813b2",
+        "run.json": "ede218c09516cba3b12c3da1c069f621e88cbc2be84b92f752286def4e946fd2",
+        "run.log": "711e507b1edc072a8a71703382a7343fe42229a9eb78e92660017d343137d107",
+        "flow/mesh_scale-0.csv": "a150e6105c7b99ce9a392160a6848e8f3c50edd1869628a30e7b018056659112",
+        "flow/mesh_scale-1.csv": "be51f7c2f8b86dc747d211c4e46651bf5265207e199ae9d5b4d990eef51cc242",
+        "flow/mesh_scale-10.csv": "a49f9ec8123ae306cddcb1c27f16554b57859cce284908a47a3521d5536e26cd",
+        "flow/mesh_scale-11.csv": "3df39aeec9c375efad29b6d7fafbf8beb56d5764a7d60b27587573dbe7c1c382",
+        "flow/mesh_scale-12.csv": "bc639b78fbb5ceafe0955ebe66a43da11238f34dc466ec4594295ea0657130fd",
+        "flow/mesh_scale-13.csv": "82f21cdc2abded8310402e00af7cfc9511c88a62dd36f9f897351100dbc977a7",
+        "flow/mesh_scale-14.csv": "7cac4cc6da8c667e6d7d3620e922da16fa4830557c11ca28af83a02ac82b43e2",
+        "flow/mesh_scale-15.csv": "44726d76b49d4ce1143dc91f19605ac82c7530f320d465da5d909c9df81a1105",
+        "flow/mesh_scale-2.csv": "de7a2750981e6bbe15c5c839a5c10246e08016a2712e1e3f4ffb93be40192e8e",
+        "flow/mesh_scale-3.csv": "1e3ec98e73e68cdd5c060eddbc4915550794edb444f8f1637bc408afa7bc05fe",
+        "flow/mesh_scale-4.csv": "52267f76354c31e3df9d60744dd463017e0e8a613349388bb180386a188620e0",
+        "flow/mesh_scale-5.csv": "8ac2f9842fd7442ed1e85609276d2dd4ff0cd7f3b7b96ca921c2c97eeeec2e77",
+        "flow/mesh_scale-6.csv": "33efd93e204e77b347727802e6870dd04a3eda037ab92f090c21617edd917029",
+        "flow/mesh_scale-7.csv": "19f92e57dbd755863f7cfa5431a3fa9c200be1d03ac2ae1c29e63154700bf1c3",
+        "flow/mesh_scale-8.csv": "96dee4ebf7e18ba491c75559be3768cb704107f0333fa729127297d935856958",
+        "flow/mesh_scale-9.csv": "e3cf2ed13ecb60db23653f8d149481d5c0b97f14fcac6358dd332423aaed787c"
+      },
+      "runtime": {
+        "base_source": "c88c5fd8cada30a152d39e8d67d4ae2be61e6987",
+        "change": "SharedimmutableWeakTerm/Targetsnapshot, appsideinline templates; identicalv1markers; productionintegrationneedscoherentfullrebuild",
+        "runtime_sha256": {
+          "metric_flow_x_elastodynamics": "b7c998cf7d551f638c554cc534550d4a8e44f50a613e3eb4fd75d2bae446d5f3",
+          "libimmersx_lib.so": "d396c4bcd60c6f128ab1ea64f7df7b50ec1b698e500f5ea14a6d9014efb15589"
+        },
+        "build_status": {
+          "started_utc": "2026-11-10T22:50:29.113409+00:00",
+          "pid": 1966335,
+          "status": "PASS",
+          "stages": [
+            {
+              "tag": "a",
+              "stage": "compile",
+              "exit": 0,
+              "seconds": 96.29063383117318
+            },
+            {
+              "tag": "a",
+              "stage": "link",
+              "exit": 0,
+              "seconds": 4.7637101747095585
+            },
+            {
+              "tag": "b",
+              "stage": "compile",
+              "exit": 0,
+              "seconds": 0.29966121166944504
+            }
+          ],
+          "cross_directory_cache_hit": true,
+          "executable_sha256": "b7c998cf7d551f638c554cc534550d4a8e44f50a613e3eb4fd75d2bae446d5f3"
+        },
+        "patches_sha256": {
+          "source-sharing.patch": "9116e48e06d0cdaa427fc9698df53ece23912712d6ffd8709640b515855321ff",
+          "source-markers.patch": "7d9bd715a9e841bf081393a329421c646b9a10524570b037c107006d5df8cc9f"
+        }
+      }
+    }
+  },
+  "scope": "Complete setup only, no initialization or IDA/time integration; no inf-sup certificate.",
+  "H_definition": "Tissue cell diameter; Hmax is maximum diameter over native overlap cells, not volume^(1/3).",
+  "short_rule": "L < 0.5 Hmax (1 - 1e-12); native short_cell flags crosschecked against ratios.",
+  "histogram": "80 logarithmic bins over [1e-5,2]; all overlap intervals retained, no-overlap intervals excluded.",
+  "generation_release": "https://github.com/luca-heltai/immersx/releases/tag/liver-h-scaled-2026-11-10"
+}
