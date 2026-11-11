@@ -30,7 +30,7 @@ def read_csv(path):
 def write_csv(path, rows):
     with path.open('w') as stream:
         stream.write(LICENSE)
-        writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(stream, fieldnames=list(rows[0]), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -126,6 +126,8 @@ def save(fig, path):
     for suffix in ('svg', 'png'):
         fig.savefig(path.with_suffix('.' + suffix), dpi=180,
                     metadata={'Date': None} if suffix == 'svg' else {})
+    svg = path.with_suffix(".svg")
+    svg.write_text("\n".join(line.rstrip() for line in svg.read_text().splitlines()) + "\n")
     plt.close(fig)
 
 
