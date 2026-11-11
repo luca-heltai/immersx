@@ -222,6 +222,24 @@ namespace
     exact_line.compress(VectorOperation::insert);
     EXPECT_GT(exact_line.l2_norm(), 1.e-8);
     Utilities::MPI::sum(local_reaction, MPI_COMM_WORLD, reaction);
+    if (empty_owner)
+      {
+        const double reference_square = std::inner_product(reaction.begin(),
+                                                           reaction.end(),
+                                                           reaction.begin(),
+                                                           0.);
+        double       owned_reference_square = 0.;
+        for (const auto i : u.locally_owned_dofs())
+          owned_reference_square += reaction[i] * reaction[i];
+        // Require an empty representative owner to receive a nonzero bulk
+        // reaction computed independently of the assembled matrix.
+        const unsigned int receives_foreign_reaction =
+          lifted.lifted_points().empty() &&
+          owned_reference_square > 1.e-20 * reference_square;
+        EXPECT_EQ(Utilities::MPI::max(receives_foreign_reaction,
+                                      MPI_COMM_WORLD),
+                  1u);
+      }
     V error(line_result);
     error -= exact_line;
     EXPECT_LT(error.l2_norm(), 1.e-11);
