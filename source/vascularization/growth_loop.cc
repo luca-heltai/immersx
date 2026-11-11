@@ -162,7 +162,8 @@ namespace ImmersX::Vascularization::internal
               System                          system,
               const std::vector<Territory>   &owned_territories,
               GrowthDemandCallbacks           demand_callbacks,
-              BackgroundGeometry             *shared_geometry)
+              BackgroundGeometry             *shared_geometry,
+              const GenerationControl        &control)
   {
     using namespace dealii;
     Timer              timer;
@@ -657,6 +658,82 @@ namespace ImmersX::Vascularization::internal
     // the distributed vote rejects an optimum computed with cheap bounds.
     std::map<std::pair<Id, unsigned int>, std::set<Id>> rejected_parents;
     initialization_scope.finish();
+    const auto poll_control = [&]() {
+      if (!control.poll)
+        return false;
+      const GenerationProgress progress{system,
+                                        terminal_count,
+                                        count,
+                                        run.batches};
+      unsigned int             decision = 0;
+      try
+        {
+          const auto action = control.poll(progress);
+          if (action.stop)
+            decision = 2;
+          else if (action.checkpoint)
+            decision = 1;
+        }
+      catch (const std::exception &error)
+        {
+          run.validation.issues.push_back(
+            {"generation control", invalid_id, error.what()});
+          decision = 3;
+        }
+      catch (...)
+        {
+          decision = 3;
+        }
+      // 3 is an observer failure, 2 a stop, 1 a snapshot, 0 ordinary growth.
+      // A stop also snapshots when a publisher is supplied.
+      decision = Utilities::MPI::max(decision, comm);
+      if (decision == 3 || (decision == 1 && !control.checkpoint))
+        {
+          run.controlled_stop = true;
+          phase(
+            false,
+            "Generation control failed collectively or requested a snapshot without a publisher.");
+          return true;
+        }
+      if ((decision == 1 || decision == 2) && control.checkpoint)
+        {
+          auto snapshot  = execution.materialize();
+          bool published = true;
+          try
+            {
+              control.checkpoint(progress,
+                                 std::move(snapshot.network),
+                                 decision == 2);
+            }
+          catch (const std::exception &error)
+            {
+              run.validation.issues.push_back(
+                {"generation checkpoint", invalid_id, error.what()});
+              published = false;
+            }
+          catch (...)
+            {
+              published = false;
+            }
+          if (!phase(published,
+                     "Generation checkpoint publication failed collectively."))
+            {
+              run.controlled_stop = true;
+              return true;
+            }
+        }
+      if (decision == 2)
+        {
+          run.controlled_stop = true;
+          phase(
+            false,
+            "Generation stopped cooperatively at the last accepted state; this incomplete result is diagnostic only.");
+          return true;
+        }
+      return false;
+    };
+    if (poll_control())
+      return finish();
     while (count < terminal_count && failures < p.sample_budget)
       {
         auto       mpi_scope   = mpi_run.phase(GrowthMpiPhase::batch, count);
@@ -1123,6 +1200,8 @@ namespace ImmersX::Vascularization::internal
             if (demand_callbacks.discard)
               demand_callbacks.discard();
             record(nullptr);
+            if (poll_control())
+              return finish();
             continue;
           }
         GrowthDemandJointUpdate joint;
@@ -1167,6 +1246,8 @@ namespace ImmersX::Vascularization::internal
             ++failures;
             const GrowthExecutionResult rejected;
             record(&rejected);
+            if (poll_control())
+              return finish();
             continue;
           }
         std::map<Id, double> joint_demands;
@@ -1195,6 +1276,8 @@ namespace ImmersX::Vascularization::internal
             ++run.rejected_batches;
             ++failures;
             record(&committed);
+            if (poll_control())
+              return finish();
             continue;
           }
         if ((system == System::venous || system == System::portal) &&
@@ -1212,6 +1295,8 @@ namespace ImmersX::Vascularization::internal
         count += selected;
         failures = 0;
         record(&committed);
+        if (poll_control())
+          return finish();
       }
     std::uint64_t unserved = 0;
     if (system == System::venous || system == System::portal)
