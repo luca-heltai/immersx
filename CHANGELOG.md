@@ -302,7 +302,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Share retained linear-operator state across callback copies to avoid copying vectors and nested operators during composition.
+- [PR #381](https://github.com/luca-heltai/immersx/pull/381) Share retained linear-operator state across callback copies to avoid copying vectors and nested operators during composition.
 
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Use the native configurable minimum positive area when importing physical vascular radii, retaining the fixed threshold for older MetricFlowX backends.
 
@@ -570,7 +570,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Count only cycle and mode collections in lifted-elasticity application tests so optional particle output does not fail the record-count check.
+- [PR #381](https://github.com/luca-heltai/immersx/pull/381) Count only cycle and mode collections in lifted-elasticity application tests so optional particle output does not fail the record-count check.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) Check that a native IDA binding and `IDAParameters` on the same section hold the same value for every entry, including entries missing from the input.
 
