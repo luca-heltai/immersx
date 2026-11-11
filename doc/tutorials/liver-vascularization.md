@@ -584,10 +584,10 @@ python3 doc/_static/liver-icar/new-family-perfusion/plot.py \
 
 ### Measured setup for the new forest families
 
-Complete `Setup only = true` runs on 11 November 2026 measured the following
-spaces. Both use P2 solid displacement and velocity, degree-one native flow,
-and the automatic multiplier space. No state initialization, IDA correction
-or time integration was executed.
+Earlier complete `Setup only = true` runs on 11 November 2026 measured the
+following spaces. Both use P2 solid displacement and velocity, degree-one
+native flow, and the automatic degree-one multiplier space. No state
+initialization, IDA correction or time integration was executed.
 
 | Family | Background tetrahedra | Terminals per role | Numerical 1D intervals | Displacement | Velocity | Native flow | Multiplier | Total DoFs |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -604,9 +604,29 @@ These timings measure setup, not solver convergence or integration throughput.
 ```{figure} ../_static/liver-icar/new-family-setups/block-composition.svg
 :alt: Four measured coupled DoF blocks for separately generated small and medium liver forests.
 
-Measured block composition. These are the new 2316- and 13351-terminal-per-role
-families, separate from the historical fixed-network measurements below.
+Measured block composition with degree-one native flow and multiplier. These
+are the new 2316- and 13351-terminal-per-role families, separate from the
+historical fixed-network measurements below.
 ```
+
+A later setup selected degree-two native flow and the automatic degree-two
+multiplier, retaining P2 solid fields, the same physical archives and
+backgrounds, and disabled co-refinement. The small setup completed with four
+blocks `12984, 12984, 147870, 44361`, totaling 218199 DoFs on 8 MPI ranks.
+The medium setup reached its 900 s limit before reporting the final blocks.
+
+| DG2 family | Native intervals observed | Completed total DoFs | Formula forecast | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| Small | 14787 | 218199 | 218199 | Complete setup |
+| Medium | 83026 | Not measured | 1212010 | Setup timed out |
+
+The forecast holds the numerical intervals fixed: degree-two native flow
+contributes $10N$ DoFs and the multiplier contributes $3N$, in addition to the
+two solid blocks. For the medium family this gives
+$132672+13\times83026=1212010$. The timeout does not turn that forecast into a
+measurement. Neither setup run establishes a coupled initial state or a
+transient result. The later accepted diagnostic below uses a separate,
+37897-DoF network.
 
 The lower configured interval bound is $L\ge0.5H_{\max}$ and the upper bound
 is $L\le2H_{\min}$. Here $H$ is the **diameter** of a background cell,
@@ -687,9 +707,9 @@ is closed by these measurements.
 
 ### Coupled initialization diagnostics
 
-The setup counts above do not establish an equilibrium or a completed cardiac
-cycle. The current initialization study uses a separate diagnostic network
-with 64 common terminal territories per role and 2776 background tetrahedra.
+The setup counts above measure spaces. The initialization study uses a
+separate diagnostic network with 64 common terminal territories per role and
+2776 background tetrahedra.
 It is not the newly generated small family. With degree-two native area and
 velocity and a degree-two multiplier, it has 37897 total coupled DoFs.
 
@@ -700,22 +720,21 @@ and cell and trace areas equal to their reference values. Its wall-constraint
 residual was checked before starting the continuation. A trace-corrected
 initialization and a rigid hydraulic seed are different starting states.
 
-The following controlled diagnostics have not produced an accepted physical
-timestep:
+These earlier controlled diagnostics did not produce an accepted timestep:
 
 | Diagnostic | Verified result | Limitation |
 | --- | --- | --- |
-| Rigid hydraulic and reaction-pressure seeds | Native fields and wall-pressure projection can be inspected before IDA | Standard static IC still fails |
-| Portal reservoir fitted to the aggregate rigid-flow target | The rigid graph reproduces the requested portal inflow proxy | Changing this boundary alone does not resolve static IC |
-| Existing `HLL_HDG` flux | A directional coupled-Jacobian check passes | Standard static IC still fails |
-| Normal-corrected HLL | Independent normal-reversal tests and a directional coupled-Jacobian check pass | Standard static IC still fails |
-| Affine continuation from the measured DG2 reference rest | Several artificial-load stages pass fresh static-correction checks | The bounded run stops before reaching the original equations |
+| Rigid hydraulic and reaction-pressure seeds | Native fields and wall-pressure projection can be inspected before IDA | Standard static IC failed |
+| Portal reservoir fitted to the aggregate rigid-flow target | The rigid graph reproduces the requested portal inflow proxy | Changing this boundary alone did not resolve static IC |
+| State-transmission `HLL_HDG` flux | A directional coupled-Jacobian check passes | Standard static IC failed |
+| Normal-corrected HLL | Independent normal-reversal tests and a directional coupled-Jacobian check pass | Standard static IC failed |
+| Affine continuation from the measured DG2 reference rest | Several artificial-load stages pass fresh static-correction checks | The bounded run stopped before reaching the original equations |
 
 The HLL orientation defect and its independent tests are described in
 [MetricFlowX PR #92](https://github.com/luca-heltai/metric-flow-x/pull/92).
-A correct Jacobian of a numerical flux does not by itself establish that the
-flux has the correct conservation properties. Conversely, correcting this
-defect has not established coupled convergence.
+Normal-orientation tests and directional Jacobian checks address specific
+numerical contracts. The successful run below additionally changes interior
+transmission; the earlier checks alone did not establish its startup behavior.
 
 The continuation uses fixed physical time, zero state derivative and
 
@@ -746,6 +765,100 @@ records the experiment outcomes. The return-code interpretation follows the
 [SUNDIALS 6.7 IDA documentation](https://sundials.readthedocs.io/en/v6.7.0/ida/Usage/index.html):
 `IDA_LINESEARCH_FAIL` reports failure of the initial-condition line search;
 it does not establish that a physical equilibrium does not exist.
+
+### Accepted 50 ms coupled diagnostic
+
+A later controlled run selected `Interior transmission = flux` with
+`HLL_HDG`, using the native implementation in
+[MetricFlowX PR #93](https://github.com/luca-heltai/metric-flow-x/pull/93).
+This option transmits physical flow and total head across ordinary interior
+faces; `state` remains the native default. Rebuild both the native package and
+its C++ consumers when updating this SDK, because its class header changed.
+The public selection is:
+
+```text
+subsection MetricFlowSystem<1, 3>
+  set Interior transmission = flux
+end
+```
+
+In this recorded diagnostic, all 11 affine stages converged. At $s=1$, the
+artificial forcing was zero and a fresh original-equation static check gave a
+correction WRMS of $1.0102081\times10^{-6}$. Standard IDA initial-condition
+correction then passed, followed by ten accepted steps from 7.2 to 7.25 s.
+No error-test or nonlinear-convergence failures were reported. This result
+covers the 37897-DoF, 64-territory diagnostic; cardiac cycles and integration
+on the separately grown small, medium and large forests remain separate
+validation tasks.
+
+```{figure} ../_static/liver-icar/diagnostic64-startup/continuation-correction.svg
+:alt: Recorded stage and original-equation correction WRMS values at eleven affine loads, meeting at the successful original-equation stage s equal to one.
+
+Reported Newton-correction norms at the end of each converged stage. The
+blue curve concerns the artificially forced $F_s$ equations; the orange curve
+checks the original equations. Both use the recorded error weights. A small
+artificial-stage correction does not certify the original equations before
+$s=1$. WRMS is a solver norm, not a physical solution-error estimate.
+```
+
+```{figure} ../_static/liver-icar/diagnostic64-startup/accepted-ida-counts.svg
+:alt: Actual cumulative IDA step, Newton, Jacobian and linear-solve counters at six accepted output times over fifty milliseconds.
+
+Actual IDA counters at the six saved output times; lines join those records.
+The final counters are 10 steps, 24 Newton iterations, 7 Jacobian setups and
+26 linear solves, excluding the separate affine continuation. The reported
+BDF order at positive output times was one, with maximum order configured as
+two. The trace comes from the output-statistics log records; the configured
+`ida_steps.csv` in this run contains only its header.
+```
+
+A separate follow-up with ordinary startup and no affine continuation also
+reached 7.25 s in ten accepted steps, with zero reported error-test or
+nonlinear-convergence failures. Its cumulative counters were 32 Newton
+iterations, 7 Jacobian setups and 34 linear solves, including initial
+correction work. No independent original-equation static certificate was
+recorded for that follow-up; the preceding certificate belongs to the affine
+run.
+
+The [continuation records](../_static/liver-icar/diagnostic64-startup/continuation.csv),
+[IDA output records](../_static/liver-icar/diagnostic64-startup/ida-output.csv)
+and [summary and provenance](../_static/liver-icar/diagnostic64-startup/summary.json)
+contain scalar solver data and source hashes. Reproduce both figures without
+running the solver or loading anatomical data:
+
+```bash
+python3 -m pip install -r doc/_static/liver-icar/diagnostic64-startup/requirements.txt
+python3 doc/_static/liver-icar/diagnostic64-startup/plot.py \
+  --output-dir /tmp/liver-startup-figures
+```
+
+If you have the separately supplied diagnostic output bundle, open the
+following relative paths in ParaView. Keep each PVD, PVTU or VTM beside all its
+referenced files; copying only an index file omits its data.
+
+| Entry point | Contents and scope |
+| --- | --- |
+| `accepted-trajectory/flow/flow.pvd` | All three networks at six accepted times from 7.2 to 7.25 s; each PVTU references four rank pieces |
+| `accepted-trajectory/solid/solid.pvd` | Solid displacement and velocity at the same six accepted times |
+| `accepted-trajectory/flow/pressure_jump.pvd` | Accepted wall-pressure output |
+| `accepted-final-roles-t7.25/accepted-all-roles-t7.25.vtm` | Separate arterial, venous and portal VTUs from the actual accepted final native output |
+| `affine-initial/vtk/candidate-all-roles.vtm` | Unaccepted reference-rest seed at 7.2 s |
+| `affine-last-converged-stage/vtk/candidate-all-roles.vtm` | Certified $s=1$ static candidate at 7.2 s, before IDA integration |
+
+The final role VTUs retain every original native point-data array, coordinate
+and cell connection. Their roles follow the exact native-material to physical
+vessel-ID transfer, checked against all 541 cell identities and per-vessel
+cell counts; no geometric matching was used. Native material IDs and physical
+vessel IDs are distinct. Added role, time and source-index metadata identify
+the extraction. The original native patch sampling and precision are retained.
+For radius-aware display, see [Area Tube](../how-to/paraview-area-tube.md).
+
+The last-valid, last-converged and last-attempted static snapshots coincide in
+this successful run. Each retains conservative unaccepted labels and a
+separate original-static-certificate flag. These static candidates precede
+IDA and must be kept distinct from the accepted trajectory and final-time
+role VTUs. The scalar plotting records are included here; the anatomical and
+VTK result files remain outside the repository.
 
 ### Check hydraulic capacity before scaling
 
