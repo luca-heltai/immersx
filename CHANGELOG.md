@@ -530,7 +530,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Report the accepted 50 ms liver diagnostic with reproducible continuation and IDA solver plots, distinguish accepted ParaView outputs from static candidates, and separate measured DG2 setup counts from the medium forecast.
+- [PR #398](https://github.com/luca-heltai/immersx/pull/398) Report the accepted 50 ms liver diagnostic with reproducible continuation and IDA solver plots, distinguish accepted ParaView outputs from static candidates, and separate measured DG2 setup counts from the medium forecast.
 
 - [PR #394](https://github.com/luca-heltai/immersx/pull/394) Document the liver coupled-initialization diagnostics, native HLL correction, artificial continuation stages and unaccepted VTK interpretation.
 
