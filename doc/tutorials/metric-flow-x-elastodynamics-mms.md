@@ -737,3 +737,48 @@ for area. This is a base-mesh tolerance check, not a temporal error bound for
 the finest MPI run. The [machine-readable measurements](../_static/metric-flow-x-corefinement/measurements.json)
 retain the unrounded errors, mesh diagnostics, solver/rank metadata and code
 versions. The commands above reproduce the complete four-case `report.json`.
+
+## Vessel-fitted meshes
+
+The measurements above use solid meshes that do not follow the vessel wall.
+The `fitted_vessel_mesh` application writes a hexahedral mesh of the same cube
+whose cell faces lie on the wall $r=R_0$. It combines two deal.II generators:
+`GridGenerator::plate_with_a_hole()` gives the cube with a cylindrical hole
+along $x$, and `GridGenerator::subdivided_cylinder()` fills the hole. The
+cylinder is refined once on its cylindrical manifold before merging, so that
+its eight wall vertices per section match the eight vertices of the hole.
+Cells inside the vessel get material id 1; unmapped material ids use the
+default material, so the solid model is unchanged. All outer faces have
+boundary id 0.
+
+The default geometry is the cube $[-\ell,\ell]^3$, $\ell=0.120685$, and
+$R_0=\sqrt{A_0/\pi}$ with $A_0=3.0605\times10^{-4}$. The square around the
+hole has half width $2R_0$ and the coarse mesh has 12 axial cells. Global
+refinement is applied by the generator with the cylindrical and transfinite
+manifolds attached, so refined wall vertices stay on $r=R_0$. Written files do
+not keep manifolds: refine with the generator and keep `Initial refinement = 0`
+when reading the file.
+
+~~~bash
+cmake --build build-mms --target fitted_vessel_mesh
+python3 scripts/generate_fitted_vessel_meshes.py \
+  --executable build-mms/fitted_vessel_mesh --refinements 0 1 2 3 \
+  --output-dir build-mms/test_output/fitted-vessel-meshes
+~~~
+
+Each level writes `fitted_vessel_ref<N>.msh` and its JSON diagnostics;
+`summary.json` collects all levels. `--format vtu` writes files for ParaView.
+Read a mesh in the solid Domain with
+`set Grid generator = <path>/fitted_vessel_ref<N>.msh`. The geometry options
+`--half-width`, `--radius`, `--box-factor`, `--axial-cells` and
+`--vessel-material-id` are passed to the application.
+
+| Refinement | Cells | Q1 displacement DoFs | Wall cell diameter / $R_0$ | Polyhedral vessel volume error |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2016 | 7527 | 2.158 | −9.968% |
+| 1 | 16128 | 54075 | 1.096 | −2.551% |
+| 2 | 129024 | 409395 | 0.552 | −0.641% |
+| 3 | 1032192 | 3184995 | 0.277 | −0.161% |
+
+The volume error measures the trilinear cells, not the curved wall.
+These meshes have not yet been used in a coupled run.

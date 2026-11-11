@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #NNN](https://github.com/luca-heltai/immersx/pull/NNN) Add the `fitted_vessel_mesh` application and `scripts/generate_fitted_vessel_meshes.py` to write vessel-fitted cube meshes for the MetricFlowX elastodynamics manufactured solution at user-selected refinement levels.
+
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report actual coupled block DoFs in a setup-only run without initializing or integrating the coupled state.
 
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Allow supplied microvascular resistances to determine local perfusion while checking the prescribed total reference flow separately for arterial, portal and venous networks, with optional conductance scaling by relative territory demand.
