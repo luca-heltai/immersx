@@ -6,6 +6,7 @@ set(IMMERSX_UNIT_TEST_SUITES
     VascularNetworkData
     TestCategoryTyped/*
     ContributorCore
+    SecondOrderCondensation
     DimensionParameters
     CouplingNames
     FESpace

@@ -215,6 +215,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #397](https://github.com/luca-heltai/immersx/pull/397) Eliminate the kinematic rows of second-order displacement-velocity pairs before IDA factors the Jacobian with UMFPACK or MUMPS, so the direct solver factors one spatial block per pair instead of two coupled ones. The kinematic mass is factored once and reused. The reduced solve is algebraically equivalent; matrices without the kinematic structure keep the monolithic factorization. In Release, the IRCAD liver tiny and small 2 ms runs drop from 10.4 s to 6.3 s and from 24.3 s to 12.1 s.
+
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) A legacy `Representative domain/Inclusions file` reads the radius column only with `Thickness = radius`. Previously the exact default string `0.01` meant the radius column and any other spelling of the same number was a constant.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) `elasticity` and `coupled_elasticity` honour `Immersed Problem/Output every n steps` for transient runs; they previously wrote VTU output at every step. Its default is now 1 for these and for `elasticity_explicit`, which used 100.
