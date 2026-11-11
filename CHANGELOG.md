@@ -213,6 +213,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Assemble nonlinear lifted residuals and Jacobians by source cell without scanning every local sample for each cell.
+
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) A legacy `Representative domain/Inclusions file` reads the radius column only with `Thickness = radius`. Previously the exact default string `0.01` meant the radius column and any other spelling of the same number was a constant.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) `elasticity` and `coupled_elasticity` honour `Immersed Problem/Output every n steps` for transient runs; they previously wrote VTU output at every step. Its default is now 1 for these and for `elasticity_explicit`, which used 100.
