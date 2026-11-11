@@ -469,7 +469,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Align the newly authored liver setup figure scripts, data and asset license headers with the repository license.
+- [PR #383](https://github.com/luca-heltai/immersx/pull/383) Align the newly authored liver setup figure scripts, data and asset license headers with the repository license.
 
 - [PR #382](https://github.com/luca-heltai/immersx/pull/382) Document measured coupled setup counts for separately generated small and medium liver forests, with reproducible block-composition and interval-scale figures and explicit numerical limitations.
 
