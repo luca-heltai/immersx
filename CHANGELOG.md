@@ -476,7 +476,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Collect the vessel-wall pressure in one concepts page: why the multiplier is a stress jump, the analytic interior-stress correction for point and tensor-product coupling, the MetricFlowX modal correction, and their signs and units; correct the sign of the multiplier in the MetricFlowX onboarding tutorial.
+- [PR #392](https://github.com/luca-heltai/immersx/pull/392) Collect the vessel-wall pressure in one concepts page: why the multiplier is a stress jump, the analytic interior-stress correction for point and tensor-product coupling, the MetricFlowX modal correction, and their signs and units; correct the sign of the multiplier in the MetricFlowX onboarding tutorial.
 
 - [PR #383](https://github.com/luca-heltai/immersx/pull/383) Align the newly authored liver setup figure scripts, data and asset license headers with the repository license.
 
