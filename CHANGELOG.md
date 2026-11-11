@@ -530,6 +530,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Report matched current/fitted-grid manufactured-solution errors before and after the pressure documentation correction, including the coarse-grid regression and the improvement after fitted-mesh refinement.
+
 - [PR #386](https://github.com/luca-heltai/immersx/pull/386) Add reproducible rigid-reference speed and demand-normalized perfusion plots for the separately grown small and medium liver families.
 
 - [PR #380](https://github.com/luca-heltai/immersx/pull/380) Distinguish historical liver setup diagnostics on a fixed network from separately grown CCO families whose terminal counts scale with each background.

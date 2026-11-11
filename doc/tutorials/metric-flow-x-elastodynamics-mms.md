@@ -745,7 +745,7 @@ versions. The commands above reproduce the complete four-case `report.json`.
 
 The measurements above use solid meshes that do not follow the vessel wall.
 The `fitted_vessel_mesh` application writes a hexahedral mesh of the same cube
-whose cell faces lie on the wall $r=R_0$. It combines two deal.II generators:
+whose vessel-wall vertices lie on $r=R_0$. It combines two deal.II generators:
 `GridGenerator::plate_with_a_hole()` gives the cube with a cylindrical hole
 along $x$, and `GridGenerator::subdivided_cylinder()` fills the hole. The
 cylinder is refined once on its cylindrical manifold before merging, so that
@@ -784,4 +784,93 @@ Read a mesh in the solid Domain with
 | 3 | 1032192 | 3184995 | 0.277 | −0.161% |
 
 The volume error measures the trilinear cells, not the curved wall.
-These meshes have not yet been used in a coupled run.
+The following matched study exercises both fitted levels in the coupled solve.
+
+
+<!-- fitted-comparison-results -->
+### Measured comparison with the current grid
+
+The matched study uses $T=0.1$, four MPI ranks, Q1 displacement, DG1 area,
+native velocity and scalar multiplier, section level 2, the same bidirectional
+co-refinement interval $(0.25,4)$, and IDA absolute/relative tolerances
+`1e-7`/`1e-4`. Every run retains `Remove fictitious modal response = true`
+and reaches the same final time. The error labelled pressure is the relative
+L2 error of the multiplier, whose oracle is $\lambda^\star=-0.0152$ Pa;
+the additional pressure supplied to the flow is $-\lambda$.
+
+The solid grid is the only physical input changed. All three grids finish
+with 16 flow cells and 32 multiplier DoFs. Solid counts below are after
+co-refinement, rather than the counts of the input files.
+
+| Grid | Solid cells | Displacement DoFs | Displacement error % | Solid velocity error % | Pressure error % |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Current Cartesian/adaptive | 5104 | 20523 | 1.630626 | 1.18785 | 72.59282 |
+| Fitted, generator refinement 0 | 10080 | 43215 | 1.032617 | 0.7393861 | 88.39546 |
+| Fitted, generator refinement 1 | 24192 | 87927 | 0.4814993 | 0.140506 | 5.933387 |
+
+These numbers hold both without and with
+[PR #392](https://github.com/luca-heltai/immersx/pull/392). Each grid was run
+with both builds. Every exported field value at the final time is identical
+in its matched pair, at the precision of the exported files. The C++ diff of
+#392 changes comments only; it neither flips a solver sign nor enables the
+interior correction. The controlled comparison pins master `67259eaf`, plus
+#388, and then adds the exact head of #392, excluding later master updates.
+
+The mean multiplier is -0.0248146, -0.0219973 and -0.0159542 Pa for the
+current, coarse fitted and refined fitted grids, against -0.0152 Pa. The
+coarse fitted mean bias decreases from 63.25% to 44.72%, while the
+length-weighted spatial standard deviation increases from 0.00541403 to
+0.0115899 Pa. At fitted refinement 1 the mean bias is 4.962% and the spatial
+standard deviation is 0.000494494 Pa. The coarse-grid L2 increase therefore
+comes from stronger spatial variation even though its mean is closer.
+
+The coarse fitted grid increases pressure error despite having more solid
+DoFs. Refinement 1 reduces it substantially, while displacement error also
+falls. Fittedness alone therefore does not establish pressure accuracy. These
+are different solid spaces and costs; the two fitted levels do not establish
+an asymptotic convergence order or an inf-sup bound.
+
+The wall vertices lie on the reference circle, but Q1 faces are polygonal.
+The input vessel-volume errors are -9.9684% and -2.55046% at generator
+refinements 0 and 1. Refinement after importing the mesh splits flat faces;
+it does not restore the circular manifold used while generating it. These
+geometric errors are distinct from quadrature-based sampled-volume errors
+and from the defect in the added physical volume.
+
+| Grid | Area error % | Native velocity error % | Added-volume relative defect % | Sampled reference-volume error % |
+| --- | ---: | ---: | ---: | ---: |
+| Current Cartesian/adaptive | 0.0004920399 | 0.002678588 | 0.2451108 | 2.243788 |
+| Fitted, generator refinement 0 | 0.0003902418 | 0.08778526 | 0.1882308 | 3.513785 |
+| Fitted, generator refinement 1 | 0.000490787 | 0.0002308015 | 0.2454078 | -2.550464 |
+
+Native velocity error also increases on the coarse fitted grid, from
+0.00268% to 0.0878%, while fitted refinement 1 reduces it to 0.000231%.
+The current and refined fitted added-volume defects remain about 0.245%.
+
+The relaxed time tolerances do not make temporal error negligible for every
+observable: the earlier fixed-grid tolerance bridge increased area error by
+about 11 times and the added-volume defect by about 26 times. These controls
+are held fixed here; no temporal-error bound is claimed for the fitted mesh.
+
+The generator is checked in Debug and Release. Its original Debug startup
+failure (an unregistered manifold) is fixed; regenerated Release inputs are
+byte-identical to the meshes used above.
+
+The postprocessor uses three-point Gauss quadrature per coordinate on the
+trilinear geometry of exported Q1 hexahedra, including its Jacobian. The
+pressure norm is exact for the exported DG1 line field and constant oracle,
+up to round-off; the piecewise analytic solid oracle is integrated numerically. Six analytical checks cover affine and warped
+cells, Cartesian agreement, VTK voxel order, compressed cell types, and
+rejection of an inverted cell. Reassessing the published Cartesian control
+reproduces its error metrics to relative `1e-11`. All final meshes have
+positive quadrature Jacobians, full cube volume, and no uncovered lift points
+or directional scale violations.
+
+The [machine-readable measurements](../_static/metric-flow-x-fitted-comparison/measurements.json)
+retain all six matched runs, the two replays with the historical executable,
+preflight failures, mesh diagnostics, parameter differences and binary hashes.
+[Issue #379](https://github.com/luca-heltai/immersx/issues/379) retains the earlier
+families and exact parameter snapshots. The historical replay gives
+pressure errors, 88.3955% and 5.93339%, for the two fitted inputs. Elapsed times
+include concurrent builds and runs and are not performance benchmarks.
+<!-- end fitted-comparison-results -->
