@@ -29,10 +29,21 @@ namespace ImmersX
     run_timestep(const double physical_time);
 
     /**
-     * Compute tissue pressure from physical wall samples with fixed overlap
-     * flags. Missing tissue contributes zero; normalization always uses the
-     * complete nominal section. Every selected multiplier mode enters the
-     * physical traction before taking its normal component.
+     * Compute the mean normal stress of the tissue on the vessel walls.
+     *
+     * The value is @f$\mathbf n\cdot\sigma\mathbf n@f$ with @f$\mathbf n@f$
+     * pointing out of the vessel, so it is positive in tension; the physical
+     * external pressure is its negative. The elastic material also fills the
+     * vessels, so the multiplier traction is the jump
+     * @f$\sigma^+\mathbf n-\sigma^-\mathbf n@f$ between the tissue and the
+     * interior material. The interior term @f$\sigma^-_{nn}@f$ below adds back
+     * the interior part. doc/concepts/vessel-pressure.md derives all formulas.
+     *
+     * The pressure is evaluated on physical wall samples with fixed overlap
+     * flags @f$\chi@f$. Samples outside the bulk mesh contribute zero, and
+     * every mean is normalized by the complete nominal wall or section. Every
+     * selected multiplier mode enters the physical traction before its normal
+     * component is taken.
      *
      * For point coupling the coefficients are forces. Inclusion k uses its
      * own multiplier block b(k), or its segment's block when clustering:
@@ -58,8 +69,8 @@ namespace ImmersX
      * \frac{\sum_\ell w_{j\ell}\chi_{j\ell}\sigma_{j\ell}}
      *      {\sum_\ell w_{j\ell}}.
      * @f]
-     * Preserve the centerline averaging convention, including for a variable
-     * radius. If v_j are the representative quadrature weights, then
+     * The vessel value is the arc-length mean over the centerline, also for a
+     * variable radius. If v_j are the representative quadrature weights, then
      * @f$p_v=\sum_{j\in\gamma_v}v_j p_{\rm cov}(s_j)/
      * \sum_{j\in\gamma_v}v_j@f$. The values stored per reduced support point
      * are coefficients of a scalar L2 projection with the nominal centerline
@@ -73,10 +84,11 @@ namespace ImmersX
      * pressure_at_immersed_surface_by_inclusion.
      *
      * If ElasticityProblemParameters::remove_interior_stress_from_pressure
-     * is true, retain the axisymmetric plane-strain correction
-     * @f$\sigma^-_{nn,q}=\overline K\bar a_n(s_q)/r(s_q)@f$.
-     * Here @f$\overline K@f$ is the arithmetic mean of 2(lambda_L+mu) over the
-     * located particles of the inclusion or reduced cell; it is zero when
+     * is true, @f$\sigma^-_{nn,q}=\overline K\bar a_n(s_q)/r(s_q)@f$, the mean
+     * normal stress of the exact plane-strain interior solution for the
+     * imposed wall displacement; otherwise it is zero.
+     * Here @f$\overline K@f$ is the arithmetic mean of 2(lambda_L+mu_L) over
+     * the located particles of the inclusion or reduced cell; it is zero when
      * there are no such particles. No default material is assigned outside.
      * The radius and mean radial datum use the nominal geometry. Point
      * coupling uses the full nominal rhs moments, averaged over a segment's
@@ -86,8 +98,8 @@ namespace ImmersX
      * On a resolved circle the radial mean is
      * @f$\bar a_n=(a_d+a_{2d+1})/2@f$. Only these radial modes enter the
      * interior correction. A rigid translation contributes no interior
-     * stress, including on a partial wall. This closure retains the previous
-     * mean radial model and does not infer a general angular interior stress.
+     * stress, including on a partial wall. The pointwise interior stress of
+     * the other angular modes is not modelled.
      *
      * See doc/how-to/support-aware-weak-terms.md for the fixed quadrature
      * support and geometry convention.
@@ -143,9 +155,10 @@ namespace ImmersX
     /**
      * With point coupling: mean normal stress on the wall of each inclusion,
      * @f$p_k@f$, indexed by inclusion id. With tensor-product coupling: the
-     * pressure @f$p(s)@f$ at each support point of the reduced grid, in the
-     * order of the degrees of freedom of the first component of the reduced
-     * DoFHandler. See compute_pressure_at_immersed_surface().
+     * coefficients of the L2 projection of @f$p(s)@f$ onto the scalar space of
+     * one multiplier component, one per support point of the reduced grid, in
+     * the order of the degrees of freedom of the first component of the
+     * reduced DoFHandler. See compute_pressure_at_immersed_surface().
      */
     TrilinosWrappers::MPI::Vector pressure_at_immersed_surface_by_inclusion;
 

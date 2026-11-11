@@ -312,6 +312,8 @@ for all bulk test functions $v$, together with a reduced constraint equation exp
 
 This is the mathematical template behind the reduced elasticity solvers and the classes handling immersed inclusions, in particular `ElasticityProblem`, `Inclusions`, and `TensorProductSpace`.
 
+The bulk integral runs over all of $\Omega$, including the inside of the inclusion. The multiplier load is therefore the jump of the normal stress across the inclusion wall, not the traction of the outer material alone. [Pressure on the vessel walls](vessel-pressure.md) shows how ImmersX recovers the tissue pressure from it.
+
 ### Example B: Bulk scalar field coupled to a reduced interface
 
 Let $u$ solve a Poisson problem in $\Omega$, but suppose a lower-dimensional inclusion imposes an interface condition only in a reduced sense. Then the weak problem becomes:
