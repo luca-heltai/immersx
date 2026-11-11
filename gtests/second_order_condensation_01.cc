@@ -34,11 +34,14 @@ namespace
   constexpr unsigned int m           = 2; // multiplier size
   constexpr unsigned int constrained = 4; // one constrained displacement DoF
 
-  // Condensed (constrained row and column removed) symmetric operators.
+  // With condensed_mass the constrained mass row and column are removed;
+  // otherwise free mass rows also reach the constrained column.
+  bool condensed_mass = true;
+
   double
   mass(const unsigned int i, const unsigned int j)
   {
-    if (i == constrained || j == constrained)
+    if (i == constrained || (condensed_mass && j == constrained))
       return 0.;
     return i == j ? 4. + 0.1 * i : (i + 1 == j || j + 1 == i ? 1. : 0.);
   }
@@ -94,7 +97,8 @@ namespace
   assemble(BlockMatrix                 &jacobian,
            const std::vector<IndexSet> &partitions,
            const double                 alpha,
-           const double                 kinematic_perturbation = 0.)
+           const double                 kinematic_perturbation = 0.,
+           const bool                   unit_velocity_row      = true)
   {
     jacobian.reinit(3, 3);
     const auto zero = [](unsigned int, unsigned int) { return 0.; };
@@ -109,6 +113,8 @@ namespace
     });
     fill_block(jacobian, 0, 2, partitions, zero);
     fill_block(jacobian, 1, 0, partitions, [&](auto i, auto j) {
+      if (!unit_velocity_row && i == constrained && j + 1 == constrained)
+        return 0.5;
       return free(i) ? stiffness(i, j) : 0.;
     });
     fill_block(jacobian, 1, 1, partitions, [&](auto i, auto j) {
@@ -148,47 +154,54 @@ namespace
 
 TEST(SecondOrderCondensation, BOTH_ReducedSolveMatchesCoupledJacobian)
 {
-  const auto                          layout = partitions();
-  std::shared_ptr<const Condensation> previous;
-  for (const double alpha : {3., 0.})
+  const auto layout = partitions();
+  for (const bool condensed : {true, false})
     {
-      SCOPED_TRACE(alpha);
-      BlockMatrix jacobian;
-      assemble(jacobian, layout, alpha);
-      const auto condensation =
-        Condensation::build(jacobian, {{0, 1}}, layout, MPI_COMM_WORLD);
-      ASSERT_TRUE(condensation);
-      ASSERT_EQ(condensation->n_pairs(), 1u);
-      EXPECT_EQ(condensation->reduced_matrix().m(), n + m);
-      // The kinematic mass does not depend on the derivative weight.
-      if (previous)
-        EXPECT_TRUE(previous->kinematic_mass(0) ==
-                    condensation->kinematic_mass(0));
-      previous = condensation;
+      condensed_mass = condensed;
+      std::shared_ptr<const Condensation> previous;
+      for (const double alpha : {3., 0.})
+        {
+          SCOPED_TRACE(alpha);
+          SCOPED_TRACE(condensed);
+          BlockMatrix jacobian;
+          assemble(jacobian, layout, alpha);
+          const auto condensation =
+            Condensation::build(jacobian, {{0, 1}}, layout, MPI_COMM_WORLD);
+          ASSERT_TRUE(condensation);
+          ASSERT_EQ(condensation->n_pairs(), 1u);
+          EXPECT_EQ(condensation->reduced_matrix().m(), n + m);
+          // The kinematic mass does not depend on the derivative weight.
+          if (previous)
+            EXPECT_TRUE(previous->kinematic_mass(0) ==
+                        condensation->kinematic_mass(0));
+          previous = condensation;
 
-      GlobalVector rhs(layout, MPI_COMM_WORLD);
-      for (unsigned int block = 0; block < 3; ++block)
-        for (const auto index : layout[block])
-          rhs.block(block)(index) = 1. + 0.3 * index - 0.7 * block;
-      rhs.compress(VectorOperation::insert);
+          GlobalVector rhs(layout, MPI_COMM_WORLD);
+          for (unsigned int block = 0; block < 3; ++block)
+            for (const auto index : layout[block])
+              rhs.block(block)(index) = 1. + 0.3 * index - 0.7 * block;
+          rhs.compress(VectorOperation::insert);
 
-      const auto mass_matrix = condensation->kinematic_mass(0).make_matrix(
-        condensation->kinematic_partition(0), MPI_COMM_WORLD);
-      FieldVector              kinematic_rhs;
-      std::vector<FieldVector> kinematic(1);
-      condensation->kinematic_rhs(rhs, 0, kinematic_rhs);
-      solve(*mass_matrix, kinematic[0], kinematic_rhs);
-      FieldVector reduced_rhs, reduced_solution;
-      condensation->reduced_rhs(rhs, kinematic, reduced_rhs);
-      solve(condensation->reduced_matrix(), reduced_solution, reduced_rhs);
-      GlobalVector solution(layout, MPI_COMM_WORLD);
-      condensation->expand(reduced_solution, kinematic, solution);
+          const auto mass_matrix = condensation->kinematic_mass(0).make_matrix(
+            condensation->kinematic_partition(0), MPI_COMM_WORLD);
+          FieldVector              kinematic_rhs;
+          std::vector<FieldVector> kinematic(1);
+          condensation->kinematic_rhs(rhs, 0, kinematic_rhs);
+          solve(*mass_matrix, kinematic[0], kinematic_rhs);
+          condensation->finish_kinematic_solution(rhs, 0, kinematic[0]);
+          FieldVector reduced_rhs, reduced_solution;
+          condensation->reduced_rhs(rhs, kinematic, reduced_rhs);
+          solve(condensation->reduced_matrix(), reduced_solution, reduced_rhs);
+          GlobalVector solution(layout, MPI_COMM_WORLD);
+          condensation->expand(reduced_solution, kinematic, solution);
 
-      GlobalVector residual(layout, MPI_COMM_WORLD);
-      jacobian.vmult(residual, solution);
-      residual -= rhs;
-      EXPECT_LT(residual.l2_norm(), 1.e-10 * rhs.l2_norm());
+          GlobalVector residual(layout, MPI_COMM_WORLD);
+          jacobian.vmult(residual, solution);
+          residual -= rhs;
+          EXPECT_LT(residual.l2_norm(), 1.e-10 * rhs.l2_norm());
+        }
     }
+  condensed_mass = true;
 }
 
 TEST(SecondOrderCondensation, BOTH_RejectsNonKinematicRows)
@@ -198,4 +211,12 @@ TEST(SecondOrderCondensation, BOTH_RejectsNonKinematicRows)
   assemble(jacobian, layout, 3., 1.e-3);
   EXPECT_FALSE(Condensation::build(jacobian, {{0, 1}}, layout, MPI_COMM_WORLD));
   EXPECT_FALSE(Condensation::build(jacobian, {}, layout, MPI_COMM_WORLD));
+
+  // An uncondensed mass needs v_c from a unit velocity row.
+  condensed_mass = false;
+  assemble(jacobian, layout, 3., 0., false);
+  EXPECT_FALSE(Condensation::build(jacobian, {{0, 1}}, layout, MPI_COMM_WORLD));
+  condensed_mass = true;
+  assemble(jacobian, layout, 3., 0., false);
+  EXPECT_TRUE(Condensation::build(jacobian, {{0, 1}}, layout, MPI_COMM_WORLD));
 }

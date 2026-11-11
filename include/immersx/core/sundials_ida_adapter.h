@@ -804,6 +804,9 @@ namespace ImmersX
                     {
                       condensation_->kinematic_rhs(input, p, kinematic_rhs);
                       kinematic_solvers_[p].solve(kinematic[p], kinematic_rhs);
+                      condensation_->finish_kinematic_solution(input,
+                                                               p,
+                                                               kinematic[p]);
                     }
                   FieldVectorType reduced_rhs, reduced_solution;
                   condensation_->reduced_rhs(input, kinematic, reduced_rhs);

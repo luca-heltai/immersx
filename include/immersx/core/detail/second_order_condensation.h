@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -35,11 +36,13 @@ namespace ImmersX
      * Jacobian before a sparse direct factorization.
      *
      * A pair with kinematic residual M u' - M v linearizes to
-     * [rho M_ff, -M_ff] on free displacement rows, where rho is the derivative
-     * weight, and to a nonzero diagonal D on constrained rows. With the mass
-     * Mhat = diag(M_ff, I) and the kinematic right-hand side r_u, the
-     * kinematic rows fix z = Mhat^{-1} w, where w = r_f / rho (or -r_f when
-     * rho = 0) on free rows and r_c / D on constrained rows. Then
+     * [rho M_f, -M_f] on free displacement rows, where rho is the derivative
+     * weight, and to a nonzero diagonal D on constrained rows c, so that
+     * u_c = r_c / D. If M_f reaches a constrained column, the velocity row c
+     * must be a unit row, which fixes v_c from the right-hand side. With
+     * Mhat = [M_ff, M_fc; 0, I], the kinematic rows give z = Mhat^{-1} w,
+     * where w_f = r_f / rho and w_c = u_c - v_c / rho (w_f = -r_f and
+     * w_c = v_c when rho = 0). After z_c is replaced by u_c:
      *
      * - rho > 0: u = z + P_f v / rho, and each velocity column i of the
      *   reduced matrix is J_Rv(:, i) + J_Ru(:, i) / rho for free i;
@@ -255,6 +258,25 @@ namespace ImmersX
               return nullptr;
             data.rho = rho_max;
             data.constrained.compress();
+            // Constrained velocity rows that are unit rows fix v_c directly.
+            for (const auto &[row, d] : data.constrained_diagonal)
+              {
+                double diagonal = 0.;
+                bool   unit     = true;
+                for (unsigned int column = 0; column < n_blocks && unit;
+                     ++column)
+                  {
+                    row_entries(jacobian.block(pair.velocity, column), row, uu);
+                    for (const auto &entry : uu)
+                      if (column == pair.velocity && entry.first == row)
+                        diagonal = entry.second;
+                      else if (entry.second != 0.)
+                        unit = false;
+                  }
+                (void)d;
+                if (unit && diagonal != 0.)
+                  data.velocity_diagonal.emplace(row, diagonal);
+              }
             result->pairs_.push_back(std::move(data));
           }
 
@@ -331,13 +353,15 @@ namespace ImmersX
             relevant.add_indices(owned);
             relevant.compress();
             flags[p].reinit(owned, relevant, communicator);
+            // 1: constrained with a unit velocity row, 2: other constrained.
             for (const auto index : result->pairs_[p].constrained)
-              flags[p](index) = 1.;
+              flags[p](index) =
+                result->pairs_[p].velocity_diagonal.count(index) ? 1. : 2.;
             flags[p].update_ghost_values();
           }
 
-        // Free mass rows must not reach constrained columns; otherwise
-        // Mhat^{-1} P_f Mhat is not the projection used above.
+        // Free mass rows may reach a constrained column only if v_c is known
+        // from its unit velocity row.
         valid = true;
         for (std::size_t p = 0; p < result->pairs_.size() && valid; ++p)
           {
@@ -351,7 +375,7 @@ namespace ImmersX
                     row_max = std::max(row_max, std::abs(mass.values[k]));
                   for (auto k = mass.offsets[row]; k < mass.offsets[row + 1];
                        ++k)
-                    if (flags[p](mass.columns[k]) != 0. &&
+                    if (flags[p](mass.columns[k]) == 2. &&
                         std::abs(mass.values[k]) > tolerance * row_max)
                       valid = false;
                 }
@@ -432,7 +456,8 @@ namespace ImmersX
         return partitions_[pairs_[p].pair.displacement];
       }
 
-      /** The right-hand side w of Mhat z = w for pair @p p. */
+      /** The right-hand side w of Mhat z = w for pair @p p; see the class
+       * documentation. Call finish_kinematic_solution() on z afterwards. */
       template <typename GlobalVectorType>
       void
       kinematic_rhs(const GlobalVectorType &rhs,
@@ -446,9 +471,33 @@ namespace ImmersX
         for (const auto index : kinematic_partition(p))
           if (!data.constrained.is_element(index))
             destination(index) = scale * u(index);
+        const auto &v = rhs.block(data.pair.velocity);
         for (const auto &[index, diagonal] : data.constrained_diagonal)
-          destination(index) = u(index) / diagonal;
+          {
+            const auto unit = data.velocity_diagonal.find(index);
+            if (unit == data.velocity_diagonal.end())
+              destination(index) = u(index) / diagonal;
+            else if (data.rho > 0.)
+              destination(index) =
+                u(index) / diagonal - v(index) / unit->second / data.rho;
+            else
+              destination(index) = v(index) / unit->second;
+          }
         destination.compress(dealii::VectorOperation::insert);
+      }
+
+      /** Replace the constrained entries of z = Mhat^{-1} w by u_c. */
+      template <typename GlobalVectorType>
+      void
+      finish_kinematic_solution(const GlobalVectorType &rhs,
+                                const std::size_t       p,
+                                FieldVectorType        &solution) const
+      {
+        const auto &data = pairs_[p];
+        const auto &u    = rhs.block(data.pair.displacement);
+        for (const auto &[index, diagonal] : data.constrained_diagonal)
+          solution(index) = u(index) / diagonal;
+        solution.compress(dealii::VectorOperation::insert);
       }
 
       /** The reduced right-hand side for the kinematic solutions z. */
@@ -533,6 +582,7 @@ namespace ImmersX
         double                                    rho = 0.;
         dealii::IndexSet                          constrained;
         std::vector<std::pair<size_type, double>> constrained_diagonal;
+        std::map<size_type, double>               velocity_diagonal;
         CompressedRows                            mass;
       };
 
