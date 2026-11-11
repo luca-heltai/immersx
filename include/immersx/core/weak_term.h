@@ -58,6 +58,7 @@
 #include <optional>
 #include <set>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -3822,6 +3823,19 @@ namespace ImmersX
           return point.mode_vector * value;
       }
 
+      template <typename Support>
+      static auto
+      index_points(const std::vector<Point> &points, const Support &support)
+      {
+        std::unordered_map<dealii::types::global_cell_index,
+                           std::vector<std::size_t>>
+          result;
+        for (std::size_t q = 0; q < points.size(); ++q)
+          if (support_lifted_point(support, points[q]))
+            result[points[q].source_entity_id].push_back(q);
+        return result;
+      }
+
       template <typename VectorType>
       static void
       reinit_result(VectorType &vector, const TargetField &field)
@@ -3884,7 +3898,8 @@ namespace ImmersX
         reinit_result(*result, target_field);
         *result = 0.;
 
-        const auto points = observable.lifted_points();
+        const auto &points        = observable.lifted_points();
+        const auto  point_indices = index_points(points, support);
         for (const auto &cell :
              target_field.dof_handler().active_cell_iterators())
           if (cell->is_locally_owned())
@@ -3892,10 +3907,10 @@ namespace ImmersX
               std::vector<dealii::types::global_dof_index> indices(
                 cell->get_fe().n_dofs_per_cell());
               cell->get_dof_indices(indices);
-              for (std::size_t q = 0; q < points.size(); ++q)
-                if (points[q].source_entity_id ==
-                      cell->global_active_cell_index() &&
-                    support_lifted_point(support, points[q]))
+              const auto cell_points =
+                point_indices.find(cell->global_active_cell_index());
+              if (cell_points != point_indices.end())
+                for (const auto q : cell_points->second)
                   {
                     const auto   basis = target_basis(target, cell, points[q]);
                     const double value =
@@ -3944,7 +3959,8 @@ namespace ImmersX
           target_field.locally_owned_dofs().size(),
           column_source.locally_owned_dofs().size(),
           target_field.locally_relevant_dofs());
-        const auto         points = observable.lifted_points();
+        const auto        &points        = observable.lifted_points();
+        const auto         point_indices = index_points(points, support);
         const unsigned int n_columns =
           column_source.space().finite_element().n_dofs_per_cell();
         std::vector<dealii::types::global_dof_index> target_indices(
@@ -4028,10 +4044,10 @@ namespace ImmersX
                   }
               dealii::FullMatrix<double> local(active_rows.size(),
                                                active_columns.size());
-              for (std::size_t q = 0; q < points.size(); ++q)
-                if (points[q].source_entity_id ==
-                      cell->global_active_cell_index() &&
-                    support_lifted_point(support, points[q]))
+              const auto                 cell_points =
+                point_indices.find(cell->global_active_cell_index());
+              if (cell_points != point_indices.end())
+                for (const auto q : cell_points->second)
                   {
                     const auto basis = target_basis(target, cell, points[q]);
                     if (active_rows.empty())
