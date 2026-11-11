@@ -529,9 +529,13 @@ namespace ImmersX
               }
             product.reinit(partitions_[coupling.block], communicator_);
             coupling.matrix->vmult(product, known);
+            // Keep every write an insertion; Trilinos rejects mixing them.
             for (const auto index : partitions_[coupling.block])
-              destination(reduced_offsets_[coupling.block] + index) -=
-                product(index);
+              {
+                const auto row = reduced_offsets_[coupling.block] + index;
+                destination(row) =
+                  static_cast<double>(destination(row)) - product(index);
+              }
           }
         destination.compress(dealii::VectorOperation::insert);
       }
