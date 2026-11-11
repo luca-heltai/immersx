@@ -872,6 +872,8 @@ TEST(MetricFlowX, BOTH_MaterializedPressureMatchesGlobalBasisOracle)
   auto projection = std::make_shared<MetricFlowX::MatrixType>();
   DynamicSparsityPattern sparsity(field.locally_relevant_dofs());
   DoFTools::make_sparsity_pattern(view.dof_handler(), sparsity);
+  if (field.locally_owned_dofs().is_element(0))
+    sparsity.add(0, basis.size() - 1);
   SparsityTools::distribute_sparsity_pattern(sparsity,
                                              field.locally_owned_dofs(),
                                              MPI_COMM_WORLD,
@@ -894,18 +896,24 @@ TEST(MetricFlowX, BOTH_MaterializedPressureMatchesGlobalBasisOracle)
         projection->set(indices[1], indices[1], .6);
       }
   projection->compress(VectorOperation::insert);
+  auto nonlocal_projection = detail::clone_matrix(*projection);
+  if (field.locally_owned_dofs().is_element(0))
+    nonlocal_projection->set(0, basis.size() - 1, .125);
+  nonlocal_projection->compress(VectorOperation::insert);
+  const std::vector<std::shared_ptr<const MetricFlowX::MatrixType>> projections{
+    nullptr, projection, nonlocal_projection};
+  const auto pressure = -1. * value(field);
   for (const auto flux : {Problem::NumericalFluxType::HLL,
                           Problem::NumericalFluxType::LAX_FRIEDRICHS})
     {
       problem.set_numerical_flux(flux);
-      for (const bool projected : {false, true})
+      for (const auto &selected_projection : projections)
         {
-          const auto op =
-            metric_flow_x_pressure_operator(problem,
-                                            -1. * value(field),
-                                            state,
-                                            0.,
-                                            projected ? projection : nullptr);
+          const auto op = metric_flow_x_pressure_operator(
+            problem, pressure, state, 0., selected_projection);
+          EXPECT_EQ(bool(metric_flow_x_pressure_basis_provider(
+                      pressure, selected_projection)),
+                    selected_projection != nonlocal_projection);
           const auto matrix = op.materialize();
           // This deliberately keeps the old global-column calculation as an
           // independent oracle for the new native local derivative traversal.
@@ -924,6 +932,65 @@ TEST(MetricFlowX, BOTH_MaterializedPressureMatchesGlobalBasisOracle)
             }
         }
     }
+}
+
+
+TEST(MetricFlowX, BOTH_UnsupportedPressureViewsKeepBasisProbeFallback)
+{
+  using namespace dealii;
+  using namespace ImmersX;
+  if constexpr (!detail::has_external_pressure_jacobian_visitor<Problem>::value)
+    GTEST_SKIP() << "This regression requires the new native API.";
+  ParameterAcceptor::clear();
+  Problem                problem(MPI_COMM_WORLD);
+  TimeIntervalParameters time("/", false);
+  IDAParameters          ida("/MetricFlowSystem<1, 3>/IDA parameters/", &time);
+  FiniteElementSpaceParameters<1, 3> continuous_parameters(
+    "/Continuous pressure/", "FE_Q(1)");
+  FiniteElementSpaceParameters<1, 3> dg_parameters("/Reindexed pressure/",
+                                                   "FE_DGQ(1)");
+  initialize_native_parameters(
+    problem,
+    TestPaths::parameter_path("gtests/parameters/metric_flow_x_pressure.prm"),
+    0);
+  problem.setup();
+  FiniteElementSpace<1, 3> continuous_space(problem.triangulation(),
+                                            continuous_parameters);
+  FiniteElementSpace<1, 3> dg_space(problem.triangulation(), dg_parameters);
+  const auto               continuous_view = continuous_space.view();
+  const auto               dg_view         = dg_space.view();
+  const auto continuous = continuous_view.field("continuous_pressure");
+  const auto dg         = dg_view.field("dg_pressure");
+  std::vector<types::global_dof_index> indices(dg_view.dof_handler().n_dofs());
+  for (types::global_dof_index i = 0; i < indices.size(); ++i)
+    indices[i] = i;
+  const auto reindexed = dg.reindexed("reindexed_pressure",
+                                      dg.locally_owned_dofs(),
+                                      dg.locally_relevant_dofs(),
+                                      indices);
+  ASSERT_TRUE(reindexed.is_reindexed());
+  auto state = problem.make_state();
+  problem.initialize_state(state, 0.);
+  const auto check = [&](const auto &field) {
+    SCOPED_TRACE(field.name());
+    const auto pressure = -1. * value(field);
+    EXPECT_FALSE(bool(metric_flow_x_pressure_basis_provider(pressure)));
+    FieldVector coefficients;
+    coefficients.reinit(field.locally_owned_dofs(), MPI_COMM_WORLD);
+    for (const auto i : coefficients.locally_owned_elements())
+      coefficients[i] = 1. + .137 * i * i;
+    coefficients.compress(VectorOperation::insert);
+    const auto op =
+      metric_flow_x_pressure_operator(problem, pressure, state, 0.);
+    auto actual = problem.make_state(), expected = problem.make_state();
+    op.view.vmult(expected, coefficients);
+    ASSERT_GT(expected.l2_norm(), 1.e-12);
+    op.materialize()->vmult(actual, coefficients);
+    actual -= expected;
+    EXPECT_LE(actual.l2_norm(), 2.e-12 * std::max(1., expected.l2_norm()));
+  };
+  check(continuous);
+  check(reindexed);
 }
 
 

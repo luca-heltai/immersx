@@ -30,6 +30,7 @@
 #  include <immersx/physics/metric_flow_x.h>
 
 #  include <algorithm>
+#  include <functional>
 #  include <map>
 #  include <tuple>
 
@@ -211,10 +212,11 @@ namespace ImmersX
     };
   }
 
-  /** Return coefficient stencils on native pressure evaluation points.
-   * Projection rows are cell-local for the discontinuous wall pressure space.
-   * Their small dense blocks are exchanged with ghost cells once, rather than
-   * importing a distributed matrix during every point evaluation.
+  /** Return local pressure stencils, or an empty provider on every rank.
+   * Native local assembly supports full unconstrained discontinuous scalar
+   * fields with cell-local projections. Other fields and projections retain
+   * the general basis-probing implementation. Support is checked collectively
+   * before exchanging projection blocks with ghost cells.
    */
   template <typename Pressure>
   auto
@@ -222,17 +224,38 @@ namespace ImmersX
     const Pressure                                &pressure,
     std::shared_ptr<const MetricFlowX::MatrixType> projection = {})
   {
+    using Point = MetricFlowX::BloodFlowSystem<1, 3>::PressureEvaluationPoint;
+    using Basis =
+      std::vector<std::pair<dealii::types::global_dof_index, double>>;
+    using Provider    = std::function<Basis(const Point &)>;
     const auto  field = pressure.source();
     const auto &dofs  = field.dof_handler();
     const auto &fe    = field.space().finite_element();
-    const bool  valid = fe.n_components() == 1 && fe.n_dofs_per_vertex() == 0 &&
-                       field.constraints().n_constraints() == 0 &&
-                       !field.is_reindexed();
-    AssertThrow(
-      dealii::Utilities::MPI::min(static_cast<unsigned int>(valid),
-                                  field.space().mpi_communicator()) != 0,
-      dealii::ExcMessage(
-        "Native pressure coefficient assembly requires an unconstrained discontinuous scalar field."));
+    bool        valid = fe.n_components() == 1 && fe.n_dofs_per_vertex() == 0 &&
+                 field.constraints().n_constraints() == 0 &&
+                 !field.is_reindexed();
+    if (valid && projection)
+      {
+        const auto owns_rows = [&](const auto &matrix) {
+          using Matrix = std::decay_t<decltype(matrix)>;
+          if constexpr (detail::has_distributed_partitions<Matrix>::value)
+            return matrix.locally_owned_range_indices() ==
+                   field.locally_owned_dofs();
+          else
+            {
+              dealii::IndexSet rows(matrix.m());
+              const auto       range = matrix.local_range();
+              rows.add_range(range.first, range.second);
+              return rows == field.locally_owned_dofs();
+            }
+        };
+        valid = projection->m() == field.locally_owned_dofs().size() &&
+                projection->n() == field.locally_owned_dofs().size() &&
+                owns_rows(*projection);
+      }
+    if (dealii::Utilities::MPI::min(static_cast<unsigned int>(valid),
+                                    field.space().mpi_communicator()) == 0)
+      return Provider{};
     using Cell      = dealii::DoFHandler<1, 3>::active_cell_iterator;
     using Block     = std::vector<double>;
     auto cells      = std::make_shared<std::map<dealii::CellId, Cell>>();
@@ -272,10 +295,9 @@ namespace ImmersX
                 }
             }
         }
-    AssertThrow(
-      dealii::Utilities::MPI::min(static_cast<unsigned int>(cell_local),
-                                  field.space().mpi_communicator()) != 0,
-      dealii::ExcMessage("Native pressure projection must be cell-local."));
+    if (dealii::Utilities::MPI::min(static_cast<unsigned int>(cell_local),
+                                    field.space().mpi_communicator()) == 0)
+      return Provider{};
     if (projection &&
         dynamic_cast<const dealii::parallel::TriangulationBase<1, 3> *>(
           &dofs.get_triangulation()))
@@ -285,38 +307,39 @@ namespace ImmersX
         [&](const Cell &cell, const Block &block) {
           (*blocks)[cell->id()] = block;
         });
-    return [field,
-            cells,
-            blocks,
-            projected = bool(projection),
-            scale     = pressure.scale()](
-             const MetricFlowX::BloodFlowSystem<1, 3>::PressureEvaluationPoint
-               &point) {
-      const auto &cell = cells->at(point.cell_id);
-      const auto  unit =
-        field.mapping().transform_real_to_unit_cell(cell, point.point);
-      const auto &fe = field.space().finite_element();
-      std::vector<dealii::types::global_dof_index> indices(
-        fe.n_dofs_per_cell());
-      cell->get_dof_indices(indices);
-      std::vector<std::pair<dealii::types::global_dof_index, double>> stencil;
-      for (unsigned int j = 0; j < indices.size(); ++j)
-        {
-          double weight = fe.shape_value(j, unit);
-          if (projected)
-            {
-              weight            = 0.;
-              const auto &block = blocks->at(point.cell_id);
-              for (unsigned int i = 0; i < indices.size(); ++i)
-                weight +=
-                  fe.shape_value(i, unit) * block[i * indices.size() + j];
-            }
-          if (weight != 0.)
-            stencil.emplace_back(field.execution_index(indices[j]),
-                                 scale * weight);
-        }
-      return stencil;
-    };
+    return Provider(
+      [field,
+       cells,
+       blocks,
+       projected = bool(projection),
+       scale     = pressure.scale()](
+        const MetricFlowX::BloodFlowSystem<1, 3>::PressureEvaluationPoint
+          &point) {
+        const auto &cell = cells->at(point.cell_id);
+        const auto  unit =
+          field.mapping().transform_real_to_unit_cell(cell, point.point);
+        const auto &fe = field.space().finite_element();
+        std::vector<dealii::types::global_dof_index> indices(
+          fe.n_dofs_per_cell());
+        cell->get_dof_indices(indices);
+        std::vector<std::pair<dealii::types::global_dof_index, double>> stencil;
+        for (unsigned int j = 0; j < indices.size(); ++j)
+          {
+            double weight = fe.shape_value(j, unit);
+            if (projected)
+              {
+                weight            = 0.;
+                const auto &block = blocks->at(point.cell_id);
+                for (unsigned int i = 0; i < indices.size(); ++i)
+                  weight +=
+                    fe.shape_value(i, unit) * block[i * indices.size() + j];
+              }
+            if (weight != 0.)
+              stencil.emplace_back(field.execution_index(indices[j]),
+                                   scale * weight);
+          }
+        return stencil;
+      });
   }
 
   /** Linearize the native pressure contribution at fixed pressure coefficients.
@@ -444,25 +467,35 @@ namespace ImmersX
           std::vector<std::tuple<dealii::types::global_dof_index,
                                  dealii::types::global_dof_index,
                                  double>>
-            entries;
+               entries;
+          bool assembled_locally = false;
           if constexpr (detail::has_external_pressure_jacobian_visitor<
                           Flow>::value)
-            problem.visit_external_pressure_jacobian(
-              time,
-              *state,
-              metric_flow_x_pressure_basis_provider(*pressure_view, projection),
-              [&](const auto i, const auto j, const double value) {
-                Assert(
-                  rows->is_element(i),
-                  dealii::ExcMessage(
-                    "Native pressure derivative rows must be locally owned."));
-                if (value != 0.)
-                  {
-                    sparsity.add(i, j);
-                    entries.emplace_back(i, j, value);
-                  }
-              });
-          else
+            {
+              const auto provider =
+                metric_flow_x_pressure_basis_provider(*pressure_view,
+                                                      projection);
+              if (provider)
+                {
+                  problem.visit_external_pressure_jacobian(
+                    time,
+                    *state,
+                    provider,
+                    [&](const auto i, const auto j, const double value) {
+                      Assert(
+                        rows->is_element(i),
+                        dealii::ExcMessage(
+                          "Native pressure derivative rows must be locally owned."));
+                      if (value != 0.)
+                        {
+                          sparsity.add(i, j);
+                          entries.emplace_back(i, j, value);
+                        }
+                    });
+                  assembled_locally = true;
+                }
+            }
+          if (!assembled_locally)
             {
               Vector basis, image;
               action->reinit_domain_vector(basis, false);
