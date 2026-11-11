@@ -1,0 +1,40 @@
+{
+  "script_sha256": "57b800026b03264a82a407117511a855ad2fa040b9414a4cdcc50ff96a2248f0",
+  "provenance_sha256": "9258251d90cd07a967d46a944fd1ef16361d33fcc3f2ff137928d36370abf5a3",
+  "matplotlib_version": "3.10.9",
+  "numpy_version": "2.2.6",
+  "outputs": {
+    "scale-profiles.svg": {
+      "sha256": "f408a4bbe8e111896a2234cdacc2dca4b306682f802fc0fae940130ae4271e65",
+      "size_bytes": 87460
+    },
+    "scale-profiles.png": {
+      "sha256": "d4f449e896f89968ac9b1486d9598da96e1f28d8c539db4642cc9f0d770ccd7a",
+      "size_bytes": 194184
+    },
+    "small-haemodynamics.svg": {
+      "sha256": "7a49221679acfc8733590f9bc19cd3f63c63f45c29651398077700485bb6e9fa",
+      "size_bytes": 119656
+    },
+    "small-haemodynamics.png": {
+      "sha256": "7316bc3453537d41ed352ee5d97d8c329791c0f8e36b2405b1ec4c9c5037b007",
+      "size_bytes": 287983
+    },
+    "small-conservation.svg": {
+      "sha256": "df21121c00661b8c2ab4ee40b03e4c034de28138a696974c20a124ede1af3462",
+      "size_bytes": 130476
+    },
+    "small-conservation.png": {
+      "sha256": "ede9d6ccda45a1783029004e449f8d5dab20e2bbfa7bcad35961080f97734d0f",
+      "size_bytes": 356230
+    },
+    "medium-solid-samples.svg": {
+      "sha256": "165504a13cd0eb6ad7e229e6514fdda530fddb13dc9e0498fdfe04d975005a81",
+      "size_bytes": 83109
+    },
+    "medium-solid-samples.png": {
+      "sha256": "20bbf3e0d77066fab9c4d832d2ec0cba2bd7582738bd38c26e987b2a0b2abfe1",
+      "size_bytes": 196432
+    }
+  }
+}

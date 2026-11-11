@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "profiles": {
+      "artifact_path": "scaling-profile-figure/scaling-profiles-inputs.json",
+      "sha256": "491c244af477a2f63340f54745f4c73dcd06f33ffcfc13070e10d505ffb022f0",
+      "source_revision": "a92bee56c62713eb15ba5e8ea7412bac66723898",
+      "selection": "/profiles; measured large count also confirmed in clean B4 run"
+    },
+    "small_terminals": {
+      "artifact_path": "v12-mumps100-small-fullbeat-mpi16/flow/terminals.csv",
+      "sha256": "233b5ba578a825d1b8c83b3705b7daa98a76cc38a240f37cea3268a9e3092b89",
+      "source_revision": "a92bee56c62713eb15ba5e8ea7412bac66723898",
+      "selection": "boundary_id 0, 1, 2; pressure and native outward flow at saved times"
+    },
+    "ha_input": {
+      "artifact_path": "cco-expanded/assets-v12/inputs/inlet_ha.csv",
+      "sha256": "8d4e1cd067a3e1df077c24e7593c60af922ea37ebfd4625bfdeab9a041a3e5ff",
+      "source_revision": "a92bee56c62713eb15ba5e8ea7412bac66723898",
+      "selection": "all source rows; piecewise linear interpolation, no extrapolation"
+    },
+    "small_audit": {
+      "artifact_path": "postprocess/n2-v12-mumps100-small-fullbeat-mpi16-audit.json",
+      "sha256": "341a6b45fef8325f7df2583a4f25bc25ed8923cb02576ef897eee3c5cb115a93",
+      "source_revision": "a92bee56c62713eb15ba5e8ea7412bac66723898",
+      "selection": "/checks/microvascular_kirchhoff/samples; /checks/root_volume_integral_balance/cumulative_samples; /tolerances"
+    },
+    "small_endpoint_series": {
+      "artifact_path": "postprocess/n2-v12-mumps100-small-fullbeat-mpi16-flow-vtu-series.csv",
+      "sha256": "655b2bc3f7683d3ab631b6aa94f1f576426a9b7732b58e9b77af8f860c7c925d",
+      "source_revision": "a92bee56c62713eb15ba5e8ea7412bac66723898",
+      "selection": "time_s, area_minimum, A_hat_minimum; saved endpoint samples only"
+    },
+    "medium_solid_samples": {
+      "artifact_path": "postprocess/clean-api-medium-20ms-mpi8-solid-exported-samples.json",
+      "sha256": "c110a4e23c767e12bd444cf8a09e2074199881ba2cea43bebd580f40a11f7f01",
+      "source_revision": "b4d85cb66cd8f65b10749e7adb80d8ad0a3d67b2",
+      "selection": "/samples/*/fields/{displacement,velocity}/maximum_exported_sample_norm"
+    }
+  },
+  "units": {
+    "flow_m3_s_to_ml_min": 60000000,
+    "pressure_Pa_per_mmHg": 133.322387415,
+    "pressure_conversion_basis": "Configured 8 mmHg portal reservoir = 1066.57909932 Pa.",
+    "area_m2_to_mm2": 1000000,
+    "displacement_m_to_mm": 1000,
+    "velocity_m_s_to_mm_s": 1000
+  },
+  "flow_signs": "Native root flows are outward-normal: plot HA=-Q0 and PV=-Q2 into liver; HV=Q1 out of liver.",
+  "baseline_release": "https://github.com/luca-heltai/immersx/releases/tag/liver-icar-start-2026-11-05",
+  "scaling_release": "https://github.com/luca-heltai/immersx/releases/tag/liver-icar-scaling-2026-11-06",
+  "scope": {
+    "small": "One saved 0.8 s cycle on P2/DG1, 132932 DoFs, MPI16. No patient-specific calibration or periodicity conclusion.",
+    "medium": "11 saved times over 20 ms, P2/DG1, 992584 DoFs, MPI8. Maximum over exported nodal samples, not exact finite-element extrema or strains.",
+    "profiles": "Observed geometric ratios are not an inf-sup proof; meshes are independent."
+  },
+  "input_sha256": {
+    "ha-prescribed-input.csv": "8d4e1cd067a3e1df077c24e7593c60af922ea37ebfd4625bfdeab9a041a3e5ff",
+    "medium-solid-samples.csv": "cbb58be25caa350f9d14a4bec7f2e0ea5b64fb0c41bf4e3e34a62fc24e8f0455",
+    "scale-profiles.json": "3fd46a495eefd175bb7385ead34c3f2f157b253441848ac46dd4c199b7fab229",
+    "small-audit-policy.json": "4e6f9ab8b8bdff50116daaed9ab79cf95445d38379b574c08e1ab6dc18f9fb1d",
+    "small-cumulative-volume.csv": "952f5c97741b3c12e1f6d197b5ebca236a2ee945480f98e841dc2d63b93f2889",
+    "small-kirchhoff.csv": "2982053be94ce39d5893af34c3fbb62d83170deb2ec176c54c37a632c8abb710",
+    "small-root-timeseries.csv": "4e3df466bc7f21656d20059162e3aa8f365aa45400363b6f6be686835b510ea9",
+    "small-saved-area-minima.csv": "d2ceffcbcf60999a841a5e8fb08b0e5a030eefb2e2585dedf6a8f2cd6e0fa936"
+  },
+  "snapshot_serialization": "CSV uses LF line endings; source numeric tokens are unchanged.",
+  "ha_interpolation_endpoint_policy": "Input endpoint times are snapped only when output differs by at most 1e-12 s; no waveform extrapolation."
+}

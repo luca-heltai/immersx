@@ -514,6 +514,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Tutorial
 
 - [PR #380](https://github.com/luca-heltai/immersx/pull/380) Distinguish historical liver setup diagnostics on a fixed network from separately grown CCO families whose terminal counts scale with each background.
+- [PR #354](https://github.com/luca-heltai/immersx/pull/354) Document the two-territory IRCAD12 solver pilot, model assumptions and recorded checks, with reproducible scalar plots and snapshots, complete references, and verified ParaView entrypoints.
 
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report accepted dense resistance-driven liver references, local perfusion plots and measured coupled-space sizes, with explicit mesh-length and transient-validation limits.
 

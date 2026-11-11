@@ -1249,6 +1249,13 @@ vascular trees or resolve whole-organ coverage. The larger pilot profiles
 remain preparation cases; their transient solver performance is unvalidated.
 Use the anatomical tracking record above for the full-tree growth work.
 
+The [coupled IRCAD12 liver tutorial](liver-icar-coupled.md) provides a separate
+two-territory arterial/portal/venous case, three tissue resolutions, physical
+parameters, numerical audits, reproducible result figures and ParaView paths.
+Its recorded results include the small complete interval, the medium 20 ms
+check and the large 2 ms startup. These windows do not establish physiological
+validation, mesh convergence or a uniform inf-sup bound.
+
 For an archived liver case, `Stop at output times = true` under
 `/MetricFlowX coupling/` ends an internal IDA step at each saved time. The
 default remains dense output. Internal stops retain the BDF history and avoid
