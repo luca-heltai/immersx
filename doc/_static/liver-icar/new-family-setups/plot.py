@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: LGPL-2.1-or-later
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """Plot archived setup counts and interval histograms; never launch a solver.
 
 python3 plot.py --output-dir /tmp/liver-setup-figures
@@ -19,7 +19,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 HERE = Path(__file__).resolve().parent
-LICENSE = '# SPDX-License-Identifier: LGPL-2.1-or-later\n'
+LICENSE = '# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception\n'
 
 
 def read_csv(path):
@@ -70,7 +70,7 @@ def aggregate(runs, output):
                            'runtime': json.loads((run / 'run.json').read_text())['runtime_manifest']}
     write_csv(output / 'block-counts.csv', summaries)
     write_csv(output / 'interval-histograms.csv', histograms)
-    provenance = {'SPDX-License-Identifier': 'LGPL-2.1-or-later', 'sources': sources,
+    provenance = {'SPDX-License-Identifier': 'Apache-2.0 WITH LLVM-exception', 'sources': sources,
                   'scope': 'Complete setup only, no initialization or IDA/time integration; no inf-sup certificate.',
                   'H_definition': 'Tissue cell diameter; Hmax is maximum diameter over native overlap cells, not volume^(1/3).',
                   'short_rule': 'L < 0.5 Hmax (1 - 1e-12); native short_cell flags crosschecked against ratios.',
