@@ -796,8 +796,9 @@ validation tasks.
 
 Reported Newton-correction norms at the end of each converged stage. The
 blue curve concerns the artificially forced $F_s$ equations; the orange curve
-checks the original equations. Both use the recorded error weights. A small
-artificial-stage correction does not certify the original equations before
+checks the original equations. Both use the tenfold startup relaxation of the
+base relative and componentwise absolute tolerances. A small artificial-stage
+correction does not certify the original equations before
 $s=1$. WRMS is a solver norm, not a physical solution-error estimate.
 ```
 

@@ -106,5 +106,25 @@
     "continuation.csv": "071053a2f4e29bb7e9b97e6eb2ac6885b92e648d7094b9a165924bc3f76f297f",
     "ida-output.csv": "94ee6a62fdb634e56471e1f9ad1b08eaf9e93d0cb2c73563b040875229a36a3e"
   },
-  "raw_geometry_and_VTK": "Kept outside the repository; file entrypoints are documented without an unpublished download link."
+  "raw_geometry_and_VTK": "Kept outside the repository; file entrypoints are documented without an unpublished download link.",
+  "recorded_error_controls": {
+    "base_relative_tolerance": 0.001,
+    "base_absolute_tolerances": {
+      "solid_displacement_m": 1e-07,
+      "solid_velocity_m_s": 1e-05,
+      "wall_multiplier_Pa": 0.1,
+      "native_area_fraction_of_minimum_cell_face_reference_area": 0.0001,
+      "native_velocity_m_s": 1e-05,
+      "native_capacitor_pressure_Pa": 0.1
+    },
+    "initial_relative_factor": 10,
+    "initial_absolute_factor": 10,
+    "hold_duration_s": 0.02,
+    "ramp_end_time_s": 7.24,
+    "static_continuation_weights": "Initial-time ramp factors remain10 throughout fixed-time continuation; weights are evaluated at each candidate state",
+    "time_nonlinear_convergence_coefficient": 0.0001,
+    "IDA_IC_nonlinear_convergence_coefficient": 0.0033,
+    "temporal_error_test_excludes_algebraic_variables": true,
+    "WRMS_scope": "Static correction norm includes all components; temporal algebraic exclusion does not imply fieldwise pressure/trace error bounds"
+  }
 }
