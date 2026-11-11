@@ -329,6 +329,87 @@ exhausted the finite sampling budget on this case. MPI partitions change the
 sampled growth paths, so another process count can need different search
 controls. The smaller 32-pair case was also verified on two and four ranks.
 
+## Monitor growth and retain the latest diagnostic state
+
+For a fresh generation, enable monitoring in the same parameter file:
+
+```text
+subsection Liver
+  subsection Growth monitoring
+    set Progress interval = 60
+    set Checkpoint interval = 900
+    set Maximum generation wall time = 18000
+  end
+end
+```
+
+All three values are seconds and default to zero, which disables that option.
+These parameters require the application built with the monitoring API; the
+frozen `c88` campaign runtime does not accept them. Monitoring is not supported
+with `Companion checkpoint archive` continuation.
+
+`progress.csv` records elapsed generation time, active system, requested and
+accepted terminal counts, and completed batch count. Counts describe the active
+native forest, not the combined three-role network. Records are flushed on a
+role change and at the requested interval. The first safe point follows
+bootstrap; later safe points follow completed accepted or rejected batches.
+There is no progress notification from the middle of a batch.
+
+`latest-checkpoint/` contains `arterial.pvtu`, `portal.pvtu`, `venous.pvtu`,
+their rank-local pieces, and `checkpoint.json`. The files contain the last
+accepted state, never a staged candidate. Until a companion role starts growing,
+its VTK contains its original imported network. The manifest distinguishes
+`original_input` from `accepted_growth` and reports each role's accepted growth
+count separately. Imported physical IDs, coordinates and endpoint radii are
+preserved. Generated hydraulic fields are not final.
+
+Every checkpoint is diagnostic, incomplete, non-adoptable and non-resumable,
+including a snapshot taken just before successful generation finishes. Its
+lengths and geometry do not certify admissibility or an inf-sup bound. The
+application continues to produce the ordinary final archive only after all
+required generation and validation work succeeds.
+
+Publication writes a temporary `checkpoint-staging/`, then replaces
+`latest-checkpoint/` and removes the previous snapshot. Storage therefore holds
+one completed latest snapshot in steady state and at most two full snapshots
+during replacement. A hard kill can leave staging or previous output; preserve
+those files for inspection. A subsequent invocation refuses to overwrite them.
+The rename sequence does not guarantee that a reader sees a `latest-checkpoint`
+directory at every instant.
+
+The maximum generation wall time requests a cooperative stop. It is checked at
+the safe points above, then writes a checkpoint and finishes reconstructing the
+last accepted state. The application saves the three `invalid-result/*.pvtu`
+files and background mesh, creates no native `network/` archive, and returns
+exit status 2. A batch, bootstrap, checkpoint write or final reconstruction can
+extend past the requested time. Leave a measured allowance before any external
+hard timeout; this parameter is not a hard wall-time bound. Observer or output
+errors return failure and retain diagnostic files already written.
+
+Applications using the library can provide the same optional controls:
+
+```cpp
+using namespace ImmersX::Vascularization;
+GenerationControl control;
+control.poll = [](const GenerationProgress &progress) {
+  return GenerationAction{/*checkpoint=*/false,
+                          /*stop=*/progress.accepted_terminals >= 100};
+};
+auto result = generate(background, mapping, initial, parameters, comm, control);
+```
+
+Supply or omit each callback consistently on every rank. `poll` runs
+synchronously and must not perform collectives. Requests from all ranks are
+combined: any rank may request a checkpoint or stop. An optional `checkpoint`
+callback receives an owned, materialized `NetworkData` by value on every rank;
+its final Boolean argument marks a stop. That callback may perform collective
+output if all ranks follow the same sequence. It must finish before returning
+and must label the snapshot as incomplete diagnostic data. A stop returns
+`controlled_stop=true` with invalid validation and prevents further calibration
+trials. Empty controls preserve the ordinary generation path without extra
+collectives or accepted-state materializations. Materializing a requested
+snapshot traverses the current network and adds output cost.
+
 ## Reproduce the illustrations
 
 The published figures come from the checked 32-rank run. Their

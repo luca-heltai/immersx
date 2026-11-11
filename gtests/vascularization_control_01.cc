@@ -106,14 +106,23 @@ TEST(VascularGeneration, BOTH_SnapshotsPreserveAcceptedGrowth)
     ++snapshots;
     EXPECT_FALSE(stopped);
     EXPECT_GE(progress.accepted_terminals, 2u);
+    std::uint64_t owned_vessels = 0, owned_terminals = 0;
+    const auto    rank = Utilities::MPI::this_mpi_process(comm);
     for (const auto &[id, vessel] : snapshot.vessels)
       {
+        owned_vessels += vessel.owner == rank;
         (void)id;
         EXPECT_GT(vessel.radii[0], 0.);
         EXPECT_GT(vessel.radii[1], 0.);
         EXPECT_TRUE(std::isfinite(vessel.radii[0]));
         EXPECT_TRUE(std::isfinite(vessel.radii[1]));
       }
+    for (const auto &[id, terminal] : snapshot.terminals)
+      owned_terminals += terminal.owner == rank;
+    EXPECT_EQ(Utilities::MPI::sum(owned_terminals, comm),
+              progress.accepted_terminals);
+    EXPECT_EQ(Utilities::MPI::sum(owned_vessels, comm),
+              2 * progress.accepted_terminals - 1);
   };
   const auto result = generate(bg, MappingQ1<3>(), {}, p, comm, control);
   ASSERT_TRUE(result.validation.valid());
@@ -184,4 +193,61 @@ TEST(VascularGeneration, MPI_ControlPresenceDisagreementIsRejected)
       return GenerationAction{};
     };
   EXPECT_ANY_THROW(generate(bg, MappingQ1<3>(), {}, p, comm, control));
+}
+
+TEST(VascularGeneration, BOTH_RejectedBatchRetainsLastAcceptedState)
+{
+  const auto                              comm = MPI_COMM_WORLD;
+  parallel::distributed::Triangulation<3> bg(comm);
+  GridGenerator::subdivided_hyper_cube(bg, 2);
+  Parameters p("/Generation rejected batch stop/");
+  configure(p);
+  p.enforce_geometry = true;
+  // Bootstrap's .4-long seed is admissible, but splitting it cannot produce
+  // two segments each at least .3 long. The first growth batch is rejected.
+  p.minimum_length        = .3;
+  std::uint64_t     polls = 0, snapshots = 0;
+  GenerationControl control;
+  control.poll = [&](const GenerationProgress &progress) {
+    ++polls;
+    EXPECT_EQ(progress.accepted_terminals, 1u);
+    return GenerationAction{false, progress.batches >= 1};
+  };
+  control.checkpoint = [&](const GenerationProgress &progress,
+                           NetworkData               snapshot,
+                           bool                      stopped) {
+    ++snapshots;
+    EXPECT_TRUE(stopped);
+    EXPECT_EQ(progress.batches, 1u);
+    EXPECT_EQ(progress.accepted_terminals, 1u);
+    std::uint64_t owned = 0;
+    const auto    rank  = Utilities::MPI::this_mpi_process(comm);
+    for (const auto &[id, vessel] : snapshot.vessels)
+      owned += vessel.owner == rank;
+    EXPECT_EQ(Utilities::MPI::sum(owned, comm), 1u);
+  };
+  const auto result = generate(bg, MappingQ1<3>(), {}, p, comm, control);
+  EXPECT_TRUE(result.controlled_stop);
+  EXPECT_FALSE(result.validation.valid());
+  EXPECT_EQ(polls, 2u);
+  EXPECT_EQ(snapshots, 1u);
+  EXPECT_EQ(result.accepted_insertions, 0u);
+}
+
+TEST(VascularGeneration, BOTH_ObserverFailureStopsCollectively)
+{
+  const auto                              comm = MPI_COMM_WORLD;
+  parallel::distributed::Triangulation<3> bg(comm);
+  GridGenerator::subdivided_hyper_cube(bg, 2);
+  Parameters p("/Generation observer failure/");
+  configure(p);
+  const auto        rank = Utilities::MPI::this_mpi_process(comm);
+  GenerationControl control;
+  control.poll = [rank](const GenerationProgress &) {
+    AssertThrow(rank != 0, ExcMessage("Injected rank-zero observer failure"));
+    return GenerationAction{};
+  };
+  const auto result = generate(bg, MappingQ1<3>(), {}, p, comm, control);
+  EXPECT_TRUE(result.controlled_stop);
+  EXPECT_FALSE(result.validation.valid());
 }

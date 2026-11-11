@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Allow vascular generation to publish optional accepted-state snapshots and stop cooperatively at completed batch boundaries, returning an explicitly incomplete diagnostic result.
+- [PR #385](https://github.com/luca-heltai/immersx/pull/385) Allow vascular generation to report progress, retain a latest diagnostic three-role VTK checkpoint, and stop cooperatively at completed batch boundaries, returning an explicitly incomplete result.
 
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report actual coupled block DoFs in a setup-only run without initializing or integrating the coupled state.
 
