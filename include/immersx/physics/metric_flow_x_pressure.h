@@ -17,6 +17,8 @@
 
 #  include <deal.II/fe/fe_values.h>
 
+#  include <deal.II/grid/grid_tools.h>
+
 #  include <deal.II/lac/dynamic_sparsity_pattern.h>
 #  include <deal.II/lac/full_matrix.h>
 #  include <deal.II/lac/sparsity_tools.h>
@@ -27,6 +29,8 @@
 #  include <immersx/core/observable.h>
 #  include <immersx/physics/metric_flow_x.h>
 
+#  include <algorithm>
+#  include <functional>
 #  include <map>
 #  include <tuple>
 
@@ -48,6 +52,22 @@ namespace ImmersX
                                std::declval<const typename Flow::
                                               ExternalPressureProvider &>(),
                                std::declval<MetricFlowX::MatrixType &>()))>>
+      : std::true_type
+    {};
+    template <typename Flow, typename = void>
+    struct has_external_pressure_jacobian_visitor : std::false_type
+    {};
+
+    template <typename Flow>
+    struct has_external_pressure_jacobian_visitor<
+      Flow,
+      std::void_t<
+        decltype(std::declval<const Flow &>().visit_external_pressure_jacobian(
+          std::declval<double>(),
+          std::declval<const MetricFlowX::VectorType &>(),
+          std::declval<const typename Flow::ExternalPressureBasisProvider &>(),
+          std::declval<
+            const typename Flow::ExternalPressureJacobianEntryVisitor &>()))>>
       : std::true_type
     {};
   } // namespace detail
@@ -192,6 +212,136 @@ namespace ImmersX
     };
   }
 
+  /** Return local pressure stencils, or an empty provider on every rank.
+   * Native local assembly supports full unconstrained discontinuous scalar
+   * fields with cell-local projections. Other fields and projections retain
+   * the general basis-probing implementation. Support is checked collectively
+   * before exchanging projection blocks with ghost cells.
+   */
+  template <typename Pressure>
+  auto
+  metric_flow_x_pressure_basis_provider(
+    const Pressure                                &pressure,
+    std::shared_ptr<const MetricFlowX::MatrixType> projection = {})
+  {
+    using Point = MetricFlowX::BloodFlowSystem<1, 3>::PressureEvaluationPoint;
+    using Basis =
+      std::vector<std::pair<dealii::types::global_dof_index, double>>;
+    using Provider    = std::function<Basis(const Point &)>;
+    const auto  field = pressure.source();
+    const auto &dofs  = field.dof_handler();
+    const auto &fe    = field.space().finite_element();
+    bool        valid = fe.n_components() == 1 && fe.n_dofs_per_vertex() == 0 &&
+                 field.constraints().n_constraints() == 0 &&
+                 !field.is_reindexed();
+    if (valid && projection)
+      {
+        const auto owns_rows = [&](const auto &matrix) {
+          using Matrix = std::decay_t<decltype(matrix)>;
+          if constexpr (detail::has_distributed_partitions<Matrix>::value)
+            return matrix.locally_owned_range_indices() ==
+                   field.locally_owned_dofs();
+          else
+            {
+              dealii::IndexSet rows(matrix.m());
+              const auto       range = matrix.local_range();
+              rows.add_range(range.first, range.second);
+              return rows == field.locally_owned_dofs();
+            }
+        };
+        valid = projection->m() == field.locally_owned_dofs().size() &&
+                projection->n() == field.locally_owned_dofs().size() &&
+                owns_rows(*projection);
+      }
+    if (dealii::Utilities::MPI::min(static_cast<unsigned int>(valid),
+                                    field.space().mpi_communicator()) == 0)
+      return Provider{};
+    using Cell      = dealii::DoFHandler<1, 3>::active_cell_iterator;
+    using Block     = std::vector<double>;
+    auto cells      = std::make_shared<std::map<dealii::CellId, Cell>>();
+    auto blocks     = std::make_shared<std::map<dealii::CellId, Block>>();
+    bool cell_local = true;
+    for (const auto &cell : dofs.active_cell_iterators())
+      if (!cell->is_artificial())
+        {
+          cells->emplace(cell->id(), cell);
+          if (projection && cell->is_locally_owned())
+            {
+              std::vector<dealii::types::global_dof_index> indices(
+                fe.n_dofs_per_cell());
+              cell->get_dof_indices(indices);
+              auto &block = (*blocks)[cell->id()];
+              block.resize(indices.size() * indices.size());
+              for (unsigned int i = 0; i < indices.size(); ++i)
+                {
+                  const auto count = projection->row_length(indices[i]);
+                  if (count > 0)
+                    {
+                      auto entry = projection->begin(indices[i]);
+                      for (unsigned int k = 0; k < count; ++k)
+                        {
+                          cell_local &=
+                            entry->value() == 0. ||
+                            std::find(indices.begin(),
+                                      indices.end(),
+                                      entry->column()) != indices.end();
+                          if (k + 1 < count)
+                            ++entry;
+                        }
+                    }
+                  for (unsigned int j = 0; j < indices.size(); ++j)
+                    block[i * indices.size() + j] =
+                      projection->el(indices[i], indices[j]);
+                }
+            }
+        }
+    if (dealii::Utilities::MPI::min(static_cast<unsigned int>(cell_local),
+                                    field.space().mpi_communicator()) == 0)
+      return Provider{};
+    if (projection &&
+        dynamic_cast<const dealii::parallel::TriangulationBase<1, 3> *>(
+          &dofs.get_triangulation()))
+      dealii::GridTools::exchange_cell_data_to_ghosts<Block>(
+        dofs,
+        [&](const Cell &cell) { return blocks->at(cell->id()); },
+        [&](const Cell &cell, const Block &block) {
+          (*blocks)[cell->id()] = block;
+        });
+    return Provider(
+      [field,
+       cells,
+       blocks,
+       projected = bool(projection),
+       scale     = pressure.scale()](
+        const MetricFlowX::BloodFlowSystem<1, 3>::PressureEvaluationPoint
+          &point) {
+        const auto &cell = cells->at(point.cell_id);
+        const auto  unit =
+          field.mapping().transform_real_to_unit_cell(cell, point.point);
+        const auto &fe = field.space().finite_element();
+        std::vector<dealii::types::global_dof_index> indices(
+          fe.n_dofs_per_cell());
+        cell->get_dof_indices(indices);
+        std::vector<std::pair<dealii::types::global_dof_index, double>> stencil;
+        for (unsigned int j = 0; j < indices.size(); ++j)
+          {
+            double weight = fe.shape_value(j, unit);
+            if (projected)
+              {
+                weight            = 0.;
+                const auto &block = blocks->at(point.cell_id);
+                for (unsigned int i = 0; i < indices.size(); ++i)
+                  weight +=
+                    fe.shape_value(i, unit) * block[i * indices.size() + j];
+              }
+            if (weight != 0.)
+              stencil.emplace_back(field.execution_index(indices[j]),
+                                   scale * weight);
+          }
+        return stencil;
+      });
+  }
+
   /** Linearize the native pressure contribution at fixed pressure coefficients.
    * HLL weights depend on the flow state even when pressure is prescribed.
    * The returned actions retain the assembled matrix for their full lifetime.
@@ -249,14 +399,16 @@ namespace ImmersX
   }
 
   /** Linearize native pressure with respect to its scalar coefficients.
-   * The forward action uses native assembly. Transpose and matrix requests
-   * collectively probe the coefficient basis once; their cost is linear in
-   * the global number of pressure coefficients.
+   * Native local derivative assembly constructs transpose and matrix actions.
+   * Older MetricFlowX packages without the derivative visitor collectively
+   * probe every global coefficient instead. The candidate flow state is owned
+   * by this operator because HLL pressure weights depend on that state.
    */
-  template <typename Pressure>
+  template <typename Pressure,
+            typename Flow = MetricFlowX::BloodFlowSystem<1, 3>>
   MaterializedOperator<MetricFlowX::VectorType, MetricFlowX::MatrixType>
   metric_flow_x_pressure_operator(
-    MetricFlowX::BloodFlowSystem<1, 3>            &problem,
+    Flow                                          &problem,
     const Pressure                                &pressure,
     const MetricFlowX::VectorType                 &flow_state,
     const double                                   time,
@@ -297,38 +449,78 @@ namespace ImmersX
     const auto action =
       std::make_shared<const decltype(result.view)>(result.view);
     auto cached        = std::make_shared<std::shared_ptr<Matrix>>();
-    result.materialize = [action, cached, rows, columns, communicator]() {
+    result.materialize = [action,
+                          cached,
+                          rows,
+                          columns,
+                          communicator,
+                          &problem,
+                          pressure_view,
+                          state,
+                          time,
+                          projection]() {
       if (!*cached)
         {
-          Vector basis, image;
-          action->reinit_domain_vector(basis, false);
-          action->reinit_range_vector(image, false);
           dealii::DynamicSparsityPattern sparsity(rows->size(),
                                                   columns->size(),
                                                   *rows);
           std::vector<std::tuple<dealii::types::global_dof_index,
                                  dealii::types::global_dof_index,
                                  double>>
-            entries;
-          for (dealii::types::global_dof_index j = 0; j < columns->size(); ++j)
+               entries;
+          bool assembled_locally = false;
+          if constexpr (detail::has_external_pressure_jacobian_visitor<
+                          Flow>::value)
             {
-              basis = 0.;
-              if (columns->is_element(j))
-                basis[j] = 1.;
-              basis.compress(dealii::VectorOperation::insert);
-              action->vmult(image, basis);
-              for (const auto i : *rows)
-                if (image[i] != 0.)
-                  {
-                    sparsity.add(i, j);
-                    entries.emplace_back(i, j, image[i]);
-                  }
+              const auto provider =
+                metric_flow_x_pressure_basis_provider(*pressure_view,
+                                                      projection);
+              if (provider)
+                {
+                  problem.visit_external_pressure_jacobian(
+                    time,
+                    *state,
+                    provider,
+                    [&](const auto i, const auto j, const double value) {
+                      Assert(
+                        rows->is_element(i),
+                        dealii::ExcMessage(
+                          "Native pressure derivative rows must be locally owned."));
+                      if (value != 0.)
+                        {
+                          sparsity.add(i, j);
+                          entries.emplace_back(i, j, value);
+                        }
+                    });
+                  assembled_locally = true;
+                }
+            }
+          if (!assembled_locally)
+            {
+              Vector basis, image;
+              action->reinit_domain_vector(basis, false);
+              action->reinit_range_vector(image, false);
+              for (dealii::types::global_dof_index j = 0; j < columns->size();
+                   ++j)
+                {
+                  basis = 0.;
+                  if (columns->is_element(j))
+                    basis[j] = 1.;
+                  basis.compress(dealii::VectorOperation::insert);
+                  action->vmult(image, basis);
+                  for (const auto i : *rows)
+                    if (image[i] != 0.)
+                      {
+                        sparsity.add(i, j);
+                        entries.emplace_back(i, j, image[i]);
+                      }
+                }
             }
           *cached = std::make_shared<Matrix>();
           (*cached)->reinit(*rows, *columns, sparsity, communicator, false);
           for (const auto &[i, j, value] : entries)
-            (*cached)->set(i, j, value);
-          (*cached)->compress(dealii::VectorOperation::insert);
+            (*cached)->add(i, j, value);
+          (*cached)->compress(dealii::VectorOperation::add);
         }
       return detail::clone_matrix(**cached);
     };
