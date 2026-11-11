@@ -901,6 +901,7 @@ namespace ImmersX::Vascularization
     const std::vector<TerminalTriplet>            &initial_triplets,
     std::unique_ptr<internal::BackgroundGeometry> &prepared_geometry,
     GrowthWork                                    &preparation_work,
+    const GenerationControl                       &control,
     const NetworkData                             *checkpoint = nullptr,
     const System active_companion                             = System::portal)
   {
@@ -1165,7 +1166,8 @@ namespace ImmersX::Vascularization
                               system != System::arterial ? result.territories :
                                                            empty,
                               std::move(callbacks),
-                              &geometry);
+                              &geometry,
+                              control);
       if (!growth.statistics.empty())
         {
           auto &first = growth.statistics.begin()->second;
@@ -1173,6 +1175,7 @@ namespace ImmersX::Vascularization
           first.initialization_work += preparation_work;
           preparation_work = {};
         }
+      result.controlled_stop = result.controlled_stop || growth.controlled_stop;
       for (const auto &[bucket, statistics] : growth.statistics)
         result.growth_statistics.push_back(statistics);
       result.validation.issues.insert(result.validation.issues.end(),
@@ -1335,6 +1338,17 @@ namespace ImmersX::Vascularization
     return result;
   }
 
+  static GenerationResult
+  generate_controlled(const dealii::Triangulation<3>     &background,
+                      const dealii::Mapping<3>           &mapping,
+                      const NetworkData                  &initial,
+                      const Parameters                   &parameters,
+                      MPI_Comm                            communicator,
+                      const std::vector<Territory>       &initial_territories,
+                      const std::vector<TerminalPair>    &initial_pairs,
+                      const std::vector<TerminalTriplet> &initial_triplets,
+                      const GenerationControl            &control);
+
   GenerationResult
   generate(const dealii::Triangulation<3> &background,
            const dealii::Mapping<3>       &mapping,
@@ -1375,6 +1389,47 @@ namespace ImmersX::Vascularization
            const std::vector<TerminalPair>    &initial_pairs,
            const std::vector<TerminalTriplet> &initial_triplets)
   {
+    return generate_controlled(background,
+                               mapping,
+                               initial,
+                               parameters,
+                               communicator,
+                               initial_territories,
+                               initial_pairs,
+                               initial_triplets,
+                               {});
+  }
+
+  GenerationResult
+  generate(const dealii::Triangulation<3> &background,
+           const dealii::Mapping<3>       &mapping,
+           const NetworkData              &initial,
+           const Parameters               &parameters,
+           MPI_Comm                        communicator,
+           const GenerationControl        &control)
+  {
+    return generate_controlled(background,
+                               mapping,
+                               initial,
+                               parameters,
+                               communicator,
+                               {},
+                               {},
+                               {},
+                               control);
+  }
+
+  static GenerationResult
+  generate_controlled(const dealii::Triangulation<3>     &background,
+                      const dealii::Mapping<3>           &mapping,
+                      const NetworkData                  &initial,
+                      const Parameters                   &parameters,
+                      MPI_Comm                            communicator,
+                      const std::vector<Territory>       &initial_territories,
+                      const std::vector<TerminalPair>    &initial_pairs,
+                      const std::vector<TerminalTriplet> &initial_triplets,
+                      const GenerationControl            &control)
+  {
     using namespace dealii;
     GrowthWork                                    preparation_work;
     std::unique_ptr<internal::BackgroundGeometry> prepared_geometry;
@@ -1382,7 +1437,7 @@ namespace ImmersX::Vascularization
     auto p = parameters.calibration;
 
     const auto modes = std::make_pair(
-      std::array<double, 11>{
+      std::array<double, 13>{
         {p.volume_fraction,
          p.minimum_coverage,
          p.relative_tolerance,
@@ -1393,7 +1448,9 @@ namespace ImmersX::Vascularization
          static_cast<double>(parameters.venous.enabled),
          static_cast<double>(parameters.portal.enabled),
          parameters.portal_flow_fraction,
-         static_cast<double>(parameters.enforce_geometry)}},
+         static_cast<double>(parameters.enforce_geometry),
+         static_cast<double>(static_cast<bool>(control.poll)),
+         static_cast<double>(static_cast<bool>(control.checkpoint))}},
       std::array<std::string, 2>{{parameters.terminal_count_multiplier_factor,
                                   parameters.length_scale}});
     bool matching_modes = true;
@@ -1404,6 +1461,10 @@ namespace ImmersX::Vascularization
                           communicator) == 1,
       ExcMessage(
         "All processes must use the same vascular calibration controls."));
+    AssertThrow(
+      !control.checkpoint || control.poll,
+      ExcMessage(
+        "A generation checkpoint publisher requires a poll callback."));
     const auto initial_count =
       resolve_terminal_count(background, parameters, communicator);
     const bool has_metadata =
@@ -1444,7 +1505,8 @@ namespace ImmersX::Vascularization
                             initial_pairs,
                             initial_triplets,
                             prepared_geometry,
-                            preparation_work);
+                            preparation_work,
+                            control);
     const auto size = Utilities::MPI::n_mpi_processes(communicator);
     const bool creating_seed =
       Utilities::MPI::min(static_cast<unsigned int>(initial.nodes.empty() &&
@@ -1529,7 +1591,8 @@ namespace ImmersX::Vascularization
                                         initial_pairs,
                                         initial_triplets,
                                         prepared_geometry,
-                                        preparation_work);
+                                        preparation_work,
+                                        control);
         statistics.insert(statistics.end(),
                           candidate.growth_statistics.begin(),
                           candidate.growth_statistics.end());
@@ -1539,6 +1602,13 @@ namespace ImmersX::Vascularization
                                    candidate.tissue,
                                    candidate.validation,
                                    candidate.sampled_points});
+        if (candidate.controlled_stop)
+          {
+            report.status               = CalibrationStatus::exhausted;
+            candidate.calibration       = std::move(report);
+            candidate.growth_statistics = std::move(statistics);
+            return candidate;
+          }
         tried.insert(count);
         if (candidate.validation.valid())
           {
@@ -1714,6 +1784,7 @@ namespace ImmersX::Vascularization
                                         {},
                                  geometry,
                                  work,
+                                        {},
                                  &checkpoint,
                                  active_companion);
     const auto &p      = parameters.calibration;
