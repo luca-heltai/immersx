@@ -343,6 +343,19 @@ derivatives too. The block $C_p$ must appear in differentiation with respect
 to $\lambda$, even if the native pressure provider treats pressure as fixed
 when assembling its own Jacobians.
 
+The pressure cross derivative uses MetricFlowX's native local derivative
+visitor when that API is available. It assembles a sparse rectangular matrix
+from the discontinuous pressure basis on the native network, including
+junction and connected-terminal contributions. The covered-wall projection
+is cell-local; its blocks are exchanged with ghost cells through deal.II.
+The HLL weights use the operator's owned candidate flow state, so rebuild
+this operator when the candidate state changes. The derivative with respect
+to flow state remains a separate native contribution.
+
+Older MetricFlowX packages use the compatibility path that probes every
+global pressure coefficient. That path traverses the network for each column
+and is unsuitable for large liver networks.
+
 `IDAAdapter` constructs
 
 $$

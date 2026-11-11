@@ -829,7 +829,7 @@ TEST(MetricFlowX, BOTH_PressureProviderPreservesDGTracesAndGhostValues)
 
   const auto op =
     metric_flow_x_pressure_operator(problem, -1. * value(field), state, 0.);
-  op.view.vmult(pressured, coefficients);
+  op.materialize()->vmult(pressured, coefficients);
   pressured -= contribution;
   EXPECT_LE(pressured.l2_norm(), 1.e-13 * contribution.l2_norm());
   auto dual = problem.make_state();
@@ -840,6 +840,90 @@ TEST(MetricFlowX, BOTH_PressureProviderPreservesDGTracesAndGhostValues)
   EXPECT_NEAR(transpose * coefficients,
               dual * contribution,
               1.e-11 * std::max(1., std::abs(dual * contribution)));
+}
+
+
+TEST(MetricFlowX, BOTH_MaterializedPressureMatchesGlobalBasisOracle)
+{
+  using namespace dealii;
+  using namespace ImmersX;
+  if constexpr (!detail::has_external_pressure_jacobian_visitor<Problem>::value)
+    GTEST_SKIP()
+      << "The installed MetricFlowX predates local pressure derivatives.";
+  ParameterAcceptor::clear();
+  Problem                problem(MPI_COMM_WORLD);
+  TimeIntervalParameters time("/", false);
+  IDAParameters          ida("/MetricFlowSystem<1, 3>/IDA parameters/", &time);
+  FiniteElementSpaceParameters<1, 3> parameters("/Pressure oracle/",
+                                                "FE_DGQ(1)");
+  initialize_native_parameters(
+    problem,
+    TestPaths::parameter_path("gtests/parameters/metric_flow_x_pressure.prm"),
+    0);
+  problem.setup();
+  FiniteElementSpace<1, 3> space(problem.triangulation(), parameters);
+  const auto               view  = space.view();
+  const auto               field = view.field("pressure_oracle");
+  auto                     state = problem.make_state();
+  problem.initialize_state(state, 0.);
+  FieldVector basis;
+  basis.reinit(field.locally_owned_dofs(), MPI_COMM_WORLD);
+  auto actual = problem.make_state(), expected = problem.make_state();
+  auto projection = std::make_shared<MetricFlowX::MatrixType>();
+  DynamicSparsityPattern sparsity(field.locally_relevant_dofs());
+  DoFTools::make_sparsity_pattern(view.dof_handler(), sparsity);
+  SparsityTools::distribute_sparsity_pattern(sparsity,
+                                             field.locally_owned_dofs(),
+                                             MPI_COMM_WORLD,
+                                             field.locally_relevant_dofs());
+  projection->reinit(field.locally_owned_dofs(),
+                     field.locally_owned_dofs(),
+                     sparsity,
+                     MPI_COMM_WORLD,
+                     false);
+  for (const auto &cell : view.dof_handler().active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        std::vector<types::global_dof_index> indices(
+          cell->get_fe().n_dofs_per_cell());
+        cell->get_dof_indices(indices);
+        ASSERT_EQ(indices.size(), 2u);
+        projection->set(indices[0], indices[0], .7);
+        projection->set(indices[0], indices[1], .2);
+        projection->set(indices[1], indices[0], .1);
+        projection->set(indices[1], indices[1], .6);
+      }
+  projection->compress(VectorOperation::insert);
+  for (const auto flux : {Problem::NumericalFluxType::HLL,
+                          Problem::NumericalFluxType::LAX_FRIEDRICHS})
+    {
+      problem.set_numerical_flux(flux);
+      for (const bool projected : {false, true})
+        {
+          const auto op =
+            metric_flow_x_pressure_operator(problem,
+                                            -1. * value(field),
+                                            state,
+                                            0.,
+                                            projected ? projection : nullptr);
+          const auto matrix = op.materialize();
+          // This deliberately keeps the old global-column calculation as an
+          // independent oracle for the new native local derivative traversal.
+          for (types::global_dof_index column = 0; column < basis.size();
+               ++column)
+            {
+              basis = 0.;
+              if (basis.locally_owned_elements().is_element(column))
+                basis[column] = 1.;
+              basis.compress(VectorOperation::insert);
+              op.view.vmult(expected, basis);
+              matrix->vmult(actual, basis);
+              actual -= expected;
+              EXPECT_LE(actual.l2_norm(),
+                        2.e-12 * std::max(1., expected.l2_norm()));
+            }
+        }
+    }
 }
 
 
@@ -1059,7 +1143,7 @@ TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
     problem, -1. * value(field), state, 0., projection);
   const auto full_operator =
     metric_flow_x_pressure_operator(problem, -1. * value(field), state, 0.);
-  projected_operator.view.vmult(actual, coefficients);
+  projected_operator.materialize()->vmult(actual, coefficients);
   full_operator.view.vmult(expected, coefficients);
   expected *= .5;
   actual -= expected;
