@@ -4509,13 +4509,17 @@ namespace ImmersX
       using Operator       = dealii::LinearOperator<VectorType, QuantityVector>;
       const auto source_points = load.locally_owned_quadrature_points(
         dealii::Quadrature<Quantity::support_dimension>());
-      const auto point_indices = [&load, n = source_points.size()] {
+      auto point_indices = [&load, n = source_points.size()] {
         std::vector<dealii::types::global_dof_index> result;
         result.reserve(n);
         for (std::size_t q = 0; q < n; ++q)
           result.push_back(load.point_index(q));
         return result;
       }();
+
+      const auto point_indices_storage =
+        std::make_shared<const decltype(point_indices)>(
+          std::move(point_indices));
 
       const auto &target_triangulation =
         target.dof_handler().get_triangulation();
@@ -4591,7 +4595,8 @@ namespace ImmersX
         };
 
       const auto values_on_target =
-        [distribution, point_indices](const QuantityVector &source) {
+        [distribution, point_indices_storage](const QuantityVector &source) {
+          const auto            &point_indices = *point_indices_storage;
           dealii::Vector<double> local_values(point_indices.size());
           for (std::size_t q = 0; q < point_indices.size(); ++q)
             local_values[q] = source[point_indices[q]];
@@ -4613,33 +4618,35 @@ namespace ImmersX
           for (const auto &[row, value] : point_entries)
             destination[row] += value * values.at(id);
       };
-      result.Tvmult =
-        [entries, distribution, point_indices](QuantityVector   &destination,
-                                               const VectorType &source) {
-          std::map<dealii::types::particle_index, double> values;
-          for (const auto &[id, point_entries] : *entries)
-            for (const auto &[row, value] : point_entries)
-              values[id] += value * source[row];
-          dealii::Vector<double> local_values(point_indices.size());
-          local_values = 0.;
-          distribution->add_transpose_to_source(values, local_values);
-          destination = 0.;
-          for (std::size_t q = 0; q < point_indices.size(); ++q)
-            destination[point_indices[q]] += local_values[q];
-        };
-      result.Tvmult_add =
-        [entries, distribution, point_indices](QuantityVector   &destination,
-                                               const VectorType &source) {
-          std::map<dealii::types::particle_index, double> values;
-          for (const auto &[id, point_entries] : *entries)
-            for (const auto &[row, value] : point_entries)
-              values[id] += value * source[row];
-          dealii::Vector<double> local_values(point_indices.size());
-          local_values = 0.;
-          distribution->add_transpose_to_source(values, local_values);
-          for (std::size_t q = 0; q < point_indices.size(); ++q)
-            destination[point_indices[q]] += local_values[q];
-        };
+      result.Tvmult = [entries, distribution, point_indices_storage](
+                        QuantityVector &destination, const VectorType &source) {
+        const auto &point_indices = *point_indices_storage;
+        std::map<dealii::types::particle_index, double> values;
+        for (const auto &[id, point_entries] : *entries)
+          for (const auto &[row, value] : point_entries)
+            values[id] += value * source[row];
+        dealii::Vector<double> local_values(point_indices.size());
+        local_values = 0.;
+        distribution->add_transpose_to_source(values, local_values);
+        destination = 0.;
+        for (std::size_t q = 0; q < point_indices.size(); ++q)
+          destination[point_indices[q]] += local_values[q];
+      };
+      result.Tvmult_add = [entries,
+                           distribution,
+                           point_indices_storage](QuantityVector   &destination,
+                                                  const VectorType &source) {
+        const auto &point_indices = *point_indices_storage;
+        std::map<dealii::types::particle_index, double> values;
+        for (const auto &[id, point_entries] : *entries)
+          for (const auto &[row, value] : point_entries)
+            values[id] += value * source[row];
+        dealii::Vector<double> local_values(point_indices.size());
+        local_values = 0.;
+        distribution->add_transpose_to_source(values, local_values);
+        for (std::size_t q = 0; q < point_indices.size(); ++q)
+          destination[point_indices[q]] += local_values[q];
+      };
       return result;
     }
   } // namespace detail
@@ -5291,7 +5298,7 @@ namespace ImmersX
         cache_assembly_ ? std::make_shared<std::optional<Pair>>() : nullptr;
       const auto owned_recipe = std::make_shared<const WeakTerm>(*this);
       const auto owned_target = std::make_shared<const Target>(target);
-      const auto build        = [owned_recipe, owned_target, region, cached] {
+      auto       build_action = [owned_recipe, owned_target, region, cached] {
         const auto &recipe = *owned_recipe;
         const auto &target = *owned_target;
         if (cached == nullptr)
@@ -5304,6 +5311,8 @@ namespace ImmersX
                                                                      false));
         return cached->value();
       };
+      const auto build =
+        std::make_shared<const decltype(build_action)>(std::move(build_action));
       const auto source            = observable_.source();
       const auto row               = target.source();
       auto      &op                = result.operator_with_matrix;
@@ -5326,7 +5335,7 @@ namespace ImmersX
             dst = 0.;
             return;
           }
-        const auto pairing = build();
+        const auto pairing = (*build)();
         pairing.operator_with_matrix.view.vmult(dst, src);
       };
       op.view.vmult_add = [build, source, row](VectorType       &dst,
@@ -5337,7 +5346,7 @@ namespace ImmersX
           {
             return;
           }
-        const auto pairing = build();
+        const auto pairing = (*build)();
         pairing.operator_with_matrix.view.vmult_add(dst, src);
       };
       op.view.Tvmult = [build, source, row](VectorType       &dst,
@@ -5349,7 +5358,7 @@ namespace ImmersX
             dst = 0.;
             return;
           }
-        const auto pairing = build();
+        const auto pairing = (*build)();
         pairing.operator_with_matrix.view.Tvmult(dst, src);
       };
       op.view.Tvmult_add = [build, source, row](VectorType       &dst,
@@ -5360,15 +5369,15 @@ namespace ImmersX
           {
             return;
           }
-        const auto pairing = build();
+        const auto pairing = (*build)();
         pairing.operator_with_matrix.view.Tvmult_add(dst, src);
       };
       op.materialize = [build] {
-        auto pairing = std::make_shared<Pair>(build());
+        auto pairing = std::make_shared<Pair>((*build)());
         return std::shared_ptr<MatrixType>(pairing, pairing->matrix.get());
       };
       op.materialize_into = [build](MatrixType &dst) {
-        const auto pairing = build();
+        const auto pairing = (*build)();
         if constexpr (detail::has_sparse_reinit<MatrixType>::value &&
                       !detail::has_distributed_partitions<MatrixType>::value)
           {

@@ -118,20 +118,23 @@ namespace ImmersX
           dealii::ExcMessage(
             "Harmonic constrained diagonals must be finite and positive."));
       matrix->compress(dealii::VectorOperation::insert);
-      const auto amg  = problem.make_surrogate_amg(*matrix);
-      auto     memory = std::make_shared<dealii::GrowingVectorMemory<Vector>>();
+      const auto amg = problem.make_surrogate_amg(*matrix);
+      auto memory    = std::make_shared<dealii::GrowingVectorMemory<Vector>>();
+      const auto owned_layout = std::make_shared<const dealii::IndexSet>(owned);
+      const auto constrained_rows =
+        std::make_shared<const decltype(constrained)>(std::move(constrained));
       Operator result;
-      result.reinit_range_vector = [owned, communicator](Vector &v,
-                                                         const bool) {
-        v.reinit(owned, communicator);
+      result.reinit_range_vector = [owned_layout, communicator](Vector &v,
+                                                                const bool) {
+        v.reinit(*owned_layout, communicator);
       };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [matrix, amg, constrained, memory, options](
+      result.vmult = [matrix, amg, constrained_rows, memory, options](
                        Vector &dst, const Vector &src) {
         typename dealii::VectorMemory<Vector>::Pointer rhs(*memory);
         rhs->reinit(src);
         *rhs = src;
-        for (const auto &[index, inverse_diagonal] : constrained)
+        for (const auto &[index, inverse_diagonal] : *constrained_rows)
           (*rhs)[index] = 0.;
         dst               = 0.;
         const double norm = rhs->l2_norm();
@@ -148,7 +151,7 @@ namespace ImmersX
             dealii::SolverCG<Vector>       solver(control, *memory);
             solver.solve(*matrix, dst, *rhs, *amg);
           }
-        for (const auto &[index, inverse_diagonal] : constrained)
+        for (const auto &[index, inverse_diagonal] : *constrained_rows)
           dst[index] = inverse_diagonal * src[index];
         AssertThrow(std::isfinite(dst.l2_norm()),
                     dealii::ExcMessage(

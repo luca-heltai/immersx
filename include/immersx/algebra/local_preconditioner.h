@@ -59,11 +59,14 @@ namespace ImmersX
     {
       VectorType prototype;
       reinit_vector(prototype, false);
-      const auto owned = prototype.locally_owned_elements();
-      const auto apply = [size, communicator, reinit_vector, owned, action](
-                           VectorType       &destination,
-                           const VectorType &source,
-                           const bool        transpose) {
+      const auto owned        = prototype.locally_owned_elements();
+      const auto apply_action = [size,
+                                 communicator,
+                                 reinit_vector,
+                                 owned,
+                                 action](VectorType       &destination,
+                                         const VectorType &source,
+                                         const bool        transpose) {
         const bool matching =
           source.size() == size && source.locally_owned_elements() == owned;
         AssertThrow(dealii::Utilities::MPI::min(
@@ -98,26 +101,33 @@ namespace ImmersX
           destination(i) = output(i);
         destination.compress(dealii::VectorOperation::insert);
       };
+      const auto apply =
+        std::make_shared<const decltype(apply_action)>(std::move(apply_action));
+      const auto reinit =
+        std::make_shared<const std::function<void(VectorType &, bool)>>(
+          reinit_vector);
       auto memory = std::make_shared<dealii::GrowingVectorMemory<VectorType>>();
       dealii::LinearOperator<VectorType> result;
-      result.reinit_range_vector  = reinit_vector;
-      result.reinit_domain_vector = reinit_vector;
+      result.reinit_range_vector = [reinit](VectorType &v, const bool omit) {
+        (*reinit)(v, omit);
+      };
+      result.reinit_domain_vector = result.reinit_range_vector;
       result.vmult = [apply](VectorType &dst, const VectorType &src) {
-        apply(dst, src, false);
+        (*apply)(dst, src, false);
       };
       result.Tvmult = [apply](VectorType &dst, const VectorType &src) {
-        apply(dst, src, true);
+        (*apply)(dst, src, true);
       };
       result.vmult_add = [apply, memory](VectorType       &dst,
                                          const VectorType &src) {
         typename dealii::VectorMemory<VectorType>::Pointer tmp(*memory);
-        apply(*tmp, src, false);
+        (*apply)(*tmp, src, false);
         dst += *tmp;
       };
       result.Tvmult_add = [apply, memory](VectorType       &dst,
                                           const VectorType &src) {
         typename dealii::VectorMemory<VectorType>::Pointer tmp(*memory);
-        apply(*tmp, src, true);
+        (*apply)(*tmp, src, true);
         dst += *tmp;
       };
       return result;
@@ -235,7 +245,12 @@ namespace ImmersX
       std::make_shared<dealii::GrowingVectorMemory<VectorType>>();
 
     dealii::LinearOperator<VectorType> result;
-    result.reinit_range_vector  = reinit_vector;
+    const auto                         reinit =
+      std::make_shared<const std::function<void(VectorType &, bool)>>(
+        reinit_vector);
+    result.reinit_range_vector = [reinit](VectorType &v, const bool omit) {
+      (*reinit)(v, omit);
+    };
     result.reinit_domain_vector = result.reinit_range_vector;
     result.vmult = [preconditioner](VectorType &dst, const VectorType &src) {
       preconditioner->vmult(dst, src);
