@@ -17,6 +17,8 @@
 #include <immersx/vascularization/network.h>
 #include <immersx/vascularization/reference_flow.h>
 
+#include <functional>
+
 namespace ImmersX::Vascularization
 {
   struct CalibrationParameters
@@ -205,6 +207,37 @@ namespace ImmersX::Vascularization
            total_seconds = 0.;
   };
 
+  /** Accepted-state progress of one native forest. Counts are global. */
+  struct GenerationProgress
+  {
+    System        system              = System::arterial;
+    unsigned int  requested_terminals = 0;
+    std::uint64_t accepted_terminals = 0, batches = 0;
+  };
+
+  struct GenerationAction
+  {
+    bool checkpoint = false, stop = false;
+  };
+
+  /** Optional synchronous controls at completed batch boundaries.
+   *
+   * Supply or omit each callback consistently on every MPI rank. poll must not
+   * perform collective operations: its requests are combined collectively.
+   * checkpoint is called on every rank with ownership of a materialized copy
+   * of the last accepted state. It may use collective output, but must follow
+   * the same collective sequence on every rank. The bool marks a controlled
+   * stop; all such snapshots remain incomplete, diagnostic and non-resumable.
+   * Empty controls retain the ordinary path without additional collectives or
+   * accepted-state materializations.
+   */
+  struct GenerationControl
+  {
+    std::function<GenerationAction(const GenerationProgress &)> poll;
+    std::function<void(const GenerationProgress &, NetworkData, bool)>
+      checkpoint;
+  };
+
   struct GenerationResult
   {
     MeshLengthScale length_scale;
@@ -236,6 +269,8 @@ namespace ImmersX::Vascularization
     std::uint64_t                sampled_points      = 0;
     unsigned int                 accepted_insertions = 0;
     std::vector<TerminalTriplet> terminal_triplets;
+    /** A cooperative stop always returns an invalid, non-adoptable result. */
+    bool controlled_stop = false;
   };
 
   /**
@@ -272,6 +307,20 @@ namespace ImmersX::Vascularization
            const NetworkData              &initial,
            const Parameters               &parameters,
            MPI_Comm                        communicator);
+
+  /** Generate with optional accepted-state snapshot and cooperative controls.
+   * Callbacks are invoked synchronously and never retained after return.
+   * A stop request finishes the last accepted state, returns controlled_stop,
+   * and bypasses further calibration trials; it does not impose a hard limit
+   * on a batch or finalization already in progress.
+   */
+  GenerationResult
+  generate(const dealii::Triangulation<3> &background,
+           const dealii::Mapping<3>       &mapping,
+           const NetworkData              &initial,
+           const Parameters               &parameters,
+           MPI_Comm                        communicator,
+           const GenerationControl        &control);
   /**
    * Complete a network with supplied physical territory and bed metadata.
    * Each input record is supplied once globally; territories belong to their

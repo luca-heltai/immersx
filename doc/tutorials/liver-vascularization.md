@@ -329,6 +329,87 @@ exhausted the finite sampling budget on this case. MPI partitions change the
 sampled growth paths, so another process count can need different search
 controls. The smaller 32-pair case was also verified on two and four ranks.
 
+## Monitor growth and retain the latest diagnostic state
+
+For a fresh generation, enable monitoring in the same parameter file:
+
+```text
+subsection Liver
+  subsection Growth monitoring
+    set Progress interval = 60
+    set Checkpoint interval = 900
+    set Maximum generation wall time = 18000
+  end
+end
+```
+
+All three values are seconds and default to zero, which disables that option.
+These parameters require the application built with the monitoring API; the
+frozen `c88` campaign runtime does not accept them. Monitoring is not supported
+with `Companion checkpoint archive` continuation.
+
+`progress.csv` records elapsed generation time, active system, requested and
+accepted terminal counts, and completed batch count. Counts describe the active
+native forest, not the combined three-role network. Records are flushed on a
+role change and at the requested interval. The first safe point follows
+bootstrap; later safe points follow completed accepted or rejected batches.
+There is no progress notification from the middle of a batch.
+
+`latest-checkpoint/` contains `arterial.pvtu`, `portal.pvtu`, `venous.pvtu`,
+their rank-local pieces, and `checkpoint.json`. The files contain the last
+accepted state, never a staged candidate. Until a companion role starts growing,
+its VTK contains its original imported network. The manifest distinguishes
+`original_input` from `accepted_growth` and reports each role's accepted growth
+count separately. Imported physical IDs, coordinates and endpoint radii are
+preserved. Generated hydraulic fields are not final.
+
+Every checkpoint is diagnostic, incomplete, non-adoptable and non-resumable,
+including a snapshot taken just before successful generation finishes. Its
+lengths and geometry do not certify admissibility or an inf-sup bound. The
+application continues to produce the ordinary final archive only after all
+required generation and validation work succeeds.
+
+Publication writes a temporary `checkpoint-staging/`, then replaces
+`latest-checkpoint/` and removes the previous snapshot. Storage therefore holds
+one completed latest snapshot in steady state and at most two full snapshots
+during replacement. A hard kill can leave staging or previous output; preserve
+those files for inspection. A subsequent invocation refuses to overwrite them.
+The rename sequence does not guarantee that a reader sees a `latest-checkpoint`
+directory at every instant.
+
+The maximum generation wall time requests a cooperative stop. It is checked at
+the safe points above, then writes a checkpoint and finishes reconstructing the
+last accepted state. The application saves the three `invalid-result/*.pvtu`
+files and background mesh, creates no native `network/` archive, and returns
+exit status 2. A batch, bootstrap, checkpoint write or final reconstruction can
+extend past the requested time. Leave a measured allowance before any external
+hard timeout; this parameter is not a hard wall-time bound. Observer or output
+errors return failure and retain diagnostic files already written.
+
+Applications using the library can provide the same optional controls:
+
+```cpp
+using namespace ImmersX::Vascularization;
+GenerationControl control;
+control.poll = [](const GenerationProgress &progress) {
+  return GenerationAction{/*checkpoint=*/false,
+                          /*stop=*/progress.accepted_terminals >= 100};
+};
+auto result = generate(background, mapping, initial, parameters, comm, control);
+```
+
+Supply or omit each callback consistently on every rank. `poll` runs
+synchronously and must not perform collectives. Requests from all ranks are
+combined: any rank may request a checkpoint or stop. An optional `checkpoint`
+callback receives an owned, materialized `NetworkData` by value on every rank;
+its final Boolean argument marks a stop. That callback may perform collective
+output if all ranks follow the same sequence. It must finish before returning
+and must label the snapshot as incomplete diagnostic data. A stop returns
+`controlled_stop=true` with invalid validation and prevents further calibration
+trials. Empty controls preserve the ordinary generation path without extra
+collectives or accepted-state materializations. Materializing a requested
+snapshot traverses the current network and adds output cost.
+
 ## Reproduce the illustrations
 
 The published figures come from the checked 32-rank run. Their
@@ -433,6 +514,73 @@ medium case does not reuse the small graph or the historical 2048-territory
 archive. Independent rigid hydraulic audits passed for both. The continuous
 `2H` coverage proof reported for the small family applies to its own
 2316-cell generation background; it is not a medium-family coverage result.
+
+### Rigid flow distribution for the new families
+
+The small and medium archives also contain solved rigid-reference flows.
+For each physical vessel, the plotted speed is
+$|Q_e|/(\pi\min(r_{e,0},r_{e,1})^2)$: the largest endpoint speed for its
+linear radius taper. These are physical-vessel statistics, rather than
+statistics over the rediscretized numerical intervals. The median values are:
+
+| Family | Arterial (m/s) | Portal (m/s) | Venous (m/s) |
+| --- | ---: | ---: | ---: |
+| Small, 2316 terminals per role | 0.04073 | 0.02063 | 0.01576 |
+| Medium, 13351 terminals per role | 0.03173 | 0.01611 | 0.01247 |
+
+Every recorded speed is below 1 m/s in these two rigid references. Small
+terminal radii therefore do not imply large velocities when their solved
+local flows are also small. This observation is not a physiological velocity
+criterion or a validation of the coupled model.
+
+```{figure} ../_static/liver-icar/new-family-perfusion/speed-cdf.svg
+:alt: Count-weighted cumulative speed distributions for the three physical vascular roles in the small and medium rigid references.
+
+Each physical vessel has equal weight. Both panels use the same logarithmic
+speed scale. No transient or coupled flow solution is included.
+```
+
+To separate unequal territory sizes from unequal perfusion, define
+
+$$
+\eta_{i,s} =
+\frac{q_{i,s}/\sum_j q_{j,s}}{d_{i,s}/\sum_j d_{j,s}},
+$$
+
+where $s$ denotes the vascular role, $q_{i,s}$ is its solved terminal flow and
+$d_{i,s}>0$ is the recorded territory demand. The demand comes from the model;
+it is not a measured perfusion field. A value of one means that the territory
+receives the same fraction of role flow as its fraction of recorded demand.
+The diagnostic does not impose that value on the resistance-driven solution.
+
+```{figure} ../_static/liver-icar/new-family-perfusion/perfusion-cdf.svg
+:alt: Territory-demand-weighted cumulative distributions of terminal flow share divided by recorded demand share, for all three roles and both new families.
+
+Each terminal is weighted by its fraction of recorded role demand. The
+vertical line marks proportional supply. This weighting differs from the
+equal-vessel weighting in the speed plot.
+```
+
+The CSV flows were checked against the reference writer and independently
+against $p_0-p_1=R_eQ_e$ on every vessel; the maximum absolute discrepancy was
+below $1.2\times10^{-12}$ Pa. These checks describe the rigid network and its
+specified supply totals. They do not establish patient calibration, stable
+1D–3D coupling, or a converged transient cycle. In particular, the coupled
+portal-pressure reservoir described below is a different boundary closure.
+
+The [CDF records](../_static/liver-icar/new-family-perfusion/cdf.csv),
+[numerical summary](../_static/liver-icar/new-family-perfusion/summary.json)
+and [provenance](../_static/liver-icar/new-family-perfusion/provenance.json)
+retain definitions, archive checksums and hashes of the source CSV partitions.
+The bundled CDF samples use 1001 common evaluation points for each role,
+family and metric. Regenerate both figures from those records without running
+a solver or downloading the anatomical grids:
+
+```bash
+python3 -m pip install -r doc/_static/liver-icar/new-family-perfusion/requirements.txt
+python3 doc/_static/liver-icar/new-family-perfusion/plot.py \
+  --output-dir /tmp/liver-reference-figures
+```
 
 ### Measured setup for the new forest families
 
