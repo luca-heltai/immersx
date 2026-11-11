@@ -340,33 +340,31 @@ namespace ImmersX
                     const std::shared_ptr<typename Composition::StateSnapshot>
                       &snapshot) const
     {
-      Operator result;
+      const auto retained = std::make_shared<const Operator>(operator_view);
+      Operator   result;
       result.reinit_range_vector =
-        [operator_view, snapshot](GlobalVectorType &vector, const bool omit) {
-          operator_view.reinit_range_vector(vector, omit);
+        [retained, snapshot](GlobalVectorType &vector, const bool omit) {
+          retained->reinit_range_vector(vector, omit);
         };
       result.reinit_domain_vector =
-        [operator_view, snapshot](GlobalVectorType &vector, const bool omit) {
-          operator_view.reinit_domain_vector(vector, omit);
+        [retained, snapshot](GlobalVectorType &vector, const bool omit) {
+          retained->reinit_domain_vector(vector, omit);
         };
-      result.vmult = [operator_view, snapshot](GlobalVectorType &destination,
+      result.vmult = [retained, snapshot](GlobalVectorType       &destination,
+                                          const GlobalVectorType &source) {
+        retained->vmult(destination, source);
+      };
+      result.vmult_add = [retained, snapshot](GlobalVectorType &destination,
+                                              const GlobalVectorType &source) {
+        retained->vmult_add(destination, source);
+      };
+      result.Tvmult = [retained, snapshot](GlobalVectorType       &destination,
+                                           const GlobalVectorType &source) {
+        retained->Tvmult(destination, source);
+      };
+      result.Tvmult_add = [retained, snapshot](GlobalVectorType &destination,
                                                const GlobalVectorType &source) {
-        operator_view.vmult(destination, source);
-      };
-      result.vmult_add = [operator_view,
-                          snapshot](GlobalVectorType       &destination,
-                                    const GlobalVectorType &source) {
-        operator_view.vmult_add(destination, source);
-      };
-      result.Tvmult = [operator_view,
-                       snapshot](GlobalVectorType       &destination,
-                                 const GlobalVectorType &source) {
-        operator_view.Tvmult(destination, source);
-      };
-      result.Tvmult_add = [operator_view,
-                           snapshot](GlobalVectorType       &destination,
-                                     const GlobalVectorType &source) {
-        operator_view.Tvmult_add(destination, source);
+        retained->Tvmult_add(destination, source);
       };
       return result;
     }

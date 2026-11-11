@@ -33,23 +33,30 @@ namespace ImmersX
   dealii::LinearOperator<Range, Domain>
   payload_free(const dealii::LinearOperator<Range, Domain, Payload> &op)
   {
+    // The input may be a temporary. Retain one operator so copies of the
+    // payload-free callbacks share its state instead of copying it six times.
+    const auto source =
+      std::make_shared<const dealii::LinearOperator<Range, Domain, Payload>>(
+        op);
     dealii::LinearOperator<Range, Domain> result;
-    result.is_null_operator = op.is_null_operator;
-    result.vmult = [op](Range &dst, const Domain &src) { op.vmult(dst, src); };
-    result.vmult_add = [op](Range &dst, const Domain &src) {
-      op.vmult_add(dst, src);
+    result.is_null_operator = source->is_null_operator;
+    result.vmult            = [source](Range &dst, const Domain &src) {
+      source->vmult(dst, src);
     };
-    result.Tvmult = [op](Domain &dst, const Range &src) {
-      op.Tvmult(dst, src);
+    result.vmult_add = [source](Range &dst, const Domain &src) {
+      source->vmult_add(dst, src);
     };
-    result.Tvmult_add = [op](Domain &dst, const Range &src) {
-      op.Tvmult_add(dst, src);
+    result.Tvmult = [source](Domain &dst, const Range &src) {
+      source->Tvmult(dst, src);
     };
-    result.reinit_range_vector = [op](Range &dst, const bool omit) {
-      op.reinit_range_vector(dst, omit);
+    result.Tvmult_add = [source](Domain &dst, const Range &src) {
+      source->Tvmult_add(dst, src);
     };
-    result.reinit_domain_vector = [op](Domain &dst, const bool omit) {
-      op.reinit_domain_vector(dst, omit);
+    result.reinit_range_vector = [source](Range &dst, const bool omit) {
+      source->reinit_range_vector(dst, omit);
+    };
+    result.reinit_domain_vector = [source](Domain &dst, const bool omit) {
+      source->reinit_domain_vector(dst, omit);
     };
     return result;
   }

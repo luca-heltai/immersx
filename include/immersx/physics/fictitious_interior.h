@@ -244,9 +244,9 @@ namespace ImmersX
       const auto   b           = integrals;
       const auto   constrained = constrained_rows;
       const double volume      = sampled_volume;
-      const auto   action = [b, h, constrained, volume](VectorType       &dst,
-                                                      const VectorType &src,
-                                                      const bool transpose) {
+      const auto   apply = [b, h, constrained, volume](VectorType       &dst,
+                                                     const VectorType &src,
+                                                     const bool transpose) {
         std::array<double, 2> moment{};
         for (const auto i : (*b)[0].locally_owned_elements())
           if (!transpose || !constrained.is_element(i))
@@ -262,27 +262,28 @@ namespace ImmersX
             if (constrained.is_element(i))
               dst[i] = 0.;
       };
+      const auto action = std::make_shared<const decltype(apply)>(apply);
       MaterializedOperator<VectorType, MatrixType> result;
       auto                                        &op = result.view;
       op.is_null_operator                             = false;
       op.reinit_domain_vector                         = op.reinit_range_vector =
         [b](VectorType &v, const bool omit) { v.reinit((*b)[0], omit); };
       op.vmult = [action](VectorType &dst, const VectorType &src) {
-        action(dst, src, false);
+        (*action)(dst, src, false);
       };
       op.Tvmult = [action](VectorType &dst, const VectorType &src) {
-        action(dst, src, true);
+        (*action)(dst, src, true);
       };
       op.vmult_add = [action, b](VectorType &dst, const VectorType &src) {
         VectorType value;
         value.reinit((*b)[0]);
-        action(value, src, false);
+        (*action)(value, src, false);
         dst += value;
       };
       op.Tvmult_add = [action, b](VectorType &dst, const VectorType &src) {
         VectorType value;
         value.reinit((*b)[0]);
-        action(value, src, true);
+        (*action)(value, src, true);
         dst += value;
       };
 

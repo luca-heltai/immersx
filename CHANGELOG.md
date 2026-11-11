@@ -302,6 +302,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #381](https://github.com/luca-heltai/immersx/pull/381) Share retained linear-operator state across callback copies to avoid copying vectors and nested operators during composition.
+
 - [PR #380](https://github.com/luca-heltai/immersx/pull/380) Share one owned weak-term recipe and target across operator callbacks instead of duplicating their field state, avoiding excessive memory use when registering large coupled terms.
 
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Use the native configurable minimum positive area when importing physical vascular radii, retaining the fixed threshold for older MetricFlowX backends.
@@ -575,6 +577,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #381](https://github.com/luca-heltai/immersx/pull/381) Count only cycle and mode collections in lifted-elasticity application tests so optional particle output does not fail the record-count check.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) Check that a native IDA binding and `IDAParameters` on the same section hold the same value for every entry, including entries missing from the input.
 
