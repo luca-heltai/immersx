@@ -528,6 +528,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #394](https://github.com/luca-heltai/immersx/pull/394) Document the liver coupled-initialization diagnostics, native HLL correction, artificial continuation stages and unaccepted VTK interpretation.
+
 - [PR #386](https://github.com/luca-heltai/immersx/pull/386) Add reproducible rigid-reference speed and demand-normalized perfusion plots for the separately grown small and medium liver families.
 
 - [PR #380](https://github.com/luca-heltai/immersx/pull/380) Distinguish historical liver setup diagnostics on a fixed network from separately grown CCO families whose terminal counts scale with each background.
