@@ -22,6 +22,7 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
+#include <immersx/core/detail/second_order_condensation.h>
 #include <immersx/core/second_order_preconditioner.h>
 
 #include <algorithm>
@@ -599,6 +600,28 @@ namespace ImmersX::detail
                              entry->value());
           }
       result.compress(dealii::VectorOperation::insert);
+    }
+
+    using SecondOrderCondensation =
+      detail::SecondOrderCondensation<MatrixType, FieldVectorType>;
+
+    /**
+     * Condense the kinematic rows of every second-order pair out of a
+     * materialized Jacobian for a direct solve. Returns nullptr when there is
+     * no pair or the matrix values do not have the kinematic structure.
+     */
+    std::shared_ptr<const SecondOrderCondensation>
+    second_order_condensation(const BlockMatrixType &block_matrix) const
+    {
+      finalize();
+      std::vector<typename SecondOrderCondensation::Pair> pairs;
+      for (const auto &pair : model_.second_order_pairs())
+        pairs.push_back({field_layout_.block(pair.displacement),
+                         field_layout_.block(pair.velocity)});
+      return SecondOrderCondensation::build(block_matrix,
+                                            pairs,
+                                            field_layout_.block_partitions(),
+                                            communicator_);
     }
 
     MatrixType
