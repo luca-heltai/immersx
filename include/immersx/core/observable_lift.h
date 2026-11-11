@@ -76,9 +76,9 @@ namespace ImmersX
     using Lift =
       TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>;
     using Support  = TensorProductLiftSupport<reduced_dim,
-                                             surface_dim,
-                                             spacedim,
-                                             n_components>;
+                                              surface_dim,
+                                              spacedim,
+                                              n_components>;
     using Operator = dealii::LinearOperator<value_type, state_type>;
 
     LiftedObservable(SourceObservable source, const Lift &lift)
@@ -378,18 +378,27 @@ namespace ImmersX
         return linearize_composed(context, field);
       else
         {
-          const auto owned            = point_owned_;
-          const auto relevant         = point_relevant_;
-          const auto point_ids        = point_indices_;
-          const auto points           = points_;
+          const auto owned_storage =
+            std::make_shared<const std::decay_t<decltype(point_owned_)>>(
+              point_owned_);
+          const auto relevant_storage =
+            std::make_shared<const std::decay_t<decltype(point_relevant_)>>(
+              point_relevant_);
+          const auto point_ids_storage =
+            std::make_shared<const std::decay_t<decltype(point_indices_)>>(
+              point_indices_);
+          const auto points_storage =
+            std::make_shared<const std::decay_t<decltype(points_)>>(points_);
           const auto source_field_ref = source();
           const auto communicator     = mpi_communicator();
           const auto coefficient      = scale();
 
           Operator result;
           result.reinit_range_vector =
-            [owned, relevant, communicator](value_type &vector,
-                                            const bool  omit) {
+            [owned_storage, relevant_storage, communicator](value_type &vector,
+                                                            const bool  omit) {
+              const auto &owned    = *owned_storage;
+              const auto &relevant = *relevant_storage;
               vector.reinit(owned, relevant, communicator);
               if (!omit)
                 vector = 0.;
@@ -403,14 +412,18 @@ namespace ImmersX
             if (!omit)
               vector = 0.;
           };
-          result.vmult = [points,
-                          point_ids,
+          result.vmult = [points_storage,
+                          point_ids_storage,
                           source_field_ref,
-                          owned,
-                          relevant,
+                          owned_storage,
+                          relevant_storage,
                           communicator,
                           coefficient](value_type       &destination,
                                        const state_type &values) {
+            const auto &owned     = *owned_storage;
+            const auto &relevant  = *relevant_storage;
+            const auto &point_ids = *point_ids_storage;
+            const auto &points    = *points_storage;
             detail::apply_stencils(
               points,
               point_ids,
@@ -431,14 +444,18 @@ namespace ImmersX
               false,
               false);
           };
-          result.vmult_add = [points,
-                              point_ids,
+          result.vmult_add = [points_storage,
+                              point_ids_storage,
                               source_field_ref,
-                              owned,
-                              relevant,
+                              owned_storage,
+                              relevant_storage,
                               communicator,
                               coefficient](value_type       &destination,
                                            const state_type &values) {
+            const auto &owned     = *owned_storage;
+            const auto &relevant  = *relevant_storage;
+            const auto &point_ids = *point_ids_storage;
+            const auto &points    = *points_storage;
             detail::apply_stencils(
               points,
               point_ids,
@@ -459,44 +476,54 @@ namespace ImmersX
               false,
               true);
           };
-          result.Tvmult =
-            [points, point_ids, source_field_ref, communicator, coefficient](
-              state_type &destination, const value_type &values) {
-              detail::apply_stencils_transpose(
-                points,
-                point_ids,
-                source_field_ref.locally_owned_dofs(),
-                &source_field_ref.constraints(),
-                communicator,
-                values,
-                destination,
-                [](const auto &point) -> const auto & {
-                  return point.dof_indices;
-                },
-                [coefficient](const auto &point, const unsigned int i) {
-                  return coefficient * point.basis_values[i];
-                },
-                false);
-            };
-          result.Tvmult_add =
-            [points, point_ids, source_field_ref, communicator, coefficient](
-              state_type &destination, const value_type &values) {
-              detail::apply_stencils_transpose(
-                points,
-                point_ids,
-                source_field_ref.locally_owned_dofs(),
-                &source_field_ref.constraints(),
-                communicator,
-                values,
-                destination,
-                [](const auto &point) -> const auto & {
-                  return point.dof_indices;
-                },
-                [coefficient](const auto &point, const unsigned int i) {
-                  return coefficient * point.basis_values[i];
-                },
-                true);
-            };
+          result.Tvmult = [points_storage,
+                           point_ids_storage,
+                           source_field_ref,
+                           communicator,
+                           coefficient](state_type       &destination,
+                                        const value_type &values) {
+            const auto &point_ids = *point_ids_storage;
+            const auto &points    = *points_storage;
+            detail::apply_stencils_transpose(
+              points,
+              point_ids,
+              source_field_ref.locally_owned_dofs(),
+              &source_field_ref.constraints(),
+              communicator,
+              values,
+              destination,
+              [](const auto &point) -> const auto & {
+                return point.dof_indices;
+              },
+              [coefficient](const auto &point, const unsigned int i) {
+                return coefficient * point.basis_values[i];
+              },
+              false);
+          };
+          result.Tvmult_add = [points_storage,
+                               point_ids_storage,
+                               source_field_ref,
+                               communicator,
+                               coefficient](state_type       &destination,
+                                            const value_type &values) {
+            const auto &point_ids = *point_ids_storage;
+            const auto &points    = *points_storage;
+            detail::apply_stencils_transpose(
+              points,
+              point_ids,
+              source_field_ref.locally_owned_dofs(),
+              &source_field_ref.constraints(),
+              communicator,
+              values,
+              destination,
+              [](const auto &point) -> const auto & {
+                return point.dof_indices;
+              },
+              [coefficient](const auto &point, const unsigned int i) {
+                return coefficient * point.basis_values[i];
+              },
+              true);
+          };
           return result;
         }
     }
@@ -711,23 +738,24 @@ namespace ImmersX
     Operator
     linearize_vector(const Context &context, const FieldId field) const
     {
-      const auto owned         = point_owned_;
-      const auto relevant      = point_relevant_;
-      const auto points        = points_;
+      const auto points_storage =
+        std::make_shared<const std::decay_t<decltype(points_)>>(points_);
       const auto column_source = source_for(field);
       const auto communicator  = mpi_communicator();
       const auto coefficient   = scale();
-      const auto observable    = source_;
-      const auto context_copy  = context;
-      const auto time          = context.time();
+      const auto observable_storage =
+        std::make_shared<const std::decay_t<decltype(source_)>>(source_);
+      const auto context_copy_storage =
+        std::make_shared<const std::decay_t<decltype(context)>>(context);
+      const auto time = context.time();
 
       Operator result;
-      result.reinit_range_vector = [n = points.size()](value_type &vector,
-                                                       const bool) {
-        vector.resize(n);
-        for (auto &entry : vector)
-          entry = 0.;
-      };
+      result.reinit_range_vector =
+        [n = points_storage->size()](value_type &vector, const bool) {
+          vector.resize(n);
+          for (auto &entry : vector)
+            entry = 0.;
+        };
       result.reinit_domain_vector =
         [column_source, communicator](state_type &vector, const bool omit) {
           vector.reinit(column_source.locally_owned_dofs(),
@@ -736,39 +764,56 @@ namespace ImmersX
           if (!omit)
             vector = 0.;
         };
-      result.vmult =
-        [points, coefficient, observable, context_copy, field, time](
-          value_type &destination, const state_type &direction) {
-          destination.resize(points.size());
-          for (std::size_t q = 0; q < points.size(); ++q)
-            {
-              double derivative = 0.;
-              derivative        = composed_derivative(
-                observable, context_copy, direction, field, points[q], time);
-              destination[q] =
-                mode_vector(points[q]) * (coefficient * derivative);
-            }
-        };
-      result.vmult_add =
-        [points, coefficient, observable, context_copy, field, time](
-          value_type &destination, const state_type &direction) {
-          for (std::size_t q = 0; q < points.size(); ++q)
-            {
-              const double derivative = composed_derivative(
-                observable, context_copy, direction, field, points[q], time);
-              destination[q] +=
-                mode_vector(points[q]) * (coefficient * derivative);
-            }
-        };
-      result.Tvmult = [points,
+      result.vmult = [points_storage,
+                      coefficient,
+                      observable_storage,
+                      context_copy_storage,
+                      field,
+                      time](value_type       &destination,
+                            const state_type &direction) {
+        const auto &points       = *points_storage;
+        const auto &observable   = *observable_storage;
+        const auto &context_copy = *context_copy_storage;
+        destination.resize(points.size());
+        for (std::size_t q = 0; q < points.size(); ++q)
+          {
+            double derivative = 0.;
+            derivative        = composed_derivative(
+              observable, context_copy, direction, field, points[q], time);
+            destination[q] =
+              mode_vector(points[q]) * (coefficient * derivative);
+          }
+      };
+      result.vmult_add = [points_storage,
+                          coefficient,
+                          observable_storage,
+                          context_copy_storage,
+                          field,
+                          time](value_type       &destination,
+                                const state_type &direction) {
+        const auto &points       = *points_storage;
+        const auto &observable   = *observable_storage;
+        const auto &context_copy = *context_copy_storage;
+        for (std::size_t q = 0; q < points.size(); ++q)
+          {
+            const double derivative = composed_derivative(
+              observable, context_copy, direction, field, points[q], time);
+            destination[q] +=
+              mode_vector(points[q]) * (coefficient * derivative);
+          }
+      };
+      result.Tvmult = [points_storage,
                        coefficient,
-                       observable,
+                       observable_storage,
                        column_source,
-                       context_copy,
+                       context_copy_storage,
                        field,
                        time](state_type       &destination,
                              const value_type &values) {
-        destination = 0.;
+        const auto &points       = *points_storage;
+        const auto &observable   = *observable_storage;
+        const auto &context_copy = *context_copy_storage;
+        destination              = 0.;
         for (std::size_t q = 0; q < points.size(); ++q)
           {
             const double weight =
@@ -815,20 +860,32 @@ namespace ImmersX
     Operator
     linearize_composed(const Context &context, const FieldId field) const
     {
-      const auto owned         = point_owned_;
-      const auto relevant      = point_relevant_;
-      const auto point_ids     = point_indices_;
-      const auto points        = points_;
+      const auto owned_storage =
+        std::make_shared<const std::decay_t<decltype(point_owned_)>>(
+          point_owned_);
+      const auto relevant_storage =
+        std::make_shared<const std::decay_t<decltype(point_relevant_)>>(
+          point_relevant_);
+      const auto point_ids_storage =
+        std::make_shared<const std::decay_t<decltype(point_indices_)>>(
+          point_indices_);
+      const auto points_storage =
+        std::make_shared<const std::decay_t<decltype(points_)>>(points_);
       const auto column_source = source_for(field);
       const auto communicator  = mpi_communicator();
       const auto coefficient   = scale();
-      const auto observable    = source_;
-      const auto context_copy  = context;
-      const auto time          = context.time();
+      const auto observable_storage =
+        std::make_shared<const std::decay_t<decltype(source_)>>(source_);
+      const auto context_copy_storage =
+        std::make_shared<const std::decay_t<decltype(context)>>(context);
+      const auto time = context.time();
 
       Operator result;
       result.reinit_range_vector =
-        [owned, relevant, communicator](value_type &vector, const bool omit) {
+        [owned_storage, relevant_storage, communicator](value_type &vector,
+                                                        const bool  omit) {
+          const auto &owned    = *owned_storage;
+          const auto &relevant = *relevant_storage;
           vector.reinit(owned, relevant, communicator);
           if (!omit)
             vector = 0.;
@@ -841,17 +898,23 @@ namespace ImmersX
           if (!omit)
             vector = 0.;
         };
-      result.vmult = [points,
-                      point_ids,
-                      owned,
-                      relevant,
+      result.vmult = [points_storage,
+                      point_ids_storage,
+                      owned_storage,
+                      relevant_storage,
                       communicator,
                       coefficient,
-                      observable,
-                      context_copy,
+                      observable_storage,
+                      context_copy_storage,
                       field,
                       time](value_type       &destination,
                             const state_type &direction) {
+        const auto &owned        = *owned_storage;
+        const auto &relevant     = *relevant_storage;
+        const auto &point_ids    = *point_ids_storage;
+        const auto &points       = *points_storage;
+        const auto &observable   = *observable_storage;
+        const auto &context_copy = *context_copy_storage;
         destination.reinit(owned, relevant, communicator);
         destination = 0.;
         for (std::size_t q = 0; q < points.size(); ++q)
@@ -860,25 +923,38 @@ namespace ImmersX
             composed_derivative(
               observable, context_copy, direction, field, points[q], time);
       };
-      result.vmult_add =
-        [points, point_ids, coefficient, observable, context_copy, field, time](
-          value_type &destination, const state_type &direction) {
-          for (std::size_t q = 0; q < points.size(); ++q)
-            destination[point_ids[q]] +=
-              coefficient * mode_value(points[q]) *
-              composed_derivative(
-                observable, context_copy, direction, field, points[q], time);
-        };
-      result.Tvmult = [points,
-                       point_ids,
+      result.vmult_add = [points_storage,
+                          point_ids_storage,
+                          coefficient,
+                          observable_storage,
+                          context_copy_storage,
+                          field,
+                          time](value_type       &destination,
+                                const state_type &direction) {
+        const auto &point_ids    = *point_ids_storage;
+        const auto &points       = *points_storage;
+        const auto &observable   = *observable_storage;
+        const auto &context_copy = *context_copy_storage;
+        for (std::size_t q = 0; q < points.size(); ++q)
+          destination[point_ids[q]] +=
+            coefficient * mode_value(points[q]) *
+            composed_derivative(
+              observable, context_copy, direction, field, points[q], time);
+      };
+      result.Tvmult = [points_storage,
+                       point_ids_storage,
                        coefficient,
-                       observable,
+                       observable_storage,
                        column_source,
-                       context_copy,
+                       context_copy_storage,
                        field,
                        time](state_type       &destination,
                              const value_type &values) {
-        destination = 0.;
+        const auto &point_ids    = *point_ids_storage;
+        const auto &points       = *points_storage;
+        const auto &observable   = *observable_storage;
+        const auto &context_copy = *context_copy_storage;
+        destination              = 0.;
         for (std::size_t q = 0; q < points.size(); ++q)
           {
             const double weight =

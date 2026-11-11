@@ -835,3 +835,47 @@ TEST(ContributorCore, ReplayingScaledSharedMatrixLeavesSourceUnchanged)
       EXPECT_DOUBLE_EQ(matrix->el(1, 1), 5.);
     }
 }
+
+TEST(ContributorCore, PayloadFreeCopiesShareCallbackState)
+{
+  using Vector = dealii::Vector<double>;
+  struct Action
+  {
+    explicit Action(std::shared_ptr<unsigned int> copies)
+      : copies(std::move(copies))
+    {}
+    Action(const Action &other)
+      : copies(other.copies)
+    {
+      ++*copies;
+    }
+    void
+    operator()(Vector &dst, const Vector &src) const
+    {
+      dst = src;
+      dst *= 2.;
+    }
+    std::shared_ptr<unsigned int> copies;
+  };
+  const auto copies    = std::make_shared<unsigned int>(0);
+  const auto make_view = [&]() {
+    dealii::LinearOperator<Vector> original;
+    original.vmult                = Action(copies);
+    original.Tvmult               = original.vmult;
+    original.reinit_range_vector  = [](Vector &v, const bool) { v.reinit(2); };
+    original.reinit_domain_vector = original.reinit_range_vector;
+    return ImmersX::payload_free(original);
+  };
+  const auto view        = make_view();
+  const auto before      = *copies;
+  const auto copy        = view;
+  const auto composition = copy * view;
+  EXPECT_EQ(*copies, before);
+  Vector src(2), dst(2);
+  src = 3.;
+  composition.vmult(dst, src);
+  EXPECT_DOUBLE_EQ(dst[0], 12.);
+  EXPECT_DOUBLE_EQ(dst[1], 12.);
+  copy.Tvmult(dst, src);
+  EXPECT_DOUBLE_EQ(dst[0], 6.);
+}

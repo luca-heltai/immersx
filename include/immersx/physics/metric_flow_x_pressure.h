@@ -262,12 +262,14 @@ namespace ImmersX
     const double                                   time,
     std::shared_ptr<const MetricFlowX::MatrixType> projection = {})
   {
-    using Vector            = MetricFlowX::VectorType;
-    using Matrix            = MetricFlowX::MatrixType;
-    const auto field        = pressure.source();
-    const auto state        = std::make_shared<Vector>(flow_state);
-    const auto rows         = problem.locally_owned_dofs();
-    const auto columns      = field.locally_owned_dofs();
+    using Vector     = MetricFlowX::VectorType;
+    using Matrix     = MetricFlowX::MatrixType;
+    const auto field = pressure.source();
+    const auto state = std::make_shared<Vector>(flow_state);
+    const auto rows =
+      std::make_shared<const dealii::IndexSet>(problem.locally_owned_dofs());
+    const auto columns =
+      std::make_shared<const dealii::IndexSet>(field.locally_owned_dofs());
     const auto communicator = field.space().mpi_communicator();
     MaterializedOperator<Vector, Matrix> result;
     result.view.reinit_range_vector = [&problem](Vector &dst, const bool) {
@@ -275,11 +277,12 @@ namespace ImmersX
     };
     result.view.reinit_domain_vector = [columns, communicator](Vector &dst,
                                                                const bool) {
-      dst.reinit(columns, communicator);
+      dst.reinit(*columns, communicator);
     };
+    const auto pressure_view = std::make_shared<const Pressure>(pressure);
     result.view.vmult =
-      [&problem, pressure, state, time, projection](Vector       &dst,
-                                                    const Vector &src) {
+      [&problem, pressure_view, state, time, projection](Vector       &dst,
+                                                         const Vector &src) {
         // Scalar zeroing preserves a Trilinos destination's pending Insert
         // mode; native pressure assembly needs a fresh vector before adding
         // entries.
@@ -288,32 +291,33 @@ namespace ImmersX
         problem.add_external_pressure_residual(
           time,
           *state,
-          metric_flow_x_pressure_provider(pressure, src, projection),
+          metric_flow_x_pressure_provider(*pressure_view, src, projection),
           dst);
       };
-    const auto action  = result.view;
-    auto       cached  = std::make_shared<std::shared_ptr<Matrix>>();
+    const auto action =
+      std::make_shared<const decltype(result.view)>(result.view);
+    auto cached        = std::make_shared<std::shared_ptr<Matrix>>();
     result.materialize = [action, cached, rows, columns, communicator]() {
       if (!*cached)
         {
           Vector basis, image;
-          action.reinit_domain_vector(basis, false);
-          action.reinit_range_vector(image, false);
-          dealii::DynamicSparsityPattern sparsity(rows.size(),
-                                                  columns.size(),
-                                                  rows);
+          action->reinit_domain_vector(basis, false);
+          action->reinit_range_vector(image, false);
+          dealii::DynamicSparsityPattern sparsity(rows->size(),
+                                                  columns->size(),
+                                                  *rows);
           std::vector<std::tuple<dealii::types::global_dof_index,
                                  dealii::types::global_dof_index,
                                  double>>
             entries;
-          for (dealii::types::global_dof_index j = 0; j < columns.size(); ++j)
+          for (dealii::types::global_dof_index j = 0; j < columns->size(); ++j)
             {
               basis = 0.;
-              if (columns.is_element(j))
+              if (columns->is_element(j))
                 basis[j] = 1.;
               basis.compress(dealii::VectorOperation::insert);
-              action.vmult(image, basis);
-              for (const auto i : rows)
+              action->vmult(image, basis);
+              for (const auto i : *rows)
                 if (image[i] != 0.)
                   {
                     sparsity.add(i, j);
@@ -321,27 +325,28 @@ namespace ImmersX
                   }
             }
           *cached = std::make_shared<Matrix>();
-          (*cached)->reinit(rows, columns, sparsity, communicator, false);
+          (*cached)->reinit(*rows, *columns, sparsity, communicator, false);
           for (const auto &[i, j, value] : entries)
             (*cached)->set(i, j, value);
           (*cached)->compress(dealii::VectorOperation::insert);
         }
       return detail::clone_matrix(**cached);
     };
-    const auto matrix       = result.materialize;
+    const auto matrix =
+      std::make_shared<const decltype(result.materialize)>(result.materialize);
     result.materialize_into = [matrix](Matrix &dst) {
-      detail::copy_matrix(dst, *matrix());
+      detail::copy_matrix(dst, *(*matrix)());
     };
     result.view.Tvmult = [matrix](Vector &dst, const Vector &src) {
-      matrix()->Tvmult(dst, src);
+      (*matrix)()->Tvmult(dst, src);
     };
     result.view.Tvmult_add = [matrix](Vector &dst, const Vector &src) {
-      matrix()->Tvmult_add(dst, src);
+      (*matrix)()->Tvmult_add(dst, src);
     };
     result.view.vmult_add = [action](Vector &dst, const Vector &src) {
       Vector image;
-      action.reinit_range_vector(image, false);
-      action.vmult(image, src);
+      action->reinit_range_vector(image, false);
+      action->vmult(image, src);
       dst += image;
     };
     return result;

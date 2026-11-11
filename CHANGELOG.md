@@ -302,6 +302,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Share retained linear-operator state across callback copies to avoid copying vectors and nested operators during composition.
+
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Use the native configurable minimum positive area when importing physical vascular radii, retaining the fixed threshold for older MetricFlowX backends.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) The default `elastodynamics` parameter file runs: `Fixed step/Number of time steps` defaults to 10, and the printed `Domain/Initial refinement` default is the 2 actually used. `elastodynamics` no longer prints the unused `IDA` section, and `elastodynamics_adapter` no longer prints the unused `Fixed step` section.
@@ -567,6 +569,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Count only cycle and mode collections in lifted-elasticity application tests so optional particle output does not fail the record-count check.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) Check that a native IDA binding and `IDAParameters` on the same section hold the same value for every entry, including entries missing from the input.
 

@@ -30,6 +30,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <type_traits>
 #include <vector>
 
 namespace ImmersX::detail
@@ -697,7 +698,11 @@ namespace ImmersX::detail
       const auto communicator = communicator_;
       Operator   result;
       result.reinit_range_vector =
-        [partitions, communicator](GlobalVectorType &vector, const bool) {
+        [partitions_storage =
+           std::make_shared<const std::decay_t<decltype(partitions)>>(
+             partitions),
+         communicator](GlobalVectorType &vector, const bool) {
+          const auto &partitions = *partitions_storage;
           vector.reinit(partitions, communicator);
         };
       result.reinit_domain_vector = result.reinit_range_vector;
@@ -1083,7 +1088,11 @@ namespace ImmersX::detail
       const auto partitions   = field_layout_.block_partitions();
       const auto communicator = communicator_;
       result.reinit_range_vector =
-        [partitions, communicator](GlobalVectorType &vector, const bool) {
+        [partitions_storage =
+           std::make_shared<const std::decay_t<decltype(partitions)>>(
+             partitions),
+         communicator](GlobalVectorType &vector, const bool) {
+          const auto &partitions = *partitions_storage;
           vector.reinit(partitions, communicator);
         };
       result.reinit_domain_vector = result.reinit_range_vector;
@@ -1172,25 +1181,37 @@ namespace ImmersX::detail
               inverse_metric->compress(dealii::VectorOperation::insert);
 
               inverse_metric_operator.reinit_range_vector =
-                [multiplier_partition,
+                [multiplier_partition_storage = std::make_shared<
+                   const std::decay_t<decltype(multiplier_partition)>>(
+                   multiplier_partition),
                  communicator = communicator_](FieldVectorType &vector,
                                                const bool       omit) {
+                  const auto &multiplier_partition =
+                    *multiplier_partition_storage;
                   vector.reinit(multiplier_partition, communicator, omit);
                 };
               inverse_metric_operator.reinit_domain_vector =
                 inverse_metric_operator.reinit_range_vector;
               inverse_metric_operator.vmult =
                 [inverse_metric,
-                 multiplier_partition](FieldVectorType       &dst,
-                                       const FieldVectorType &src) {
+                 multiplier_partition_storage = std::make_shared<
+                   const std::decay_t<decltype(multiplier_partition)>>(
+                   multiplier_partition)](FieldVectorType       &dst,
+                                          const FieldVectorType &src) {
+                  const auto &multiplier_partition =
+                    *multiplier_partition_storage;
                   dst = src;
                   for (const auto index : multiplier_partition)
                     dst(index) = (*inverse_metric)(index)*src(index);
                 };
               inverse_metric_operator.vmult_add =
                 [inverse_metric,
-                 multiplier_partition](FieldVectorType       &dst,
-                                       const FieldVectorType &src) {
+                 multiplier_partition_storage = std::make_shared<
+                   const std::decay_t<decltype(multiplier_partition)>>(
+                   multiplier_partition)](FieldVectorType       &dst,
+                                          const FieldVectorType &src) {
+                  const auto &multiplier_partition =
+                    *multiplier_partition_storage;
                   for (const auto index : multiplier_partition)
                     dst(index) += (*inverse_metric)(index)*src(index);
                 };
@@ -1255,44 +1276,56 @@ namespace ImmersX::detail
       const auto partitions   = field_layout_.block_partitions();
       const auto communicator = communicator_;
       Operator   result       = make_global_operator(context, alpha);
-      for (const auto &augmentation : augmentations)
+      for (auto &augmentation : augmentations)
         {
+          const auto augmentation_storage =
+            std::make_shared<const Augmentation>(std::move(augmentation));
           Operator contribution;
           contribution.reinit_range_vector =
-            [partitions, communicator](GlobalVectorType &vector, const bool) {
+            [partitions_storage =
+               std::make_shared<const std::decay_t<decltype(partitions)>>(
+                 partitions),
+             communicator](GlobalVectorType &vector, const bool) {
+              const auto &partitions = *partitions_storage;
               vector.reinit(partitions, communicator);
             };
           contribution.reinit_domain_vector = contribution.reinit_range_vector;
-          contribution.vmult = [augmentation](GlobalVectorType &destination,
-                                              const GlobalVectorType &source) {
-            destination = 0.;
-            for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
-              for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
-                augmentation.terms[i][j].vmult_add(
-                  destination.block(augmentation.participants[i]),
-                  source.block(augmentation.columns[j]));
-          };
-          contribution.vmult_add =
-            [augmentation](GlobalVectorType       &destination,
-                           const GlobalVectorType &source) {
+          contribution.vmult =
+            [augmentation_storage](GlobalVectorType       &destination,
+                                   const GlobalVectorType &source) {
+              const auto &augmentation = *augmentation_storage;
+              destination              = 0.;
               for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
                 for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
                   augmentation.terms[i][j].vmult_add(
                     destination.block(augmentation.participants[i]),
                     source.block(augmentation.columns[j]));
             };
-          contribution.Tvmult = [augmentation](GlobalVectorType &destination,
-                                               const GlobalVectorType &source) {
-            destination = 0.;
-            for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
-              for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
-                dealii::transpose_operator(augmentation.terms[i][j])
-                  .vmult_add(destination.block(augmentation.columns[j]),
-                             source.block(augmentation.participants[i]));
-          };
+          contribution.vmult_add =
+            [augmentation_storage](GlobalVectorType       &destination,
+                                   const GlobalVectorType &source) {
+              const auto &augmentation = *augmentation_storage;
+              for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
+                for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
+                  augmentation.terms[i][j].vmult_add(
+                    destination.block(augmentation.participants[i]),
+                    source.block(augmentation.columns[j]));
+            };
+          contribution.Tvmult =
+            [augmentation_storage](GlobalVectorType       &destination,
+                                   const GlobalVectorType &source) {
+              const auto &augmentation = *augmentation_storage;
+              destination              = 0.;
+              for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
+                for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
+                  dealii::transpose_operator(augmentation.terms[i][j])
+                    .vmult_add(destination.block(augmentation.columns[j]),
+                               source.block(augmentation.participants[i]));
+            };
           contribution.Tvmult_add =
-            [augmentation](GlobalVectorType       &destination,
-                           const GlobalVectorType &source) {
+            [augmentation_storage](GlobalVectorType       &destination,
+                                   const GlobalVectorType &source) {
+              const auto &augmentation = *augmentation_storage;
               for (std::size_t i = 0; i < augmentation.participants.size(); ++i)
                 for (std::size_t j = 0; j < augmentation.columns.size(); ++j)
                   dealii::transpose_operator(augmentation.terms[i][j])
@@ -1518,12 +1551,15 @@ namespace ImmersX::detail
           }
       primal_matrix->compress(dealii::VectorOperation::insert);
 
-      const auto primal_reinit = [primal_partition,
-                                  communicator =
-                                    communicator_](FieldVectorType &vector,
-                                                   const bool       omit) {
-        vector.reinit(primal_partition, communicator, omit);
-      };
+      const auto primal_reinit =
+        [primal_partition_storage =
+           std::make_shared<const std::decay_t<decltype(primal_partition)>>(
+             primal_partition),
+         communicator = communicator_](FieldVectorType &vector,
+                                       const bool       omit) {
+          const auto &primal_partition = *primal_partition_storage;
+          vector.reinit(primal_partition, communicator, omit);
+        };
       auto primal_inverse =
         make_amg_preconditioner<FieldVectorType, MatrixType>(*primal_matrix,
                                                              primal_reinit);
@@ -1594,130 +1630,149 @@ namespace ImmersX::detail
         std::make_shared<dealii::GrowingVectorMemory<FieldVectorType>>();
       auto vector_memory =
         std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
-      auto apply = [participant_blocks,
-                    participant_offsets,
-                    primal_partition,
-                    partitions,
-                    multiplier_block,
-                    multiplier_inverse,
-                    primal_inverse,
-                    from_multiplier,
-                    to_multiplier,
-                    non_participants,
-                    gamma,
-                    communicator = communicator_,
-                    field_vector_memory](GlobalVectorType       &dst,
-                                         const GlobalVectorType &src,
-                                         const bool              transpose) {
-        dst = 0.;
-        for (const auto &non_participant : non_participants)
-          if (transpose)
-            non_participant.inverse.Tvmult(dst.block(non_participant.block),
-                                           src.block(non_participant.block));
-          else
-            non_participant.inverse.vmult(dst.block(non_participant.block),
-                                          src.block(non_participant.block));
+      auto apply =
+        [participant_blocks,
+         participant_offsets,
+         primal_partition_storage =
+           std::make_shared<const std::decay_t<decltype(primal_partition)>>(
+             primal_partition),
+         partitions_storage =
+           std::make_shared<const std::decay_t<decltype(partitions)>>(
+             partitions),
+         multiplier_block,
+         multiplier_inverse,
+         primal_inverse,
+         from_multiplier,
+         to_multiplier,
+         non_participants,
+         gamma,
+         communicator = communicator_,
+         field_vector_memory](GlobalVectorType       &dst,
+                              const GlobalVectorType &src,
+                              const bool              transpose) {
+          const auto &primal_partition = *primal_partition_storage;
+          const auto &partitions       = *partitions_storage;
+          dst                          = 0.;
+          for (const auto &non_participant : non_participants)
+            if (transpose)
+              non_participant.inverse.Tvmult(dst.block(non_participant.block),
+                                             src.block(non_participant.block));
+            else
+              non_participant.inverse.vmult(dst.block(non_participant.block),
+                                            src.block(non_participant.block));
 
-        typename dealii::VectorMemory<FieldVectorType>::Pointer primal_rhs(
-          *field_vector_memory);
-        typename dealii::VectorMemory<FieldVectorType>::Pointer primal_solution(
-          *field_vector_memory);
-        primal_rhs->reinit(primal_partition, communicator);
-        primal_solution->reinit(primal_partition, communicator);
-        *primal_rhs = 0.;
-        if (!transpose)
-          {
-            typename dealii::VectorMemory<FieldVectorType>::Pointer lambda(
-              *field_vector_memory);
-            multiplier_inverse.reinit_range_vector(*lambda, false);
-            multiplier_inverse.vmult(*lambda, src.block(multiplier_block));
-            *lambda *= -gamma;
-            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
-              for (const auto index : partitions[participant_blocks[i]])
-                (*primal_rhs)(participant_offsets[i] + index) =
-                  src.block(participant_blocks[i])(index);
-            primal_rhs->compress(dealii::VectorOperation::insert);
-            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
-              {
-                typename dealii::VectorMemory<FieldVectorType>::Pointer value(
-                  *field_vector_memory);
-                from_multiplier[i].reinit_range_vector(*value, false);
-                from_multiplier[i].vmult(*value, *lambda);
+          typename dealii::VectorMemory<FieldVectorType>::Pointer primal_rhs(
+            *field_vector_memory);
+          typename dealii::VectorMemory<FieldVectorType>::Pointer
+            primal_solution(*field_vector_memory);
+          primal_rhs->reinit(primal_partition, communicator);
+          primal_solution->reinit(primal_partition, communicator);
+          *primal_rhs = 0.;
+          if (!transpose)
+            {
+              typename dealii::VectorMemory<FieldVectorType>::Pointer lambda(
+                *field_vector_memory);
+              multiplier_inverse.reinit_range_vector(*lambda, false);
+              multiplier_inverse.vmult(*lambda, src.block(multiplier_block));
+              *lambda *= -gamma;
+              for (std::size_t i = 0; i < participant_blocks.size(); ++i)
                 for (const auto index : partitions[participant_blocks[i]])
-                  (*primal_rhs)(participant_offsets[i] + index) +=
-                    (*value)(index);
-              }
-            primal_rhs->compress(dealii::VectorOperation::add);
-            primal_inverse.vmult(*primal_solution, *primal_rhs);
-            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
-              for (const auto index : partitions[participant_blocks[i]])
-                dst.block(participant_blocks[i])(index) =
-                  (*primal_solution)(participant_offsets[i] + index);
-            dst.block(multiplier_block) = *lambda;
-          }
-        else
-          {
-            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
-              for (const auto index : partitions[participant_blocks[i]])
-                (*primal_rhs)(participant_offsets[i] + index) =
-                  src.block(participant_blocks[i])(index);
-            primal_rhs->compress(dealii::VectorOperation::insert);
-            primal_inverse.Tvmult(*primal_solution, *primal_rhs);
-            typename dealii::VectorMemory<FieldVectorType>::Pointer
-              multiplier_rhs(*field_vector_memory);
-            multiplier_inverse.reinit_domain_vector(*multiplier_rhs, false);
-            *multiplier_rhs = src.block(multiplier_block);
-            multiplier_rhs->compress(dealii::VectorOperation::insert);
-            for (std::size_t i = 0; i < participant_blocks.size(); ++i)
-              {
-                typename dealii::VectorMemory<FieldVectorType>::Pointer value(
-                  *field_vector_memory);
-                typename dealii::VectorMemory<FieldVectorType>::Pointer
-                  participant_solution(*field_vector_memory);
-                to_multiplier[i].reinit_domain_vector(*participant_solution,
-                                                      false);
-                for (const auto index : partitions[participant_blocks[i]])
-                  (*participant_solution)(index) =
-                    (*primal_solution)(participant_offsets[i] + index);
-                to_multiplier[i].reinit_range_vector(*value, false);
-                to_multiplier[i].vmult(*value, *participant_solution);
+                  (*primal_rhs)(participant_offsets[i] + index) =
+                    src.block(participant_blocks[i])(index);
+              primal_rhs->compress(dealii::VectorOperation::insert);
+              for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+                {
+                  typename dealii::VectorMemory<FieldVectorType>::Pointer value(
+                    *field_vector_memory);
+                  from_multiplier[i].reinit_range_vector(*value, false);
+                  from_multiplier[i].vmult(*value, *lambda);
+                  for (const auto index : partitions[participant_blocks[i]])
+                    (*primal_rhs)(participant_offsets[i] + index) +=
+                      (*value)(index);
+                }
+              primal_rhs->compress(dealii::VectorOperation::add);
+              primal_inverse.vmult(*primal_solution, *primal_rhs);
+              for (std::size_t i = 0; i < participant_blocks.size(); ++i)
                 for (const auto index : partitions[participant_blocks[i]])
                   dst.block(participant_blocks[i])(index) =
                     (*primal_solution)(participant_offsets[i] + index);
-                multiplier_rhs->add(1., *value);
-              }
-            multiplier_rhs->compress(dealii::VectorOperation::add);
-            multiplier_inverse.Tvmult(dst.block(multiplier_block),
-                                      *multiplier_rhs);
-            dst.block(multiplier_block) *= -gamma;
-          }
-      };
+              dst.block(multiplier_block) = *lambda;
+            }
+          else
+            {
+              for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+                for (const auto index : partitions[participant_blocks[i]])
+                  (*primal_rhs)(participant_offsets[i] + index) =
+                    src.block(participant_blocks[i])(index);
+              primal_rhs->compress(dealii::VectorOperation::insert);
+              primal_inverse.Tvmult(*primal_solution, *primal_rhs);
+              typename dealii::VectorMemory<FieldVectorType>::Pointer
+                multiplier_rhs(*field_vector_memory);
+              multiplier_inverse.reinit_domain_vector(*multiplier_rhs, false);
+              *multiplier_rhs = src.block(multiplier_block);
+              multiplier_rhs->compress(dealii::VectorOperation::insert);
+              for (std::size_t i = 0; i < participant_blocks.size(); ++i)
+                {
+                  typename dealii::VectorMemory<FieldVectorType>::Pointer value(
+                    *field_vector_memory);
+                  typename dealii::VectorMemory<FieldVectorType>::Pointer
+                    participant_solution(*field_vector_memory);
+                  to_multiplier[i].reinit_domain_vector(*participant_solution,
+                                                        false);
+                  for (const auto index : partitions[participant_blocks[i]])
+                    (*participant_solution)(index) =
+                      (*primal_solution)(participant_offsets[i] + index);
+                  to_multiplier[i].reinit_range_vector(*value, false);
+                  to_multiplier[i].vmult(*value, *participant_solution);
+                  for (const auto index : partitions[participant_blocks[i]])
+                    dst.block(participant_blocks[i])(index) =
+                      (*primal_solution)(participant_offsets[i] + index);
+                  multiplier_rhs->add(1., *value);
+                }
+              multiplier_rhs->compress(dealii::VectorOperation::add);
+              multiplier_inverse.Tvmult(dst.block(multiplier_block),
+                                        *multiplier_rhs);
+              dst.block(multiplier_block) *= -gamma;
+            }
+        };
 
       const auto communicator = communicator_;
-      Operator   result;
+      const auto apply_storage =
+        std::make_shared<const decltype(apply)>(std::move(apply));
+      Operator result;
       result.reinit_range_vector =
-        [partitions, communicator](GlobalVectorType &vector, const bool) {
+        [partitions_storage =
+           std::make_shared<const std::decay_t<decltype(partitions)>>(
+             partitions),
+         communicator](GlobalVectorType &vector, const bool) {
+          const auto &partitions = *partitions_storage;
           vector.reinit(partitions, communicator);
         };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [apply](GlobalVectorType       &dst,
-                             const GlobalVectorType &src) {
+      result.vmult                = [apply_storage](GlobalVectorType       &dst,
+                                     const GlobalVectorType &src) {
+        const auto &apply = *apply_storage;
         apply(dst, src, false);
       };
-      result.vmult_add = [apply, vector_memory](GlobalVectorType       &dst,
-                                                const GlobalVectorType &src) {
+      result.vmult_add = [apply_storage,
+                          vector_memory](GlobalVectorType       &dst,
+                                         const GlobalVectorType &src) {
+        const auto &apply = *apply_storage;
         typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
           *vector_memory);
         contribution->reinit(dst);
         apply(*contribution, src, false);
         dst += *contribution;
       };
-      result.Tvmult = [apply](GlobalVectorType       &dst,
-                              const GlobalVectorType &src) {
+      result.Tvmult = [apply_storage](GlobalVectorType       &dst,
+                                      const GlobalVectorType &src) {
+        const auto &apply = *apply_storage;
         apply(dst, src, true);
       };
-      result.Tvmult_add = [apply, vector_memory](GlobalVectorType       &dst,
-                                                 const GlobalVectorType &src) {
+      result.Tvmult_add = [apply_storage,
+                           vector_memory](GlobalVectorType       &dst,
+                                          const GlobalVectorType &src) {
+        const auto &apply = *apply_storage;
         typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
           *vector_memory);
         contribution->reinit(dst);
@@ -1763,8 +1818,11 @@ namespace ImmersX::detail
               LocalOperator result;
               const auto    owned = layout_.field(field).locally_owned;
               result.reinit_range_vector =
-                [owned, communicator = communicator_](FieldVectorType &vector,
-                                                      const bool) {
+                [owned_storage =
+                   std::make_shared<const std::decay_t<decltype(owned)>>(owned),
+                 communicator = communicator_](FieldVectorType &vector,
+                                               const bool) {
+                  const auto &owned = *owned_storage;
                   vector.reinit(owned, communicator);
                 };
               result.reinit_domain_vector = result.reinit_range_vector;
@@ -1784,7 +1842,7 @@ namespace ImmersX::detail
               // outer solver is still required for residual-stopped CG.
               result.Tvmult = result.vmult;
               auto memory   = std::make_shared<
-                dealii::GrowingVectorMemory<FieldVectorType>>();
+                  dealii::GrowingVectorMemory<FieldVectorType>>();
               result.vmult_add = [apply = result.vmult,
                                   memory](FieldVectorType       &destination,
                                           const FieldVectorType &source) {
@@ -1812,7 +1870,10 @@ namespace ImmersX::detail
           const auto owned        = layout_.field(field).locally_owned;
           const auto communicator = communicator_;
           const auto reinit_vector =
-            [owned, communicator](FieldVectorType &vector, const bool) {
+            [owned_storage =
+               std::make_shared<const std::decay_t<decltype(owned)>>(owned),
+             communicator](FieldVectorType &vector, const bool) {
+              const auto &owned = *owned_storage;
               vector.reinit(owned, communicator);
             };
           const auto local =
@@ -1855,13 +1916,15 @@ namespace ImmersX::detail
                                            partition);
       auto empty_matrix = std::make_shared<MatrixType>();
       empty_matrix->reinit(partition, partition, empty, communicator_, false);
-      const auto local =
-        model.preconditioner(field,
-                             *empty_matrix,
-                             [partition, communicator = communicator_](
-                               FieldVectorType &vector, const bool) {
-                               vector.reinit(partition, communicator);
-                             });
+      const auto local = model.preconditioner(
+        field,
+        *empty_matrix,
+        [partition_storage =
+           std::make_shared<const std::decay_t<decltype(partition)>>(partition),
+         communicator = communicator_](FieldVectorType &vector, const bool) {
+          const auto &partition = *partition_storage;
+          vector.reinit(partition, communicator);
+        });
       if (!local.has_value())
         return std::nullopt;
       auto       result     = *local;
@@ -1905,9 +1968,12 @@ namespace ImmersX::detail
           if (model.has_preconditioner(multiplier))
             {
               const auto reinitializer =
-                [partition,
+                [partition_storage =
+                   std::make_shared<const std::decay_t<decltype(partition)>>(
+                     partition),
                  communicator = communicator_](FieldVectorType &vector,
                                                const bool       omit) {
+                  const auto &partition = *partition_storage;
                   vector.reinit(partition, communicator, omit);
                 };
               const auto local =
@@ -1925,8 +1991,12 @@ namespace ImmersX::detail
 
           LocalOperator result;
           result.reinit_range_vector =
-            [partition, communicator = communicator_](FieldVectorType &vector,
-                                                      const bool       omit) {
+            [partition_storage =
+               std::make_shared<const std::decay_t<decltype(partition)>>(
+                 partition),
+             communicator = communicator_](FieldVectorType &vector,
+                                           const bool       omit) {
+              const auto &partition = *partition_storage;
               vector.reinit(partition, communicator, omit);
             };
           result.reinit_domain_vector = result.reinit_range_vector;
@@ -1955,8 +2025,11 @@ namespace ImmersX::detail
         return *local;
 
       return dealii::identity_operator<FieldVectorType>(
-        [partition, communicator = communicator_](FieldVectorType &vector,
-                                                  const bool       omit) {
+        [partition_storage =
+           std::make_shared<const std::decay_t<decltype(partition)>>(partition),
+         communicator = communicator_](FieldVectorType &vector,
+                                       const bool       omit) {
+          const auto &partition = *partition_storage;
           vector.reinit(partition, communicator, omit);
         });
     }
@@ -2004,30 +2077,40 @@ namespace ImmersX::detail
 
       const auto partitions   = field_layout_.block_partitions();
       const auto communicator = communicator_;
+      const auto diagonal_storage =
+        std::make_shared<const decltype(diagonal)>(std::move(diagonal));
       Operator   result;
-      result.reinit_range_vector =
-        [partitions, communicator](GlobalVectorType &vector, const bool) {
-          vector.reinit(partitions, communicator);
-        };
+      const auto partitions_storage =
+        std::make_shared<const decltype(partitions)>(partitions);
+      result.reinit_range_vector = [partitions_storage,
+                                    communicator](GlobalVectorType &vector,
+                                                  const bool) {
+        const auto &partitions = *partitions_storage;
+        vector.reinit(partitions, communicator);
+      };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult = [diagonal](GlobalVectorType       &destination,
-                                const GlobalVectorType &source) {
+      result.vmult = [diagonal_storage](GlobalVectorType       &destination,
+                                        const GlobalVectorType &source) {
+        const auto &diagonal = *diagonal_storage;
         for (unsigned int block = 0; block < diagonal.size(); ++block)
           diagonal[block].vmult(destination.block(block), source.block(block));
       };
-      result.vmult_add = [diagonal](GlobalVectorType       &destination,
-                                    const GlobalVectorType &source) {
+      result.vmult_add = [diagonal_storage](GlobalVectorType       &destination,
+                                            const GlobalVectorType &source) {
+        const auto &diagonal = *diagonal_storage;
         for (unsigned int block = 0; block < diagonal.size(); ++block)
           diagonal[block].vmult_add(destination.block(block),
                                     source.block(block));
       };
-      result.Tvmult = [diagonal](GlobalVectorType       &destination,
-                                 const GlobalVectorType &source) {
+      result.Tvmult = [diagonal_storage](GlobalVectorType       &destination,
+                                         const GlobalVectorType &source) {
+        const auto &diagonal = *diagonal_storage;
         for (unsigned int block = 0; block < diagonal.size(); ++block)
           diagonal[block].Tvmult(destination.block(block), source.block(block));
       };
-      result.Tvmult_add = [diagonal](GlobalVectorType       &destination,
-                                     const GlobalVectorType &source) {
+      result.Tvmult_add = [diagonal_storage](GlobalVectorType &destination,
+                                             const GlobalVectorType &source) {
+        const auto &diagonal = *diagonal_storage;
         for (unsigned int block = 0; block < diagonal.size(); ++block)
           diagonal[block].Tvmult_add(destination.block(block),
                                      source.block(block));
@@ -2134,32 +2217,42 @@ namespace ImmersX::detail
       const auto communicator = communicator_;
       auto       vector_memory =
         std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+      const auto apply_storage =
+        std::make_shared<const decltype(apply)>(std::move(apply));
       Operator result;
       result.reinit_range_vector =
-        [partitions, communicator](GlobalVectorType &vector, const bool) {
+        [partitions_storage =
+           std::make_shared<const std::decay_t<decltype(partitions)>>(
+             partitions),
+         communicator](GlobalVectorType &vector, const bool) {
+          const auto &partitions = *partitions_storage;
           vector.reinit(partitions, communicator);
         };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult                = [apply](GlobalVectorType       &destination,
-                             const GlobalVectorType &source) {
+      result.vmult = [apply_storage](GlobalVectorType       &destination,
+                                     const GlobalVectorType &source) {
+        const auto &apply = *apply_storage;
         apply(destination, source, false);
       };
-      result.vmult_add = [apply,
+      result.vmult_add = [apply_storage,
                           vector_memory](GlobalVectorType       &destination,
                                          const GlobalVectorType &source) {
+        const auto &apply = *apply_storage;
         typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
           *vector_memory);
         contribution->reinit(destination);
         apply(*contribution, source, false);
         destination += *contribution;
       };
-      result.Tvmult = [apply](GlobalVectorType       &destination,
-                              const GlobalVectorType &source) {
+      result.Tvmult = [apply_storage](GlobalVectorType       &destination,
+                                      const GlobalVectorType &source) {
+        const auto &apply = *apply_storage;
         apply(destination, source, true);
       };
-      result.Tvmult_add = [apply,
+      result.Tvmult_add = [apply_storage,
                            vector_memory](GlobalVectorType       &destination,
                                           const GlobalVectorType &source) {
+        const auto &apply = *apply_storage;
         typename dealii::VectorMemory<GlobalVectorType>::Pointer contribution(
           *vector_memory);
         contribution->reinit(destination);
@@ -2424,16 +2517,24 @@ namespace ImmersX::detail
             }
         }
 
-      const auto partitions    = field_layout_.block_partitions();
-      const auto communicator  = communicator_;
-      const auto reinit_global = [partitions, communicator](GlobalVectorType &v,
-                                                            const bool) {
-        v.reinit(partitions, communicator);
-      };
+      const auto partitions   = field_layout_.block_partitions();
+      const auto communicator = communicator_;
+      const auto reinit_global =
+        [partitions_storage =
+           std::make_shared<const std::decay_t<decltype(partitions)>>(
+             partitions),
+         communicator](GlobalVectorType &v, const bool) {
+          const auto &partitions = *partitions_storage;
+          v.reinit(partitions, communicator);
+        };
       const auto multiplier_partition =
         layout_.field(metadata.multiplier).locally_owned;
       const auto reinit_multiplier =
-        [multiplier_partition, communicator](FieldVectorType &v, const bool) {
+        [multiplier_partition_storage =
+           std::make_shared<const std::decay_t<decltype(multiplier_partition)>>(
+             multiplier_partition),
+         communicator](FieldVectorType &v, const bool) {
+          const auto &multiplier_partition = *multiplier_partition_storage;
           v.reinit(multiplier_partition, communicator);
         };
       auto primal_inverse = [pairs, diagonal, reinit_global]() {
@@ -2462,28 +2563,36 @@ namespace ImmersX::detail
                                          src.block(pair.velocity),
                                          true);
         };
+        const auto apply_storage =
+          std::make_shared<const decltype(apply)>(apply);
         Operator result;
         result.reinit_range_vector  = reinit_global;
         result.reinit_domain_vector = reinit_global;
-        result.vmult                = [apply](GlobalVectorType       &dst,
-                               const GlobalVectorType &src) {
+        result.vmult = [apply_storage](GlobalVectorType       &dst,
+                                       const GlobalVectorType &src) {
+          const auto &apply = *apply_storage;
           apply(dst, src, false);
         };
-        result.Tvmult = [apply](GlobalVectorType       &dst,
-                                const GlobalVectorType &src) {
+        result.Tvmult = [apply_storage](GlobalVectorType       &dst,
+                                        const GlobalVectorType &src) {
+          const auto &apply = *apply_storage;
           apply(dst, src, true);
         };
         auto memory =
           std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
-        result.vmult_add = [apply, memory](GlobalVectorType       &dst,
-                                           const GlobalVectorType &src) {
+        result.vmult_add = [apply_storage,
+                            memory](GlobalVectorType       &dst,
+                                    const GlobalVectorType &src) {
+          const auto &apply = *apply_storage;
           typename dealii::VectorMemory<GlobalVectorType>::Pointer tmp(*memory);
           tmp->reinit(dst);
           apply(*tmp, src, false);
           dst += *tmp;
         };
-        result.Tvmult_add = [apply, memory](GlobalVectorType       &dst,
-                                            const GlobalVectorType &src) {
+        result.Tvmult_add = [apply_storage,
+                             memory](GlobalVectorType       &dst,
+                                     const GlobalVectorType &src) {
+          const auto &apply = *apply_storage;
           typename dealii::VectorMemory<GlobalVectorType>::Pointer tmp(*memory);
           tmp->reinit(dst);
           apply(*tmp, src, true);
@@ -2491,55 +2600,71 @@ namespace ImmersX::detail
         };
         return result;
       };
+      const auto participants_storage =
+        std::make_shared<const decltype(participants)>(std::move(participants));
       StaticSchurOperators result;
       result.inverse                              = primal_inverse();
       result.from_multiplier.reinit_range_vector  = reinit_global;
       result.from_multiplier.reinit_domain_vector = reinit_multiplier;
       result.from_multiplier.vmult =
-        [participants](GlobalVectorType &dst, const FieldVectorType &src) {
-          dst = 0.;
+        [participants_storage](GlobalVectorType      &dst,
+                               const FieldVectorType &src) {
+          const auto &participants = *participants_storage;
+          dst                      = 0.;
           for (const auto &p : participants)
             p.from_multiplier.vmult(dst.block(p.block), src);
         };
       result.from_multiplier.vmult_add =
-        [participants](GlobalVectorType &dst, const FieldVectorType &src) {
+        [participants_storage](GlobalVectorType      &dst,
+                               const FieldVectorType &src) {
+          const auto &participants = *participants_storage;
           for (const auto &p : participants)
             p.from_multiplier.vmult_add(dst.block(p.block), src);
         };
       result.from_multiplier.Tvmult =
-        [participants, reinit_multiplier](FieldVectorType        &dst,
-                                          const GlobalVectorType &src) {
+        [participants_storage, reinit_multiplier](FieldVectorType        &dst,
+                                                  const GlobalVectorType &src) {
+          const auto &participants = *participants_storage;
           reinit_multiplier(dst, false);
           for (const auto &p : participants)
             p.from_multiplier.Tvmult_add(dst, src.block(p.block));
         };
       result.from_multiplier.Tvmult_add =
-        [participants](FieldVectorType &dst, const GlobalVectorType &src) {
+        [participants_storage](FieldVectorType        &dst,
+                               const GlobalVectorType &src) {
+          const auto &participants = *participants_storage;
           for (const auto &p : participants)
             p.from_multiplier.Tvmult_add(dst, src.block(p.block));
         };
       result.to_multiplier.reinit_range_vector  = reinit_multiplier;
       result.to_multiplier.reinit_domain_vector = reinit_global;
       result.to_multiplier.vmult =
-        [participants, reinit_multiplier](FieldVectorType        &dst,
-                                          const GlobalVectorType &src) {
+        [participants_storage, reinit_multiplier](FieldVectorType        &dst,
+                                                  const GlobalVectorType &src) {
+          const auto &participants = *participants_storage;
           reinit_multiplier(dst, false);
           for (const auto &p : participants)
             p.to_multiplier.vmult_add(dst, src.block(p.block));
         };
       result.to_multiplier.vmult_add =
-        [participants](FieldVectorType &dst, const GlobalVectorType &src) {
+        [participants_storage](FieldVectorType        &dst,
+                               const GlobalVectorType &src) {
+          const auto &participants = *participants_storage;
           for (const auto &p : participants)
             p.to_multiplier.vmult_add(dst, src.block(p.block));
         };
-      result.to_multiplier.Tvmult = [participants](GlobalVectorType      &dst,
-                                                   const FieldVectorType &src) {
-        dst = 0.;
-        for (const auto &p : participants)
-          p.to_multiplier.Tvmult(dst.block(p.block), src);
-      };
+      result.to_multiplier.Tvmult =
+        [participants_storage](GlobalVectorType      &dst,
+                               const FieldVectorType &src) {
+          const auto &participants = *participants_storage;
+          dst                      = 0.;
+          for (const auto &p : participants)
+            p.to_multiplier.Tvmult(dst.block(p.block), src);
+        };
       result.to_multiplier.Tvmult_add =
-        [participants](GlobalVectorType &dst, const FieldVectorType &src) {
+        [participants_storage](GlobalVectorType      &dst,
+                               const FieldVectorType &src) {
+          const auto &participants = *participants_storage;
           for (const auto &p : participants)
             p.to_multiplier.Tvmult_add(dst.block(p.block), src);
         };
@@ -2635,28 +2760,34 @@ namespace ImmersX::detail
           else
             entry.inverse.vmult(dst.block(entry.block), src.block(entry.block));
       };
+      const auto apply_storage =
+        std::make_shared<const decltype(apply)>(std::move(apply));
       Operator result;
       result.reinit_range_vector  = operators.inverse.reinit_range_vector;
       result.reinit_domain_vector = operators.inverse.reinit_domain_vector;
-      result.vmult                = [apply](GlobalVectorType       &dst,
-                             const GlobalVectorType &src) {
+      result.vmult                = [apply_storage](GlobalVectorType       &dst,
+                                     const GlobalVectorType &src) {
+        const auto &apply = *apply_storage;
         apply(dst, src, false);
       };
-      result.Tvmult = [apply](GlobalVectorType       &dst,
-                              const GlobalVectorType &src) {
+      result.Tvmult = [apply_storage](GlobalVectorType       &dst,
+                                      const GlobalVectorType &src) {
+        const auto &apply = *apply_storage;
         apply(dst, src, true);
       };
       auto memory =
         std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
-      result.vmult_add = [apply, memory](GlobalVectorType       &dst,
-                                         const GlobalVectorType &src) {
+      result.vmult_add = [apply_storage, memory](GlobalVectorType       &dst,
+                                                 const GlobalVectorType &src) {
+        const auto &apply = *apply_storage;
         typename dealii::VectorMemory<GlobalVectorType>::Pointer tmp(*memory);
         tmp->reinit(dst);
         apply(*tmp, src, false);
         dst += *tmp;
       };
-      result.Tvmult_add = [apply, memory](GlobalVectorType       &dst,
-                                          const GlobalVectorType &src) {
+      result.Tvmult_add = [apply_storage, memory](GlobalVectorType       &dst,
+                                                  const GlobalVectorType &src) {
+        const auto &apply = *apply_storage;
         typename dealii::VectorMemory<GlobalVectorType>::Pointer tmp(*memory);
         tmp->reinit(dst);
         apply(*tmp, src, true);
@@ -2742,8 +2873,11 @@ namespace ImmersX::detail
             *stiffness_matrix,
             *damping_matrix,
             data.constrained,
-            [owned, communicator = communicator_](FieldVectorType &vector,
-                                                  const bool) {
+            [owned_storage =
+               std::make_shared<const std::decay_t<decltype(owned)>>(owned),
+             communicator = communicator_](FieldVectorType &vector,
+                                           const bool) {
+              const auto &owned = *owned_storage;
               vector.reinit(owned, communicator);
             },
             data.amg_data);
@@ -3027,36 +3161,45 @@ namespace ImmersX::detail
             }
         }
 
+      const auto blocks_storage =
+        std::make_shared<const decltype(blocks)>(std::move(blocks));
       Operator   result;
       const auto partitions =
         field_layout_.block_partitions(context.state(), context.time());
-      result.reinit_range_vector = [this, partitions](GlobalVectorType &vector,
-                                                      bool) {
-        vector.reinit(partitions, communicator_);
-      };
+      const auto partitions_storage =
+        std::make_shared<const decltype(partitions)>(partitions);
+      result.reinit_range_vector =
+        [this, partitions_storage](GlobalVectorType &vector, bool) {
+          const auto &partitions = *partitions_storage;
+          vector.reinit(partitions, communicator_);
+        };
       result.reinit_domain_vector = result.reinit_range_vector;
-      result.vmult = [blocks](GlobalVectorType       &destination,
-                              const GlobalVectorType &source) {
-        destination = 0.;
+      result.vmult = [blocks_storage](GlobalVectorType       &destination,
+                                      const GlobalVectorType &source) {
+        const auto &blocks = *blocks_storage;
+        destination        = 0.;
         for (unsigned int i = 0; i < blocks.size(); ++i)
           for (unsigned int j = 0; j < blocks[i].size(); ++j)
             blocks[i][j].vmult_add(destination.block(i), source.block(j));
       };
-      result.vmult_add = [blocks](GlobalVectorType       &destination,
-                                  const GlobalVectorType &source) {
+      result.vmult_add = [blocks_storage](GlobalVectorType       &destination,
+                                          const GlobalVectorType &source) {
+        const auto &blocks = *blocks_storage;
         for (unsigned int i = 0; i < blocks.size(); ++i)
           for (unsigned int j = 0; j < blocks[i].size(); ++j)
             blocks[i][j].vmult_add(destination.block(i), source.block(j));
       };
-      result.Tvmult = [blocks](GlobalVectorType       &destination,
-                               const GlobalVectorType &source) {
-        destination = 0.;
+      result.Tvmult = [blocks_storage](GlobalVectorType       &destination,
+                                       const GlobalVectorType &source) {
+        const auto &blocks = *blocks_storage;
+        destination        = 0.;
         for (unsigned int i = 0; i < blocks.size(); ++i)
           for (unsigned int j = 0; j < blocks[i].size(); ++j)
             blocks[i][j].Tvmult_add(destination.block(j), source.block(i));
       };
-      result.Tvmult_add = [blocks](GlobalVectorType       &destination,
-                                   const GlobalVectorType &source) {
+      result.Tvmult_add = [blocks_storage](GlobalVectorType       &destination,
+                                           const GlobalVectorType &source) {
+        const auto &blocks = *blocks_storage;
         for (unsigned int i = 0; i < blocks.size(); ++i)
           for (unsigned int j = 0; j < blocks[i].size(); ++j)
             blocks[i][j].Tvmult_add(destination.block(j), source.block(i));
@@ -3067,14 +3210,18 @@ namespace ImmersX::detail
     static typename Model::Operator
     zero_operator(const FieldVectorType &range, const FieldVectorType &domain)
     {
+      const auto range_storage = std::make_shared<FieldVectorType>();
+      range_storage->reinit(range, true);
+      const auto domain_storage = std::make_shared<FieldVectorType>();
+      domain_storage->reinit(domain, true);
       typename Model::Operator result;
-      result.reinit_range_vector = [range](FieldVectorType &vector,
-                                           const bool       omit) {
-        vector.reinit(range, omit);
+      result.reinit_range_vector = [range_storage](FieldVectorType &vector,
+                                                   const bool       omit) {
+        vector.reinit(*range_storage, omit);
       };
-      result.reinit_domain_vector = [domain](FieldVectorType &vector,
-                                             const bool       omit) {
-        vector.reinit(domain, omit);
+      result.reinit_domain_vector = [domain_storage](FieldVectorType &vector,
+                                                     const bool       omit) {
+        vector.reinit(*domain_storage, omit);
       };
       result.vmult = [](FieldVectorType &vector, const FieldVectorType &) {
         vector = 0.;
