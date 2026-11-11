@@ -9,7 +9,6 @@ campaign that grows a new three-system family for each background at one
 terminal per global cell, tracked in
 [issue #378](https://github.com/luca-heltai/immersx/issues/378).
 
-
 This tutorial couples liver mechanics to hepatic arterial (HA), portal venous
 (PV) and hepatic venous (HV) networks. It provides a small working case and
 three P2/DG1 problem sizes, from 132,932 to 10,207,700 coupled degrees of
