@@ -225,15 +225,19 @@ namespace ImmersX
     const auto  field = pressure.source();
     const auto &dofs  = field.dof_handler();
     const auto &fe    = field.space().finite_element();
+    const bool  valid = fe.n_components() == 1 && fe.n_dofs_per_vertex() == 0 &&
+                       field.constraints().n_constraints() == 0 &&
+                       !field.is_reindexed();
     AssertThrow(
-      fe.n_components() == 1 && fe.n_dofs_per_vertex() == 0 &&
-        field.constraints().n_constraints() == 0 && !field.is_reindexed(),
+      dealii::Utilities::MPI::min(static_cast<unsigned int>(valid),
+                                  field.space().mpi_communicator()) != 0,
       dealii::ExcMessage(
         "Native pressure coefficient assembly requires an unconstrained discontinuous scalar field."));
-    using Cell  = dealii::DoFHandler<1, 3>::active_cell_iterator;
-    using Block = std::vector<double>;
-    auto cells  = std::make_shared<std::map<dealii::CellId, Cell>>();
-    auto blocks = std::make_shared<std::map<dealii::CellId, Block>>();
+    using Cell      = dealii::DoFHandler<1, 3>::active_cell_iterator;
+    using Block     = std::vector<double>;
+    auto cells      = std::make_shared<std::map<dealii::CellId, Cell>>();
+    auto blocks     = std::make_shared<std::map<dealii::CellId, Block>>();
+    bool cell_local = true;
     for (const auto &cell : dofs.active_cell_iterators())
       if (!cell->is_artificial())
         {
@@ -247,22 +251,31 @@ namespace ImmersX
               block.resize(indices.size() * indices.size());
               for (unsigned int i = 0; i < indices.size(); ++i)
                 {
-                  for (auto entry = projection->begin(indices[i]);
-                       entry != projection->end(indices[i]);
-                       ++entry)
-                    AssertThrow(
-                      entry->value() == 0. ||
-                        std::find(indices.begin(),
-                                  indices.end(),
-                                  entry->column()) != indices.end(),
-                      dealii::ExcMessage(
-                        "Native pressure projection must be cell-local."));
+                  const auto count = projection->row_length(indices[i]);
+                  if (count > 0)
+                    {
+                      auto entry = projection->begin(indices[i]);
+                      for (unsigned int k = 0; k < count; ++k)
+                        {
+                          cell_local &=
+                            entry->value() == 0. ||
+                            std::find(indices.begin(),
+                                      indices.end(),
+                                      entry->column()) != indices.end();
+                          if (k + 1 < count)
+                            ++entry;
+                        }
+                    }
                   for (unsigned int j = 0; j < indices.size(); ++j)
                     block[i * indices.size() + j] =
                       projection->el(indices[i], indices[j]);
                 }
             }
         }
+    AssertThrow(
+      dealii::Utilities::MPI::min(static_cast<unsigned int>(cell_local),
+                                  field.space().mpi_communicator()) != 0,
+      dealii::ExcMessage("Native pressure projection must be cell-local."));
     if (projection &&
         dynamic_cast<const dealii::parallel::TriangulationBase<1, 3> *>(
           &dofs.get_triangulation()))

@@ -302,7 +302,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Assemble native vascular pressure cross derivatives from local coefficient stencils when MetricFlowX provides the derivative visitor, avoiding global basis probes for large coupled networks.
+- [PR #384](https://github.com/luca-heltai/immersx/pull/384) Assemble native vascular pressure cross derivatives from local coefficient stencils when MetricFlowX provides the derivative visitor, avoiding global basis probes for large coupled networks.
 
 - [PR #381](https://github.com/luca-heltai/immersx/pull/381) Share retained linear-operator state across callback copies to avoid copying vectors and nested operators during composition.
 
