@@ -250,6 +250,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Limit concurrent vascular proposal comparisons to overlapping vessel envelopes and shared physical identifiers. Preserve exact collision and junction checks, owner votes and deterministic conflict decisions during joint radius validation.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Use one batched growth engine for arteries and veins. Assign venous proposals to common-territory owners, preserve the arterial demand at offset endpoints, and reject duplicate or inconsistent territory claims across MPI owners.
 - [PR #304](https://github.com/luca-heltai/immersx/pull/304) Use batched CCO execution for public arterial generation and calibration. Check local-search trials against owner-provided vessel geometry with their proposed Murray radii, retaining the best feasible trial.
+- [PR #302](https://github.com/luca-heltai/immersx/pull/302) Add the analytic stress of the material inside the vessels to the vessel-wall pressure of `VesselElasticityProblem` by default, so that it is the normal stress of the tissue rather than the stress jump given by the multiplier; `Remove interior stress from pressure = false` restores the jump.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Interpret the harmonic reinforcement root dimension as the reinforcement mesh dimension and the space dimension as the matrix dimension. Use dimension one for a line reinforcement in 2D or 3D.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Share one frequency list between the harmonic matrix and fiber, and preserve the actual initial refinement when saving and reloading either supported parameter alias.
 - [PR #290](https://github.com/luca-heltai/immersx/pull/290) Support harmonic elasticity on embedded domains with `1 <= dim <= spacedim <= 3` and independent parameter subsections. Grid settings use `Domain`, while existing grid and refinement entries remain accepted.
@@ -474,6 +475,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #93](https://github.com/luca-heltai/immersx/pull/93) Removed the obsolete monolithic compatibility layer.
 
 ### Documentation
+
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Collect the vessel-wall pressure in one concepts page: why the multiplier is a stress jump, the analytic interior-stress correction for point and tensor-product coupling, the MetricFlowX modal correction, and their signs and units; correct the sign of the multiplier in the MetricFlowX onboarding tutorial.
 
 - [PR #383](https://github.com/luca-heltai/immersx/pull/383) Align the newly authored liver setup figure scripts, data and asset license headers with the repository license.
 
