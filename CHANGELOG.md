@@ -302,6 +302,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #380](https://github.com/luca-heltai/immersx/pull/380) Share one owned weak-term recipe and target across operator callbacks instead of duplicating their field state, avoiding excessive memory use when registering large coupled terms.
+
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Use the native configurable minimum positive area when importing physical vascular radii, retaining the fixed threshold for older MetricFlowX backends.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) The default `elastodynamics` parameter file runs: `Fixed step/Number of time steps` defaults to 10, and the printed `Domain/Initial refinement` default is the 2 actually used. `elastodynamics` no longer prints the unused `IDA` section, and `elastodynamics_adapter` no longer prints the unused `Fixed step` section.
@@ -510,6 +512,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
 
 ### Tutorial
+
+- [PR #380](https://github.com/luca-heltai/immersx/pull/380) Distinguish historical liver setup diagnostics on a fixed network from separately grown CCO families whose terminal counts scale with each background.
 
 - [PR #354](https://github.com/luca-heltai/immersx/pull/354) Document the two-territory IRCAD12 solver pilot, model assumptions and recorded checks, with reproducible scalar plots and snapshots, complete references, and verified ParaView entrypoints.
 

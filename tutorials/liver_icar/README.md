@@ -1,11 +1,13 @@
 # Two-territory IRCAD12 liver solver pilot
 
-This page preserves a solver pilot built from three synthetic interior
-feeder stubs and two tissue territories. It does not extend the segmented
-arterial, venous and portal input meshes over the liver. That anatomical
-growth workflow, a small terminal count per background cell, and new coupled
-checks at all three sizes remain pending in the
-[tracking issue](https://github.com/luca-heltai/immersx/issues/343).
+This page preserves a historical solver pilot built from three synthetic
+interior feeder stubs and two tissue territories. It does not extend the
+segmented arterial, venous and portal input meshes over the liver. The
+physical vascular archive is reused at every scale; its numerical intervals
+are rebuilt against the selected tissue mesh. This is distinct from the
+campaign that grows a new three-system family for each background at one
+terminal per global cell, tracked in
+[issue #378](https://github.com/luca-heltai/immersx/issues/378).
 
 This tutorial couples liver mechanics to hepatic arterial (HA), portal venous
 (PV) and hepatic venous (HV) networks. It provides a small working case and

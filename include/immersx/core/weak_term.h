@@ -5289,7 +5289,11 @@ namespace ImmersX
       result.target_id = target.source().field_id();
       const auto cached =
         cache_assembly_ ? std::make_shared<std::optional<Pair>>() : nullptr;
-      const auto build = [recipe = *this, target, region, cached] {
+      const auto owned_recipe = std::make_shared<const WeakTerm>(*this);
+      const auto owned_target = std::make_shared<const Target>(target);
+      const auto build        = [owned_recipe, owned_target, region, cached] {
+        const auto &recipe = *owned_recipe;
+        const auto &target = *owned_target;
         if (cached == nullptr)
           return recipe.template assemble_pairing<VectorType, MatrixType>(
             target, region, false);
@@ -5378,8 +5382,10 @@ namespace ImmersX
         else
           pairing.operator_with_matrix.materialize_into_matrix(dst);
       };
-      result.affine_rhs_factory = [recipe = *this, target, region] {
-        const auto source = recipe.observable_.source();
+      result.affine_rhs_factory = [owned_recipe, owned_target, region] {
+        const auto &recipe = *owned_recipe;
+        const auto &target = *owned_target;
+        const auto  source = recipe.observable_.source();
         if (dealii::Utilities::MPI::max(
               source.constraints().has_inhomogeneities() ? 1u : 0u,
               source.space().mpi_communicator()) == 0)
