@@ -521,7 +521,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add reproducible rigid-reference speed and demand-normalized perfusion plots for the separately grown small and medium liver families.
+- [PR #386](https://github.com/luca-heltai/immersx/pull/386) Add reproducible rigid-reference speed and demand-normalized perfusion plots for the separately grown small and medium liver families.
 
 - [PR #380](https://github.com/luca-heltai/immersx/pull/380) Distinguish historical liver setup diagnostics on a fixed network from separately grown CCO families whose terminal counts scale with each background.
 
