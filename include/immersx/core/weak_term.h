@@ -913,7 +913,7 @@ namespace ImmersX
         std::vector<dealii::Point<spacedim>> positions;
         std::vector<std::vector<double>>     properties;
         const auto                          *background_tria = dynamic_cast<
-                                   const dealii::parallel::TriangulationBase<dim, spacedim> *>(
+          const dealii::parallel::TriangulationBase<dim, spacedim> *>(
           &source.dof_handler().get_triangulation());
         if constexpr (is_physical_quadrature_support<Support>::value)
           {
@@ -2606,7 +2606,7 @@ namespace ImmersX
         std::vector<dealii::Point<spacedim>> positions;
         std::vector<std::vector<double>>     properties;
         const auto                          *background_tria = dynamic_cast<
-                                   const dealii::parallel::TriangulationBase<dim, spacedim> *>(
+          const dealii::parallel::TriangulationBase<dim, spacedim> *>(
           &source.dof_handler().get_triangulation());
         bool replicated_support = false;
         if constexpr (is_physical_quadrature_support<Support>::value)
@@ -4532,7 +4532,7 @@ namespace ImmersX
                     "triangulation."));
       const auto &target_mapping = target.mapping();
       auto        distribution   = std::make_shared<
-                 DistributedLiftedQuadrature<TargetField::spacedimension()>>(
+        DistributedLiftedQuadrature<TargetField::spacedimension()>>(
         load.geometry().particle_coupling_parameters());
       distribution->initialize(*distributed_target,
                                target_mapping,

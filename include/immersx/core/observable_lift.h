@@ -76,9 +76,9 @@ namespace ImmersX
     using Lift =
       TensorProductLift<reduced_dim, surface_dim, spacedim, n_components>;
     using Support  = TensorProductLiftSupport<reduced_dim,
-                                              surface_dim,
-                                              spacedim,
-                                              n_components>;
+                                             surface_dim,
+                                             spacedim,
+                                             n_components>;
     using Operator = dealii::LinearOperator<value_type, state_type>;
 
     LiftedObservable(SourceObservable source, const Lift &lift)

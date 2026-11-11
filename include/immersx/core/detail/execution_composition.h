@@ -1842,7 +1842,7 @@ namespace ImmersX::detail
               // outer solver is still required for residual-stopped CG.
               result.Tvmult = result.vmult;
               auto memory   = std::make_shared<
-                  dealii::GrowingVectorMemory<FieldVectorType>>();
+                dealii::GrowingVectorMemory<FieldVectorType>>();
               result.vmult_add = [apply = result.vmult,
                                   memory](FieldVectorType       &destination,
                                           const FieldVectorType &source) {
