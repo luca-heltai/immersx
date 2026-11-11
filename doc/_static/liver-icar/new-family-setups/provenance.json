@@ -1,5 +1,5 @@
 {
-  "SPDX-License-Identifier": "LGPL-2.1-or-later",
+  "SPDX-License-Identifier": "Apache-2.0 WITH LLVM-exception",
   "sources": {
     "Small": {
       "run": "/data/home/lheltai/codes/liver-icar-20261105/coupled-periodic-small-20261110/new-small2316-setup-only-attempt-01",
