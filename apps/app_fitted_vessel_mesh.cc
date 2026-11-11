@@ -219,6 +219,10 @@ namespace
           cell->face(f)->set_boundary_id(0);
 
     tria.set_manifold(wall_manifold_id, CylindricalManifold<3>(0));
+    // Adjacent outer cells see id 2 on their shared faces while the
+    // transfinite charts are initialized. Give those faces their coarse
+    // flat geometry until the initialized manifold replaces it below.
+    tria.set_manifold(tfi_manifold_id, FlatManifold<3>());
     TransfiniteInterpolationManifold<3> tfi;
     tfi.initialize(tria);
     tria.set_manifold(tfi_manifold_id, tfi);
@@ -333,11 +337,14 @@ main(int argc, char *argv[])
 {
   try
     {
+      const Options options = parse_options(argc, argv);
+      // MPI also initializes optional packages such as PETSc. These options
+      // belong to this application and have already been consumed.
+      argc    = 1;
+      argv[1] = nullptr;
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
       AssertThrow(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1,
                   ExcMessage("fitted_vessel_mesh runs on one process."));
-
-      const Options options = parse_options(argc, argv);
 
       Triangulation<3> plate;
       Triangulation<3> vessel;

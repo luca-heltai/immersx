@@ -307,6 +307,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Allow fitted-vessel mesh generation in Debug builds and consume its application options before MPI/PETSc initialization.
+
 - [PR #384](https://github.com/luca-heltai/immersx/pull/384) Assemble native vascular pressure cross derivatives from local coefficient stencils when MetricFlowX provides the derivative visitor, avoiding global basis probes for supported discontinuous coupled fields while retaining the general path for other scalar fields and projections.
 
 - [PR #381](https://github.com/luca-heltai/immersx/pull/381) Share retained linear-operator state across callback copies to avoid copying vectors and nested operators during composition.
