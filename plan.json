@@ -150,8 +150,6 @@
   },
   "harness_sha": "2e5c1bfbef5d7e08facb49867f55de77419fe5ee",
   "schema_version": 1,
-  "selected": [
-    "2e5c1bfbef5d7e08facb49867f55de77419fe5ee"
-  ],
+  "selected": [],
   "source_sha": "2e5c1bfbef5d7e08facb49867f55de77419fe5ee"
 }
