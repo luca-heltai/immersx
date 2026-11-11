@@ -609,24 +609,22 @@ are the new 2316- and 13351-terminal-per-role families, separate from the
 historical fixed-network measurements below.
 ```
 
-A later setup selected degree-two native flow and the automatic degree-two
+Later runs selected degree-two native flow and the automatic degree-two
 multiplier, retaining P2 solid fields, the same physical archives and
-backgrounds, and disabled co-refinement. The small setup completed with four
-blocks `12984, 12984, 147870, 44361`, totaling 218199 DoFs on 8 MPI ranks.
-The medium setup reached its 900 s limit before reporting the final blocks.
+backgrounds, and disabled co-refinement. The measured DG2 blocks are now:
 
-| DG2 family | Native intervals observed | Completed total DoFs | Formula forecast | Outcome |
-| --- | ---: | ---: | ---: | --- |
-| Small | 14787 | 218199 | 218199 | Complete setup |
-| Medium | 83026 | Not measured | 1212010 | Setup timed out |
+| DG2 family | Native intervals | Displacement | Velocity | Native flow | Multiplier | Total DoFs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Small | 14787 | 12984 | 12984 | 147870 | 44361 | 218199 |
+| Medium | 83026 | 66336 | 66336 | 830260 | 249078 | 1212010 |
 
-The forecast holds the numerical intervals fixed: degree-two native flow
-contributes $10N$ DoFs and the multiplier contributes $3N$, in addition to the
-two solid blocks. For the medium family this gives
-$132672+13\times83026=1212010$. The timeout does not turn that forecast into a
-measurement. Neither setup run establishes a coupled initial state or a
-transient result. The later accepted diagnostic below uses a separate,
-37897-DoF network.
+The small setup completed on 8 MPI ranks. An earlier 8-rank medium setup
+reached its 900 s limit before reporting the final blocks; at that historical
+snapshot, 1212010 was only the formula forecast
+$132672+13\times83026$. The later 32-rank medium transient attempt measured
+all four blocks above. Passing setup or initial correction is distinct from
+completing the requested transient; its failure is recorded below. The
+37897-DoF diagnostic remains a separate network.
 
 The lower configured interval bound is $L\ge0.5H_{\max}$ and the upper bound
 is $L\le2H_{\min}$. Here $H$ is the **diameter** of a background cell,
@@ -656,20 +654,20 @@ denominators, as shown in the table.
 Most numerical intervals therefore do not meet the configured lower
 interval bound. The two overlap median ratios are comparable relative to the
 background diameter, but neither these ratios nor successful setup establish
-an inf-sup bound or a stable coupled solve. No such bound or constant was
-measured. At this measurement snapshot, the separate 111250-terminal-per-role
-large generation was still running; no completed large generation or measured
+an inf-sup bound. No such bound or constant was measured. The short coupled
+transients below are separate observations. At this measurement snapshot,
+the separate 111250-terminal-per-role large generation was still running; no completed large generation or measured
 coupled DoF count is included here.
 
-The setup executable is an immutable runtime built from `c88c5fd8` with the
-shared immutable WeakTerm/target-snapshot header change later integrated in
+The historical degree-one setup executable is an immutable runtime built from
+`c88c5fd8` with the shared immutable WeakTerm/target-snapshot header change later integrated in
 [PR #380](https://github.com/luca-heltai/immersx/pull/380), plus setup trace
 markers. Its executable hash is
 `b7c998cf7d551f638c554cc534550d4a8e44f50a613e3eb4fd75d2bae446d5f3`;
 the shared library hash and patch hashes are in the linked provenance.
 These measurements do not assert binary or numerical equivalence with current
-`master`. The coupled consumer retains an arterial flow input and a portal
-pressure reservoir at 1133.2402930275 Pa, whereas the rigid hydraulic reference
+`master`. Those historical setup parameters retain an arterial flow input
+and a portal pressure reservoir at 1133.2402930275 Pa, whereas the rigid hydraulic reference
 prescribes both supply totals. The boundary models differ.
 
 Download the [small native family](https://github.com/luca-heltai/immersx/releases/download/liver-h-scaled-2026-11-10/liver-h-scaled-small-2316.tar.gz)
@@ -682,8 +680,9 @@ relocate input, include and output paths before using a copy. The archived
 setup parameters also belong to the frozen runtime. Current checked-in
 examples use `Thickness` and `Cross section`; do not assume archived
 `Constant thickness` or other older parameter names remain accepted.
-Rebuilding current `master` and replaying those parameters is a separate check,
-not part of these setup results.
+The portable short-transient package below supplies current parameter names
+and a separately verified public-source small replay; it does not relabel
+these older setup measurements.
 
 The [count CSV](../_static/liver-icar/new-family-setups/block-counts.csv),
 [histogram CSV](../_static/liver-icar/new-family-setups/interval-histograms.csv)
@@ -860,6 +859,146 @@ separate original-static-certificate flag. These static candidates precede
 IDA and must be kept distinct from the accepted trajectory and final-time
 role VTUs. The scalar plotting records are included here; the anatomical and
 VTK result files remain outside the repository.
+
+### Public short transient on the independently grown small family
+
+A controlled replay using public ImmersX
+[`637c9473`](https://github.com/luca-heltai/immersx/tree/637c947313c3a1ebcc6681396bb26fd30a7430bd)
+and MetricFlowX
+[`67ac3925`](https://github.com/luca-heltai/metric-flow-x/tree/67ac392251baac522955cd0cdb2cbd44ffec4375)
+completed standard initialization and 7.2–7.25 s integration on the actual
+small family: 13968 physical vessels, 14787 native intervals and 218199 coupled
+DoFs. The application and its own core were rebuilt coherently against that
+native SDK. Thirty-two focused Release/Debug one- and two-rank numerical
+checks passed before the eight-rank replay.
+
+The final IDA counters were 10 accepted steps, 29 Newton iterations, 7 Jacobian
+setups and 31 linear solves, with zero reported error-test or nonlinear
+convergence failures. All six saved IDA counter rows matched the frozen
+reference. Sampled output coordinates and connectivity matched exactly;
+recorded field differences were small but not all arrays were bit-identical.
+This comparison does not certify every FE or matrix coefficient. No independent
+original-equation static certificate was recorded for this case with ordinary
+initialization. The certificate and figures above belong to the separate
+affine diagnostic.
+
+The medium family now has a measured total of 1212010 coupled DoFs. Its earlier
+frozen-runtime trial passed initial correction and saved accepted outputs at
+7.2 and 7.21 s, then failed the retained-Jacobian MUMPS backsolve residual check.
+The requested 7.25 s endpoint was not reached; a later internal state is not
+an accepted output. At this report snapshot the public-runtime retry was
+still running, so no successful public medium trajectory is claimed.
+The large family remains unavailable as a completed three-role archive.
+
+Download the
+[portable family input package](https://github.com/luca-heltai/immersx/releases/download/liver-h-scaled-2026-11-10/liver-independent-family-coupled-inputs-public-small50ms-20261111-v2.tar.gz)
+and its
+[checksum file](https://github.com/luca-heltai/immersx/releases/download/liver-h-scaled-2026-11-10/SHA256SUMS-coupled-inputs-public-small50ms-20261111-v2).
+The archive SHA-256 is
+`c710ae01e2e6424292ffa97db843d8377d7db78de020ce1fd0f477d1eab9e76d`.
+Its README links the existing family archives, original waveform dependency,
+public source revisions and coupled build instructions. It contains parameters,
+a path-rendering helper and aggregate verification metadata; it does not
+redistribute anatomical inputs, raw field tables or the waveform.
+
+After verifying and extracting it, prepare paths without starting a solver:
+
+```bash
+python3 liver-independent-family-coupled-inputs/prepare_profile.py \
+  --profile small \
+  --assets-dir /absolute/data/liver-h-scaled-small-2316 \
+  --inflow-csv /absolute/data/inlet_ha.csv \
+  --build-dir /absolute/immersx/build \
+  --output /absolute/new/small-50ms
+```
+
+The helper verifies the tissue mesh and every native archive partition, rejects
+an existing output directory and prints the MPI command. It preserves physical
+and solver settings while rendering input, include and output paths. Run the
+printed command on an allocated compute node. The medium profile remains a
+recorded diagnostic input; selecting it does not imply that its pending replay
+has passed. The large profile is rejected until a complete archive exists.
+These profiles use the original HA series with period zero over 50 ms; they
+are not repeated-cycle inputs.
+
+The transient pressure reservoirs differ from the rigid reference's prescribed
+supply totals. Portal reservoir proposals are 1732.08 Pa (12.99 mmHg) for the
+small family and 1817.18 Pa (13.63 mmHg) for the medium family, compared with
+the 8.5 mmHg baseline. Role-wise wall-reference pressures remain unchanged.
+These values are rigid-model mean-flow proposals, not a calibration of healthy
+portal pressure or of the compliant periodic response. A difference between
+model reservoirs is not the clinical hepatic venous pressure gradient (HVPG),
+which uses wedged and free hepatic-vein measurements; see
+[Baveno VII, §1.7](https://doi.org/10.1016/j.jhep.2021.12.022).
+
+### Ten-cycle diagnostic and remaining solid drift
+
+A separate 64-territory, 37897-DoF diagnostic completed ten forcing cycles
+from 7.2 to 15.2 s with period 0.8 s. Its final two cycles used the tight field
+tolerances. Early relative and absolute tolerance factors were 100; the factors
+held through cycle seven and decreased during cycle eight. This differs from
+the tenfold relaxation of the earlier affine-correction plot. The run completed
+1545 accepted steps with ten recovered error-test failures and zero nonlinear
+convergence failures. It used a read-only output observer; it is not the public
+small-family replay above.
+
+For repeated forcing this diagnostic used an explicitly artificial continuous
+periodic closure of the original HA samples. With $T=t_1-t_0$ and
+$\Delta=q(t_1)-q(t_0)$, it used
+
+$$
+q_{\mathrm{closed}}(t)=q(t)-\Delta\left(\frac{t-t_0}{T}-\frac12\right).
+$$
+
+The sample times and trapezoidal cycle mean are preserved, while the two
+endpoint values become equal. This is a declared modelling assumption, not
+the original MOX waveform or an inferred patient measurement.
+
+A predeclared one-percent candidate criterion passed for the observed native
+DG2 coefficients, wall multiplier and root-flow cycle comparisons. That
+restricted result does not establish periodicity of the whole coupled system.
+The solid output still changed between cycles nine and ten:
+
+```{figure} ../_static/liver-icar/diagnostic64-solid-drift/solid-drift.svg
+:alt: Relative change of saved solid displacement and velocity samples from cycle nine to ten, shown at the cycle endpoints and over eighty paired waveform phases.
+
+Normalized solid drift in the separate 64-territory ten-cycle diagnostic.
+Endpoint differences are 11.66% for displacement and 30.45% for velocity;
+concatenating 80 phase pairs gives 4.918% and 14.880%, respectively. These
+sample-based comparisons do not support a periodicity claim for the complete
+coupled state,
+even though the native/multiplier candidate criterion passed.
+```
+
+For each field the ratio is
+$\lVert y_{10}-y_9\rVert_2/\lVert y_9\rVert_2$, without a denominator floor.
+Endpoints are the actual saved states at 14.4 and 15.2 s. The waveform metric
+concatenates 80 saved phase pairs with $13.6<t_9\le14.4$ and
+$t_{10}=t_9+0.8$ before taking the norms. Both entries whose literal PVD time
+is 13.6 are excluded; filenames are selected from the PVD rather than inferred
+from an index formula.
+
+The solid arrays are Float32 DataOut point samples, including repeated cell
+vertices: 11104 points and 33312 scalar components per vector snapshot.
+These Euclidean sample norms are not quadrature- or mass-weighted FE norms,
+all solid coefficients, an IDA local-error estimate or a residual certificate.
+Neither endpoint reference norm is below $a_{\mathrm{tol}}\sqrt N$, with
+$N=33312$, displacement $a_{\mathrm{tol}}=10^{-7}$ m and velocity
+$a_{\mathrm{tol}}=10^{-5}$ m/s. Six individual velocity phases have small
+reference norms, so large individual
+phase ratios need that qualification; the plotted waveform ratio aggregates
+all 80 phases.
+
+The [four dimensionless plotting values](../_static/liver-icar/diagnostic64-solid-drift/data.csv)
+and [definitions and source hashes](../_static/liver-icar/diagnostic64-solid-drift/summary.json)
+contain no raw field samples. Reproduce the figure without a solver or
+anatomical data:
+
+```bash
+python3 -m pip install -r doc/_static/liver-icar/diagnostic64-solid-drift/requirements.txt
+python3 doc/_static/liver-icar/diagnostic64-solid-drift/plot.py \
+  --output-dir /tmp/liver-solid-drift
+```
 
 ### Check hydraulic capacity before scaling
 
