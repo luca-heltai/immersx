@@ -11,5 +11,6 @@ overview
 mathematical-background
 architecture
 coupling-discretisations
+vessel-pressure
 ../tutorials/metric-flow-x-elastodynamics-coupling
 ```

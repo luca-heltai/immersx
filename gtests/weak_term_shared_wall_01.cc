@@ -62,8 +62,8 @@ namespace
     line_constraints.close();
     const auto line_space =
       fe_space(line_dofs, StaticMappingQ1<1, 3>::mapping, line_constraints);
-    const auto                 lambda = line_space.field(layout, "lambda");
-    TensorProductLift<1, 2, 3> geometry("/Shared wall/Lift/");
+    const auto                    lambda = line_space.field(layout, "lambda");
+    TensorProductLift<1, 2, 3, 3> geometry("/Shared wall/Lift/");
     geometry.section.inclusion_degree      = 0;
     geometry.section.inclusion_type        = "hyper_cube";
     geometry.section.refinement_level      = 0;
@@ -220,6 +220,7 @@ namespace
     for (const auto i : lambda.locally_owned_dofs())
       exact_line[i] = reference_line[i];
     exact_line.compress(VectorOperation::insert);
+    EXPECT_GT(exact_line.l2_norm(), 1.e-8);
     Utilities::MPI::sum(local_reaction, MPI_COMM_WORLD, reaction);
     V error(line_result);
     error -= exact_line;

@@ -73,10 +73,14 @@ map are vector-valued fields on the wall.
 The multiplier is a scalar radial traction amplitude with pressure units for
 the chosen reference-wall pairing. It can vary along the centerline. Its
 identification with physical fluid pressure depends on the fictitious-interior
-convention. The uncorrected extended solid includes interior material reaction;
-the optional correction below removes its projected elastic and viscous part
-while retaining inertia. The historical output name `pressure_jump`
-denotes this amplitude. The multiplier couples the solid and flow residuals
+convention. The uncorrected extended solid includes interior material reaction,
+so the multiplier is the jump
+$\lambda=p_{\mathrm{int}}^{\mathrm{fict}}-p_{\mathrm{ext}}$ between the
+normal stresses inside and outside the vessel. The optional correction below
+removes its projected elastic and viscous part while retaining inertia.
+[Pressure on the vessel walls](../concepts/vessel-pressure.md) compares this
+correction with the analytic one used by `VesselElasticityProblem`. The
+historical output name `pressure_jump` denotes this amplitude. The multiplier couples the solid and flow residuals
 with opposite signs:
 
 $$

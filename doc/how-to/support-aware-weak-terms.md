@@ -314,8 +314,9 @@ Prescribed pressure loads retain their nominal, full-support coefficients and
 restrict only the applied load to the covered samples. A pressure reconstructed
 from multiplier traction uses the same covered wall samples and nominal
 normalization. Tensor-product pressure output retains its centerline mean;
-the interior pressure closure uses the full-support projected datum and the
-existing cell-averaged material coefficients.
+the interior-stress correction uses the full-support projected datum and the
+existing cell-averaged material coefficients. See
+[Pressure on the vessel walls](../concepts/vessel-pressure.md) for the formulas.
 
 Legacy point and modal saddle systems use the same exterior mass block and the
 full sampled Gram matrices. The `Assemble full AL system` option in Reduced

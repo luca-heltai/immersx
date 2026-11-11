@@ -204,15 +204,24 @@ normalization.
 
 The tensor-product multiplier can have several modal coefficients. Identify the
 radial pressure component and its normalization before sending it to the flow.
-The current monolithic example documents
+The solid fills the vessel interior, so the multiplier is a jump of normal
+stress. With a $+B\lambda$ solid reaction and the wall normal pointing into the
+tissue,
 
 $$
-\lambda=p_{\mathrm{ext}}-p_{\mathrm{int}}^{\mathrm{fitt}},
+\lambda=p_{\mathrm{int}}^{\mathrm{fict}}-p_{\mathrm{ext}},
+\qquad
+-\lambda=p_{\mathrm{ext}}-p_{\mathrm{int}}^{\mathrm{fict}},
 $$
 
-with a $+B\lambda$ solid reaction and negative flow coupling. Check this
-convention for the legacy path with a simple radial test; renaming raw modal
-coefficients to pressure does not establish the conversion.
+where $p_{\mathrm{int}}^{\mathrm{fict}}$ is the pressure of the fictitious
+interior material. The flow coupling receives $-\lambda$. The legacy
+`VesselElasticityProblem` path adds the analytic interior stress back before
+it reports a pressure; the monolithic path can instead remove the interior
+modes from the solve. [Pressure on the vessel walls](../concepts/vessel-pressure.md)
+derives both. Check the convention of the legacy path with a simple radial
+test; renaming raw modal coefficients to pressure does not establish the
+conversion.
 
 ### Restart MetricFlowX
 
