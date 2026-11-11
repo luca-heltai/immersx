@@ -425,12 +425,117 @@ labels from the 14-vessel archive are not counts for the new forests. The
 prepared backgrounds, successful hydraulic generation and converged coupled
 results.
 
-The first [new small-family example](https://github.com/luca-heltai/immersx/releases/tag/liver-h-scaled-2026-11-10)
-uses 2316 background cells and newly grown forests with 2316 terminals per
-role. Its native hydraulic reference and continuous `2H` coverage checks
-passed on that generation background. Coupled DoF counts and time integration
-remain pending. This example is separate from the historical fixed-network
-setup diagnostics below.
+The [new forest-family release](https://github.com/luca-heltai/immersx/releases/tag/liver-h-scaled-2026-11-10)
+contains successful small and medium native generations, with 2316 and 13351
+background tetrahedra and the same number of newly generated terminals **per
+vascular role**, respectively. Each family has its own three forests; the
+medium case does not reuse the small graph or the historical 2048-territory
+archive. Independent rigid hydraulic audits passed for both. The continuous
+`2H` coverage proof reported for the small family applies to its own
+2316-cell generation background; it is not a medium-family coverage result.
+
+### Measured setup for the new forest families
+
+Complete `Setup only = true` runs on 11 November 2026 measured the following
+spaces. Both use P2 solid displacement and velocity, degree-one native flow,
+and the automatic multiplier space. No state initialization, IDA correction
+or time integration was executed.
+
+| Family | Background tetrahedra | Terminals per role | Numerical 1D intervals | Displacement | Velocity | Native flow | Multiplier | Total DoFs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Small | 2316 | 2316 | 14787 | 12984 | 12984 | 118296 | 29574 | 173838 |
+| Medium | 13351 | 13351 | 83026 | 66336 | 66336 | 664208 | 166052 | 962932 |
+
+Background counts come from the complete archived tetrahedral meshes, not
+rank-local active-plus-ghost counts. The global 1D counts sum locally owned
+cells across MPI ranks and agree with unique `(vessel, begin, end)` records
+in all `mesh_scale-*.csv` partitions. The four block sizes sum to each reported
+total. Setup completed in 75.24 s with 8 MPI ranks and 267.51 s with 16 ranks.
+These timings measure setup, not solver convergence or integration throughput.
+
+```{figure} ../_static/liver-icar/new-family-setups/block-composition.svg
+:alt: Four measured coupled DoF blocks for separately generated small and medium liver forests.
+
+Measured block composition. These are the new 2316- and 13351-terminal-per-role
+families, separate from the historical fixed-network measurements below.
+```
+
+The lower configured interval bound is $L\ge0.5H_{\max}$ and the upper bound
+is $L\le2H_{\min}$. Here $H$ is the **diameter** of a background cell,
+not its volume to the power $1/3$. The minimum and maximum are taken over
+native overlap cells. The native short flag tests
+$L<0.5H_{\max}(1-10^{-12})$.
+
+| Family | Short / all intervals | Short / intervals with overlap | No-overlap intervals | Intervals with an exterior vertex | Median $L/H_{\max}$ over overlap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Small | 13286 / 14787 (89.85%) | 13286 / 13388 (99.24%) | 1399 | 1389 | 0.11507 |
+| Medium | 77675 / 83026 (93.56%) | 77675 / 78376 (99.11%) | 4650 | 4626 | 0.12902 |
+
+The no-overlap and exterior-vertex counters describe different tests and must
+not be substituted for one another. No-overlap records have zero recorded
+$H$ and are excluded from the ratios. A positive overlap flag does not prove
+that the entire interval or its lifted wall lies inside the tissue.
+
+```{figure} ../_static/liver-icar/new-family-setups/interval-distribution.svg
+:alt: Logarithmic histograms of interval length divided by maximum overlapping tissue cell diameter, with the lower bound at 0.5.
+
+Each curve contains only intervals with native overlap and sums to 100% over
+its logarithmic bins. The shaded region is below the configured lower bound.
+The percentages among all intervals and among overlap intervals have different
+denominators, as shown in the table.
+```
+
+Most numerical intervals therefore do not meet the configured lower
+interval bound. The two overlap median ratios are comparable relative to the
+background diameter, but neither these ratios nor successful setup establish
+an inf-sup bound or a stable coupled solve. No such bound or constant was
+measured. At this measurement snapshot, the separate 111250-terminal-per-role
+large generation was still running; no completed large generation or measured
+coupled DoF count is included here.
+
+The setup executable is an immutable runtime built from `c88c5fd8` with the
+shared immutable WeakTerm/target-snapshot header change later integrated in
+[PR #380](https://github.com/luca-heltai/immersx/pull/380), plus setup trace
+markers. Its executable hash is
+`b7c998cf7d551f638c554cc534550d4a8e44f50a613e3eb4fd75d2bae446d5f3`;
+the shared library hash and patch hashes are in the linked provenance.
+These measurements do not assert binary or numerical equivalence with current
+`master`. The coupled consumer retains an arterial flow input and a portal
+pressure reservoir at 1133.2402930275 Pa, whereas the rigid hydraulic reference
+prescribes both supply totals. The boundary models differ.
+
+Download the [small native family](https://github.com/luca-heltai/immersx/releases/download/liver-h-scaled-2026-11-10/liver-h-scaled-small-2316.tar.gz)
+and [medium native family](https://github.com/luca-heltai/immersx/releases/download/liver-h-scaled-2026-11-10/liver-h-scaled-medium-13351.tar.gz)
+for the archived networks, original radii, parameters and hydraulic evidence.
+The medium archive SHA-256 is
+`adaee8358d001663aa68a178e2dc046566fb190b654f70f7502752b7fcdfbefe`.
+Original generation parameter files retain cluster-specific absolute paths;
+relocate input, include and output paths before using a copy. The archived
+setup parameters also belong to the frozen runtime. Current checked-in
+examples use `Thickness` and `Cross section`; do not assume archived
+`Constant thickness` or other older parameter names remain accepted.
+Rebuilding current `master` and replaying those parameters is a separate check,
+not part of these setup results.
+
+The [count CSV](../_static/liver-icar/new-family-setups/block-counts.csv),
+[histogram CSV](../_static/liver-icar/new-family-setups/interval-histograms.csv)
+and [provenance](../_static/liver-icar/new-family-setups/provenance.json)
+retain the plotted numbers, native partition hashes and source measurements.
+Regenerate both figures without running a solver, from the repository root:
+
+```bash
+python3 -m pip install -r doc/_static/liver-icar/new-family-setups/requirements.txt
+python3 doc/_static/liver-icar/new-family-setups/plot.py \
+  --output-dir /tmp/liver-setup-figures
+```
+
+The plotting script also accepts `--raw-runs SMALL_SETUP_DIR MEDIUM_SETUP_DIR`
+to rebuild its count and histogram CSVs from complete native setup records;
+see its module documentation. The histograms retain all overlap intervals in
+80 logarithmic bins and do not clip tails. This evidence follows
+[issue #343](https://github.com/luca-heltai/immersx/issues/343) and
+[issue #378](https://github.com/luca-heltai/immersx/issues/378); neither issue
+is closed by these measurements.
 
 ### Check hydraulic capacity before scaling
 

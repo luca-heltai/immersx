@@ -469,6 +469,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #382](https://github.com/luca-heltai/immersx/pull/382) Document measured coupled setup counts for separately generated small and medium liver forests, with reproducible block-composition and interval-scale figures and explicit numerical limitations.
+
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) Explain the point, tensor-product, lift and direct-overlap coupling discretisations, the parameter sections each one reads, and which application uses which.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) Describe in the parameter help which coupling section `Coupling type` reads, how `Inclusions`, `Inclusions file`, `Data file` and `Reference inclusion data` combine, when the legacy `Selection of Fourier coefficients` is used, which quadrature the `Representative domain` entries control, and what `Grid generator` means for each `Domain type`.
