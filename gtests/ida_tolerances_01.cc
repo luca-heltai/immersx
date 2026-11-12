@@ -335,6 +335,67 @@ TEST(DistributedIDA, SharedNativeParameterSection)
   ParameterAcceptor::clear();
 }
 
+TEST(DistributedIDA, LinearSolverControlsFromParameterFile)
+{
+  using namespace dealii;
+  ParameterAcceptor::clear();
+  auto         &prm = ParameterAcceptor::prm;
+  IDAParameters ida("/IDA/");
+  ParameterAcceptor::declare_all_parameters(prm);
+  const auto &c = ida.linear_solver_controls;
+  EXPECT_EQ(c.krylov_maximum_iterations, 5000u);
+  EXPECT_DOUBLE_EQ(c.krylov_relative_tolerance, 1.e-8);
+  EXPECT_DOUBLE_EQ(c.schur_relative_tolerance, 1.e-9);
+  EXPECT_DOUBLE_EQ(c.second_order_relative_tolerance, 1.e-2);
+  EXPECT_DOUBLE_EQ(c.mumps_relative_tolerance, 1.e-8);
+  prm.parse_input_from_string(R"(
+    subsection IDA
+      subsection Linear solver
+        set Linear tolerance factor = 0.1
+        subsection Krylov
+          set Maximum iterations = 200
+          set Relative tolerance = 1e-4
+        end
+        subsection Schur complement
+          set Maximum iterations = 50
+          set Relative tolerance = 1e-3
+        end
+        subsection Second-order block
+          set Maximum iterations = 20
+          set Relative tolerance = 0.1
+        end
+        subsection MUMPS
+          set Relative tolerance = 1e-10
+          set Maximum corrections = 5
+        end
+      end
+    end
+  )");
+  ParameterAcceptor::parse_all_parameters(prm);
+  EXPECT_DOUBLE_EQ(ida.linear_tolerance_factor, 0.1);
+  EXPECT_EQ(c.krylov_maximum_iterations, 200u);
+  EXPECT_DOUBLE_EQ(c.krylov_relative_tolerance, 1.e-4);
+  EXPECT_EQ(c.schur_maximum_iterations, 50u);
+  EXPECT_DOUBLE_EQ(c.schur_relative_tolerance, 1.e-3);
+  EXPECT_EQ(c.second_order_maximum_iterations, 20u);
+  EXPECT_DOUBLE_EQ(c.second_order_relative_tolerance, 0.1);
+  EXPECT_DOUBLE_EQ(c.mumps_relative_tolerance, 1.e-10);
+  EXPECT_EQ(c.mumps_maximum_corrections, 5u);
+
+  prm.parse_input_from_string(R"(
+    subsection IDA
+      subsection Linear solver
+        subsection Krylov
+          set Relative tolerance = 0
+        end
+      end
+    end
+  )");
+  EXPECT_THROW(ParameterAcceptor::parse_all_parameters(prm),
+               dealii::ExceptionBase);
+  ParameterAcceptor::clear();
+}
+
 TEST(DistributedIDA, RampParameterValidation)
 {
   IDAToleranceRamp ramp;

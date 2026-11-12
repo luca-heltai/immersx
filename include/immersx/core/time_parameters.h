@@ -154,10 +154,45 @@ namespace ImmersX
       absolute_tolerance = relative_tolerance = 1.e-4;
       ls_norm_factor                          = 1.;
 #endif
+      parse_parameters_call_back.connect([this]() {
+        const auto &c = linear_solver_controls;
+        for (const double tolerance : {c.krylov_relative_tolerance,
+                                       c.schur_relative_tolerance,
+                                       c.second_order_relative_tolerance,
+                                       c.mumps_relative_tolerance})
+          AssertThrow(tolerance > 0. && tolerance <= 1.,
+                      dealii::ExcMessage(
+                        "IDA linear solver relative tolerances must be in "
+                        "(0, 1]."));
+      });
     }
 
-    IDAToleranceRamp tolerance_ramp;
-    bool             print_statistics = false;
+    /** Stopping criteria of the linear solves IDAAdapter runs for IDA.
+     * All tolerances are relative to the l2 norm of the right-hand side.
+     */
+    struct LinearSolverControls
+    {
+      /** Outer GMRES/FGMRES on the IDA Jacobian. It stops at
+       * min(IDA tolerance, krylov_relative_tolerance * |rhs|).
+       */
+      unsigned int krylov_maximum_iterations = 5000;
+      double       krylov_relative_tolerance = 1.e-8;
+      /** Inner GMRES on the multiplier Schur complement (preconditioner). */
+      unsigned int schur_maximum_iterations = 1000;
+      double       schur_relative_tolerance = 1.e-9;
+      /** Inner CG of the displacement/velocity block factorization. */
+      unsigned int second_order_maximum_iterations = 1000;
+      double       second_order_relative_tolerance = 1.e-2;
+      /** MUMPS: residual check with the retained Jacobian and the number of
+       * correction backsolves with the same factorization to reach it.
+       */
+      double       mumps_relative_tolerance  = 1.e-8;
+      unsigned int mumps_maximum_corrections = 3;
+    };
+
+    LinearSolverControls linear_solver_controls;
+    IDAToleranceRamp     tolerance_ramp;
+    bool                 print_statistics = false;
 
     std::string correction_type_at_initial_time = "none";
     std::string correction_type_after_restart   = "none";
@@ -242,6 +277,7 @@ namespace ImmersX
                             shared_interval_->output_time_interval);
         }
       Controls::add_parameters(prm, false, false, shared_interval_ != nullptr);
+      declare_linear_solver_controls(prm);
       tolerance_ramp.add_parameters(prm);
       prm.add_parameter("Print current statistics", print_statistics);
       prm.enter_subsection("Initial condition correction parameters");
@@ -264,6 +300,67 @@ namespace ImmersX
     }
 
   private:
+    /** Add the IDAAdapter linear solves to IDA's own Linear solver section. */
+    void
+    declare_linear_solver_controls(dealii::ParameterHandler &prm)
+    {
+      auto &c = linear_solver_controls;
+      prm.enter_subsection("Linear solver");
+      prm.enter_subsection("Krylov");
+      prm.add_parameter("Maximum iterations",
+                        c.krylov_maximum_iterations,
+                        "Outer GMRES/FGMRES iterations per IDA linear solve.",
+                        dealii::Patterns::Integer(1));
+      prm.add_parameter(
+        "Relative tolerance",
+        c.krylov_relative_tolerance,
+        "The outer solve stops when |r| <= min(t_IDA, this * |rhs|). t_IDA "
+        "is the residual IDA asks for, set by Linear tolerance factor, "
+        "Nonlinear solver/Convergence coefficient and the error weights. "
+        "A small value makes every Newton correction much more accurate "
+        "than IDA needs.",
+        dealii::Patterns::Double(0., 1.));
+      prm.leave_subsection();
+      prm.enter_subsection("Schur complement");
+      prm.add_parameter(
+        "Maximum iterations",
+        c.schur_maximum_iterations,
+        "Inner GMRES iterations on the multiplier Schur complement, per "
+        "preconditioner application.",
+        dealii::Patterns::Integer(1));
+      prm.add_parameter("Relative tolerance",
+                        c.schur_relative_tolerance,
+                        "Residual reduction of the inner Schur solve.",
+                        dealii::Patterns::Double(0., 1.));
+      prm.leave_subsection();
+      prm.enter_subsection("Second-order block");
+      prm.add_parameter(
+        "Maximum iterations",
+        c.second_order_maximum_iterations,
+        "Inner CG iterations on the mass and Schur blocks of a "
+        "displacement/velocity pair, per preconditioner application.",
+        dealii::Patterns::Integer(1));
+      prm.add_parameter("Relative tolerance",
+                        c.second_order_relative_tolerance,
+                        "Residual reduction of the inner CG solves.",
+                        dealii::Patterns::Double(0., 1.));
+      prm.leave_subsection();
+      prm.enter_subsection("MUMPS");
+      prm.add_parameter(
+        "Relative tolerance",
+        c.mumps_relative_tolerance,
+        "A MUMPS backsolve fails unless |J x - rhs| <= this * |rhs|.",
+        dealii::Patterns::Double(0., 1.));
+      prm.add_parameter(
+        "Maximum corrections",
+        c.mumps_maximum_corrections,
+        "Correction backsolves with the same factorization to reach the "
+        "tolerance.",
+        dealii::Patterns::Integer(0));
+      prm.leave_subsection();
+      prm.leave_subsection();
+    }
+
     /** Set every entry of this section to its current value.
      *
      * A native solver may have bound the same entries to its own variables
