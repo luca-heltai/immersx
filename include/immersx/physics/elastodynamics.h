@@ -372,6 +372,16 @@ namespace ImmersX
     const MatrixType &
     mass_matrix() const;
 
+    /** Return the diagonal of mass_matrix() as a matrix with a diagonal
+     * sparsity pattern. The kinematic rows D (u' - v) = 0 use it instead of
+     * the consistent mass: any positive diagonal gives u' = v, and the
+     * Jacobian then contains the mass pattern only once. Hanging-node rows are
+     * zero, as in mass_matrix(). Row-sum lumping is not used because it gives
+     * negative vertex entries for quadratic simplices.
+     */
+    const MatrixType &
+    diagonal_mass_matrix() const;
+
     /** Return the stiffness operator with the same mesh condensation as mass.
      */
     const MatrixType &
@@ -541,6 +551,7 @@ namespace ImmersX
     mutable dealii::AffineConstraints<double> combined_constraints_storage;
 
     MatrixType                    mass_matrix_storage;
+    MatrixType                    diagonal_mass_matrix_storage;
     mutable MatrixType            stiffness_matrix_storage;
     MatrixType                    damping_matrix_storage;
     MatrixType                    system_matrix_storage;
