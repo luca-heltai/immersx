@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IDA application coupling transient native MetricFlowX flow to elastostatic tissue equilibrium, with algebraic displacement and wall traction, optional pressure feedback, reusable elastic AMG and native flow-block MUMPS, coupled initialization, self-contained native checkpoint/restart support, and a single-vessel tutorial with serial/MPI verification.
 
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
@@ -310,6 +311,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
 
 - [PR #384](https://github.com/luca-heltai/immersx/pull/384) Assemble native vascular pressure cross derivatives from local coefficient stencils when MetricFlowX provides the derivative visitor, avoiding global basis probes for supported discontinuous coupled fields while retaining the general path for other scalar fields and projections.
 

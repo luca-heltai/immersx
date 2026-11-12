@@ -27,12 +27,15 @@
 #include <immersx/core/time_parameters.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -695,15 +698,21 @@ namespace ImmersX
             // measuring each defect with the retained Jacobian action.
             GlobalVectorType defect;
             composition_.reinit(defect);
-            const double rhs_norm    = original_rhs.l2_norm();
-            double       defect_norm = 0.;
-            for (unsigned int refinement = 0;; ++refinement)
+            constexpr double       relative_target = 1.e-8;
+            constexpr unsigned int max_refinements = 3;
+            const double           rhs_norm        = original_rhs.l2_norm();
+            double                 defect_norm     = 0.;
+            unsigned int           refinement      = 0;
+            std::array<double, max_refinements + 1> defect_history{};
+            for (;; ++refinement)
               {
                 current_jacobian_->vmult(defect, dst);
                 defect -= original_rhs;
-                defect_norm = defect.l2_norm();
+                defect_norm                = defect.l2_norm();
+                defect_history[refinement] = defect_norm;
                 if (!std::isfinite(defect_norm) ||
-                    defect_norm <= 1.e-8 * rhs_norm || refinement == 3)
+                    defect_norm <= relative_target * rhs_norm ||
+                    refinement == max_refinements)
                   break;
                 GlobalVectorType correction;
                 composition_.reinit(correction);
@@ -713,11 +722,34 @@ namespace ImmersX
               }
             // Some supported deal.II MUMPS wrappers do not report failed
             // factorizations. Do not let a zero correction freeze the DAE.
-            AssertThrow(
-              std::isfinite(defect_norm) && defect_norm <= 1.e-8 * rhs_norm,
-              dealii::ExcMessage(
-                "MUMPS backsolve failed the retained-Jacobian residual check. "
-                "Inspect native diagnostics and the workspace relaxation."));
+            if (!(std::isfinite(defect_norm) &&
+                  defect_norm <= relative_target * rhs_norm))
+              {
+                std::ostringstream message;
+                message << std::scientific << std::setprecision(17)
+                        << "MUMPS backsolve failed the retained-Jacobian "
+                           "residual check. RHS L2 norm = "
+                        << rhs_norm << ", defect L2 norm = " << defect_norm
+                        << ", required defect L2 norm <= "
+                        << relative_target * rhs_norm
+                        << ", relative target = " << relative_target
+                        << ", relative defect = ";
+                if (rhs_norm > 0.)
+                  message << defect_norm / rhs_norm;
+                else
+                  message << "undefined";
+                message << ", correction solves = " << refinement
+                        << ", defect L2 history = [";
+                for (unsigned int i = 0; i <= refinement; ++i)
+                  {
+                    if (i != 0)
+                      message << ", ";
+                    message << defect_history[i];
+                  }
+                message << "]. Inspect native diagnostics and the workspace "
+                           "relaxation.";
+                AssertThrow(false, dealii::ExcMessage(message.str()));
+              }
 
 #  else
             AssertThrow(
