@@ -38,11 +38,12 @@ namespace ImmersX
      * A pair with kinematic residual M u' - M v linearizes to
      * [rho M_f, -M_f] on free displacement rows, where rho is the derivative
      * weight, and to a nonzero diagonal D on constrained rows c, so that
-     * u_c = r_c / D. If M_f reaches a constrained column, the velocity row c
-     * must be a unit row, which fixes v_c from the right-hand side. With
-     * Mhat = [M_ff, M_fc; 0, I], the kinematic rows give z = Mhat^{-1} w,
-     * where w_f = r_f / rho and w_c = u_c - v_c / rho (w_f = -r_f and
-     * w_c = v_c when rho = 0). After z_c is replaced by u_c:
+     * u_c = r_c / D. M is the mass or a diagonal approximation of it. If M_f
+     * reaches a constrained column, the velocity row c must be a unit row,
+     * which fixes v_c from the right-hand side. With Mhat = [M_ff, M_fc; 0, I],
+     * the kinematic rows give z = Mhat^{-1} w, where w_f = r_f / rho and w_c =
+     * u_c - v_c / rho (w_f = -r_f and w_c = v_c when rho = 0). After z_c is
+     * replaced by u_c:
      *
      * - rho > 0: u = z + P_f v / rho, and each velocity column i of the
      *   reduced matrix is J_Rv(:, i) + J_Ru(:, i) / rho for free i;
