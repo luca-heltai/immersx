@@ -584,6 +584,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Compile IDA compatibility headers with current deal.II when OpenCASCADE geometry headers were included first.
+
 - [PR #331](https://github.com/luca-heltai/immersx/pull/331) Preserve the external 1D solver's global class symbols and expose its MPI header ABI through `IMMERSX_FVM_USE_MPI`, applying the same setting to library consumers and the cached link check.
 
 - [PR #326](https://github.com/luca-heltai/immersx/pull/326) Avoid implicit floating-point-to-index conversions in vessel-profile interpolation and its regression oracle, preserving endpoint clamping and interpolation values in Debug and Release. Apply the existing SDK preprocessor-warning policy to optional 1D client compilation probes as well. Fix a null-pointer return and remove an unused counter in the legacy 1D clients for Clang compatibility. Add explicit scopes around conditional GoogleTest macros to avoid dangling-else warnings in vascular and MetricFlowX regressions.
