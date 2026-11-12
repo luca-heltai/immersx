@@ -1,0 +1,38 @@
+{
+  "definition": "Euclidean norm(y10-y9)/norm(y9), flattened scalar components, no denominator floor. Waveform concatenates all 80 phase pairs before taking norms.",
+  "endpoint_reference_below_absolute_sample_scale": {
+    "displacement": false,
+    "velocity": false
+  },
+  "endpoint_times_s": [
+    14.4,
+    15.2
+  ],
+  "generator_sha256": "60b858bc19a513c5d5255aab3d0d24dded0be0b11daeb5261b15aafef31c5fe5",
+  "mesh_cells": 2776,
+  "mesh_points": 11104,
+  "native_commit": "67ac392251baac522955cd0cdb2cbd44ffec4375",
+  "native_multiplier_predeclared_1percent_candidate_pass": true,
+  "output_precision": "Float32 DataOut samples including repeated cell vertices",
+  "phase_pairing": "80 actual PVD entries with 13.6<t9<=14.4, t10=t9+0.8; both literal 13.6 entries excluded; no filename-index formula",
+  "plot_data_sha256": {
+    "data.csv": "dd365465be68942a95bd0b6d5ebf67d983b6038bb534c2edef6c90b41c0c4835"
+  },
+  "plot_svg_sha256": "5b8342256aad62f90edf12ae279ededd4b82c52e3ce7e307e68bce3ab2235f68",
+  "run_scope": "Ten forcing cycles 7.2\u201315.2 s, ordinary startup with a read-only output observer; final two cycles at tight tolerance. Public-source 50 ms replay is a separate result.",
+  "scalar_components_per_vector_snapshot": 33312,
+  "scope": "Diagnostic64 ten-cycle solid point-sample comparison only; not independently grown small/medium/large, not physical or mass-weighted FE norms, not all FE coefficients, not an IDA acceptance/original-F certificate",
+  "source_hashes_stable_before_after": true,
+  "source_mesh_coordinates_connectivity_schema_identical": true,
+  "source_receipt_sha256": {
+    "native_multiplier_candidate": "dbfcde7781044f30771f3156d2336f8003a4e98bb05cb65ef7890aad5aa3afb6",
+    "observer_runtime_manifest": "ab4e239cdd8c7cb7e9cadbbc12251f6a9a98afead77164e40e1c918466e66fd1",
+    "predeclared_candidate_definition": "7ea645a23c318844cc6d5759fe5a4beebe96fa3e0d385468e996afc1d9a6801c",
+    "solid_sample_endpoints": "bd20f76269bbc984d5b2179db4c3aeb4504d458f835943c71f6316cafca0683f",
+    "solid_sample_results": "0c72ef3ba9f37d3cad38617869073bff1f5e9eb1ef6c6fd14b25832dd588458a",
+    "solid_source_hash_provenance": "d5879223607468056eecc0236f34693d5315ffce4d90e46ebf37b22961ad150c",
+    "ten_cycle_run_summary": "10b4664453c702f0303e1d8af23a19ef07020be3473ca11224ac868183b88705"
+  },
+  "velocity_waveform_phases_below_absolute_sample_scale": 6,
+  "whole_coupled_periodicity_established": false
+}
