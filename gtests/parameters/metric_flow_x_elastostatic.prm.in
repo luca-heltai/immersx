@@ -92,4 +92,7 @@ end
 
 subsection MetricFlowX coupling
   set Wall pressure absolute tolerance = 0
+  subsection Particle output
+    set Properties = weight, mode_values, modal_coefficients, lifted_value, modal_data, representative_point, radius, indices, bulk_field
+  end
 end

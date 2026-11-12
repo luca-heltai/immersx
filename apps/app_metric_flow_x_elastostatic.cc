@@ -28,6 +28,7 @@
 #  include <immersx/core/overlap_integration_support.h>
 #  include <immersx/core/sundials_ida_adapter.h>
 #  include <immersx/core/weak_term.h>
+#  include <immersx/io/lifted_particle_output.h>
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastic_static_semidiscrete.h>
 #  include <immersx/physics/metric_flow_x.h>
@@ -177,8 +178,11 @@ namespace
     WallLift wall_lift("/MetricFlowX vessel wall lift/");
     FiniteElementSpaceParameters<1, 3> lambda_parameters(
       "/MetricFlowX multiplier space/", "auto");
-    DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
-    ParameterAcceptor      linear_solver_parameters(
+    // Native MetricFlowX owns the mesh configuration; this observer imports a0.
+    DomainParameters<1, 3>         flow_domain_parameters("/", false);
+    LiftedParticleOutputParameters particle_output(
+      "/MetricFlowX coupling/Particle output/");
+    ParameterAcceptor linear_solver_parameters(
       "/MetricFlowSystem<1, 3>/IDA parameters/Linear solver/");
     std::string linear_solver = "iterative";
     linear_solver_parameters.add_parameter("Type",
@@ -580,8 +584,50 @@ namespace
     state_constraints->compress(VectorOperation::insert);
 
     const auto flow_output_name = metric_flow_parameter("Output filename");
+    auto       wall_points      = reference_wall.lifted_points();
+    for (auto &point : wall_points)
+      point.mode_values = {point.mode_vector[0],
+                           point.mode_vector[1],
+                           point.mode_vector[2]};
+    LiftedParticleLabels particle_labels;
+    particle_labels.value_name      = "wall_traction";
+    particle_labels.mode_labels     = {"radial"};
+    particle_labels.mode_components = 3;
+
+    // Native flow states can also contain trace and terminal unknowns. Map
+    // their semantic field back to FE numbering before sampling the curve.
+    const auto sample_field = [&](const auto &field, const auto &source) {
+      FieldVector owned;
+      owned.reinit(source);
+      owned = source;
+      if (field.constraints().n_constraints() != 0)
+        field.constraints().distribute(owned);
+      FieldVector execution(source.locally_owned_elements(),
+                            field.locally_relevant_dofs(),
+                            MPI_COMM_WORLD);
+      execution = owned;
+      execution.update_ghost_values();
+      FieldVector native(field.dof_handler().locally_owned_dofs(),
+                         MPI_COMM_WORLD);
+      native = 0.;
+      for (const auto index : field.dof_handler().locally_owned_dofs())
+        if (field.has_execution_index(index))
+          native[index] = execution[field.execution_index(index)];
+      native.compress(VectorOperation::insert);
+      const auto relevant =
+        DoFTools::extract_locally_relevant_dofs(field.dof_handler());
+      FieldVector ghosted(field.dof_handler().locally_owned_dofs(),
+                          relevant,
+                          MPI_COMM_WORLD);
+      ghosted = native;
+      ghosted.update_ghost_values();
+      return sample_at_representative_points(field.dof_handler(),
+                                             field.mapping(),
+                                             ghosted,
+                                             wall_points);
+    };
     std::vector<std::pair<double, std::string>> flow_records,
-      multiplier_records;
+      multiplier_records, particle_records;
     adapter.set_output_step([&](const double        time,
                                 const GlobalVector &solution,
                                 const GlobalVector &solution_dot,
@@ -616,6 +662,76 @@ namespace
       solid_problem.set_solution(
         adapter.field(solution, solid_fields.fields().displacement));
       solid_problem.output_results(step, time);
+      if (particle_output.enabled())
+        {
+          std::vector<double> coefficients, data;
+          if (particle_output.selected("modal_coefficients") ||
+              particle_output.selected("lifted_value"))
+            coefficients =
+              sample_field(coupling_fields.fields().multiplier,
+                           adapter.field(solution,
+                                         coupling_fields.fields().multiplier));
+          if (particle_output.selected("modal_data"))
+            {
+              const auto &area_field = flow_fields.fields().area;
+              const auto  area       = sample_field(area_field, flow_state);
+              const auto  reference =
+                sample_at_representative_points(reference_view->dof_handler(),
+                                                reference_view->mapping(),
+                                                reference_area,
+                                                wall_points);
+              const auto width = area_field.finite_element().n_components();
+              const auto reference_width =
+                reference_view->finite_element().n_components();
+              for (std::size_t q = 0; q < wall_points.size(); ++q)
+                {
+                  const auto current =
+                    area[q * width + area_field.extractor().component];
+                  const auto initial =
+                    reference[q * reference_width +
+                              reference_field->extractor().component];
+                  AssertThrow(current > 0. && initial > 0.,
+                              ExcMessage(
+                                "Wall particle radii require positive area."));
+                  data.push_back(std::sqrt(current / numbers::PI) -
+                                 std::sqrt(initial / numbers::PI));
+                }
+            }
+          const auto columns = make_lifted_particle_columns(
+            particle_output, particle_labels, wall_points, coefficients, data);
+          std::optional<FieldVector> displacement;
+          if (particle_output.selected("bulk_field"))
+            {
+              displacement.emplace(solid_problem.locally_owned_dofs(),
+                                   solid_problem.locally_relevant_dofs(),
+                                   MPI_COMM_WORLD);
+              *displacement = solid_problem.solution();
+              displacement->update_ghost_values();
+            }
+          const LiftedBulkField<3, FieldVector> bulk{
+            "displacement",
+            solid_problem.dof_handler(),
+            solid_problem.mapping(),
+            displacement ? &*displacement : nullptr,
+            0,
+            3};
+          const auto particle_filename =
+            "wall_particles_" + std::to_string(step) + ".vtu";
+          write_lifted_particles(particle_output,
+                                 columns,
+                                 wall_points,
+                                 bulk,
+                                 (std::filesystem::path(flow_output_directory) /
+                                  particle_filename)
+                                   .string());
+          particle_records.emplace_back(time, particle_filename);
+          if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+            {
+              std::ofstream pvd(std::filesystem::path(flow_output_directory) /
+                                "wall_particles.pvd");
+              DataOutBase::write_pvd_record(pvd, particle_records);
+            }
+        }
       DataOut<1, 3> multiplier_output;
       multiplier_output.attach_dof_handler(lambda_view.dof_handler());
       multiplier_output.add_data_vector(

@@ -87,6 +87,34 @@ are not exposed by this application. It keeps the uncorrected extended
 solid convention. Nonzero solid density, viscosity, and Rayleigh damping
 coefficients are incompatible with this model and are rejected.
 
+## Wall particles
+
+Open `wall_particles.pvd` alongside the solid and flow output. Each particle is
+one lifted quadrature point on the reference vessel wall. The default output
+contains the quadrature weight and constraint reaction `wall_traction = lambda * n`, where `n` is
+the normalized radial direction used by the coupling.
+
+Select additional quantities with:
+
+```text
+subsection MetricFlowX coupling
+  subsection Particle output
+    set Properties = weight, mode_values, modal_coefficients, lifted_value, modal_data, representative_point, radius, indices, bulk_field
+  end
+end
+```
+
+`wall_traction_radial` is the scalar multiplier in Pa; `mode_radial` is its
+unit radial direction. `data_radial` is the current target radial increment
+`sqrt(A/pi) - sqrt(a0/pi)` in metres. `displacement` samples the accepted solid
+solution at the wall. The representative point, radius, indices and weight
+refer to the reference geometry. An empty `Properties` list disables particle
+files. The PVD times are the accepted output times, including the initial state.
+
+The solid mesh is configured under `Elastic static/Domain`. Native MetricFlowX
+settings configure the 1D network; there is no separate `MetricFlowX domain`
+subsection.
+
 ## Linear solves
 
 The IDA application uses the iterative coupled solve provided by the adapter.
@@ -132,6 +160,8 @@ nonlinear radius constraint. The application does not claim improved
 pressure accuracy or validated convergence merely from removing inertia.
 
 ## Checkpoint and restart
+
+Use the same executable and dependency versions to save and load a checkpoint.
 
 Checkpoint/restart requires the native hooks from
 [MetricFlowX PR #94](https://github.com/luca-heltai/metric-flow-x/pull/94),

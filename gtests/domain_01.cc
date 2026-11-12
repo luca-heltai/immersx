@@ -20,6 +20,17 @@
 using namespace dealii;
 using namespace ImmersX;
 
+TEST(Domain, InternalParametersDoNotDeclareASecondDomain)
+{
+  DomainParameters<1, 3> parameters("/Hidden native domain/", false);
+  std::ostringstream     output;
+  ParameterAcceptor::prm.print_parameters(output, ParameterHandler::ShortPRM);
+  EXPECT_EQ(output.str().find("Hidden native domain"), std::string::npos);
+  parameters.name_of_grid = "hyper_cube";
+  EXPECT_EQ(parameters.grid_scale, 1.);
+}
+
+
 TEST(Domain, GeneratesNamedGrid)
 {
   DomainParameters<2> parameters("/Tests/Domain/");
