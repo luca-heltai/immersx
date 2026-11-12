@@ -352,4 +352,52 @@ TEST(DistributedIDA, BOTH_PositiveConstraintProtectsInitialCorrection)
   EXPECT_EQ(dealii::Utilities::MPI::sum(invalid_trials, MPI_COMM_WORLD), 0u);
   EXPECT_NEAR(adapter.field(state, positive.fields()).l2_norm(), 2.02, 1.e-7);
 }
+
+TEST(DistributedIDA, BOTH_InitialCorrectionReusesFirstPassJacobian)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.initial_time                          = 0.;
+  time.final_time                            = .02;
+  time.output_time_interval                  = .01;
+  parameters.initial_step_size               = .001;
+  parameters.maximum_step_size               = .01;
+  parameters.maximum_order                   = 5;
+  parameters.absolute_tolerance              = 1.e-10;
+  parameters.relative_tolerance              = 1.e-9;
+  parameters.correction_type_at_initial_time = "use_y_dot";
+  unsigned int invalid_trials                = 0;
+  Adapter      adapter(time, parameters, MPI_COMM_WORLD);
+  const auto   positive = add_logarithmic_field(
+    adapter, [](double t) { return -std::log(2. + t); }, invalid_trials);
+  double initial_value = 0.;
+  adapter.set_output_step([&](const double        t,
+                              const GlobalVector &state,
+                              const GlobalVector &,
+                              const unsigned int) {
+    if (t == time.initial_time)
+      initial_value = adapter.field(state, positive.fields()).l2_norm();
+  });
+  auto state = adapter.make_state(), derivative = adapter.make_state();
+  // The frozen Jacobian 1/3 needs several corrections to reach log(y) =
+  // log(2), and every Newton step from y = 3 stays positive.
+  adapter.field(state, positive.fields()) = 3.;
+  derivative                              = 0.;
+  testing::internal::CaptureStdout();
+  adapter.solve(state, derivative);
+  const std::string output = testing::internal::GetCapturedStdout();
+  if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      const std::string reuse =
+        "reusing the initial-condition Jacobian for IDA's second correction "
+        "pass";
+      // Rank 1 continues into collective norms, so do not return early.
+      const auto first = output.find(reuse);
+      EXPECT_NE(first, std::string::npos) << output;
+      if (first != std::string::npos)
+        EXPECT_EQ(output.find(reuse, first + 1), std::string::npos) << output;
+    }
+  EXPECT_NEAR(initial_value, 2., 1.e-8);
+  EXPECT_NEAR(adapter.field(state, positive.fields()).l2_norm(), 2.02, 1.e-7);
+}
 #endif
