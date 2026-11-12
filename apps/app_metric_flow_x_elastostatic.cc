@@ -83,6 +83,41 @@ namespace
   }
 
 
+  // Regression diagnostics use native Vector output; checkpoints use FE
+  // transfer.
+  template <typename GlobalVector>
+  void
+  write_regression_state(const GlobalVector &state, const std::string &filename)
+  {
+    std::ofstream file;
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      file.open(filename);
+    bool output_ok =
+      Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0 || file.good();
+    AssertThrow(Utilities::MPI::min(output_ok ? 1u : 0u, MPI_COMM_WORLD) == 1,
+                ExcMessage("Cannot open regression state output."));
+    for (unsigned int block = 0; block < state.n_blocks(); ++block)
+      {
+        std::vector<double> local(state.block(block).size(), 0.),
+          global(local.size());
+        for (const auto index : state.block(block).locally_owned_elements())
+          local[index] = state.block(block)[index];
+        Utilities::MPI::sum(local, MPI_COMM_WORLD, global);
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          {
+            Vector<double> serial(global.begin(), global.end());
+            serial.print(file, 17, true, true);
+          }
+      }
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      {
+        file.close();
+        output_ok = file.good();
+      }
+    AssertThrow(Utilities::MPI::min(output_ok ? 1u : 0u, MPI_COMM_WORLD) == 1,
+                ExcMessage("Cannot finish regression state output."));
+  }
+
   struct Options
   {
     std::string           parameter_file, restart, checkpoint;
@@ -535,6 +570,10 @@ namespace
                                 const GlobalVector &solution,
                                 const GlobalVector &solution_dot,
                                 const unsigned int  step) {
+      if (step == 0)
+        if (const char *filename =
+              std::getenv("IMMERSX_ELASTOSTATIC_STATE_OUTPUT"))
+          write_regression_state(solution, std::string(filename) + ".initial");
       const auto &flow_state =
         adapter.field(solution, flow_fields.fields().state);
       const auto &flow_derivative =
@@ -587,40 +626,8 @@ namespace
       [state_constraints]() -> GlobalVector & { return *state_constraints; };
     flow_problem.open_output_files();
     const auto accepted_steps = adapter.solve(state, state_dot);
-    // Regression harness: compare all coefficients across a fresh-process
-    // restart using native Vector output, rather than only comparing norms.
     if (const char *filename = std::getenv("IMMERSX_ELASTOSTATIC_STATE_OUTPUT"))
-      {
-        std::ofstream file;
-        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-          file.open(filename);
-        bool output_ok =
-          Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0 || file.good();
-        AssertThrow(Utilities::MPI::min(output_ok ? 1u : 0u, MPI_COMM_WORLD) ==
-                      1,
-                    ExcMessage("Cannot open regression state output."));
-        for (unsigned int block = 0; block < state.n_blocks(); ++block)
-          {
-            std::vector<double> local(state.block(block).size(), 0.),
-              global(local.size());
-            for (const auto index : state.block(block).locally_owned_elements())
-              local[index] = state.block(block)[index];
-            Utilities::MPI::sum(local, MPI_COMM_WORLD, global);
-            if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-              {
-                Vector<double> serial(global.begin(), global.end());
-                serial.print(file, 17, true, true);
-              }
-          }
-        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-          {
-            file.close();
-            output_ok = file.good();
-          }
-        AssertThrow(Utilities::MPI::min(output_ok ? 1u : 0u, MPI_COMM_WORLD) ==
-                      1,
-                    ExcMessage("Cannot finish regression state output."));
-      }
+      write_regression_state(state, filename);
     if (!options.checkpoint.empty())
       {
         if constexpr (HasCheckpoint<FlowProblem>::value)

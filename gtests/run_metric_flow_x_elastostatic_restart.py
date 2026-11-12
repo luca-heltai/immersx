@@ -32,7 +32,7 @@ def read_state(filename):
     return blocks
 
 
-def compare_states(expected_file, actual_file, mode):
+def compare_states(expected_file, actual_file, mode, absolute=1e-8, relative=1e-5):
     expected = read_state(expected_file)
     actual = read_state(actual_file)
     for name, first, second in zip(("displacement", "flow", "multiplier"), expected, actual):
@@ -40,7 +40,7 @@ def compare_states(expected_file, actual_file, mode):
             raise AssertionError(f"{mode} {name}: block size changed")
         error = max(abs(a - b) for a, b in zip(first, second))
         scale = max(max(abs(a), abs(b)) for a, b in zip(first, second))
-        tolerance = 1e-8 + 1e-5 * scale
+        tolerance = absolute + relative * scale
         print(f"{mode} {name}: max error {error:.6g}, tolerance {tolerance:.6g}")
         if error > tolerance:
             raise AssertionError(f"{mode} {name}: restart coefficient error exceeds tolerance")
@@ -123,7 +123,10 @@ def check_mode(args, base_text, original_vtk, feedback):
         restarted_state, split_directory / "restart.log", args.timeout)
     if source_parameter.exists() or source_vtk.exists():
         raise AssertionError("Restart unexpectedly recreated the removed input files")
-    compare_states(full_state, restarted_state, mode)
+    compare_states(split_directory / "state.txt",
+                   Path(str(restarted_state) + ".initial"), mode + " restored",
+                   absolute=1e-12, relative=1e-12)
+    compare_states(full_state, restarted_state, mode + " continued")
 
 
 def main():
