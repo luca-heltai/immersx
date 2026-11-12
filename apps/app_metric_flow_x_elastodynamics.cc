@@ -1224,7 +1224,8 @@ namespace
             FieldVector owned;
             owned.reinit(source);
             owned = source;
-            if (field.constraints().n_constraints() != 0)
+            if (Utilities::MPI::sum(field.constraints().n_constraints(),
+                                    MPI_COMM_WORLD) != 0)
               field.constraints().distribute(owned);
             FieldVector execution;
             execution.reinit(source.locally_owned_elements(),
