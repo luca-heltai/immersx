@@ -319,7 +319,21 @@ TEST(Elastodynamics, BOTH_TrapezoidalMovingBoundaryWithHangingNodes)
       if (step == 1)
         parameters.fixed_step_parameters.time_step = 0.01;
       problem.advance_one_timestep();
-      const double time = problem.current_time();
+      const double time   = problem.current_time();
+      const auto  &matrix = problem.system_matrix();
+      for (const auto row : problem.locally_owned_dofs())
+        {
+          const bool constrained = problem.constraints().is_constrained(row);
+          EXPECT_EQ(matrix.row_length(row), 2u);
+          const double diagonal =
+            problem.diagonal_mass_matrix().diag_element(row);
+          EXPECT_NEAR(matrix.el(row, row),
+                      constrained ? 1. : diagonal / problem.time_step(),
+                      1.e-13);
+          EXPECT_NEAR(matrix.el(row, problem.n_dofs() + row),
+                      constrained ? 0. : -0.5 * diagonal,
+                      1.e-13);
+        }
       for (const auto index : problem.locally_owned_dofs())
         {
           const double scale = x_component(index) * (1. + points.at(index)[0]);
