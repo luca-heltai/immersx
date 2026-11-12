@@ -250,16 +250,29 @@ pressure accuracy or validated convergence merely from removing inertia.
 Use the same executable and dependency versions to save and load a checkpoint.
 
 Checkpoint/restart requires the native hooks from
-[MetricFlowX PR #94](https://github.com/luca-heltai/metric-flow-x/pull/94),
-reference revision
-[`7d0937f`](https://github.com/luca-heltai/metric-flow-x/commit/7d0937f7ad92e0003dca8ba5defdf1bf8c2e4bc5).
-A package without these hooks can run the coupled application but rejects
+[MetricFlowX PR #94](https://github.com/luca-heltai/metric-flow-x/pull/94).
+The coupled checkpoint checks reported here used the frozen revision
+[`7d0937f`](https://github.com/luca-heltai/metric-flow-x/commit/7d0937f7ad92e0003dca8ba5defdf1bf8c2e4bc5)
+and a deal.II build with the serialization correction described below.
+A package without the native hooks can run the application but rejects
 checkpoint requests explicitly.
 
-For deal.II builds affected by the fully distributed serialization offset
-defect, MPI checkpoints also require the correction in
-[deal.II PR #20374](https://github.com/dealii/dealii/pull/20374). Regenerate
-MPI checkpoints written by the affected serializer.
+PR #94 has since merged at
+[`49a88a5`](https://github.com/luca-heltai/metric-flow-x/commit/49a88a57cc3636008f28381ab1c8267b66b21a37).
+Its native flow serializer uses a local compatibility triangulation and does
+not require a patched deal.II installation for that path. API inspection found
+unchanged mesh setup and extra-field hooks; the coupled ImmersX application has
+not been compiled or run against this newer SDK in the checks reported here.
+Upstream native checkpoint tests are separate evidence.
+
+The solid checkpoint still calls deal.II's fully distributed triangulation
+serializer directly. On deal.II builds affected by its serialization offset
+defect, that solid path still needs the correction in
+[deal.II PR #20374](https://github.com/dealii/dealii/pull/20374) or a version
+containing it. MetricFlowX's local flow compatibility class does not replace
+this solid serializer. Regenerate MPI checkpoints written by the defective
+serializer, and retain the same executable and dependency versions when
+comparing the coupled restart results.
 
 Use a fully distributed solid mesh (`Elastic static/Domain/Triangulation
 type = fullydistributed`, the application default) and keep
