@@ -557,7 +557,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Document the verified IRCAD11 small archive setup with the setup-only command and measured coupled spaces, and distinguish it from the transient startup that has not passed consistent initialization.
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Document the verified IRCAD11 small archive setup with the setup-only command, measured coupled spaces and the mechanical coupling regularity limit, and distinguish it from the transient startup that has not passed consistent initialization.
 
 - [PR #398](https://github.com/luca-heltai/immersx/pull/398) Document the public-source small liver transient and portable inputs, measured DG2 family sizes and the medium failure, and distinguish ten-cycle completion from periodicity of the coupled solution with reproducible solid-drift and startup plots.
 

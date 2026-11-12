@@ -122,8 +122,19 @@ not execute IDA or demonstrate an accepted timestep.
 The transient remains experimental. This profile has not passed consistent
 initial-condition correction: the iterative solve stops in the inner Schur
 solver, and a direct-solver diagnostic also failed its retained-Jacobian
-residual check. No accepted startup step has been verified. To investigate the
-transient, omit the setup flag:
+residual check. No accepted startup step has been verified.
+
+The measured mechanical blocks have 89,748 exactly zero columns in the outside
+multiplier stabilization and only 24,546 displacement DoFs. Their saddle system
+therefore has at least 65,202 uncontrolled multiplier directions. The displacement
+rows have no flow coupling, and the constraint rows have no coupling to native
+algebraic flow variables. Those traces cannot restore the index-one regularity
+assumption for these spaces. This diagnoses the current discretization; it does
+not establish singularity of the full IDA Jacobian, which also includes the
+native differential flow response. A solver iteration limit alone does not
+resolve this regularity issue.
+
+To investigate the transient, omit the setup flag:
 
 ~~~bash
 mpiexec -np 2 "$build_dir/metric_flow_x_elastostatic" \
