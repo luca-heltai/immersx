@@ -73,7 +73,7 @@ namespace ImmersX::elastostatic_checkpoint_detail
   struct Metadata
   {
     std::string  magic          = "ImmersX MetricFlowX elastostatic checkpoint";
-    unsigned int version        = 2;
+    unsigned int version        = 3;
     std::string  dealii_version = DEAL_II_PACKAGE_VERSION;
     unsigned int ranks          = 0;
     double       time           = 0.;
