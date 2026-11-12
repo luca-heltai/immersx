@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
+
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
 
 - [PR #388](https://github.com/luca-heltai/immersx/pull/388) Add the `fitted_vessel_mesh` application and `scripts/generate_fitted_vessel_meshes.py` to write vessel-fitted cube meshes for the MetricFlowX elastodynamics manufactured solution at user-selected refinement levels.
@@ -219,6 +221,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #399](https://github.com/luca-heltai/immersx/pull/399) With `use_y_dot` initial conditions, `IDAAdapter` keeps the Jacobian of IDA's first initial-condition pass for its second pass, which IDA starts at the already corrected state. A request after a linear solve, which IDA makes when the iteration converges slowly, still rebuilds the Jacobian. The IRCAD liver tiny and small runs set up two Jacobians instead of three, with unchanged IDA statistics and output.
+
 - [PR #387](https://github.com/luca-heltai/immersx/pull/387) Assemble nonlinear lifted residuals and Jacobians by source cell without scanning every local sample for each cell.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) A legacy `Representative domain/Inclusions file` reads the radius column only with `Thickness = radius`. Previously the exact default string `0.01` meant the radius column and any other spelling of the same number was a constant.
@@ -310,6 +314,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
 
 - [PR #388](https://github.com/luca-heltai/immersx/pull/388) Allow fitted-vessel mesh generation in Debug builds and consume its application options before MPI/PETSc initialization.
 
@@ -533,6 +539,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
 
 ### Tutorial
+
+- [PR #398](https://github.com/luca-heltai/immersx/pull/398) Document the public-source small liver transient and portable inputs, measured DG2 family sizes and the medium failure, and distinguish ten-cycle completion from periodicity of the coupled solution with reproducible solid-drift and startup plots.
 
 - [PR #394](https://github.com/luca-heltai/immersx/pull/394) Document the liver coupled-initialization diagnostics, native HLL correction, artificial continuation stages and unaccepted VTK interpretation.
 
