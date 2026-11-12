@@ -93,10 +93,13 @@ the external-pressure residual and its Jacobians from the flow equations;
 it does not remove the wall constraint or the traction reaction. Set
 `Pressure feedback = true` to restore the two-way equations above.
 
-The first version accepts VTK vessel input. Generated networks, archived
-networks, and fictitious-interior modal corrections are not exposed by this
-application. It keeps the uncorrected extended solid convention. Nonzero solid density, viscosity, and Rayleigh damping
-coefficients are incompatible with this model and are rejected.
+The application accepts VTK vessel input or an existing native physical network
+archive. The [IRCAD11 small tutorial](metric-flow-x-elastostatic-ircad11-small.md)
+loads three already-grown networks with their saved microvascular connections;
+it does not rerun growth. Co-refinement currently applies to VTK input. Network
+generation and fictitious-interior modal corrections are not exposed here.
+The application keeps the uncorrected extended-solid convention. Nonzero solid
+density, viscosity, and Rayleigh damping coefficients are rejected.
 
 ## Time integration and output
 

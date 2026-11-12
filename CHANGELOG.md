@@ -12,7 +12,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Added
 
 - [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
-- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IDA application coupling transient native MetricFlowX flow to elastostatic tissue equilibrium, with algebraic displacement and wall traction, optional pressure feedback, reusable elastic AMG and native flow-block MUMPS, coupled initialization, optional solid/flow/lift co-refinement with transferred reference area and restartable refined meshes, self-contained native checkpoint/restart support, and a single-vessel tutorial with serial/MPI verification. Keep the native 1D domain configuration internal and use the MetricFlowX mesh settings. Write selectable wall-particle properties at accepted output times.
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IDA application coupling transient native MetricFlowX flow to elastostatic tissue equilibrium, with algebraic displacement and wall traction, optional pressure feedback, reusable elastic AMG and native flow-block MUMPS, coupled initialization, optional solid/flow/lift co-refinement with transferred reference area and restartable refined meshes, self-contained native checkpoint/restart support, and a single-vessel tutorial with serial/MPI verification. Keep the native 1D domain configuration internal and use the MetricFlowX mesh settings. Write selectable wall-particle properties at accepted output times. Load existing native physical network archives with their saved microvascular connections and component tolerances.
 
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
 
@@ -495,6 +495,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IRCAD11 small elastostatic tutorial that downloads the existing three grown networks and matching tissue mesh without rerunning growth.
 - [PR #392](https://github.com/luca-heltai/immersx/pull/392) Collect the vessel-wall pressure in one concepts page: why the multiplier is a stress jump, the analytic interior-stress correction for point and tensor-product coupling, the MetricFlowX modal correction, and their signs and units; correct the sign of the multiplier in the MetricFlowX onboarding tutorial.
 
 - [PR #383](https://github.com/luca-heltai/immersx/pull/383) Align the newly authored liver setup figure scripts, data and asset license headers with the repository license.
