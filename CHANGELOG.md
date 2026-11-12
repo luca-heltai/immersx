@@ -13,6 +13,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #405](https://github.com/luca-heltai/immersx/pull/405) Export configurable lifted wall particles at accepted times in the MetricFlowX elastodynamics application.
 
+- [PR #403](https://github.com/luca-heltai/immersx/pull/403) Allow semantic fields to retain their configured IDA error tolerances during a startup ramp, with an optional solid displacement and velocity exemption in the coupled vascular application.
+
 - [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
 
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
@@ -223,7 +225,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #404](https://github.com/luca-heltai/immersx/pull/404) Use diagonal kinematic rows in the standalone fixed-step elastodynamics solver, including moving boundary data and hanging nodes, while retaining the consistent mass in the momentum equation. Expose iterative, UMFPACK, and MUMPS selection in `elastodynamics_adapter` through `Elastodynamics/IDA/Linear solver/Type`; direct solvers condense the kinematic rows before factorization. Align the fiber residual and Jacobian regression checks with the same diagonal kinematic weighting.
+
 - [PR #399](https://github.com/luca-heltai/immersx/pull/399) With `use_y_dot` initial conditions, `IDAAdapter` keeps the Jacobian of IDA's first initial-condition pass for its second pass, which IDA starts at the already corrected state. A request after a linear solve, which IDA makes when the iteration converges slowly, still rebuilds the Jacobian. The IRCAD liver tiny and small runs set up two Jacobians instead of three, with unchanged IDA statistics and output.
+
+- [PR #397](https://github.com/luca-heltai/immersx/pull/397) Eliminate the kinematic rows of second-order displacement-velocity pairs before IDA factors the Jacobian with UMFPACK or MUMPS, so the direct solver factors one spatial block per pair instead of two coupled ones. The elastodynamics kinematic rows use the diagonal of the mass instead of the consistent mass, so the Jacobian contains the mass sparsity pattern only once and the kinematic block is inverted entrywise; the solution does not change. The reduced solve is algebraically equivalent; matrices without the kinematic structure keep the monolithic factorization. In Release, the IRCAD liver tiny and small 2 ms runs drop from 10.4 s to 6.3 s and from 24.3 s to 12.1 s; the diagonal kinematic rows lower the tiny and small wall times by another 26% and 17%.
 
 - [PR #387](https://github.com/luca-heltai/immersx/pull/387) Assemble nonlinear lifted residuals and Jacobians by source cell without scanning every local sample for each cell.
 

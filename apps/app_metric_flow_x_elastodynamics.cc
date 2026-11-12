@@ -437,6 +437,7 @@ namespace
     ArchivedFlowParameters      archive_parameters;
     Vascularization::Parameters generation_parameters;
     bool                        use_native_tolerances      = false;
+    bool                        ramp_solid_tolerances      = true;
     bool                        stop_at_output_times       = false;
     bool                        setup_only                 = false;
     int                         mumps_workspace_relaxation = -1;
@@ -446,6 +447,10 @@ namespace
       "Use native flow tolerances",
       use_native_tolerances,
       "Use MetricFlowX area, velocity and capacitor absolute tolerances in the coupled adapter.");
+    coupling.add_parameter(
+      "Apply tolerance ramp to solid fields",
+      ramp_solid_tolerances,
+      "Apply the configured relative and absolute tolerance ramp to solid displacement and velocity; false keeps their configured tolerances throughout initialization and integration.");
     coupling.add_parameter(
       "Stop at output times",
       stop_at_output_times,
@@ -1111,6 +1116,13 @@ namespace
                   pressure_tolerance >= 0.,
                 ExcMessage(
                   "Coupled absolute tolerance overrides must be nonnegative."));
+    if (!ramp_solid_tolerances)
+      {
+        adapter.set_tolerance_ramp_enabled(solid_fields.fields().displacement,
+                                           false);
+        adapter.set_tolerance_ramp_enabled(solid_fields.fields().velocity,
+                                           false);
+      }
     if (displacement_tolerance > 0.)
       adapter.set_absolute_tolerance(solid_fields.fields().displacement,
                                      displacement_tolerance);

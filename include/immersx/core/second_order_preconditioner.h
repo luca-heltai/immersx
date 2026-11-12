@@ -23,9 +23,11 @@
 namespace ImmersX
 {
   /**
-   * Inexact block factorization for [a M, -b M; c K, a M + d D].
+   * Inexact block factorization for [a W, -b W; c K, a M + d D].
    *
-   * The free-variable Schur complement is a M + d D + (b c / a) K.
+   * W is the matrix of the kinematic rows, either the mass M or a diagonal
+   * approximation of it. The free-variable Schur complement is
+   * a M + d D + (b c / a) K and does not depend on W.
    * Both spatial solves use CG with AMG. Their stopping criteria make this a
    * variable preconditioner, so the outer solver must be flexible (FGMRES).
    * Constrained rows and columns are projected symmetrically for the inner
@@ -45,6 +47,7 @@ namespace ImmersX
     using ReinitVector = std::function<void(VectorType &, bool)>;
     using AMGData = typename ImmersXLA::MPI::PreconditionAMG::AdditionalData;
 
+    /** Initialize with kinematic rows that use the mass, W = M. */
     void
     initialize(const MatrixType       &mass,
                const MatrixType       &stiffness,
@@ -53,34 +56,35 @@ namespace ImmersX
                ReinitVector            reinit_vector,
                const AMGData          &amg_data = {})
     {
-      AssertDimension(mass.m(), stiffness.m());
-      AssertDimension(mass.m(), damping.m());
-      AssertDimension(mass.m(), constrained.size());
-      constrained_   = constrained;
-      reinit_vector_ = std::move(reinit_vector);
-      reinit_vector_(prototype_, false);
-      amg_data_  = amg_data;
-      mass_      = detail::clone_matrix(mass);
-      stiffness_ = detail::clone_matrix(stiffness);
-      damping_   = detail::clone_matrix(damping);
-      project(*mass_, 1.);
-      project(*stiffness_, 0.);
-      project(*damping_, 0.);
-      // Cartesian mass components are independent. Reserve the elastic
-      // rigid-body seeds for the Schur hierarchy, rather than enlarging
-      // the mass coarse spaces with rotational modes.
-      auto mass_amg_data = amg_data_;
-      mass_amg_data.constant_modes.clear();
-      mass_amg_data.constant_modes_values.clear();
-      mass_amg_             = make_amg_preconditioner<VectorType>(*mass_,
-                                                      reinit_vector_,
-                                                      mass_amg_data);
-      static_stiffness_amg_ = dealii::LinearOperator<VectorType>();
-      static_stiffness_.reset();
-      coefficients_set_ = false;
+      initialize(nullptr,
+                 mass,
+                 stiffness,
+                 damping,
+                 constrained,
+                 std::move(reinit_vector),
+                 amg_data);
     }
 
-    /** Prepare the row-swapped factorization of [0, -M; K, D].
+    /** Initialize with a separate kinematic matrix W. */
+    void
+    initialize(const MatrixType       &kinematic,
+               const MatrixType       &mass,
+               const MatrixType       &stiffness,
+               const MatrixType       &damping,
+               const dealii::IndexSet &constrained,
+               ReinitVector            reinit_vector,
+               const AMGData          &amg_data = {})
+    {
+      initialize(&kinematic,
+                 mass,
+                 stiffness,
+                 damping,
+                 constrained,
+                 std::move(reinit_vector),
+                 amg_data);
+    }
+
+    /** Prepare the row-swapped factorization of [0, -W; K, D].
      * The free stiffness block must be invertible, as with Robin support.
      * D need not be invertible. The M/K AMG cycles must be symmetric, as for
      * the CG solves with positive derivative weights. Their fixed actions
@@ -113,8 +117,8 @@ namespace ImmersX
                  const bool        fixed_linear_action = false) const
     {
       AssertThrow(static_stiffness_, dealii::ExcNotInitialized());
-      static_spatial_inverse(*mass_,
-                             mass_amg_,
+      static_spatial_inverse(*kinematic_,
+                             kinematic_amg_,
                              destination_velocity,
                              source_displacement,
                              fixed_linear_action);
@@ -152,8 +156,8 @@ namespace ImmersX
       right_hand_side->reinit(prototype_, true);
       damping_->Tvmult(*right_hand_side, destination_velocity);
       *right_hand_side -= source_velocity;
-      static_spatial_inverse(*mass_,
-                             mass_amg_,
+      static_spatial_inverse(*kinematic_,
+                             kinematic_amg_,
                              destination_displacement,
                              *right_hand_side,
                              fixed_linear_action);
@@ -189,12 +193,12 @@ namespace ImmersX
       coefficients_set_ = true;
     }
 
-    /** Approximate (a M)^{-1} on free entries, identity on constrained ones. */
+    /** Approximate (a W)^{-1} on free entries, identity on constrained ones. */
     void
     mass_inverse(VectorType &destination, const VectorType &source) const
     {
       AssertThrow(coefficients_set_, dealii::ExcNotInitialized());
-      solve(*mass_, mass_amg_, destination, source);
+      solve(*kinematic_, kinematic_amg_, destination, source);
       destination /= coefficients_[0];
       restore_constrained(destination, source);
     }
@@ -213,7 +217,7 @@ namespace ImmersX
     apply_mass_amg(VectorType &destination, const VectorType &source) const
     {
       AssertThrow(coefficients_set_, dealii::ExcNotInitialized());
-      apply_projected_amg(mass_amg_,
+      apply_projected_amg(kinematic_amg_,
                           destination,
                           source,
                           1. / coefficients_[0]);
@@ -251,6 +255,50 @@ namespace ImmersX
     }
 
   private:
+    void
+    initialize(const MatrixType       *kinematic,
+               const MatrixType       &mass,
+               const MatrixType       &stiffness,
+               const MatrixType       &damping,
+               const dealii::IndexSet &constrained,
+               ReinitVector            reinit_vector,
+               const AMGData          &amg_data)
+    {
+      AssertDimension(mass.m(), stiffness.m());
+      AssertDimension(mass.m(), damping.m());
+      AssertDimension(mass.m(), constrained.size());
+      constrained_   = constrained;
+      reinit_vector_ = std::move(reinit_vector);
+      reinit_vector_(prototype_, false);
+      amg_data_  = amg_data;
+      mass_      = detail::clone_matrix(mass);
+      stiffness_ = detail::clone_matrix(stiffness);
+      damping_   = detail::clone_matrix(damping);
+      project(*mass_, 1.);
+      project(*stiffness_, 0.);
+      project(*damping_, 0.);
+      if (kinematic != nullptr)
+        {
+          AssertDimension(kinematic->m(), mass.m());
+          kinematic_ = detail::clone_matrix(*kinematic);
+          project(*kinematic_, 1.);
+        }
+      else
+        kinematic_ = mass_;
+      // Cartesian mass components are independent. Reserve the elastic
+      // rigid-body seeds for the Schur hierarchy, rather than enlarging
+      // the mass coarse spaces with rotational modes.
+      auto mass_amg_data = amg_data_;
+      mass_amg_data.constant_modes.clear();
+      mass_amg_data.constant_modes_values.clear();
+      kinematic_amg_        = make_amg_preconditioner<VectorType>(*kinematic_,
+                                                           reinit_vector_,
+                                                           mass_amg_data);
+      static_stiffness_amg_ = dealii::LinearOperator<VectorType>();
+      static_stiffness_.reset();
+      coefficients_set_ = false;
+    }
+
     void
     project(MatrixType &matrix, const double constrained_diagonal) const
     {
@@ -340,16 +388,16 @@ namespace ImmersX
       solver.solve(matrix, destination, *right_hand_side, amg);
     }
 
-    dealii::IndexSet                   constrained_;
-    ReinitVector                       reinit_vector_;
-    VectorType                         prototype_;
-    AMGData                            amg_data_;
-    std::shared_ptr<MatrixType>        mass_, stiffness_, damping_, schur_;
-    std::shared_ptr<MatrixType>        static_stiffness_;
-    dealii::LinearOperator<VectorType> mass_amg_, schur_amg_;
-    dealii::LinearOperator<VectorType> static_stiffness_amg_;
-    std::array<double, 4>              coefficients_{};
-    bool                               coefficients_set_ = false;
+    dealii::IndexSet            constrained_;
+    ReinitVector                reinit_vector_;
+    VectorType                  prototype_;
+    AMGData                     amg_data_;
+    std::shared_ptr<MatrixType> kinematic_, mass_, stiffness_, damping_, schur_;
+    std::shared_ptr<MatrixType> static_stiffness_;
+    dealii::LinearOperator<VectorType>              kinematic_amg_, schur_amg_;
+    dealii::LinearOperator<VectorType>              static_stiffness_amg_;
+    std::array<double, 4>                           coefficients_{};
+    bool                                            coefficients_set_ = false;
     mutable dealii::GrowingVectorMemory<VectorType> vector_memory_;
   };
 } // namespace ImmersX

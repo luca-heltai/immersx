@@ -10,6 +10,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <string>
 #include <utility>
@@ -537,6 +538,39 @@ TEST(AppExecutables, ElasticStaticAdapterReferenceCells)
 }
 
 #ifdef DEAL_II_WITH_SUNDIALS
+TEST(AppExecutables, ElastodynamicsAdapterDirectSolvers)
+{
+  if (!is_single_rank())
+    GTEST_SKIP() << "The application launcher is serial.";
+  std::vector<std::string> solvers{"umfpack"};
+#  ifdef DEAL_II_WITH_MUMPS
+  solvers.emplace_back("mumps");
+#  endif
+  for (const auto &solver : solvers)
+    {
+      SCOPED_TRACE(solver);
+      const auto directory =
+        ImmersX::TestPaths::output_path("app_executables") /
+        executable_name("elastodynamics_adapter") / solver;
+      std::filesystem::create_directories(directory);
+      const auto    parameter_file = directory / "direct.prm";
+      std::ofstream parameters(parameter_file);
+      parameters << "include "
+                 << ImmersX::TestPaths::parameter_path(
+                      "gtests/parameters/elastodynamics_adapter_simplex.prm")
+                 << "\nsubsection Elastodynamics\n  subsection IDA\n"
+                    "    subsection Linear solver\n      set Type = "
+                 << solver << "\n    end\n  end\nend\n";
+      parameters.close();
+      const auto log = directory / "application.log";
+      run_application("elastodynamics_adapter", parameter_file, directory, log);
+      std::ifstream     output(log);
+      const std::string text((std::istreambuf_iterator<char>(output)), {});
+      EXPECT_NE(text.find("after second-order condensation"),
+                std::string::npos);
+    }
+}
+
 TEST(AppExecutables, ElastodynamicsAdapterReferenceCells)
 {
   if (!is_single_rank())
