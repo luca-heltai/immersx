@@ -277,6 +277,15 @@ TEST(Elastodynamics, SetupAndOperatorSymmetry)
   y = 0.;
   problem.stiffness_matrix().vmult(y, x);
   EXPECT_NEAR(y.l2_norm(), 0.0, 1.e-11);
+
+  // The kinematic rows use the diagonal of the mass with a diagonal pattern.
+  const auto &diagonal = problem.diagonal_mass_matrix();
+  for (const auto row : problem.locally_owned_dofs())
+    {
+      EXPECT_EQ(diagonal.row_length(row), 1u);
+      EXPECT_EQ(diagonal.diag_element(row),
+                problem.mass_matrix().diag_element(row));
+    }
 }
 
 
@@ -741,10 +750,12 @@ TEST(Elastodynamics, IDAResidualAndJacobianOracle)
   expected_displacement.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
   expected_velocity.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
   work.reinit(expected_displacement);
-  problem.mass_matrix().vmult(expected_displacement,
-                              ida.field(state_dot,
-                                        fields.fields().displacement));
-  problem.mass_matrix().vmult(work, ida.field(state, fields.fields().velocity));
+  problem.diagonal_mass_matrix().vmult(expected_displacement,
+                                       ida.field(state_dot,
+                                                 fields.fields().displacement));
+  problem.diagonal_mass_matrix().vmult(work,
+                                       ida.field(state,
+                                                 fields.fields().velocity));
   expected_displacement -= work;
   for (const auto index : expected_displacement.locally_owned_elements())
     if (problem.constraints().is_constrained(index))
@@ -789,12 +800,13 @@ TEST(Elastodynamics, IDAResidualAndJacobianOracle)
   expected_displacement_action.reinit(problem.locally_owned_dofs(),
                                       MPI_COMM_WORLD);
   expected_velocity_action.reinit(problem.locally_owned_dofs(), MPI_COMM_WORLD);
-  problem.mass_matrix().vmult(expected_displacement_action,
-                              ida.field(increment,
-                                        fields.fields().displacement));
+  problem.diagonal_mass_matrix().vmult(expected_displacement_action,
+                                       ida.field(increment,
+                                                 fields.fields().displacement));
   expected_displacement_action *= 2.;
-  problem.mass_matrix().vmult(work,
-                              ida.field(increment, fields.fields().velocity));
+  problem.diagonal_mass_matrix().vmult(work,
+                                       ida.field(increment,
+                                                 fields.fields().velocity));
   expected_displacement_action -= work;
   for (const auto index : expected_displacement_action.locally_owned_elements())
     if (problem.constraints().is_constrained(index))

@@ -1,10 +1,10 @@
 # Elastodynamics
 
 This tutorial adds time dependence to the static elasticity problem. It
-introduces displacement and velocity as state fields and advances them with
-the public `IDAAdapter` execution path. IDA solves the canonical residual
-`F(t, y, ydot) = 0`; the application accepts the resulting state before native
-output is written.
+introduces displacement and velocity as state fields. The `elastodynamics`
+executable uses fixed-step backward Euler or trapezoidal integration;
+`elastodynamics_adapter` uses `IDAAdapter` to solve the residual
+`F(t, y, ydot) = 0`.
 
 The executable is `elastodynamics`, from `apps/app_elastodynamics.cc`. The
 canonical 2D input is `tutorials/elastodynamics/strong_dirichlet.prm.in`:
@@ -30,8 +30,8 @@ Output is written below `build/test_output/tutorial-output/elastodynamics-strong
 The same input is exercised by `AppExecutables.TutorialElastodynamics`.
 
 The physical model exposes separate mass, stiffness, and damping operators.
-The application registers the Problem directly with `IDAAdapter`, marks both
-displacement and velocity as differential Fields, and installs an accepted
+The adapter application registers the Problem directly with `IDAAdapter`,
+marks both displacement and velocity as differential Fields, and installs an accepted
 output callback. `initial_acceleration()` supplies a physically consistent
 initial derivative; `accept_state()` updates the Problem only after IDA has
 accepted or interpolated a state. Solver-neutral residual and
@@ -97,6 +97,34 @@ Its IDA solve uses simplex operators and skips the convergence table.
 The generated test input
 `gtests/parameters/elastodynamics_adapter_simplex.prm` supplies nonzero body
 force and time-dependent displacement and velocity boundary values.
+
+## Kinematic rows and linear solvers
+
+Both executables use `D = diag(M)` in the kinematic equation
+`D (u_dot - v) = 0`; the momentum equation retains the consistent mass `M`.
+The two kinematic blocks have diagonal sparsity. The standalone solver
+keeps these rows diagonal on independent DoFs when hanging nodes are present
+and restores the constrained displacement and velocity after the solve.
+It uses FGMRES with the second-order block preconditioner.
+
+The adapter defaults to the iterative solver. To select a direct solver, add:
+
+```ini
+subsection Elastodynamics
+  subsection IDA
+    subsection Linear solver
+      set Type = umfpack
+    end
+  end
+end
+```
+
+`umfpack` requires one MPI rank; `mumps` supports multiple ranks when deal.II
+has MUMPS enabled. Both direct solvers eliminate the kinematic rows before
+factorization and recover the eliminated field by back-substitution. This applies
+to the consistent initial condition with zero derivative weight. The diagonal
+kinematic block is inverted entrywise. Other systems without the required
+kinematic structure retain the monolithic factorization.
 
 Next, [Reduced Poisson](reduced-poisson) introduces a lower-dimensional
 geometry and coupling.

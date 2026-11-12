@@ -65,6 +65,11 @@ namespace ImmersX
 
     const auto mass =
       ImmersX::matrix_operator<VectorType>(problem.mass_matrix());
+    // The kinematic rows D (u' - v) = 0 only enforce u' = v, so a diagonal D
+    // suffices. The consistent mass would add its sparsity pattern a second
+    // time to the Jacobian.
+    const auto kinematic_mass =
+      ImmersX::matrix_operator<VectorType>(problem.diagonal_mass_matrix());
     const auto stiffness =
       ImmersX::matrix_operator<VectorType>(problem.stiffness_matrix());
     const auto damping =
@@ -134,23 +139,23 @@ namespace ImmersX
 
     auto kinematic = builder.term(displacement_id, "kinematic");
     kinematic
-      .residual(
-        [displacement_id, velocity_id, &problem, mass](const auto &context) {
-          return semidiscrete_detail::constrained_residual(
-            mass.view * context.derivative(displacement_id) -
-              mass.view * context.state(velocity_id),
-            context.state(displacement_id),
-            problem.constraints());
-        })
+      .residual([displacement_id, velocity_id, &problem, kinematic_mass](
+                  const auto &context) {
+        return semidiscrete_detail::constrained_residual(
+          kinematic_mass.view * context.derivative(displacement_id) -
+            kinematic_mass.view * context.state(velocity_id),
+          context.state(displacement_id),
+          problem.constraints());
+      })
       .state(velocity_id,
              semidiscrete_detail::constrained_matrix_operator(
-               -1. * mass, problem.constraints()))
+               -1. * kinematic_mass, problem.constraints()))
       .state(displacement_id,
              semidiscrete_detail::constrained_matrix_identity_operator(
-               mass, problem.constraints()))
+               kinematic_mass, problem.constraints()))
       .derivative(displacement_id,
                   semidiscrete_detail::constrained_matrix_operator(
-                    mass, problem.constraints()));
+                    kinematic_mass, problem.constraints()));
 
     auto dynamics = builder.term(velocity_id, "dynamics");
     dynamics

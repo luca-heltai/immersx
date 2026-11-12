@@ -17,6 +17,7 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/timer.h>
 
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/solver_gmres.h>
@@ -355,6 +356,7 @@ namespace ImmersX
       current_state_          = &state;
       accumulated_statistics_ = {};
       jacobian_setups_ = linear_solves_ = restarts_ = weight_evaluations_ = 0;
+      initial_condition_jacobian_time_.reset();
       if (compute_consistent_initial_conditions_ &&
           additional_data().ic_type == AdditionalData::use_y_diff)
         {
@@ -606,6 +608,198 @@ namespace ImmersX
     }
 
   private:
+    using MatrixType = typename Composition::MatrixType;
+
+    /** One sparse LU factorization through UMFPACK or MUMPS. */
+    class DirectFactorization
+    {
+    public:
+      bool
+      initialized() const
+      {
+        return diagonal_ || static_cast<bool>(umfpack_)
+#  ifdef DEAL_II_WITH_MUMPS
+               || static_cast<bool>(mumps_)
+#  endif
+          ;
+      }
+
+      std::size_t
+      n_entries() const
+      {
+        return n_entries_;
+      }
+
+      /** Whether factorize() found a diagonal matrix and inverted it. */
+      bool
+      diagonal() const
+      {
+        return diagonal_;
+      }
+
+      void
+      factorize(const LinearSolver        solver,
+                const MatrixType         &matrix,
+                const MPI_Comm            communicator,
+                const std::optional<int> &workspace_relaxation)
+      {
+        umfpack_.reset();
+#  ifdef DEAL_II_WITH_MUMPS
+        mumps_.reset();
+#  endif
+        // A diagonal matrix, such as a lumped kinematic mass, is inverted
+        // entrywise. MUMPS needs several seconds to analyze a matrix with
+        // 10^5 rows and no off-diagonal entries.
+        diagonal_ = is_invertible_diagonal(matrix, communicator);
+        if (diagonal_)
+          {
+            inverse_diagonal_.reinit(matrix.locally_owned_range_indices(),
+                                     communicator);
+            for (const auto row : matrix.locally_owned_range_indices())
+              inverse_diagonal_(row) = 1. / matrix.diag_element(row);
+            inverse_diagonal_.compress(dealii::VectorOperation::insert);
+            n_entries_ = matrix.m();
+            return;
+          }
+        if (solver == LinearSolver::umfpack)
+          {
+            dealii::DynamicSparsityPattern sparsity(matrix.m(), matrix.n());
+            for (dealii::types::global_dof_index row = 0; row < matrix.m();
+                 ++row)
+              if (matrix.row_length(row) != 0)
+                for (auto entry = matrix.begin(row), end = matrix.end(row);
+                     entry != end;
+                     ++entry)
+                  sparsity.add(row, entry->column());
+            dealii::SparsityPattern pattern;
+            pattern.copy_from(sparsity);
+            dealii::SparseMatrix<double> serial_matrix(pattern);
+#  ifndef IMMERSX_USE_PETSC_LA
+            serial_matrix.copy_from(matrix);
+#  else
+            for (dealii::types::global_dof_index row = 0; row < matrix.m();
+                 ++row)
+              if (matrix.row_length(row) != 0)
+                for (auto entry = matrix.begin(row), end = matrix.end(row);
+                     entry != end;
+                     ++entry)
+                  serial_matrix.set(row, entry->column(), entry->value());
+#  endif
+            umfpack_ = std::make_unique<dealii::SparseDirectUMFPACK>();
+            umfpack_->initialize(serial_matrix);
+            n_entries_ = serial_matrix.n_nonzero_elements();
+          }
+        else if (solver == LinearSolver::mumps)
+          {
+#  ifdef DEAL_II_WITH_MUMPS
+            AssertThrow(
+              matrix.m() >=
+                dealii::Utilities::MPI::n_mpi_processes(communicator),
+              dealii::ExcMessage(
+                "MUMPS requires at least one coupled unknown per MPI rank."));
+            // MUMPS wrappers require contiguous, nonempty solution ownership.
+            solution_.reinit(
+              dealii::Utilities::MPI::create_evenly_distributed_partitioning(
+                communicator, matrix.m()),
+              communicator);
+            mumps_ = std::make_unique<dealii::SparseDirectMUMPS>(
+              dealii::SparseDirectMUMPS::AdditionalData(), communicator);
+            if (workspace_relaxation)
+              mumps_->get_icntl()[13] = *workspace_relaxation;
+            mumps_->initialize(matrix);
+            n_entries_ = matrix.n_nonzero_elements();
+#  else
+            (void)communicator;
+            (void)workspace_relaxation;
+            AssertThrow(
+              false,
+              dealii::ExcMessage(
+                "The MUMPS solver requires deal.II configured with MUMPS."));
+#  endif
+          }
+        else
+          AssertThrow(false,
+                      dealii::ExcMessage(
+                        "A direct factorization needs UMFPACK or MUMPS."));
+      }
+
+      /** Solve with a distributed right-hand side of the factored size. */
+      void
+      solve(FieldVectorType &destination, const FieldVectorType &source)
+      {
+        destination.reinit(source, true);
+        if (diagonal_)
+          {
+            destination = source;
+            destination.scale(inverse_diagonal_);
+          }
+        else if (umfpack_)
+          {
+            dealii::Vector<double> serial_source(source.size()),
+              serial_destination(source.size());
+            for (dealii::types::global_dof_index i = 0; i < source.size(); ++i)
+              serial_source[i] = source[i];
+            umfpack_->vmult(serial_destination, serial_source);
+            for (dealii::types::global_dof_index i = 0; i < source.size(); ++i)
+              destination[i] = serial_destination[i];
+          }
+#  ifdef DEAL_II_WITH_MUMPS
+        else if (mumps_)
+          {
+            mumps_->vmult(solution_, source);
+            dealii::LinearAlgebra::ReadWriteVector<double> imported(
+              source.locally_owned_elements());
+            imported.import_elements(solution_,
+                                     dealii::VectorOperation::insert);
+            for (const auto index : source.locally_owned_elements())
+              destination[index] = imported[index];
+          }
+#  endif
+        else
+          AssertThrow(false, dealii::ExcNotInitialized());
+        destination.compress(dealii::VectorOperation::insert);
+      }
+
+    private:
+      /** True on all ranks if every owned row has only a nonzero diagonal. */
+      static bool
+      is_invertible_diagonal(const MatrixType &matrix,
+                             const MPI_Comm    communicator)
+      {
+        bool diagonal = true;
+        for (const auto row : matrix.locally_owned_range_indices())
+          {
+            bool has_diagonal = false;
+            if (matrix.row_length(row) != 0)
+              {
+                for (auto entry = matrix.begin(row), end = matrix.end(row);
+                     entry != end;
+                     ++entry)
+                  {
+                    if (entry->column() == row)
+                      has_diagonal = entry->value() != 0.;
+                    else if (entry->value() != 0.)
+                      diagonal = false;
+                  }
+              }
+            if (!has_diagonal || !diagonal)
+              {
+                diagonal = false;
+                break;
+              }
+          }
+        return dealii::Utilities::MPI::min(diagonal ? 1 : 0, communicator) == 1;
+      }
+
+      bool                                         diagonal_ = false;
+      FieldVectorType                              inverse_diagonal_;
+      std::unique_ptr<dealii::SparseDirectUMFPACK> umfpack_;
+#  ifdef DEAL_II_WITH_MUMPS
+      std::unique_ptr<dealii::SparseDirectMUMPS> mumps_;
+      FieldVectorType                            solution_;
+#  endif
+      std::size_t n_entries_ = 0;
+    };
     void
     finalize()
     {
@@ -649,6 +843,7 @@ namespace ImmersX
                               const GlobalVectorType &state_dot,
                               GlobalVectorType       &residual) {
         dealii::TimerOutput::Scope timer(computing_timer, "Evaluate residual");
+        solved_since_residual_ = false;
         composition_.evaluate_residual(time, state, &state_dot, residual);
         // Let IDA reject a nonfinite trial instead of using it to construct a
         // Newton correction. All ranks must report the same callback status.
@@ -673,117 +868,115 @@ namespace ImmersX
                                          GlobalVectorType       &dst,
                                          const double            tolerance) {
         ++linear_solves_;
+        solved_since_residual_ = true;
         dealii::TimerOutput::Scope timer(computing_timer, "Linear solve");
         AssertThrow(current_jacobian_.has_value(),
                     dealii::ExcMessage("IDA requested a solve without a "
                                        "current Jacobian."));
-        if (linear_solver_ == LinearSolver::umfpack)
+        if (linear_solver_ == LinearSolver::umfpack ||
+            linear_solver_ == LinearSolver::mumps)
           {
             dealii::TimerOutput::Scope backsolve_timer(computing_timer,
                                                        "Direct backsolve");
             AssertThrow(
-              direct_solver_,
+              direct_solver_.initialized(),
               dealii::ExcMessage(
                 "IDA requested a direct solve without a factorization."));
-            dealii::Vector<double> source(rhs.size()), destination(rhs.size());
-            for (dealii::types::global_dof_index i = 0; i < rhs.size(); ++i)
-              source[i] = rhs[i];
-            direct_solver_->vmult(destination, source);
-            for (dealii::types::global_dof_index i = 0; i < rhs.size(); ++i)
-              dst[i] = destination[i];
-            dst.compress(dealii::VectorOperation::insert);
-          }
-        else if (linear_solver_ == LinearSolver::mumps)
-          {
-#  ifdef DEAL_II_WITH_MUMPS
-            dealii::TimerOutput::Scope backsolve_timer(computing_timer,
-                                                       "Direct backsolve");
-            AssertThrow(
-              mumps_solver_,
-              dealii::ExcMessage(
-                "IDA requested a MUMPS solve without a factorization."));
             GlobalVectorType original_rhs(rhs);
             original_rhs.compress(dealii::VectorOperation::insert);
             const auto backsolve = [this](const GlobalVectorType &input,
                                           GlobalVectorType       &output) {
-              auto source = composition_.pack(input);
-              source.compress(dealii::VectorOperation::insert);
-              mumps_solver_->vmult(mumps_solution_, source);
-              dealii::LinearAlgebra::ReadWriteVector<double> imported(
-                source.locally_owned_elements());
-              imported.import_elements(mumps_solution_,
-                                       dealii::VectorOperation::insert);
-              for (const auto index : source.locally_owned_elements())
-                source[index] = imported[index];
-              source.compress(dealii::VectorOperation::insert);
-              composition_.unpack(source, output);
-              output.compress(dealii::VectorOperation::insert);
+              if (condensation_)
+                {
+                  std::vector<FieldVectorType> kinematic(
+                    condensation_->n_pairs());
+                  FieldVectorType kinematic_rhs;
+                  for (std::size_t p = 0; p < kinematic.size(); ++p)
+                    {
+                      condensation_->kinematic_rhs(input, p, kinematic_rhs);
+                      kinematic_solvers_[p].solve(kinematic[p], kinematic_rhs);
+                      condensation_->finish_kinematic_solution(input,
+                                                               p,
+                                                               kinematic[p]);
+                    }
+                  FieldVectorType reduced_rhs, reduced_solution;
+                  condensation_->reduced_rhs(input, kinematic, reduced_rhs);
+                  direct_solver_.solve(reduced_solution, reduced_rhs);
+                  condensation_->expand(reduced_solution, kinematic, output);
+                }
+              else
+                {
+                  auto source = composition_.pack(input);
+                  source.compress(dealii::VectorOperation::insert);
+                  FieldVectorType solution;
+                  direct_solver_.solve(solution, source);
+                  composition_.unpack(solution, output);
+                  output.compress(dealii::VectorOperation::insert);
+                }
             };
             backsolve(original_rhs, dst);
-            // MUMPS disables its internal refinement for distributed right-hand
-            // sides. Reuse the factorization for at most three corrections,
-            // measuring each defect with the retained Jacobian action.
-            GlobalVectorType defect;
-            composition_.reinit(defect);
-            constexpr double       relative_target = 1.e-8;
-            constexpr unsigned int max_refinements = 3;
-            const double           rhs_norm        = original_rhs.l2_norm();
-            double                 defect_norm     = 0.;
-            unsigned int           refinement      = 0;
-            std::array<double, max_refinements + 1> defect_history{};
-            for (;; ++refinement)
+            if (linear_solver_ == LinearSolver::mumps)
               {
-                current_jacobian_->vmult(defect, dst);
-                defect -= original_rhs;
-                defect_norm                = defect.l2_norm();
-                defect_history[refinement] = defect_norm;
-                if (!std::isfinite(defect_norm) ||
-                    defect_norm <= relative_target * rhs_norm ||
-                    refinement == max_refinements)
-                  break;
-                GlobalVectorType correction;
-                composition_.reinit(correction);
-                backsolve(defect, correction);
-                dst -= correction;
-                dst.compress(dealii::VectorOperation::insert);
-              }
-            // Some supported deal.II MUMPS wrappers do not report failed
-            // factorizations. Do not let a zero correction freeze the DAE.
-            if (!(std::isfinite(defect_norm) &&
-                  defect_norm <= relative_target * rhs_norm))
-              {
-                std::ostringstream message;
-                message << std::scientific << std::setprecision(17)
-                        << "MUMPS backsolve failed the retained-Jacobian "
-                           "residual check. RHS L2 norm = "
-                        << rhs_norm << ", defect L2 norm = " << defect_norm
-                        << ", required defect L2 norm <= "
-                        << relative_target * rhs_norm
-                        << ", relative target = " << relative_target
-                        << ", relative defect = ";
-                if (rhs_norm > 0.)
-                  message << defect_norm / rhs_norm;
-                else
-                  message << "undefined";
-                message << ", correction solves = " << refinement
-                        << ", defect L2 history = [";
-                for (unsigned int i = 0; i <= refinement; ++i)
+                // MUMPS disables its internal refinement for distributed
+                // right-hand sides. Reuse the factorization for at most three
+                // corrections, measuring each defect with the retained Jacobian
+                // action.
+                GlobalVectorType defect;
+                composition_.reinit(defect);
+                constexpr double       relative_target = 1.e-8;
+                constexpr unsigned int max_refinements = 3;
+                const double           rhs_norm        = original_rhs.l2_norm();
+                double                 defect_norm     = 0.;
+                unsigned int           refinement      = 0;
+                std::array<double, max_refinements + 1> defect_history{};
+                for (;; ++refinement)
                   {
-                    if (i != 0)
-                      message << ", ";
-                    message << defect_history[i];
+                    current_jacobian_->vmult(defect, dst);
+                    defect -= original_rhs;
+                    defect_norm                = defect.l2_norm();
+                    defect_history[refinement] = defect_norm;
+                    if (!std::isfinite(defect_norm) ||
+                        defect_norm <= relative_target * rhs_norm ||
+                        refinement == max_refinements)
+                      break;
+                    GlobalVectorType correction;
+                    composition_.reinit(correction);
+                    backsolve(defect, correction);
+                    dst -= correction;
+                    dst.compress(dealii::VectorOperation::insert);
                   }
-                message << "]. Inspect native diagnostics and the workspace "
-                           "relaxation.";
-                AssertThrow(false, dealii::ExcMessage(message.str()));
+                // Some supported deal.II MUMPS wrappers do not report failed
+                // factorizations. Do not let a zero correction freeze the DAE.
+                if (!(std::isfinite(defect_norm) &&
+                      defect_norm <= relative_target * rhs_norm))
+                  {
+                    std::ostringstream message;
+                    message << std::scientific << std::setprecision(17)
+                            << "MUMPS backsolve failed the retained-Jacobian "
+                               "residual check. RHS L2 norm = "
+                            << rhs_norm << ", defect L2 norm = " << defect_norm
+                            << ", required defect L2 norm <= "
+                            << relative_target * rhs_norm
+                            << ", relative target = " << relative_target
+                            << ", relative defect = ";
+                    if (rhs_norm > 0.)
+                      message << defect_norm / rhs_norm;
+                    else
+                      message << "undefined";
+                    message << ", correction solves = " << refinement
+                            << ", defect L2 history = [";
+                    for (unsigned int i = 0; i <= refinement; ++i)
+                      {
+                        if (i != 0)
+                          message << ", ";
+                        message << defect_history[i];
+                      }
+                    message
+                      << "]. Inspect native diagnostics and the workspace "
+                         "relaxation.";
+                    AssertThrow(false, dealii::ExcMessage(message.str()));
+                  }
               }
-
-#  else
-            AssertThrow(
-              false,
-              dealii::ExcMessage(
-                "The MUMPS solver requires deal.II configured with MUMPS."));
-#  endif
           }
         else if (solve_)
           {
@@ -892,6 +1085,7 @@ namespace ImmersX
           {
             accumulated_statistics_ = statistics();
             ++restarts_;
+            initial_condition_jacobian_time_.reset();
           }
         if (restart && compute_consistent_initial_conditions_ &&
             additional_data().reset_type == AdditionalData::use_y_diff)
@@ -1074,7 +1268,25 @@ namespace ImmersX
                      const GlobalVectorType &state_dot,
                      const double            alpha)
     {
+      // With `use_y_dot`, IDACalcIC solves F(t0, y, y') = 0 for y with alpha
+      // = 0. After the first correction pass it resets the error weights and
+      // runs a second pass, which evaluates the residual at the converged
+      // state and requests a new Jacobian before its first solve. Keep the
+      // first-pass Jacobian for that pass, as IDA's modified Newton iteration
+      // does within a pass; the convergence test still uses the residual at
+      // the current state. A request that follows a solve signals slow
+      // convergence and always rebuilds the Jacobian.
+      if (alpha == 0. && !solved_since_residual_ &&
+          current_jacobian_.has_value() &&
+          initial_condition_jacobian_time_ == time)
+        {
+          pcout << "IDAAdapter: reusing the initial-condition Jacobian for "
+                   "IDA's second correction pass."
+                << std::endl;
+          return;
+        }
       ++jacobian_setups_;
+      initial_condition_jacobian_time_.reset();
       dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
       const bool                 retain_matrices = !solve_;
       const auto                 snapshot =
@@ -1121,76 +1333,77 @@ namespace ImmersX
         {
           dealii::TimerOutput::Scope direct_timer(computing_timer,
                                                   "Materialize Jacobian");
-          const auto                 matrix = composition_.monolithic_matrix(
+          const auto                 blocks =
             composition_.block_matrix(snapshot->state_storage,
                                       &snapshot->derivative_storage,
                                       alpha,
                                       time,
-                                      &snapshot->linearization));
-          if (linear_solver_ == LinearSolver::umfpack)
+                                      &snapshot->linearization);
+          condensation_ = composition_.second_order_condensation(blocks);
+          std::shared_ptr<MatrixType> monolithic;
+          if (!condensation_)
             {
-              dealii::DynamicSparsityPattern sparsity(matrix.m(), matrix.n());
-              for (dealii::types::global_dof_index row = 0; row < matrix.m();
-                   ++row)
-                if (matrix.row_length(row) != 0)
-                  for (auto entry = matrix.begin(row), end = matrix.end(row);
-                       entry != end;
-                       ++entry)
-                    sparsity.add(row, entry->column());
-              dealii::SparsityPattern pattern;
-              pattern.copy_from(sparsity);
-              dealii::SparseMatrix<double> serial_matrix(pattern);
-#  ifndef IMMERSX_USE_PETSC_LA
-              serial_matrix.copy_from(matrix);
-#  else
-              for (dealii::types::global_dof_index row = 0; row < matrix.m();
-                   ++row)
-                if (matrix.row_length(row) != 0)
-                  for (auto entry = matrix.begin(row), end = matrix.end(row);
-                       entry != end;
-                       ++entry)
-                    serial_matrix.set(row, entry->column(), entry->value());
-#  endif
-              direct_timer.stop();
-              dealii::TimerOutput::Scope factor_timer(computing_timer,
-                                                      "Factorize Jacobian");
-              direct_solver_ = std::make_unique<dealii::SparseDirectUMFPACK>();
-              direct_solver_->initialize(serial_matrix);
-              pcout << "IDAAdapter: UMFPACK factorized " << matrix.m()
-                    << " rows, " << serial_matrix.n_nonzero_elements()
+              monolithic = std::make_shared<MatrixType>();
+              composition_.monolithic_matrix(blocks, *monolithic);
+            }
+          direct_timer.stop();
+          dealii::TimerOutput::Scope factor_timer(computing_timer,
+                                                  "Factorize Jacobian");
+          const std::string          solver_name =
+            linear_solver_ == LinearSolver::umfpack ? "UMFPACK" : "MUMPS";
+          if (condensation_)
+            {
+              // The kinematic mass does not depend on alpha; refactor it only
+              // when its entries change.
+              kinematic_solvers_.resize(condensation_->n_pairs());
+              kinematic_masses_.resize(condensation_->n_pairs());
+              for (std::size_t p = 0; p < condensation_->n_pairs(); ++p)
+                {
+                  const auto &mass = condensation_->kinematic_mass(p);
+                  if (kinematic_solvers_[p].initialized() &&
+                      dealii::Utilities::MPI::min(
+                        kinematic_masses_[p] == mass ? 1 : 0,
+                        composition_.communicator()) == 1)
+                    continue;
+                  const auto matrix =
+                    mass.make_matrix(condensation_->kinematic_partition(p),
+                                     composition_.communicator());
+                  kinematic_solvers_[p].factorize(linear_solver_,
+                                                  *matrix,
+                                                  composition_.communicator(),
+                                                  mumps_workspace_relaxation_);
+                  kinematic_masses_[p] = mass;
+                  if (kinematic_solvers_[p].diagonal())
+                    pcout << "IDAAdapter: inverted a diagonal second-order "
+                             "mass with "
+                          << matrix->m() << " rows." << std::endl;
+                  else
+                    pcout << "IDAAdapter: " << solver_name
+                          << " factorized a second-order mass with "
+                          << matrix->m() << " rows, "
+                          << kinematic_solvers_[p].n_entries()
+                          << " matrix entries." << std::endl;
+                }
+              const auto &reduced = condensation_->reduced_matrix();
+              direct_solver_.factorize(linear_solver_,
+                                       reduced,
+                                       composition_.communicator(),
+                                       mumps_workspace_relaxation_);
+              pcout << "IDAAdapter: " << solver_name << " factorized "
+                    << reduced.m() << " rows after second-order condensation ("
+                    << blocks.m() << " coupled), " << direct_solver_.n_entries()
                     << " matrix entries." << std::endl;
             }
-          else if (linear_solver_ == LinearSolver::mumps)
+          else
             {
-#  ifdef DEAL_II_WITH_MUMPS
-              AssertThrow(
-                matrix.m() >= dealii::Utilities::MPI::n_mpi_processes(
-                                composition_.communicator()),
-                dealii::ExcMessage(
-                  "MUMPS requires at least one coupled unknown per MPI rank."));
-              // MUMPS wrappers require contiguous, nonempty solution ownership.
-              mumps_solution_.reinit(
-                dealii::Utilities::MPI::create_evenly_distributed_partitioning(
-                  composition_.communicator(), matrix.m()),
-                composition_.communicator());
-              direct_timer.stop();
-              dealii::TimerOutput::Scope factor_timer(computing_timer,
-                                                      "Factorize Jacobian");
-              mumps_solver_ = std::make_unique<dealii::SparseDirectMUMPS>(
-                dealii::SparseDirectMUMPS::AdditionalData(),
-                composition_.communicator());
-              if (mumps_workspace_relaxation_)
-                mumps_solver_->get_icntl()[13] = *mumps_workspace_relaxation_;
-              mumps_solver_->initialize(matrix);
-              pcout << "IDAAdapter: MUMPS factorized " << matrix.m()
-                    << " rows, " << matrix.n_nonzero_elements()
-                    << " matrix entries." << std::endl;
-#  else
-              AssertThrow(
-                false,
-                dealii::ExcMessage(
-                  "The MUMPS solver requires deal.II configured with MUMPS."));
-#  endif
+              direct_solver_.factorize(linear_solver_,
+                                       *monolithic,
+                                       composition_.communicator(),
+                                       mumps_workspace_relaxation_);
+              pcout << "IDAAdapter: " << solver_name << " factorized "
+                    << monolithic->m() << " rows, "
+                    << direct_solver_.n_entries() << " matrix entries."
+                    << std::endl;
             }
         }
       else if (!solve_)
@@ -1275,6 +1488,8 @@ namespace ImmersX
               current_solver_is_flexible_ = composition_.n_fields() > 1;
             }
         }
+      if (alpha == 0.)
+        initial_condition_jacobian_time_ = time;
     }
 
     std::vector<std::pair<FieldId, std::function<void(FieldVectorType &)>>>
@@ -1284,21 +1499,22 @@ namespace ImmersX
     IDAToleranceRamp     tolerance_ramp_;
     Statistics           accumulated_statistics_;
     unsigned long jacobian_setups_ = 0, linear_solves_ = 0, restarts_ = 0,
-                  weight_evaluations_   = 0;
-    bool               ramp_stop_armed_ = false, ramp_stop_released_ = false;
-    std::optional<int> mumps_workspace_relaxation_;
-    bool               stop_at_output_times_ = false;
-    LinearSolver       linear_solver_        = LinearSolver::iterative;
-#  ifdef DEAL_II_WITH_MUMPS
-    std::unique_ptr<dealii::SparseDirectMUMPS> mumps_solver_;
-    FieldVectorType                            mumps_solution_;
-#  endif
-    std::unique_ptr<dealii::SparseDirectUMFPACK> direct_solver_;
-    Composition                                  composition_;
-    LinearSolveFunction                          solve_;
-    const TimeIntervalParameters                &time_parameters_;
-    const IDAParameters                         &ida_parameters_;
-    mutable std::optional<AdditionalData>        additional_data_;
+                  weight_evaluations_    = 0;
+    bool                ramp_stop_armed_ = false, ramp_stop_released_ = false;
+    std::optional<int>  mumps_workspace_relaxation_;
+    bool                stop_at_output_times_ = false;
+    LinearSolver        linear_solver_        = LinearSolver::iterative;
+    DirectFactorization direct_solver_;
+    std::shared_ptr<const typename Composition::SecondOrderCondensation>
+                                     condensation_;
+    std::vector<DirectFactorization> kinematic_solvers_;
+    std::vector<typename Composition::SecondOrderCondensation::CompressedRows>
+                                          kinematic_masses_;
+    Composition                           composition_;
+    LinearSolveFunction                   solve_;
+    const TimeIntervalParameters         &time_parameters_;
+    const IDAParameters                  &ida_parameters_;
+    mutable std::optional<AdditionalData> additional_data_;
     std::unique_ptr<Compatibility::SUNDIALS::IDA<GlobalVectorType>> ida_;
     mutable dealii::ConditionalOStream                              pcout;
     mutable dealii::TimerOutput         computing_timer;
@@ -1309,7 +1525,9 @@ namespace ImmersX
     RestartFunction                     solver_should_restart_;
     GlobalVectorType                   *current_state_              = nullptr;
     bool                                current_solver_is_flexible_ = false;
-    bool                                connected_                  = false;
+    bool                                solved_since_residual_      = false;
+    std::optional<double>               initial_condition_jacobian_time_;
+    bool                                connected_                     = false;
     bool                                include_schur_primal_coupling_ = false;
     unsigned int                        schur_materialization_limit_   = 0;
   };
