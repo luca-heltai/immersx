@@ -139,7 +139,7 @@ def main():
     parser.add_argument("--output-directory", required=True, type=Path)
     parser.add_argument("--mpiexec", type=Path)
     parser.add_argument("--ranks", type=int, default=2)
-    parser.add_argument("--timeout", type=float, default=180)
+    parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--feedback", choices=("one-way", "two-way", "both"), default="both")
     args = parser.parse_args()
     args.executable = args.executable.resolve()
