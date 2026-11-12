@@ -84,8 +84,8 @@ def check_mode(args, base_text, original_vtk, feedback):
     text = set_entry(base_text, "Vtk file path for mesh input", source_vtk)
     # A restart starts a new IDA history. Keep integration error below the
     # coefficient-comparison threshold without relaxing that threshold.
-    text = set_entry(text, "Absolute error tolerance", "1e-11")
-    text = set_entry(text, "Relative error tolerance", "1e-9")
+    text = set_entry(text, "Absolute error tolerance", "1e-12")
+    text = set_entry(text, "Relative error tolerance", "1e-10")
     text += ("\nsubsection MetricFlowX coupling\n"
              f"  set Pressure feedback = {'true' if feedback else 'false'}\n"
              "end\n")
