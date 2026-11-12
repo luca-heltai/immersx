@@ -92,3 +92,7 @@ subsection MetricFlowX vessel wall lift
     set Number of points = 3
   end
 end
+
+subsection MetricFlowX coupling
+  set Wall pressure absolute tolerance = 0
+end

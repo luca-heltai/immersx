@@ -100,6 +100,11 @@ native field layout. The coupling option `Flow block solver` selects
 `mumps` or `ilu`. The global IDA `Linear solver/Type` remains `iterative`
 for this block-preconditioned path.
 
+The coupling option `Wall pressure absolute tolerance` sets the multiplier's
+absolute tolerance in Pa through the adapter's field-tolerance interface.
+Zero retains the common IDA absolute tolerance. Set it independently when
+tightening the common tolerance for the native flow coefficients.
+
 ## Initialization and regularity
 
 The system is locally index one when the constrained elastic system and the

@@ -203,6 +203,13 @@ namespace
       "Pressure feedback",
       pressure_feedback,
       "Apply solid traction as native external pressure. False retains native flow wall physics and solves a one-way geometric constraint.");
+    double pressure_tolerance = 0.;
+    coupling.add_parameter(
+      "Wall pressure absolute tolerance",
+      pressure_tolerance,
+      "Pascals; zero retains the common IDA absolute tolerance.",
+      ParameterAcceptor::prm,
+      Patterns::Double(0.));
     bool stop_at_output_times = true;
     coupling.add_parameter(
       "Stop at output times",
@@ -518,6 +525,9 @@ namespace
                                      flow_fields.fields().state},
                                     pressure_feedback),
       "vessel-wall");
+    if (pressure_tolerance > 0.)
+      adapter.set_absolute_tolerance(coupling_fields.fields().multiplier,
+                                     pressure_tolerance);
     auto state     = adapter.make_state();
     auto state_dot = adapter.make_state();
     state          = 0.;

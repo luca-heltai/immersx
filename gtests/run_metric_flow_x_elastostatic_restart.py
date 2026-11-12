@@ -88,6 +88,7 @@ def check_mode(args, base_text, original_vtk, feedback):
     text = set_entry(text, "Relative error tolerance", "1e-10")
     text += ("\nsubsection MetricFlowX coupling\n"
              f"  set Pressure feedback = {'true' if feedback else 'false'}\n"
+             "  set Wall pressure absolute tolerance = 1e-7\n"
              "end\n")
     command = [str(args.executable)]
     if args.mpiexec:
