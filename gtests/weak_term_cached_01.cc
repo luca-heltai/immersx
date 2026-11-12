@@ -335,7 +335,7 @@ TEST(WeakTermNonmatching, BOTH_CachedLiftedReactionRetainsPairing)
       error -= expected;
       EXPECT_LT(error.l2_norm(), 1.e-12);
       EXPECT_NEAR(solid * bulk_residual, multiplier * line_residual, 1.e-12);
-      for (const auto [row, column] :
+      for (const auto &[row, column] :
            {std::pair{u.field_id(), lambda.field_id()},
             std::pair{lambda.field_id(), u.field_id()}})
         {

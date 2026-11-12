@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -496,9 +497,13 @@ namespace ImmersX
                               lift_.support().representative_quadrature(),
                               lift_.lifted_points(),
                               background);
-      const auto [metric, outside, rhs] =
-        lift_.assemble_overlap(data_, supports.overlap);
-      auto metric_operator             = builder.matrix_operator(*metric);
+      // Named copies instead of structured bindings: the lambdas below capture
+      // them, and capturing a structured binding requires C++20.
+      const auto assembled = lift_.assemble_overlap(data_, supports.overlap);
+      const auto metric    = std::get<0>(assembled);
+      const auto outside   = std::get<1>(assembled);
+      const auto rhs       = std::get<2>(assembled);
+      auto       metric_operator       = builder.matrix_operator(*metric);
       metric_operator.materialize      = [metric] { return metric; };
       metric_operator.materialize_into = [metric](MatrixType &out) {
         out.copy_from(*metric);
