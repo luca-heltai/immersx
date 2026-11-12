@@ -38,6 +38,11 @@
 #include <deal.II/lac/vector.h>
 
 #include <deal.II/numerics/data_out.h>
+#if DEAL_II_VERSION_GTE(9, 8, 0)
+#  include <deal.II/numerics/solution_transfer.h>
+#else
+#  include <deal.II/distributed/solution_transfer.h>
+#endif
 #include <deal.II/numerics/vector_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
@@ -68,6 +73,15 @@ namespace ImmersX
 
   namespace elastic_static_detail
   {
+    template <int dim, typename VectorType, int spacedim>
+#if DEAL_II_VERSION_GTE(9, 8, 0)
+    using CheckpointTransfer =
+      dealii::SolutionTransfer<dim, VectorType, spacedim>;
+#else
+    using CheckpointTransfer = dealii::parallel::distributed::
+      SolutionTransfer<dim, VectorType, spacedim>;
+#endif
+
     inline std::string
     normalize_subsection(std::string subsection)
     {
@@ -408,6 +422,60 @@ namespace ImmersX
     }
 
     /**
+     * Save the fixed mesh and accepted displacement with native
+     * SolutionTransfer.
+     *
+     * This collective operation requires fullydistributed storage and loading
+     * with the same MPI size. Geometry, material ids, boundary ids, and the FE
+     * displacement are self-contained. Parameters and physical time belong to
+     * the application's checkpoint manifest.
+     */
+    void
+    save_checkpoint(const std::string &filename) const
+    {
+      AssertThrow(space_ != nullptr,
+                  ExcMessage(
+                    "Call setup() before checkpointing static elasticity."));
+      AssertThrow(domain_.uses_fully_distributed_triangulation(),
+                  ExcMessage("Static checkpoints require "
+                             "Triangulation type = fullydistributed."));
+      update_locally_relevant_solution();
+      elastic_static_detail::CheckpointTransfer<dim, VectorType, spacedim>
+        transfer(dof_handler());
+      transfer.prepare_for_serialization(locally_relevant_solution_);
+      triangulation().save(filename);
+    }
+
+    /**
+     * Restore a fixed linear-mapping mesh and its accepted displacement.
+     *
+     * Domain parameters must select fullydistributed storage and the same FE
+     * as the writer. Manifold objects and refinement policies are not restored;
+     * the stored vertices define the linear mapping without further refinement.
+     * Call update_time() with the manifest time before evaluating equilibrium.
+     */
+    void
+    setup_from_checkpoint(const std::string &filename)
+    {
+      AssertThrow(space_ == nullptr,
+                  ExcMessage(
+                    "Static elasticity setup may only be called once."));
+      AssertThrow(domain_.uses_fully_distributed_triangulation(),
+                  ExcMessage("Static checkpoint loading requires "
+                             "Triangulation type = fullydistributed."));
+      auto &mesh = dynamic_cast<
+        typename Domain<dim, spacedim>::FullyDistributedTriangulation &>(
+        domain_.triangulation());
+      mesh.load(filename);
+      setup_system();
+      assemble_system(nullptr);
+      elastic_static_detail::CheckpointTransfer<dim, VectorType, spacedim>
+        transfer(dof_handler());
+      transfer.deserialize(solution_);
+      update_locally_relevant_solution();
+    }
+
+    /**
      * Globally refine a distributed mesh and rebuild the static system.
      *
      * The candidate solution is reset because each static refinement cycle
@@ -510,6 +578,39 @@ namespace ImmersX
                   ExcMessage(
                     "Call setup() before setting the elasticity forcing."));
       assemble_system(&function);
+      forcing_override_ = true;
+    }
+
+    /**
+     * Reassemble equilibrium at a candidate time without accepting a solution.
+     *
+     * The mesh, material coefficients, and constrained DoF pattern stay fixed.
+     * Parsed body loads, tractions, springs, and Dirichlet data use this time.
+     * This selects parameter-driven forcing instead of a set_forcing override.
+     */
+    void
+    update_time(const double time)
+    {
+      AssertThrow(space_ != nullptr,
+                  ExcMessage(
+                    "Call setup() before updating static elasticity time."));
+      if (time == assembly_time_ && !forcing_override_)
+        return;
+      assembly_time_    = time;
+      const auto update = [time](auto &fallback, const auto &overrides) {
+        fallback.set_time(time);
+        for (const auto &[id, function] : overrides)
+          function->set_time(time);
+      };
+      update(parameters_.rhs, parameters_.rhs_by_material_id);
+      update(parameters_.bc, parameters_.dirichlet_bc_by_id);
+      update(parameters_.neumann_bc, parameters_.neumann_bc_by_id);
+      update(parameters_.robin_rhs, parameters_.robin_rhs_by_id);
+      update(parameters_.robin_coefficient,
+             parameters_.robin_coefficient_by_id);
+      update_constraints();
+      assemble_system(nullptr);
+      forcing_override_ = false;
     }
 
     /** Solve the assembled static elasticity system natively. */
@@ -600,6 +701,13 @@ namespace ImmersX
     void
     output_results(const unsigned int cycle) const
     {
+      output_results(cycle, static_cast<double>(cycle));
+    }
+
+    /** Write one accepted quasi-static state at its physical time. */
+    void
+    output_results(const unsigned int cycle, const double time) const
+    {
       std::filesystem::create_directories(parameters_.output_directory);
 
       DataOut<dim, spacedim> data_out;
@@ -630,7 +738,7 @@ namespace ImmersX
                                        filename,
                                      communicator_);
 
-      output_records_.emplace_back(static_cast<double>(cycle), filename);
+      output_records_.emplace_back(time, filename);
 
       if (Utilities::MPI::this_mpi_process(communicator_) == 0)
         {
@@ -669,20 +777,11 @@ namespace ImmersX
           space_->finite_element().is_primitive(),
         ExcMessage(
           "The displacement FE must be primitive with spacedim components."));
-      const auto &dofs        = dof_handler();
-      const auto &owned       = locally_owned_dofs();
-      const auto &relevant    = locally_relevant_dofs();
-      auto       &constraints = space_->constraints();
-      constraints.reinit(owned, relevant);
-      DoFTools::make_hanging_node_constraints(dofs, constraints);
-      for (const auto boundary_id : parameters_.dirichlet_ids)
-        VectorTools::interpolate_boundary_values(mapping(),
-                                                 dofs,
-                                                 boundary_id,
-                                                 parameters_.get_dirichlet_bc(
-                                                   boundary_id),
-                                                 constraints);
-      constraints.close();
+      const auto &dofs     = dof_handler();
+      const auto &owned    = locally_owned_dofs();
+      const auto &relevant = locally_relevant_dofs();
+      update_constraints();
+      const auto &constraints = space_->constraints();
 
       DynamicSparsityPattern sparsity(relevant);
       DoFTools::make_sparsity_pattern(dofs, sparsity, constraints, true);
@@ -698,6 +797,44 @@ namespace ImmersX
       forcing_                   = 0.;
       solution_                  = 0.;
       locally_relevant_solution_ = 0.;
+    }
+
+    void
+    update_constraints()
+    {
+      auto &constraints = space_->constraints();
+      constraints.clear();
+      constraints.reinit(locally_owned_dofs(), locally_relevant_dofs());
+      DoFTools::make_hanging_node_constraints(dof_handler(), constraints);
+      // Keep modulation consistent with body and boundary traction data.
+      class ScaledFunction : public Function<spacedim>
+      {
+      public:
+        ScaledFunction(const ModulatedParsedFunction<spacedim> &function,
+                       const double                             time)
+          : Function<spacedim>(spacedim)
+          , function(function)
+          , factor(function.scale(time))
+        {}
+        double
+        value(const Point<spacedim> &point,
+              const unsigned int     component = 0) const override
+        {
+          return factor * function.value(point, component);
+        }
+
+      private:
+        const ModulatedParsedFunction<spacedim> &function;
+        const double                             factor;
+      };
+      for (const auto boundary_id : parameters_.dirichlet_ids)
+        {
+          const ScaledFunction function(
+            parameters_.get_dirichlet_bc(boundary_id), assembly_time_);
+          VectorTools::interpolate_boundary_values(
+            mapping(), dof_handler(), boundary_id, function, constraints);
+        }
+      constraints.close();
     }
 
     void
@@ -734,8 +871,8 @@ namespace ImmersX
         compatibility::gauss_quadrature<dim - 1>(
           fe_.reference_cell().face_reference_cell(0), fe_.degree + 1),
         update_values | update_quadrature_points | update_JxW_values);
-      parameters_.robin_coefficient.set_time(0.);
-      parameters_.robin_rhs.set_time(0.);
+      parameters_.robin_coefficient.set_time(assembly_time_);
+      parameters_.robin_rhs.set_time(assembly_time_);
       unsigned int invalid_robin = 0;
       stiffness_matrix_          = 0.;
       forcing_                   = 0.;
@@ -776,7 +913,7 @@ namespace ImmersX
                 const auto &rhs = parameters_.get_rhs(cell->material_id());
                 rhs.vector_value_list(fe_values.get_quadrature_points(),
                                       values);
-                const double scale = rhs.scale(0.);
+                const double scale = rhs.scale(assembly_time_);
                 for (auto &value : values)
                   value *= scale;
               }
@@ -805,7 +942,7 @@ namespace ImmersX
                     cell_rhs,
                     1.,
                     parameters_.get_robin_rhs(cell->face(face)->boundary_id())
-                      .scale(0.));
+                      .scale(assembly_time_));
                 }
             cell->get_dof_indices(local_dof_indices);
             constraints_.distribute_local_to_global(cell_matrix,
@@ -839,7 +976,7 @@ namespace ImmersX
                         cell->face(face)->boundary_id());
                       traction.vector_value_list(
                         face_values.get_quadrature_points(), face_values_list);
-                      const double scale = traction.scale(0.);
+                      const double scale = traction.scale(assembly_time_);
                       for (auto &value : face_values_list)
                         value *= scale;
 
@@ -881,6 +1018,8 @@ namespace ImmersX
     Domain<dim, spacedim>                              domain_;
     std::unique_ptr<FiniteElementSpace<dim, spacedim>> space_;
 
+    double             assembly_time_    = 0.;
+    bool               forcing_override_ = false;
     MatrixType         stiffness_matrix_;
     VectorType         forcing_;
     VectorType         solution_;

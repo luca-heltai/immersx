@@ -15,7 +15,7 @@
 set(_target gtests)
 
 file(GLOB _test_files CONFIGURE_DEPENDS *cc)
-list(FILTER _test_files EXCLUDE REGEX "metric_flow_x_01\\.cc$")
+list(FILTER _test_files EXCLUDE REGEX "metric_flow_x(_elastostatic)?_01\\.cc$")
 
 include(GoogleTest)
 include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
@@ -80,10 +80,12 @@ set(_public_headers
     immersx/core/time_residual.h
     immersx/coupling/tensor_product_lift.h
     immersx/physics/elastic_static.h
+    immersx/physics/elastic_static_semidiscrete.h
     immersx/physics/coupled_elasticity.h
     immersx/algebra/lagrange_multiplier_schur_solver.h
     immersx/algebra/linear_algebra.h
     immersx/algebra/local_preconditioner.h
+    immersx/algebra/mumps_preconditioner.h
     immersx/coupling/particle_coupling.h
     immersx/io/imported_finite_element_fields.h
     immersx/io/lifted_particle_output.h
@@ -99,7 +101,8 @@ set(_public_headers
     immersx/physics/poisson_residual.h)
 if(IMMERSX_WITH_METRIC_FLOW_X)
   list(APPEND _public_headers immersx/physics/metric_flow_x.h
-                             immersx/physics/metric_flow_x_pressure.h)
+                             immersx/physics/metric_flow_x_pressure.h
+                             immersx/physics/metric_flow_x_wall.h)
 endif()
 
 set(_public_header_targets)
@@ -288,6 +291,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       add_executable(
         ${_metric_flow_x_test_target}
         metric_flow_x_01.cc
+        metric_flow_x_elastostatic_01.cc
         vascularization_metric_flow_x_01.cc
         gtest_main.cc)
       target_include_directories(
@@ -324,7 +328,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       set_tests_properties(${_metric_flow_x_serial_test}
                            PROPERTIES LABELS "integration;quick" TIMEOUT 300
                                       RESOURCE_LOCK ImmersX.TestOutput
-                                      ENVIRONMENT "GTEST_FILTER=MetricFlowX.*-*.MPI_*:${_vascular_transfer_filter}")
+                                      ENVIRONMENT "GTEST_FILTER=MetricFlowX.*:MetricFlowXElastostatic.*-*.MPI_*:${_vascular_transfer_filter}")
       find_program(_immersx_mpiexec NAMES mpirun mpiexec)
       if(_immersx_mpiexec)
         set(_metric_flow_x_mpi_test
@@ -336,7 +340,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                              PROPERTIES LABELS "integration;quick;mpi"
                                         TIMEOUT 300 PROCESSORS 2
                                         RESOURCE_LOCK ImmersX.TestOutput
-                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*-${_vascular_transfer_filter}")
+                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*:MetricFlowXElastostatic.MPI_*:MetricFlowXElastostatic.BOTH_*-${_vascular_transfer_filter}")
         set(_metric_flow_x_rcr_mpi4_test
             "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowX.RCR.MPI4")
         add_test(NAME ${_metric_flow_x_rcr_mpi4_test}
@@ -497,3 +501,5 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
 endif()
 
 include("${CMAKE_SOURCE_DIR}/cmake/metric_flow_x_robin_tests.cmake")
+
+include("${CMAKE_SOURCE_DIR}/cmake/metric_flow_x_elastostatic_tests.cmake")
