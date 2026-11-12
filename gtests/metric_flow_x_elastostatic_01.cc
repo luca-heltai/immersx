@@ -556,8 +556,6 @@ TEST(MetricFlowXElastostatic,
   matrix.compress(VectorOperation::insert);
   const std::function<void(FieldVector &, bool)> prototype =
     [owned](auto &v, const bool) { v.reinit(owned, MPI_COMM_WORLD); };
-  auto inverse =
-    make_mumps_preconditioner<FieldVector>(matrix, prototype, MPI_COMM_WORLD);
   FieldVector exact, rhs, result, error;
   for (auto *v : {&exact, &rhs, &result, &error})
     v->reinit(owned, MPI_COMM_WORLD);
@@ -565,23 +563,40 @@ TEST(MetricFlowXElastostatic,
     exact[i] = 1. + 0.1 * i;
   exact.compress(VectorOperation::insert);
   matrix.vmult(rhs, exact);
-  inverse.vmult(result, rhs);
-  error = result;
-  error -= exact;
-  EXPECT_LT(error.l2_norm(), 1.e-12 * exact.l2_norm());
-  inverse.vmult_add(result, rhs);
-  error = result;
-  error.add(-2., exact);
-  EXPECT_LT(error.l2_norm(), 1.e-12 * exact.l2_norm());
-  matrix.Tvmult(rhs, exact);
-  inverse.Tvmult(result, rhs);
-  error = result;
-  error -= exact;
-  EXPECT_LT(error.l2_norm(), 1.e-12 * exact.l2_norm());
-  inverse.Tvmult_add(result, rhs);
-  error = result;
-  error.add(-2., exact);
-  EXPECT_LT(error.l2_norm(), 1.e-12 * exact.l2_norm());
+  const auto check_inverse = [&](const auto &inverse) {
+    matrix.vmult(rhs, exact);
+    inverse.vmult(result, rhs);
+    error = result;
+    error -= exact;
+    EXPECT_LT(error.l2_norm(), 1.e-12 * exact.l2_norm());
+    inverse.vmult_add(result, rhs);
+    error = result;
+    error.add(-2., exact);
+    EXPECT_LT(error.l2_norm(), 1.e-12 * exact.l2_norm());
+    matrix.Tvmult(rhs, exact);
+    inverse.Tvmult(result, rhs);
+    error = result;
+    error -= exact;
+    EXPECT_LT(error.l2_norm(), 1.e-12 * exact.l2_norm());
+    inverse.Tvmult_add(result, rhs);
+    error = result;
+    error.add(-2., exact);
+    EXPECT_LT(error.l2_norm(), 1.e-12 * exact.l2_norm());
+  };
+  check_inverse(
+    make_mumps_preconditioner<FieldVector>(matrix, prototype, MPI_COMM_WORLD));
+  for (const int workspace : {-1, 0, 200})
+    check_inverse(make_mumps_preconditioner<FieldVector>(
+      matrix, prototype, MPI_COMM_WORLD, workspace));
+  EXPECT_THROW(make_mumps_preconditioner<FieldVector>(
+                 matrix, prototype, MPI_COMM_WORLD, -2),
+               ExceptionBase);
+  if (ranks > 1)
+    {
+      EXPECT_THROW(make_mumps_preconditioner<FieldVector>(
+                     matrix, prototype, MPI_COMM_WORLD, rank == 0 ? 0 : 200),
+                   ExceptionBase);
+    }
 #  endif
 }
 #endif

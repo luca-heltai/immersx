@@ -107,6 +107,7 @@ subsection MetricFlowX coupling
   set Use native flow tolerances = true
   set Setup only = false
   set Flow block solver = mumps
+  set MUMPS workspace relaxation = 200
   set Stop at output times = true
   set Wall pressure absolute tolerance = 1e-7
   subsection Archived network

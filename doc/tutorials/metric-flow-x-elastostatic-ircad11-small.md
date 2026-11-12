@@ -143,6 +143,15 @@ solid tolerance remains 1e-9, relative
 tolerance 1e-7, and multiplier absolute tolerance 1e-7 Pa. This records the
 workflow settings, not a temporal error or physical accuracy certificate. Initial
 correction uses `use_y_diff`, and saved output times are internal IDA stop times.
+
+The template sets `/MetricFlowX coupling/MUMPS workspace relaxation = 200`
+to request extra workspace equal to 200% of the MUMPS estimate (ICNTL(14)).
+This applies to both the native flow-block factorization and the global
+factorization when selected. The default -1 retains the MUMPS setting.
+This control increases solver memory headroom; it does not change physical
+accuracy or IDA tolerances. Startup with this workspace setting is still
+under validation.
+
 The short requested interval is 0 to 0.002 seconds, with output every 0.001
 seconds; it is not a validated long-time or periodic simulation.
 
