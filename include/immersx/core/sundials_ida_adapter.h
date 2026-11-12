@@ -147,6 +147,33 @@ namespace ImmersX
       set_local_tolerances(field.id(), std::move(fill));
     }
 
+    /** Include a semantic Field in the configured tolerance ramp. Fields
+     * participate by default. Disabling it retains both the relative and
+     * absolute tolerances for this Field during initialization and integration.
+     */
+    void
+    set_tolerance_ramp_enabled(const FieldId field, const bool enabled)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "Configure tolerances before solver initialization."));
+      AssertThrow(field.value() < composition_.n_fields(),
+                  dealii::ExcMessage("Unknown tolerance Field."));
+      const auto found =
+        std::find(unramped_fields_.begin(), unramped_fields_.end(), field);
+      if (enabled && found != unramped_fields_.end())
+        unramped_fields_.erase(found);
+      else if (!enabled && found == unramped_fields_.end())
+        unramped_fields_.push_back(field);
+    }
+
+    template <typename SemanticField>
+    void
+    set_tolerance_ramp_enabled(const SemanticField &field, const bool enabled)
+    {
+      set_tolerance_ramp_enabled(field.id(), enabled);
+    }
+
     /** IDA counters accumulated across adapter-managed restarts. */
     struct Statistics
     {
@@ -1125,13 +1152,21 @@ namespace ImmersX
       const auto scales =
         tolerance_ramp_.scales(additional_data().initial_time,
                                additional_data().initial_time);
-      valid = valid && std::isfinite(additional_data().relative_tolerance *
-                                     scales.first);
-      for (const auto index : absolute_tolerances_.locally_owned_elements())
+      for (std::size_t i = 0; i < composition_.n_fields(); ++i)
         {
-          const double value = absolute_tolerances_[index];
-          valid              = valid && std::isfinite(value) && value > 0. &&
-                  std::isfinite(value * scales.second);
+          const FieldId field(i);
+          const bool    ramp = std::find(unramped_fields_.begin(),
+                                      unramped_fields_.end(),
+                                      field) == unramped_fields_.end();
+          valid = valid && std::isfinite(additional_data().relative_tolerance *
+                                         (ramp ? scales.first : 1.));
+          const auto &values = composition_.field(absolute_tolerances_, field);
+          for (const auto index : values.locally_owned_elements())
+            {
+              const double value = values[index];
+              valid = valid && std::isfinite(value) && value > 0. &&
+                      std::isfinite(value * (ramp ? scales.second : 1.));
+            }
         }
       AssertThrow(
         dealii::Utilities::MPI::min(valid ? 1 : 0,
@@ -1151,16 +1186,28 @@ namespace ImmersX
       const auto scales =
         tolerance_ramp_.scales(additional_data().initial_time, time);
       bool valid = std::isfinite(time);
-      for (const auto index : weights.locally_owned_elements())
+      for (std::size_t i = 0; i < composition_.n_fields(); ++i)
         {
-          const double value = state[index];
-          const double denominator =
-            additional_data().relative_tolerance * scales.first *
-              std::abs(value) +
-            scales.second * absolute_tolerances_[index];
-          weights[index] = 1. / denominator;
-          valid          = valid && std::isfinite(value) &&
-                  std::isfinite(weights[index]) && weights[index] > 0.;
+          const FieldId field(i);
+          const bool    ramp   = std::find(unramped_fields_.begin(),
+                                      unramped_fields_.end(),
+                                      field) == unramped_fields_.end();
+          const auto   &values = composition_.field(state, field);
+          const auto   &absolute =
+            composition_.field(absolute_tolerances_, field);
+          auto &field_weights = composition_.field(weights, field);
+          for (const auto index : field_weights.locally_owned_elements())
+            {
+              const double value = values[index];
+              const double denominator =
+                additional_data().relative_tolerance *
+                  (ramp ? scales.first : 1.) * std::abs(value) +
+                (ramp ? scales.second : 1.) * absolute[index];
+              field_weights[index] = 1. / denominator;
+              valid                = valid && std::isfinite(value) &&
+                      std::isfinite(field_weights[index]) &&
+                      field_weights[index] > 0.;
+            }
         }
       weights.compress(dealii::VectorOperation::insert);
       AssertThrow(dealii::Utilities::MPI::min(valid ? 1 : 0,
@@ -1446,11 +1493,12 @@ namespace ImmersX
     }
 
     std::vector<std::pair<FieldId, std::function<void(FieldVectorType &)>>>
-                     local_tolerances_;
-    GlobalVectorType absolute_tolerances_;
-    IDAToleranceRamp tolerance_ramp_;
-    Statistics       accumulated_statistics_;
-    unsigned long    jacobian_setups_ = 0, linear_solves_ = 0, restarts_ = 0,
+                         local_tolerances_;
+    std::vector<FieldId> unramped_fields_;
+    GlobalVectorType     absolute_tolerances_;
+    IDAToleranceRamp     tolerance_ramp_;
+    Statistics           accumulated_statistics_;
+    unsigned long jacobian_setups_ = 0, linear_solves_ = 0, restarts_ = 0,
                   weight_evaluations_    = 0;
     bool                ramp_stop_armed_ = false, ramp_stop_released_ = false;
     std::optional<int>  mumps_workspace_relaxation_;

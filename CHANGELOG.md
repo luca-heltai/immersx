@@ -11,9 +11,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
-- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IDA application coupling native MetricFlowX flow to elastostatic tissue, with algebraic displacement and wall traction, optional pressure feedback, consistent initialization, self-contained checkpoints, initial co-refinement and accepted wall-particle output. Include single-vessel and IRCAD11 small tutorials using existing three-network archives and their saved microvascular connections.
+- [PR #403](https://github.com/luca-heltai/immersx/pull/403) Allow semantic fields to retain their configured IDA error tolerances during a startup ramp, with an optional solid displacement and velocity exemption in the coupled vascular application.
 
+- [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
+
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IDA application coupling native MetricFlowX flow to elastostatic tissue, with algebraic displacement and wall traction, optional pressure feedback, consistent initialization, self-contained checkpoints, initial co-refinement and accepted wall-particle output. Include single-vessel and IRCAD11 small tutorials using existing three-network archives and their saved microvascular connections.
 
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
 
@@ -222,6 +224,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #62](https://github.com/luca-heltai/immersx/pull/62) Supported strong dynamic elasticity constraints.
 
 ### Changed
+
+- [PR #404](https://github.com/luca-heltai/immersx/pull/404) Use diagonal kinematic rows in the standalone fixed-step elastodynamics solver, including moving boundary data and hanging nodes, while retaining the consistent mass in the momentum equation. Expose iterative, UMFPACK, and MUMPS selection in `elastodynamics_adapter` through `Elastodynamics/IDA/Linear solver/Type`; direct solvers condense the kinematic rows before factorization. Align the fiber residual and Jacobian regression checks with the same diagonal kinematic weighting.
 
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Reuse static solid stiffness and AMG setup when the application declares a fixed operator, while updating time-dependent loads and inhomogeneous Dirichlet lifting.
 
