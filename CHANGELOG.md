@@ -317,6 +317,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #405](https://github.com/luca-heltai/immersx/pull/405) Sample lifted wall modal fields with each cell's active finite element, including terminal RCR elements in hp collections.
+
 - [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
 
 - [PR #388](https://github.com/luca-heltai/immersx/pull/388) Allow fitted-vessel mesh generation in Debug builds and consume its application options before MPI/PETSc initialization.

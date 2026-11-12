@@ -361,7 +361,7 @@ namespace ImmersX
                                                   point.representative_point);
             dealii::FEValues<dim, spacedim> values(
               mapping,
-              dof_handler.get_fe(),
+              cell->get_fe(),
               dealii::Quadrature<dim>(
                 std::vector<dealii::Point<dim>>{reference}),
               dealii::update_values);
