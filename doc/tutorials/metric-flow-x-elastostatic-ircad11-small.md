@@ -107,30 +107,28 @@ case-11 patient measurements.
 ## Run and inspect
 
 CMake generates a parameter file with absolute build-tree input/output paths.
-Use that generated file:
+The validated archive-loading workflow runs setup without time integration:
+
+~~~bash
+mpiexec -np 2 "$build_dir/metric_flow_x_elastostatic" \
+  "$build_dir/tutorials/metric_flow_x_elastostatic/ircad11_small.prm" --setup-only
+~~~
+
+The tested setup loaded 4,804 tissue cells and 30,486 numerical flow cells,
+with 24,546 solid, 304,860 native flow and 91,458 multiplier DoFs. Setup checks
+archive loading, redistribution, discretization and coupled spaces. It does
+not execute IDA or demonstrate an accepted timestep.
+
+The transient remains experimental. This profile has not passed consistent
+initial-condition correction: the iterative solve stops in the inner Schur
+solver, and a direct-solver diagnostic also failed its retained-Jacobian
+residual check. No accepted startup step has been verified. To investigate the
+transient, omit the setup flag:
 
 ~~~bash
 mpiexec -np 2 "$build_dir/metric_flow_x_elastostatic" \
   "$build_dir/tutorials/metric_flow_x_elastostatic/ircad11_small.prm"
 ~~~
-
-For a setup check without time integration, copy the generated input and
-append the existing setup control:
-
-~~~bash
-cp "$build_dir/tutorials/metric_flow_x_elastostatic/ircad11_small.prm" \
-  "$build_dir/tutorials/metric_flow_x_elastostatic/ircad11_small_setup.prm"
-cat >> "$build_dir/tutorials/metric_flow_x_elastostatic/ircad11_small_setup.prm" <<'EOF'
-subsection MetricFlowX coupling
-  set Setup only = true
-end
-EOF
-mpiexec -np 2 "$build_dir/metric_flow_x_elastostatic" \
-  "$build_dir/tutorials/metric_flow_x_elastostatic/ircad11_small_setup.prm"
-~~~
-
-Setup checks archive loading, redistribution, discretization and coupled spaces.
-It does not execute IDA or demonstrate an accepted timestep.
 
 Co-refinement is disabled for this fixed tetrahedral asset. The ordinary
 archived-network discretization controls rebuild numerical vessel intervals
