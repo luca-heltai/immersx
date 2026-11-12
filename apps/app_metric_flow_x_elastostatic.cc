@@ -221,6 +221,13 @@ namespace
       "Native flow block preconditioner in the iterative coupled solve.",
       ParameterAcceptor::prm,
       Patterns::Selection("ilu|mumps"));
+    int mumps_workspace_relaxation = -1;
+    coupling.add_parameter(
+      "MUMPS workspace relaxation",
+      mumps_workspace_relaxation,
+      "Extra MUMPS workspace percentage above its estimate, for global and native flow-block solves; -1 retains the MUMPS default.",
+      ParameterAcceptor::prm,
+      Patterns::Integer(-1));
     bool use_native_tolerances = false, setup_only = false;
     coupling.add_parameter(
       "Use native flow tolerances",
@@ -656,8 +663,15 @@ namespace
     const auto [pressure_projection, multiplier_metric] =
       make_metric_flow_x_pressure_projection(lambda, supports.overlap);
 
+    AssertThrow(
+      Utilities::MPI::min(mumps_workspace_relaxation, MPI_COMM_WORLD) ==
+        Utilities::MPI::max(mumps_workspace_relaxation, MPI_COMM_WORLD),
+      ExcMessage("MUMPS workspace relaxation differs across ranks."));
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
     adapter.set_stop_at_output_times(stop_at_output_times);
+    if (mumps_workspace_relaxation >= 0)
+      adapter.set_mumps_workspace_relaxation(
+        static_cast<unsigned int>(mumps_workspace_relaxation));
     adapter.set_schur_primal_coupling();
     if (linear_solver == "iterative")
       adapter.set_linear_solver(Adapter::LinearSolver::iterative);
@@ -671,12 +685,12 @@ namespace
     if (flow_block_solver == "mumps")
       {
 #  ifdef DEAL_II_WITH_MUMPS
-        flow_description.preconditioner_factory = [](const auto &matrix,
-                                                     const auto &prototype) {
-          return make_mumps_preconditioner<FieldVector>(matrix,
-                                                        prototype,
-                                                        MPI_COMM_WORLD);
-        };
+        flow_description.preconditioner_factory =
+          [mumps_workspace_relaxation](const auto &matrix,
+                                       const auto &prototype) {
+            return make_mumps_preconditioner<FieldVector>(
+              matrix, prototype, MPI_COMM_WORLD, mumps_workspace_relaxation);
+          };
 #  else
         AssertThrow(
           false, ExcMessage("Flow block MUMPS requires deal.II with MUMPS."));

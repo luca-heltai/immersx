@@ -227,6 +227,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #404](https://github.com/luca-heltai/immersx/pull/404) Use diagonal kinematic rows in the standalone fixed-step elastodynamics solver, including moving boundary data and hanging nodes, while retaining the consistent mass in the momentum equation. Expose iterative, UMFPACK, and MUMPS selection in `elastodynamics_adapter` through `Elastodynamics/IDA/Linear solver/Type`; direct solvers condense the kinematic rows before factorization. Align the fiber residual and Jacobian regression checks with the same diagonal kinematic weighting.
 
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Expose MUMPS workspace relaxation for both the coupled solver and native flow-block factorization; the IRCAD11 template requests 200% extra estimated workspace without changing physical tolerances.
+
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Reuse static solid stiffness and AMG setup when the application declares a fixed operator, while updating time-dependent loads and inhomogeneous Dirichlet lifting.
 
 - [PR #399](https://github.com/luca-heltai/immersx/pull/399) With `use_y_dot` initial conditions, `IDAAdapter` keeps the Jacobian of IDA's first initial-condition pass for its second pass, which IDA starts at the already corrected state. A request after a linear solve, which IDA makes when the iteration converges slowly, still rebuilds the Jacobian. The IRCAD liver tiny and small runs set up two Jacobians instead of three, with unchanged IDA statistics and output.

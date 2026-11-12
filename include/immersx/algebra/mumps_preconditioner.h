@@ -19,14 +19,25 @@ namespace ImmersX
   /** Factor one distributed field block, retaining the factor for all actions.
    * Redistribute the solution because native mixed fields need not have
    * contiguous ownership, whereas the deal.II MUMPS backsolve requires it.
+   * workspace_relaxation overrides ICNTL(14), the extra workspace percentage;
+   * -1 retains the native MUMPS default. All ranks must pass the same value.
    */
   template <typename VectorType, typename MatrixType>
   dealii::LinearOperator<VectorType>
   make_mumps_preconditioner(
     const MatrixType                              &matrix,
     const std::function<void(VectorType &, bool)> &reinit_vector,
-    const MPI_Comm                                 communicator)
+    const MPI_Comm                                 communicator,
+    const int                                      workspace_relaxation = -1)
   {
+    const int minimum_workspace =
+      dealii::Utilities::MPI::min(workspace_relaxation, communicator);
+    const int maximum_workspace =
+      dealii::Utilities::MPI::max(workspace_relaxation, communicator);
+    AssertThrow(
+      minimum_workspace >= -1 && minimum_workspace == maximum_workspace,
+      dealii::ExcMessage(
+        "MUMPS workspace relaxation must be at least -1 and equal on every rank."));
     AssertThrow(
       matrix.m() == matrix.n() &&
         matrix.m() >= dealii::Utilities::MPI::n_mpi_processes(communicator),
@@ -34,6 +45,8 @@ namespace ImmersX
         "MUMPS field block must be square with at least one row per rank."));
     auto factor = std::make_shared<dealii::SparseDirectMUMPS>(
       dealii::SparseDirectMUMPS::AdditionalData(), communicator);
+    if (workspace_relaxation >= 0)
+      factor->get_icntl()[13] = workspace_relaxation;
     factor->initialize(matrix);
     auto solution = std::make_shared<VectorType>();
     solution->reinit(
