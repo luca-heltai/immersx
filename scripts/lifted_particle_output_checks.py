@@ -83,6 +83,8 @@ def check_wall_particles(directory, times, properties, *, displacement=None,
             if size:
                 coordinates.extend(data_array(piece.find("./Points/DataArray"), tree))
         assert count > 0, path
+        assert len(coordinates) == 3*count, path
+        assert all(math.isfinite(value) for value in coordinates), path
         counts.append(count)
         for name, values in arrays.items():
             width = 3 if name in {"wall_traction", "mode_radial", "displacement", "representative_point"} else 1

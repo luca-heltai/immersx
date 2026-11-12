@@ -1224,7 +1224,8 @@ namespace
             FieldVector owned;
             owned.reinit(source);
             owned = source;
-            field.constraints().distribute(owned);
+            if (field.constraints().n_constraints() != 0)
+              field.constraints().distribute(owned);
             FieldVector execution;
             execution.reinit(source.locally_owned_elements(),
                              field.locally_relevant_dofs(),
