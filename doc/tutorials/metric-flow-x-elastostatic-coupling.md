@@ -179,7 +179,9 @@ Select additional quantities with:
 ```text
 subsection MetricFlowX coupling
   subsection Particle output
-    set Properties = weight, mode_values, modal_coefficients, lifted_value, modal_data, representative_point, radius, indices, bulk_field
+    set Properties = weight, mode_values, modal_coefficients, \
+                     lifted_value, modal_data, representative_point, \
+                     radius, indices, bulk_field
   end
 end
 ```
