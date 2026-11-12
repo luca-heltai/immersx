@@ -382,13 +382,20 @@ namespace
 
     ParameterAcceptor coupled_solver(
       "/MetricFlowSystem<1, 3>/IDA parameters/Linear solver/");
-    std::string linear_solver = "iterative";
+    std::string linear_solver        = "iterative";
+    std::string block_preconditioner = "automatic";
     coupled_solver.add_parameter(
       "Type",
       linear_solver,
       "Coupled IDA linear solver. Direct solvers materialize each Jacobian. UMFPACK requires one rank; MUMPS supports MPI.",
       ParameterAcceptor::prm,
       Patterns::Selection("iterative|umfpack|mumps"));
+    coupled_solver.add_parameter(
+      "Block preconditioner",
+      block_preconditioner,
+      "Iterative preconditioner for coupled IDA systems.",
+      ParameterAcceptor::prm,
+      Patterns::Selection("automatic|schur|block diagonal|block triangular"));
 
     unsigned int flow_direct_inverse_limit   = 0;
     unsigned int schur_materialization_limit = 0;
@@ -875,6 +882,15 @@ namespace
         static_cast<unsigned int>(mumps_workspace_relaxation));
     adapter.set_schur_primal_coupling();
     adapter.set_schur_materialization_limit(schur_materialization_limit);
+    if (block_preconditioner == "schur")
+      adapter.set_block_preconditioner(Adapter::BlockPreconditioner::schur);
+    else if (block_preconditioner == "block diagonal")
+      adapter.set_block_preconditioner(
+        Adapter::BlockPreconditioner::block_diagonal);
+    else if (block_preconditioner == "block triangular")
+      adapter.set_block_preconditioner(
+        Adapter::BlockPreconditioner::block_triangular);
+
     if (linear_solver == "iterative")
       adapter.set_linear_solver(Adapter::LinearSolver::iterative);
     else if (linear_solver == "umfpack")

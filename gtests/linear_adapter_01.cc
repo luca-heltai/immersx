@@ -9,6 +9,7 @@
 #include <immersx/io/utils.h>
 
 #include <array>
+#include <tuple>
 
 namespace ImmersX
 {
@@ -606,6 +607,74 @@ TEST(LinearAdapter, TwoFieldTriangularTransposeIsDistinct)
   EXPECT_NEAR(adapter.field(transpose, fields.fields().v)[0], 3., 1.e-12);
   EXPECT_NE(adapter.field(forward, fields.fields().u)[0],
             adapter.field(transpose, fields.fields().u)[0]);
+}
+
+TEST(LinearAdapter, BOTH_BlockPreconditionersUseMultiplierMetric)
+{
+  using Vector = ImmersX::ImmersXLA::MPI::Vector;
+  using Adapter =
+    ImmersX::LinearAdapter<Vector, ImmersX::ImmersXLA::MPI::BlockVector>;
+
+  const auto primal_owned =
+    dealii::Utilities::MPI::create_evenly_distributed_partitioning(
+      MPI_COMM_WORLD, 2);
+  const auto auxiliary_owned  = primal_owned;
+  const auto multiplier_owned = primal_owned;
+
+  ImmersX::ImmersXLA::MPI::SparseMatrix primal_matrix;
+  ImmersX::ImmersXLA::MPI::SparseMatrix auxiliary_matrix;
+  ImmersX::ImmersXLA::MPI::SparseMatrix metric_matrix;
+  initialize_scalar_matrix(primal_matrix, primal_owned, 1.);
+  initialize_scalar_matrix(auxiliary_matrix, auxiliary_owned, 1.);
+  initialize_scalar_matrix(metric_matrix, multiplier_owned, 2.);
+
+  ImmersX::LinearSolverParameters parameters;
+  Adapter                         adapter(parameters,
+                  MPI_COMM_WORLD,
+                  [](const auto &, const auto &, auto &) {});
+  const auto                      fields = adapter.add(
+    [&](auto &builder) {
+      const auto primal = builder.algebraic_field("primal", primal_owned);
+      const auto auxiliary =
+        builder.algebraic_field("auxiliary", auxiliary_owned);
+      const auto multiplier =
+        builder.algebraic_field("multiplier", multiplier_owned);
+      builder.preconditioner(primal, [](const auto &, const auto &reinit) {
+        return dealii::identity_operator<Vector>(reinit);
+      });
+      builder.preconditioner(auxiliary, [](const auto &, const auto &reinit) {
+        return dealii::identity_operator<Vector>(reinit);
+      });
+      const auto primal_op = builder.matrix_operator(primal_matrix);
+      const auto auxiliary_op = builder.matrix_operator(auxiliary_matrix);
+      const auto metric_op = builder.matrix_operator(metric_matrix);
+      builder.term(primal, "diagonal").state(primal, primal_op);
+      builder.term(auxiliary, "diagonal").state(auxiliary, auxiliary_op);
+      builder.term(multiplier, "metric").state(multiplier, metric_op);
+      builder.saddle_point(multiplier, {primal, auxiliary}, metric_op);
+      return std::make_tuple(primal, auxiliary, multiplier);
+    },
+    "metric-preconditioner");
+  auto state                                         = adapter.make_state();
+  adapter.field(state, std::get<0>(fields.fields())) = 1.;
+  adapter.field(state, std::get<1>(fields.fields())) = 1.;
+  adapter.field(state, std::get<2>(fields.fields())) = 4.;
+
+  const auto diagonal        = adapter.block_diagonal_preconditioner(state);
+  auto       diagonal_action = adapter.make_state();
+  diagonal.vmult(diagonal_action, state);
+  const auto &diagonal_multiplier =
+    adapter.field(diagonal_action, std::get<2>(fields.fields()));
+  for (const auto index : multiplier_owned)
+    EXPECT_DOUBLE_EQ(diagonal_multiplier[index], 2.);
+
+  const auto triangular        = adapter.block_triangular_preconditioner(state);
+  auto       triangular_action = adapter.make_state();
+  triangular.vmult(triangular_action, state);
+  const auto &triangular_multiplier =
+    adapter.field(triangular_action, std::get<2>(fields.fields()));
+  for (const auto index : multiplier_owned)
+    EXPECT_DOUBLE_EQ(triangular_multiplier[index], 2.);
 }
 
 TEST(LinearAdapter, SchurUsesDistinctParticipantSpacesAndTranspose)
