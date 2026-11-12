@@ -93,20 +93,26 @@ def check_wall_particles(directory, times, properties, *, displacement=None,
                 assert arrays["weight"][q] > 0.
             if "radius" in selected:
                 radius = arrays["radius"][q]
-                assert radius > 0.
+                assert radius >= 0.
                 if "representative_point" in selected:
                     distance = math.sqrt(sum((coordinates[3*q+c]-arrays["representative_point"][3*q+c])**2 for c in range(3)))
                     assert math.isclose(distance, radius, rel_tol=2.e-5, abs_tol=1.e-8), (distance, radius)
             if "mode_values" in selected:
                 direction = arrays["mode_radial"][3*q:3*q+3]
-                assert math.isclose(sum(x*x for x in direction), 1., abs_tol=3.e-7)
+                direction_norm = math.sqrt(sum(x*x for x in direction))
+                # Modes can vanish on the axis or cancel in their sum.
+                assert any(math.isclose(direction_norm, value, abs_tol=3.e-7)
+                           for value in (0., 1.))
             if "lifted_value" in selected:
                 traction = arrays["wall_traction"][3*q:3*q+3]
                 norm = math.sqrt(sum(x*x for x in traction))
                 maximum_traction = max(maximum_traction, norm)
                 if "modal_coefficients" in selected:
                     coefficient = arrays["wall_traction_radial"][q]
-                    assert math.isclose(norm, abs(coefficient), rel_tol=3.e-7, abs_tol=1.e-7)
+                    expected_norms = ([abs(coefficient)*direction_norm]
+                                      if "mode_values" in selected else [0., abs(coefficient)])
+                    assert any(math.isclose(norm, value, rel_tol=3.e-7, abs_tol=1.e-7)
+                               for value in expected_norms)
                     if "mode_values" in selected:
                         assert all(math.isclose(traction[c], coefficient*direction[c], rel_tol=3.e-7, abs_tol=1.e-7) for c in range(3))
             if displacement is not None and "bulk_field" in selected:

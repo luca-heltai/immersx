@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #405](https://github.com/luca-heltai/immersx/pull/405) Export configurable lifted wall particles at accepted times in the MetricFlowX elastodynamics application.
+
 - [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
 
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
@@ -609,7 +611,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Check lifted wall particle collections, selected quantities, geometry, and traction using a reusable standard-library Python checker.
+- [PR #405](https://github.com/luca-heltai/immersx/pull/405) Check lifted wall particle collections, selected quantities, geometry, and traction using a reusable standard-library Python checker.
 
 - [PR #388](https://github.com/luca-heltai/immersx/pull/388) Integrate exported manufactured-solution errors with the Q1 geometry Jacobian on fitted hexahedra and check the quadrature against analytical volumes and moments.
 
