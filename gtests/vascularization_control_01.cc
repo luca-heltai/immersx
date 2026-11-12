@@ -8,8 +8,14 @@
 
 #include <gtest/gtest.h>
 #include <immersx/vascularization/generation.h>
+#include <immersx/vascularization/io.h>
 
+#include <chrono>
 #include <cmath>
+#include <tuple>
+
+#include "../source/vascularization/network_serialization.h"
+#include "test_paths.h"
 
 using namespace dealii;
 using namespace ImmersX::Vascularization;
@@ -50,12 +56,17 @@ namespace
         EXPECT_EQ(node.position, b.nodes.at(id).position);
         EXPECT_EQ(node.owner, b.nodes.at(id).owner);
         EXPECT_EQ(node.port, b.nodes.at(id).port);
+        EXPECT_EQ(node.provenance, b.nodes.at(id).provenance);
+        EXPECT_EQ(node.inward_port_normal, b.nodes.at(id).inward_port_normal);
       }
     for (const auto &[id, vessel] : a.vessels)
       {
         ASSERT_TRUE(b.vessels.count(id));
         EXPECT_EQ(vessel.nodes, b.vessels.at(id).nodes);
         EXPECT_EQ(vessel.radii, b.vessels.at(id).radii);
+        EXPECT_EQ(vessel.viscosity, b.vessels.at(id).viscosity);
+        EXPECT_EQ(vessel.physical_properties,
+                  b.vessels.at(id).physical_properties);
         EXPECT_EQ(vessel.owner, b.vessels.at(id).owner);
         EXPECT_EQ(vessel.system, b.vessels.at(id).system);
         EXPECT_EQ(vessel.provenance, b.vessels.at(id).provenance);
@@ -66,6 +77,8 @@ namespace
         EXPECT_EQ(terminal.node, b.terminals.at(id).node);
         EXPECT_EQ(terminal.territory, b.terminals.at(id).territory);
         EXPECT_EQ(terminal.demand, b.terminals.at(id).demand);
+        EXPECT_EQ(terminal.system, b.terminals.at(id).system);
+        EXPECT_EQ(terminal.owner, b.terminals.at(id).owner);
       }
   }
 } // namespace
@@ -250,4 +263,130 @@ TEST(VascularGeneration, BOTH_ObserverFailureStopsCollectively)
   const auto result = generate(bg, MappingQ1<3>(), {}, p, comm, control);
   EXPECT_TRUE(result.controlled_stop);
   EXPECT_FALSE(result.validation.valid());
+}
+
+TEST(VascularGeneration, BOTH_NativeSnapshotRetainsAcceptedPhysicalRegistry)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto rank = Utilities::MPI::this_mpi_process(comm);
+  parallel::distributed::Triangulation<3> bg(comm);
+  GridGenerator::subdivided_hyper_cube(bg, 2);
+  const MappingQ1<3> mapping;
+  Parameters         p("/Generation native checkpoint/");
+  configure(p);
+  p.terminal_count                 = 8;
+  p.venous.enabled                 = true;
+  p.portal.enabled                 = true;
+  p.venous.terminal_separation     = .01;
+  p.portal.terminal_separation     = .02;
+  p.reference_conditions.pressures = {{0, 1500.}, {10, 0.}, {20, 1000.}};
+  NetworkData original;
+  if (rank == 0)
+    for (const auto &[id, system, port, root, tip] :
+         {std::make_tuple(Id{0},
+                          System::arterial,
+                          Port::arterial_inlet,
+                          Point<3>(.1, .3, .3),
+                          Point<3>(.3, .3, .3)),
+          std::make_tuple(Id{10},
+                          System::venous,
+                          Port::venous_outlet,
+                          Point<3>(.9, .5, .5),
+                          Point<3>(.7, .5, .5)),
+          std::make_tuple(Id{20},
+                          System::portal,
+                          Port::portal_inlet,
+                          Point<3>(.1, .7, .7),
+                          Point<3>(.3, .7, .7))})
+      {
+        original.nodes[id]                    = {root, 0, port};
+        original.nodes[id].inward_port_normal = tip - root;
+        original.nodes[id + 1]                = {tip, 0, Port::none};
+        Vessel vessel;
+        vessel.nodes                                   = {{id, id + 1}};
+        vessel.radii                                   = {{.01, .01}};
+        vessel.viscosity                               = p.viscosity;
+        vessel.system                                  = system;
+        vessel.physical_properties["fixture_property"] = .125;
+        original.vessels[id]                           = vessel;
+        original.terminals[id] = {id + 1, invalid_id, system, 0, 1.};
+      }
+  std::string token;
+  if (rank == 0)
+    token = std::to_string(
+      std::chrono::high_resolution_clock::now().time_since_epoch().count());
+  token = Utilities::MPI::broadcast(comm, token, 0);
+  const auto directory =
+    ImmersX::TestPaths::output_path("native-growth-checkpoint") / token;
+  // Compare physical records independently of repartition and ghost selection.
+  const auto physical = [&](const NetworkData &network) {
+    NetworkData owned, result;
+    for (const auto &[id, node] : network.nodes)
+      if (node.owner == rank)
+        owned.nodes.emplace(id, node);
+    for (const auto &[id, vessel] : network.vessels)
+      if (vessel.owner == rank)
+        owned.vessels.emplace(id, vessel);
+    for (const auto &[id, terminal] : network.terminals)
+      if (terminal.owner == rank)
+        owned.terminals.emplace(id, terminal);
+    for (const auto &part : Utilities::MPI::all_gather(comm, owned))
+      {
+        result.nodes.insert(part.nodes.begin(), part.nodes.end());
+        result.vessels.insert(part.vessels.begin(), part.vessels.end());
+        result.terminals.insert(part.terminals.begin(), part.terminals.end());
+      }
+    for (auto &[id, node] : result.nodes)
+      node.owner = 0;
+    for (auto &[id, vessel] : result.vessels)
+      vessel.owner = 0;
+    for (auto &[id, terminal] : result.terminals)
+      terminal.owner = 0;
+    return result;
+  };
+  GenerationControl control;
+  control.poll = [](const GenerationProgress &progress) {
+    return GenerationAction{false,
+                            progress.system == System::venous &&
+                              progress.accepted_terminals >= 2};
+  };
+  unsigned int saved = 0;
+  control.checkpoint = [&](const GenerationProgress &progress,
+                           NetworkData               snapshot,
+                           bool                      stopped) {
+    EXPECT_TRUE(stopped);
+    EXPECT_LT(progress.accepted_terminals, p.terminal_count);
+    ++saved;
+    save_network(directory, snapshot, {}, {}, comm);
+    const auto restored = load_network(directory, bg, mapping, 0., comm);
+    EXPECT_TRUE(restored.territories.empty());
+    EXPECT_TRUE(restored.terminal_pairs.empty());
+    EXPECT_TRUE(restored.terminal_triplets.empty());
+    same_network(physical(snapshot), physical(restored.network));
+  };
+  const auto result = generate(bg, mapping, original, p, comm, control);
+  EXPECT_TRUE(result.controlled_stop);
+  ASSERT_EQ(saved, 1u);
+  const auto restored = load_network(directory, bg, mapping, 0., comm);
+  const auto resumed  = resume_companions(
+    bg, mapping, original, restored.network, p, comm, System::venous);
+  for (const auto &issue : resumed.validation.issues)
+    ADD_FAILURE() << issue.entity << ": " << issue.message;
+  ASSERT_TRUE(resumed.validation.valid());
+  EXPECT_EQ(resumed.effective_terminal_count, p.terminal_count);
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(
+                                  resumed.terminal_triplets.size()),
+                                comm),
+            p.terminal_count);
+  const auto before = physical(restored.network);
+  const auto after  = physical(resumed.network);
+  for (const auto &[id, vessel] : before.vessels)
+    if (vessel.system != System::venous)
+      {
+        ASSERT_TRUE(after.vessels.count(id));
+        EXPECT_EQ(vessel.nodes, after.vessels.at(id).nodes);
+        EXPECT_EQ(vessel.radii, after.vessels.at(id).radii);
+        EXPECT_EQ(vessel.physical_properties,
+                  after.vessels.at(id).physical_properties);
+      }
 }

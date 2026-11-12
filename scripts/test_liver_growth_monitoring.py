@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 by Luca Heltai
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-"""Exercise cooperative deadlines and bounded accepted-state VTK publication."""
+"""Exercise accepted-state archive publication and companion continuation."""
 import argparse
 import csv
 import json
@@ -82,6 +82,11 @@ def main():
         for key in ("generation_complete", "archive_adoptable", "resumable",
                     "hydraulic_fields_final"):
             assert metadata[key] is False, (key, metadata)
+        native = metadata["native_checkpoint"]
+        archive = latest / native["directory"]
+        assert (archive / "manifest").is_file()
+        assert native["resumable"] is not stopped
+        assert native["continuation_phase"] == (None if stopped else "venous")
         assert metadata["diagnostic_only"] is True
         assert metadata["controlled_stop"] is stopped
         assert metadata["checkpoint_index"] >= (1 if stopped else 2)
@@ -107,6 +112,22 @@ def main():
                 assert vessels(output / "invalid-result", role, args.ranks) == original
         if stopped:
             assert (output / "invalid-result" / "liver_0.pvtu").exists()
+        if not stopped:
+            resumed = case / "resumed"
+            continuation = re.sub(r"(?m)^  set Output directory = .*$",
+                                  f"  set Output directory = {resumed}",
+                                  args.parameters.read_text())
+            continuation += ("\nsubsection Liver\n"
+                             f"  set Companion checkpoint archive = {archive}\n"
+                             "  set Companion continuation phase = venous\nend\n")
+            resume_prm = case / "resume.prm"
+            resume_prm.write_text(continuation)
+            command[-1] = str(resume_prm.resolve())
+            with (case / "resume.log").open("w") as log:
+                run = subprocess.run(command, cwd=case, stdout=log,
+                                     stderr=subprocess.STDOUT, timeout=100)
+            assert run.returncode == 0, (case, run.returncode)
+            assert (resumed / "network" / "manifest").is_file()
         print(f"Verified {'cooperative stop' if stopped else 'checkpoint rotation'}: {case}")
 
 
