@@ -48,11 +48,11 @@ def decode(array, tree):
     return data_array(array, tree)
 
 
-def pieces(path):
+def pieces(path, with_cell_types=False):
     tree = ET.parse(path).getroot()
     if tree.attrib["type"] == "PUnstructuredGrid":
         for item in tree.findall(".//Piece"):
-            yield from pieces(path.parent / item.attrib["Source"])
+            yield from pieces(path.parent / item.attrib["Source"], with_cell_types)
         return
     require(tree.attrib["type"] == "UnstructuredGrid", f"Unsupported VTK: {path}")
     for piece in tree.findall("./UnstructuredGrid/Piece"):
@@ -74,7 +74,12 @@ def pieces(path):
         for end in offsets:
             cells.append([int(i) for i in indices[start:int(end)]])
             start = int(end)
-        yield points, fields, cells
+        if with_cell_types:
+            types = [int(value) for value in decode(arrays["types"], tree)]
+            require(len(types) == len(cells), "Missing VTK cell types")
+            yield points, fields, cells, types
+        else:
+            yield points, fields, cells
 
 
 def collection(path):
@@ -92,6 +97,57 @@ def solid_target(point, time, radial=False, velocity=False):
     return (h*x, g*y*factor, g*z*factor)
 
 
+def hexahedron_quadrature(vertices, cell_type):
+    """Integrate the exported Q1 geometry in VTK hexahedron/voxel order."""
+    require(len(vertices) == 8, "Expected eight Q1 vertices")
+    require(cell_type in (11, 12), "Expected a VTK voxel or hexahedron")
+    corners = ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0),
+               (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1))
+    if cell_type == 11:
+        corners = tuple(itertools.product((0, 1), repeat=3))
+        corners = tuple((z, y, x) for x, y, z in corners)
+    for quadrature in itertools.product(GAUSS, repeat=3):
+        unit = [item[0] for item in quadrature]
+        shape = [math.prod(x if bit else 1-x for x, bit in zip(unit, corner))
+                 for corner in corners]
+        gradients = [[(1 if corner[d] else -1) * math.prod(
+            unit[k] if corner[k] else 1-unit[k] for k in range(3) if k != d)
+            for d in range(3)] for corner in corners]
+        jacobian = [[sum(vertices[j][i]*gradients[j][k] for j in range(8))
+                     for k in range(3)] for i in range(3)]
+        a, b, c = jacobian
+        determinant = (a[0]*(b[1]*c[2]-b[2]*c[1])
+                       - a[1]*(b[0]*c[2]-b[2]*c[0])
+                       + a[2]*(b[0]*c[1]-b[1]*c[0]))
+        require(math.isfinite(determinant) and determinant > 0,
+                "Nonpositive Q1 mapping Jacobian")
+        point = [sum(shape[j]*vertices[j][i] for j in range(8)) for i in range(3)]
+        yield point, determinant*math.prod(item[1] for item in quadrature), shape
+
+
+def cartesian_quadrature(vertices, dimension):
+    low = [min(v[d] for v in vertices) for d in range(3)]
+    high = [max(v[d] for v in vertices) for d in range(3)]
+    active = [d for d in range(3) if high[d]-low[d] > 1.e-12]
+    require(len(active) == dimension, "Non-Cartesian cell")
+    volume = math.prod(high[d]-low[d] for d in active)
+    corners = []
+    for vertex in vertices:
+        bits = tuple(int(abs(vertex[d]-high[d]) < 1.e-10) for d in active)
+        require(all(abs(vertex[d]-(high[d] if bit else low[d])) < 1.e-10
+                    for d, bit in zip(active, bits)), "Non-Cartesian vertex")
+        corners.append(bits)
+    require(len(set(corners)) == len(vertices), "Duplicate cell corner")
+    for quadrature in itertools.product(GAUSS, repeat=dimension):
+        unit = [item[0] for item in quadrature]
+        point = list(low)
+        for d, coordinate in zip(active, unit):
+            point[d] += coordinate*(high[d]-low[d])
+        shape = [math.prod(x if bit else 1-x for x, bit in zip(unit, corner))
+                 for corner in corners]
+        yield point, volume*math.prod(item[1] for item in quadrature), shape
+
+
 def integrate(path, dimension, targets):
     error = {name: 0. for name in targets}
     norm = dict(error)
@@ -99,31 +155,13 @@ def integrate(path, dimension, targets):
     measure = 0.
     axial_error, radial_error = dict(error), dict(error)
     axial_norm, radial_norm = dict(error), dict(error)
-    for points, fields, cells in pieces(path):
-        for cell in cells:
-            require(len(cell) == 2**dimension, f"Only Cartesian Q1 cells supported: {path}")
+    for points, fields, cells, cell_types in pieces(path, with_cell_types=True):
+        for cell, cell_type in zip(cells, cell_types):
+            require(len(cell) == 2**dimension, f"Only Q1 cells supported: {path}")
             vertices = [points[i] for i in cell]
-            low = [min(v[d] for v in vertices) for d in range(3)]
-            high = [max(v[d] for v in vertices) for d in range(3)]
-            active = [d for d in range(3) if high[d] - low[d] > 1.e-12]
-            require(len(active) == dimension, f"Non-Cartesian cell: {path}")
-            volume = math.prod(high[d] - low[d] for d in active)
-            corners = []
-            for vertex in vertices:
-                bits = tuple(int(abs(vertex[d] - high[d]) < 1.e-10) for d in active)
-                require(all(abs(vertex[d] - (high[d] if bit else low[d])) < 1.e-10
-                            for d, bit in zip(active, bits)), "Non-Cartesian vertex")
-                corners.append(bits)
-            require(len(set(corners)) == len(cell), "Duplicate cell corner")
-            for quadrature in itertools.product(GAUSS, repeat=dimension):
-                unit = [item[0] for item in quadrature]
-                weight = volume * math.prod(item[1] for item in quadrature)
-                point = list(low)
-                for d, coordinate in zip(active, unit):
-                    point[d] += coordinate * (high[d] - low[d])
-                shape = [math.prod(coordinate if bit else 1 - coordinate
-                                   for coordinate, bit in zip(unit, corner))
-                         for corner in corners]
+            quadrature = (hexahedron_quadrature(vertices, cell_type) if dimension == 3
+                          else cartesian_quadrature(vertices, dimension))
+            for point, weight, shape in quadrature:
                 measure += weight
                 for name, target in targets.items():
                     require(name in fields, f"Missing field {name}: {path}")
@@ -320,7 +358,7 @@ def main():
     output = (args.output or build/"test_output"/"mfx-modal-convergence").resolve()
     executable = (args.executable or build/"metric_flow_x_elastodynamics").resolve()
     output.mkdir(parents=True, exist_ok=True)
-    report = {"quadrature": "three-point Gauss on exported Cartesian Q1 cells",
+    report = {"quadrature": "three-point Gauss on exported Q1 cells with the geometry Jacobian",
               "cases": {}, "failures": {}}
     for case in args.cases:
         directory = output/case

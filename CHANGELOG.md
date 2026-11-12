@@ -11,7 +11,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
+
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
+
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Add the `fitted_vessel_mesh` application and `scripts/generate_fitted_vessel_meshes.py` to write vessel-fitted cube meshes for the MetricFlowX elastodynamics manufactured solution at user-selected refinement levels.
 
 - [PR #385](https://github.com/luca-heltai/immersx/pull/385) Allow vascular generation to report progress, retain a latest diagnostic three-role VTK checkpoint, and stop cooperatively at completed batch boundaries, returning an explicitly incomplete result.
 
@@ -217,7 +221,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #397](https://github.com/luca-heltai/immersx/pull/397) Eliminate the kinematic rows of second-order displacement-velocity pairs before IDA factors the Jacobian with UMFPACK or MUMPS, so the direct solver factors one spatial block per pair instead of two coupled ones. The elastodynamics kinematic rows use the diagonal of the mass instead of the consistent mass, so the Jacobian contains the mass sparsity pattern only once and the kinematic block is inverted entrywise; the solution does not change. The reduced solve is algebraically equivalent; matrices without the kinematic structure keep the monolithic factorization. In Release, the IRCAD liver tiny and small 2 ms runs drop from 10.4 s to 6.3 s and from 24.3 s to 12.1 s; the diagonal kinematic rows lower the tiny and small wall times by another 26% and 17%. The standalone fixed-step solver also uses diagonal kinematic rows, including with hanging nodes; `elastodynamics_adapter` exposes iterative, UMFPACK, and MUMPS selection through `Elastodynamics/IDA/Linear solver/Type`. The fiber residual and Jacobian regression checks use the same diagonal kinematic weighting.
+- [PR #404](https://github.com/luca-heltai/immersx/pull/404) Use diagonal kinematic rows in the standalone fixed-step elastodynamics solver, including moving boundary data and hanging nodes, while retaining the consistent mass in the momentum equation. Expose iterative, UMFPACK, and MUMPS selection in `elastodynamics_adapter` through `Elastodynamics/IDA/Linear solver/Type`; direct solvers condense the kinematic rows before factorization. Align the fiber residual and Jacobian regression checks with the same diagonal kinematic weighting.
+
+- [PR #399](https://github.com/luca-heltai/immersx/pull/399) With `use_y_dot` initial conditions, `IDAAdapter` keeps the Jacobian of IDA's first initial-condition pass for its second pass, which IDA starts at the already corrected state. A request after a linear solve, which IDA makes when the iteration converges slowly, still rebuilds the Jacobian. The IRCAD liver tiny and small runs set up two Jacobians instead of three, with unchanged IDA statistics and output.
+
+- [PR #397](https://github.com/luca-heltai/immersx/pull/397) Eliminate the kinematic rows of second-order displacement-velocity pairs before IDA factors the Jacobian with UMFPACK or MUMPS, so the direct solver factors one spatial block per pair instead of two coupled ones. The elastodynamics kinematic rows use the diagonal of the mass instead of the consistent mass, so the Jacobian contains the mass sparsity pattern only once and the kinematic block is inverted entrywise; the solution does not change. The reduced solve is algebraically equivalent; matrices without the kinematic structure keep the monolithic factorization. In Release, the IRCAD liver tiny and small 2 ms runs drop from 10.4 s to 6.3 s and from 24.3 s to 12.1 s; the diagonal kinematic rows lower the tiny and small wall times by another 26% and 17%.
 
 - [PR #387](https://github.com/luca-heltai/immersx/pull/387) Assemble nonlinear lifted residuals and Jacobians by source cell without scanning every local sample for each cell.
 
@@ -310,6 +318,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
+
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Allow fitted-vessel mesh generation in Debug builds and consume its application options before MPI/PETSc initialization.
 
 - [PR #384](https://github.com/luca-heltai/immersx/pull/384) Assemble native vascular pressure cross derivatives from local coefficient stencils when MetricFlowX provides the derivative visitor, avoiding global basis probes for supported discontinuous coupled fields while retaining the general path for other scalar fields and projections.
 
@@ -532,7 +544,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #398](https://github.com/luca-heltai/immersx/pull/398) Document the public-source small liver transient and portable inputs, measured DG2 family sizes and the medium failure, and distinguish ten-cycle completion from periodicity of the coupled solution with reproducible solid-drift and startup plots.
+
 - [PR #394](https://github.com/luca-heltai/immersx/pull/394) Document the liver coupled-initialization diagnostics, native HLL correction, artificial continuation stages and unaccepted VTK interpretation.
+
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Report matched current/fitted-grid manufactured-solution errors before and after the pressure documentation correction, including the coarse-grid regression and the improvement after fitted-mesh refinement.
 
 - [PR #386](https://github.com/luca-heltai/immersx/pull/386) Add reproducible rigid-reference speed and demand-normalized perfusion plots for the separately grown small and medium liver families.
 
@@ -594,6 +610,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Integrate exported manufactured-solution errors with the Q1 geometry Jacobian on fitted hexahedra and check the quadrature against analytical volumes and moments.
 
 - [PR #381](https://github.com/luca-heltai/immersx/pull/381) Count only cycle and mode collections in lifted-elasticity application tests so optional particle output does not fail the record-count check.
 

@@ -1,0 +1,3 @@
+# Copyright (C) 2026 by Luca Heltai
+# SPDX-License-Identifier: Apache-2.0
+matplotlib==3.9.0

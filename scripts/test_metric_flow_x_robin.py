@@ -36,7 +36,7 @@ def data_array(array, tree):
         parts.append(zlib.decompress(compressed[offset:offset+length]))
         offset += length
     raw = b"".join(parts)
-    kind = {"Float32": "f", "Float64": "d", "Int32": "i", "UInt32": "I"}[array.attrib["type"]]
+    kind = {"Float32": "f", "Float64": "d", "Int32": "i", "UInt32": "I", "UInt8": "B"}[array.attrib["type"]]
     values = struct.unpack("<" + kind*(len(raw)//struct.calcsize(kind)), raw)
     assert values and all(math.isfinite(value) for value in values)
     return values

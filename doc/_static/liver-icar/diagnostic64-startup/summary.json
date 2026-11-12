@@ -1,0 +1,130 @@
+{
+  "scope": "Recorded diagnostic64 startup and 50 ms trajectory; no cardiac-cycle, full-family or patient-calibration validation",
+  "date": "2026-11-11",
+  "case": {
+    "terminal_territories_per_role": 64,
+    "background_tetrahedra": 2776,
+    "native_intervals": 541,
+    "coupled_blocks": [
+      15432,
+      15432,
+      5410,
+      1623
+    ],
+    "total_dofs": 37897,
+    "solid_degree": 2,
+    "native_degree": 2,
+    "multiplier_degree": 2,
+    "mpi_ranks": 4
+  },
+  "native": {
+    "commit": "67ac392251baac522955cd0cdb2cbd44ffec4375",
+    "pull_request": "https://github.com/luca-heltai/metric-flow-x/pull/93",
+    "interior_transmission": "flux",
+    "legacy_default": "state"
+  },
+  "runtime_sha256": {
+    "metric_flow_x_elastodynamics": "e65b628859d71e59d0d9fdbbca412046aeff1669bdac3c345b4e50a30e2b0765",
+    "libimmersx_lib.so": "84d008a1ea571798d2abbba43a0d3195853b57f5889b895a66090cb41c19f1c3",
+    "libmetric_flow_x.so": "90ac9e18e0c6a105901c32e55e00e76ae22f44e50703a516b4909d0b17ac0f86"
+  },
+  "consumer_source_app_sha256": "ef2748b54ce558076286ac80a3625b3c92d68a476fd11360baed63f3ba28c979",
+  "native_sdk_manifest_sha256": "9c542d0aa5a40f82d9cbe5021fb7d793f08a65a0501263d0b4ea766dd5e2c701",
+  "original_static_certificate": {
+    "affine_load": 1,
+    "artificial_forcing_scale": 0,
+    "F_l2": 0.0004617626491804694,
+    "correction_WRMS": 1.0102081365780464e-06,
+    "elapsed_affine_s": 261.84019682,
+    "physical_time_s": 7.2,
+    "ydot_zero": true
+  },
+  "standard_IDA_IC": "PASS",
+  "continuation": {
+    "converged_stages": 11,
+    "artificial_forcing_removed_at_load": 1,
+    "correction_norm": "Weighted RMS of the recorded Newton correction; dimensionless solver metric, not a physical solution-error estimator"
+  },
+  "accepted_trajectory": {
+    "initial_time_s": 7.2,
+    "final_time_s": 7.25,
+    "accepted_steps": 10,
+    "reported_final_order": 1,
+    "cumulative_IDA_newton_iterations": 24,
+    "cumulative_IDA_jacobian_setups": 7,
+    "cumulative_IDA_linear_solves": 26,
+    "error_failures": 0,
+    "convergence_failures": 0,
+    "counters_exclude_separate_affine_continuation": true,
+    "record_source": "Six actual IDA output-statistics log records; ida_steps.csv contains only a header"
+  },
+  "standard_startup_followup": {
+    "independent_original_static_certificate_recorded": false,
+    "diagnostic_overrides_unset": true,
+    "accepted_steps": 10,
+    "cumulative_IDA_newton_iterations": 32,
+    "cumulative_IDA_jacobian_setups": 7,
+    "cumulative_IDA_linear_solves": 34,
+    "error_failures": 0,
+    "convergence_failures": 0,
+    "run_log_sha256": "ac62b7f6303cb518f9799ed42157d446d25f8e1230dcdb3fd75aca2e88f2012b"
+  },
+  "DG2_family_setups": [
+    {
+      "family": "small2316",
+      "status": "FINISHED_SETUP_ONLY",
+      "intervals_observed": 14787,
+      "measured_blocks": [
+        12984,
+        12984,
+        147870,
+        44361
+      ],
+      "measured_total_dofs": 218199,
+      "formula_forecast_dofs": 218199,
+      "elapsed_s": 149.10347528010607,
+      "scope": "Setup only, not accepted integration"
+    },
+    {
+      "family": "medium13351",
+      "status": "TIMEOUT",
+      "intervals_observed": 83026,
+      "measured_blocks": [],
+      "measured_total_dofs": null,
+      "formula_forecast_dofs": 1212010,
+      "elapsed_s": 901.9545802883804,
+      "scope": "Setup only, not accepted integration"
+    }
+  ],
+  "source_sha256": {
+    "continuation-stages.csv": "3ede11d412c9c0100d1671a5108328884535e92a40cfbc0d625899bcdf1fa20e",
+    "run.log": "a41180d792564e6f1183ac8e8ba45c75cf771b19f781b9b4308e6d9098ebc764",
+    "result-summary.json": "c4d6e418ca00f09590d05e68b0bf16d6712c5888177bd6e7fc9f5ceec9a32033",
+    "DG2-family-final-receipt.json": "7844355bfc4f8aeb4c98c8cbad12b2b215b8408861cb0870306599c607bf7431"
+  },
+  "plot_data_sha256": {
+    "continuation.csv": "071053a2f4e29bb7e9b97e6eb2ac6885b92e648d7094b9a165924bc3f76f297f",
+    "ida-output.csv": "94ee6a62fdb634e56471e1f9ad1b08eaf9e93d0cb2c73563b040875229a36a3e"
+  },
+  "raw_geometry_and_VTK": "Kept outside the repository; file entrypoints are documented without an unpublished download link.",
+  "recorded_error_controls": {
+    "base_relative_tolerance": 0.001,
+    "base_absolute_tolerances": {
+      "solid_displacement_m": 1e-07,
+      "solid_velocity_m_s": 1e-05,
+      "wall_multiplier_Pa": 0.1,
+      "native_area_fraction_of_minimum_cell_face_reference_area": 0.0001,
+      "native_velocity_m_s": 1e-05,
+      "native_capacitor_pressure_Pa": 0.1
+    },
+    "initial_relative_factor": 10,
+    "initial_absolute_factor": 10,
+    "hold_duration_s": 0.02,
+    "ramp_end_time_s": 7.24,
+    "static_continuation_weights": "Initial-time ramp factors remain10 throughout fixed-time continuation; weights are evaluated at each candidate state",
+    "time_nonlinear_convergence_coefficient": 0.0001,
+    "IDA_IC_nonlinear_convergence_coefficient": 0.0033,
+    "temporal_error_test_excludes_algebraic_variables": true,
+    "WRMS_scope": "Static correction norm includes all components; temporal algebraic exclusion does not imply fieldwise pressure/trace error bounds"
+  }
+}
