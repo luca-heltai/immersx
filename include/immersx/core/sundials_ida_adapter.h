@@ -1454,7 +1454,7 @@ namespace ImmersX
                   &snapshot->derivative_storage,
                   alpha,
                   1000,
-                  1.e-9,
+                  1.e-4,
                   include_schur_primal_coupling_,
                   snapshot.get(),
                   schur_materialization_limit_));
