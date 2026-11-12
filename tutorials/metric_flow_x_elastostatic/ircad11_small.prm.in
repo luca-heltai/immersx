@@ -123,7 +123,7 @@ subsection MetricFlowX coupling
       set Target length factor = 1
       set Lower length factor = .5
       set Upper length factor = 2
-      set Exterior target length (m) = 0
+      set Exterior target length = 0
       set Numerical cell budget = 1000000
     end
   end
