@@ -15,6 +15,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
 
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Add the `fitted_vessel_mesh` application and `scripts/generate_fitted_vessel_meshes.py` to write vessel-fitted cube meshes for the MetricFlowX elastodynamics manufactured solution at user-selected refinement levels.
+
 - [PR #385](https://github.com/luca-heltai/immersx/pull/385) Allow vascular generation to report progress, retain a latest diagnostic three-role VTK checkpoint, and stop cooperatively at completed batch boundaries, returning an explicitly incomplete result.
 
 - [PR #375](https://github.com/luca-heltai/immersx/pull/375) Report actual coupled block DoFs in a setup-only run without initializing or integrating the coupled state.
@@ -315,6 +317,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
 
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Allow fitted-vessel mesh generation in Debug builds and consume its application options before MPI/PETSc initialization.
+
 - [PR #384](https://github.com/luca-heltai/immersx/pull/384) Assemble native vascular pressure cross derivatives from local coefficient stencils when MetricFlowX provides the derivative visitor, avoiding global basis probes for supported discontinuous coupled fields while retaining the general path for other scalar fields and projections.
 
 - [PR #381](https://github.com/luca-heltai/immersx/pull/381) Share retained linear-operator state across callback copies to avoid copying vectors and nested operators during composition.
@@ -540,6 +544,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #394](https://github.com/luca-heltai/immersx/pull/394) Document the liver coupled-initialization diagnostics, native HLL correction, artificial continuation stages and unaccepted VTK interpretation.
 
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Report matched current/fitted-grid manufactured-solution errors before and after the pressure documentation correction, including the coarse-grid regression and the improvement after fitted-mesh refinement.
+
 - [PR #386](https://github.com/luca-heltai/immersx/pull/386) Add reproducible rigid-reference speed and demand-normalized perfusion plots for the separately grown small and medium liver families.
 
 - [PR #380](https://github.com/luca-heltai/immersx/pull/380) Distinguish historical liver setup diagnostics on a fixed network from separately grown CCO families whose terminal counts scale with each background.
@@ -600,6 +606,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #388](https://github.com/luca-heltai/immersx/pull/388) Integrate exported manufactured-solution errors with the Q1 geometry Jacobian on fitted hexahedra and check the quadrature against analytical volumes and moments.
 
 - [PR #381](https://github.com/luca-heltai/immersx/pull/381) Count only cycle and mode collections in lifted-elasticity application tests so optional particle output does not fail the record-count check.
 
