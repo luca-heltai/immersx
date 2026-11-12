@@ -50,6 +50,13 @@ namespace
       TestPaths::output_path(
         "metric-flow-x-elastostatic/last_used_parameters.prm")
         .string());
+    if (!pressure_feedback)
+      {
+        // Extra algebraic fields change IDA's weighted error norm. Tight,
+        // matching controls resolve the independent adaptive trajectories.
+        ida.absolute_tolerance = 1.e-11;
+        ida.relative_tolerance = 1.e-9;
+      }
     flow.setup();
     ElasticStaticProblem<3> solid(parameters);
     solid.setup();
@@ -124,6 +131,132 @@ namespace
           state_dot,
           time,
           ida);
+  }
+  void
+  check_transient(const bool pressure_feedback)
+  {
+    with_coupled_problem(
+      [pressure_feedback](auto &flow,
+                          auto &,
+                          auto       &adapter,
+                          const auto &solid_fields,
+                          const auto &flow_fields,
+                          const auto &wall,
+                          auto       &state,
+                          auto       &state_dot,
+                          const auto &time,
+                          const auto &ida) {
+        auto initial_flow = adapter.field(state, flow_fields.fields().state);
+        unsigned int observations = 0;
+        double       last_time    = time.initial_time;
+        adapter.set_output_step([&](const double        t,
+                                    const GlobalVector &y,
+                                    const GlobalVector &ydot,
+                                    const unsigned int) {
+          auto residual = adapter.make_state();
+          adapter.solver().residual(t, y, ydot, residual);
+          EXPECT_LT(adapter.field(residual, solid_fields.fields().displacement)
+                      .l2_norm(),
+                    1.e-7);
+          EXPECT_LT(adapter.field(residual, wall.fields().multiplier).l2_norm(),
+                    1.e-11);
+          if (!pressure_feedback)
+            {
+              auto native_residual = flow.make_state();
+              flow.assemble_residual(
+                t,
+                adapter.field(y, flow_fields.fields().state),
+                adapter.field(ydot, flow_fields.fields().state),
+                native_residual);
+              native_residual -=
+                adapter.field(residual, flow_fields.fields().state);
+              EXPECT_LT(native_residual.l2_norm(), 1.e-13);
+            }
+          if (t == time.initial_time)
+            {
+              // The zero solid guess cannot balance the nonzero initial load.
+              // IDA must correct it while retaining differential flow data.
+              EXPECT_GT(
+                adapter.field(y, solid_fields.fields().displacement).l2_norm(),
+                1.e-13);
+              EXPECT_GT(adapter.field(y, wall.fields().multiplier).l2_norm(),
+                        1.e-8);
+              const auto &corrected_flow =
+                adapter.field(y, flow_fields.fields().state);
+              for (const auto index : flow.differential_dofs())
+                {
+                  EXPECT_NEAR(corrected_flow[index],
+                              initial_flow[index],
+                              1.e-14);
+                }
+            }
+          last_time = t;
+          ++observations;
+        });
+        auto constraints = std::make_shared<GlobalVector>(adapter.make_state());
+        auto &flow_constraints =
+          adapter.field(*constraints, flow_fields.fields().state);
+        for (const auto component :
+             {Flow::Component::area, Flow::Component::area_trace})
+          for (const auto index : flow.component_dofs(component))
+            flow_constraints[index] = 2.;
+        constraints->compress(VectorOperation::insert);
+        adapter.solver().get_constraint_vector =
+          [constraints]() -> GlobalVector & { return *constraints; };
+        const auto steps = adapter.solve(state, state_dot);
+        EXPECT_GT(steps, 0u);
+        EXPECT_GE(observations, 3u);
+        EXPECT_NEAR(last_time, time.final_time, 1.e-12);
+        auto changed_flow = adapter.field(state, flow_fields.fields().state);
+        changed_flow -= initial_flow;
+        EXPECT_GT(changed_flow.l2_norm(), 1.e-9);
+        EXPECT_GT(
+          adapter.field(state, solid_fields.fields().displacement).l2_norm(),
+          1.e-13);
+        EXPECT_GT(adapter.field(state, wall.fields().multiplier).l2_norm(),
+                  1.e-8);
+        for (const auto index : flow.component_dofs(Flow::Component::area))
+          if (flow.locally_owned_dofs().is_element(index))
+            {
+              EXPECT_GT(adapter.field(state, flow_fields.fields().state)[index],
+                        0.);
+            }
+        if (!pressure_feedback)
+          {
+            // Independent native-flow execution can choose a different adaptive
+            // grid.
+            Adapter native_adapter(time, ida, MPI_COMM_WORLD);
+            native_adapter.set_stop_at_output_times();
+            auto native_description = metric_flow_x(flow);
+#  ifdef DEAL_II_WITH_MUMPS
+            native_description.preconditioner_factory =
+              [](const auto &matrix, const auto &prototype) {
+                return make_mumps_preconditioner<FieldVector>(matrix,
+                                                              prototype,
+                                                              MPI_COMM_WORLD);
+              };
+#  endif
+            const auto native_fields =
+              native_adapter.add(native_description, "native-flow");
+            auto native_state = native_adapter.make_state();
+            auto native_dot   = native_adapter.make_state();
+            flow.initialize_state(
+              native_adapter.field(native_state, native_fields.fields().state),
+              time.initial_time);
+            flow.initialize_state_derivative(
+              native_adapter.field(native_dot, native_fields.fields().state),
+              time.initial_time);
+            const auto native_steps =
+              native_adapter.solve(native_state, native_dot);
+            EXPECT_GT(native_steps, 0u);
+            auto difference = adapter.field(state, flow_fields.fields().state);
+            difference -=
+              native_adapter.field(native_state, native_fields.fields().state);
+            EXPECT_LT(difference.l2_norm(),
+                      2.e-4 * changed_flow.l2_norm() + 2.e-7);
+          }
+      },
+      pressure_feedback);
   }
 } // namespace
 
@@ -263,113 +396,17 @@ TEST(MetricFlowXElastostatic,
 #  ifndef DEAL_II_WITH_VTK
   GTEST_SKIP() << "VTK input requires deal.II with VTK";
 #  else
-  with_coupled_problem(
-    [](auto &flow,
-       auto &,
-       auto       &adapter,
-       const auto &solid_fields,
-       const auto &flow_fields,
-       const auto &wall,
-       auto       &state,
-       auto       &state_dot,
-       const auto &time,
-       const auto &ida) {
-      auto initial_flow = adapter.field(state, flow_fields.fields().state);
-      unsigned int observations = 0;
-      double       last_time    = time.initial_time;
-      adapter.set_output_step([&](const double        t,
-                                  const GlobalVector &y,
-                                  const GlobalVector &ydot,
-                                  const unsigned int) {
-        auto residual = adapter.make_state();
-        adapter.solver().residual(t, y, ydot, residual);
-        EXPECT_LT(
-          adapter.field(residual, solid_fields.fields().displacement).l2_norm(),
-          1.e-7);
-        EXPECT_LT(adapter.field(residual, wall.fields().multiplier).l2_norm(),
-                  1.e-11);
-        auto native_residual = flow.make_state();
-        flow.assemble_residual(t,
-                               adapter.field(y, flow_fields.fields().state),
-                               adapter.field(ydot, flow_fields.fields().state),
-                               native_residual);
-        native_residual -= adapter.field(residual, flow_fields.fields().state);
-        EXPECT_LT(native_residual.l2_norm(), 1.e-13);
-        if (t == time.initial_time)
-          {
-            // The zero solid guess cannot balance the nonzero initial load.
-            // IDA must correct it while retaining differential flow data.
-            EXPECT_GT(
-              adapter.field(y, solid_fields.fields().displacement).l2_norm(),
-              1.e-13);
-            EXPECT_GT(adapter.field(y, wall.fields().multiplier).l2_norm(),
-                      1.e-8);
-            const auto &corrected_flow =
-              adapter.field(y, flow_fields.fields().state);
-            for (const auto index : flow.differential_dofs())
-              EXPECT_NEAR(corrected_flow[index], initial_flow[index], 1.e-14);
-          }
-        last_time = t;
-        ++observations;
-      });
-      auto  constraints = std::make_shared<GlobalVector>(adapter.make_state());
-      auto &flow_constraints =
-        adapter.field(*constraints, flow_fields.fields().state);
-      for (const auto component :
-           {Flow::Component::area, Flow::Component::area_trace})
-        for (const auto index : flow.component_dofs(component))
-          flow_constraints[index] = 2.;
-      constraints->compress(VectorOperation::insert);
-      adapter.solver().get_constraint_vector =
-        [constraints]() -> GlobalVector & { return *constraints; };
-      const auto steps = adapter.solve(state, state_dot);
-      EXPECT_GT(steps, 0u);
-      EXPECT_GE(observations, 3u);
-      EXPECT_NEAR(last_time, time.final_time, 1.e-12);
-      auto changed_flow = adapter.field(state, flow_fields.fields().state);
-      changed_flow -= initial_flow;
-      EXPECT_GT(changed_flow.l2_norm(), 1.e-9);
-      EXPECT_GT(
-        adapter.field(state, solid_fields.fields().displacement).l2_norm(),
-        1.e-13);
-      EXPECT_GT(adapter.field(state, wall.fields().multiplier).l2_norm(),
-                1.e-8);
-      for (const auto index : flow.component_dofs(Flow::Component::area))
-        if (flow.locally_owned_dofs().is_element(index))
-          {
-            EXPECT_GT(adapter.field(state, flow_fields.fields().state)[index],
-                      0.);
-          }
-      // Independent native-flow execution can choose a different adaptive grid.
-      Adapter native_adapter(time, ida, MPI_COMM_WORLD);
-      native_adapter.set_stop_at_output_times();
-      auto native_description                   = metric_flow_x(flow);
-#    ifdef DEAL_II_WITH_MUMPS
-      native_description.preconditioner_factory = [](const auto &matrix,
-                                                     const auto &prototype) {
-        return make_mumps_preconditioner<FieldVector>(matrix,
-                                                      prototype,
-                                                      MPI_COMM_WORLD);
-      };
-#    endif
-      const auto native_fields =
-        native_adapter.add(native_description, "native-flow");
-      auto native_state = native_adapter.make_state();
-      auto native_dot   = native_adapter.make_state();
-      flow.initialize_state(native_adapter.field(native_state,
-                                                 native_fields.fields().state),
-                            time.initial_time);
-      flow.initialize_state_derivative(
-        native_adapter.field(native_dot, native_fields.fields().state),
-        time.initial_time);
-      const auto native_steps = native_adapter.solve(native_state, native_dot);
-      EXPECT_GT(native_steps, 0u);
-      auto difference = adapter.field(state, flow_fields.fields().state);
-      difference -=
-        native_adapter.field(native_state, native_fields.fields().state);
-      EXPECT_LT(difference.l2_norm(), 2.e-4 * changed_flow.l2_norm() + 2.e-7);
-    },
-    false);
+  check_transient(false);
+#  endif
+}
+
+TEST(MetricFlowXElastostatic,
+     BOTH_TwoWayTransientPreservesEquilibriumAndWallConstraint)
+{
+#  ifndef DEAL_II_WITH_VTK
+  GTEST_SKIP() << "VTK input requires deal.II with VTK";
+#  else
+  check_transient(true);
 #  endif
 }
 

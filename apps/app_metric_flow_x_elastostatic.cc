@@ -132,7 +132,12 @@ namespace
     // alone.
     ida_parameters.correction_type_at_initial_time = "use_y_diff";
     ElasticStaticParameters<3> solid_parameters;
-    solid_parameters.domain_parameters.triangulation_type = "fullydistributed";
+    // Keep the bound value and its archived parameter entry in sync.
+    solid_parameters.domain_parameters.enter_my_subsection(
+      ParameterAcceptor::prm);
+    ParameterAcceptor::prm.set("Triangulation type", "fullydistributed");
+    solid_parameters.domain_parameters.leave_my_subsection(
+      ParameterAcceptor::prm);
     WallLift wall_lift("/MetricFlowX vessel wall lift/");
     FiniteElementSpaceParameters<1, 3> lambda_parameters(
       "/MetricFlowX multiplier space/", "auto");

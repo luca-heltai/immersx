@@ -328,7 +328,15 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       set_tests_properties(${_metric_flow_x_serial_test}
                            PROPERTIES LABELS "integration;quick" TIMEOUT 300
                                       RESOURCE_LOCK ImmersX.TestOutput
-                                      ENVIRONMENT "GTEST_FILTER=MetricFlowX.*:MetricFlowXElastostatic.*-*.MPI_*:${_vascular_transfer_filter}")
+                                      ENVIRONMENT "GTEST_FILTER=MetricFlowX.*-*.MPI_*:${_vascular_transfer_filter}")
+      set(_elastostatic_serial_test
+          "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowXElastostatic.Serial")
+      add_test(NAME ${_elastostatic_serial_test}
+               COMMAND $<TARGET_FILE:${_metric_flow_x_test_target}>)
+      set_tests_properties(${_elastostatic_serial_test}
+        PROPERTIES LABELS "integration;quick" TIMEOUT 600
+                   RESOURCE_LOCK ImmersX.TestOutput
+                   ENVIRONMENT "GTEST_FILTER=MetricFlowXElastostatic.BOTH_*")
       find_program(_immersx_mpiexec NAMES mpirun mpiexec)
       if(_immersx_mpiexec)
         set(_metric_flow_x_mpi_test
@@ -340,7 +348,16 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
                              PROPERTIES LABELS "integration;quick;mpi"
                                         TIMEOUT 300 PROCESSORS 2
                                         RESOURCE_LOCK ImmersX.TestOutput
-                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*:MetricFlowXElastostatic.MPI_*:MetricFlowXElastostatic.BOTH_*-${_vascular_transfer_filter}")
+                                        ENVIRONMENT "GTEST_FILTER=MetricFlowX.MPI_*:MetricFlowX.BOTH_*-${_vascular_transfer_filter}")
+        set(_elastostatic_mpi_test
+            "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowXElastostatic.MPI")
+        add_test(NAME ${_elastostatic_mpi_test}
+                 COMMAND ${_immersx_mpiexec} -np 2
+                         $<TARGET_FILE:${_metric_flow_x_test_target}>)
+        set_tests_properties(${_elastostatic_mpi_test}
+          PROPERTIES LABELS "integration;quick;mpi" TIMEOUT 600 PROCESSORS 2
+                     RESOURCE_LOCK ImmersX.TestOutput
+                     ENVIRONMENT "GTEST_FILTER=MetricFlowXElastostatic.BOTH_*:MetricFlowXElastostatic.MPI_*")
         set(_metric_flow_x_rcr_mpi4_test
             "ImmersX${${_build_type}_ctest_suffix}.integration.MetricFlowX.RCR.MPI4")
         add_test(NAME ${_metric_flow_x_rcr_mpi4_test}

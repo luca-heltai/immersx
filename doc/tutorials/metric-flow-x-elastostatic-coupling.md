@@ -135,9 +135,12 @@ type = fullydistributed`, the application default) and keep
 an accepted state at the final time. For example, with two ranks:
 
 ```bash
-mpirun -np 2 build-debug/metric_flow_x_elastostatic_debug   build-debug/tutorials/metric_flow_x_elastostatic/single_vessel.prm   --final-time 0.01 --checkpoint /scratch/run/checkpoint-001
+mpirun -np 2 build-debug/metric_flow_x_elastostatic_debug \
+  build-debug/tutorials/metric_flow_x_elastostatic/single_vessel.prm \
+  --final-time 0.01 --checkpoint /scratch/run/checkpoint-001
 
-mpirun -np 2 build-debug/metric_flow_x_elastostatic_debug   --restart /scratch/run/checkpoint-001 --final-time 0.02
+mpirun -np 2 build-debug/metric_flow_x_elastostatic_debug \
+  --restart /scratch/run/checkpoint-001 --final-time 0.02
 ```
 
 Restart does not read the original parameter file, vessel VTK, or solid

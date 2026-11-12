@@ -63,7 +63,7 @@ TEST(ElasticStaticCheckpoint, BOTH_NativeMeshAndAcceptedDisplacementRoundTrip)
     std::to_string(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD)));
   std::filesystem::create_directories(directory);
   const auto input_mesh =
-    (std::filesystem::path(directory) / "input.msh").string();
+    (std::filesystem::path(directory) / "input.ucd").string();
   const auto checkpoint = (std::filesystem::path(directory) / "solid").string();
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
     {
@@ -73,9 +73,10 @@ TEST(ElasticStaticCheckpoint, BOTH_NativeMeshAndAcceptedDisplacementRoundTrip)
       for (const auto &cell : mesh.active_cell_iterators())
         cell->set_material_id(cell->center()[0] < .5 ? 11 : 17);
       GridOut output;
-      output.set_flags(GridOutFlags::Msh(true, true));
+      // Keep this fixture independent of Gmsh entity conversion.
+      output.set_flags(GridOutFlags::Ucd(false, true, true));
       std::ofstream file(input_mesh);
-      output.write_msh(mesh, file);
+      output.write_ucd(mesh, file);
     }
   MPI_Barrier(MPI_COMM_WORLD);
 
