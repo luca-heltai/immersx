@@ -354,6 +354,12 @@ namespace
     const auto flow_output_directory =
       metric_flow_parameter("Output directory");
     std::filesystem::create_directories(flow_output_directory);
+    // Coupling assembly registers temporary acceptors whose names contain
+    // process addresses. Only application configuration belongs in the archive.
+    std::ostringstream checkpoint_parameters;
+    if (!options.checkpoint.empty())
+      ParameterAcceptor::prm.print_parameters(checkpoint_parameters,
+                                              ParameterHandler::ShortPRM);
     SolidProblem solid_problem(solid_parameters);
     if (restarting)
       solid_problem.setup_from_checkpoint(
@@ -638,10 +644,7 @@ namespace
             Checkpoint::Metadata metadata;
             metadata.ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
             metadata.time  = flow_time.final_time;
-            std::ostringstream parameters;
-            ParameterAcceptor::prm.print_parameters(parameters,
-                                                    ParameterHandler::ShortPRM);
-            metadata.parameters   = parameters.str();
+            metadata.parameters   = checkpoint_parameters.str();
             metadata.reference_fe = reference_view->finite_element().get_name();
             metadata.reference_component =
               reference_field->extractor().component;
