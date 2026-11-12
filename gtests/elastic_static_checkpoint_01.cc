@@ -18,6 +18,7 @@
 #include <sstream>
 #include <vector>
 
+#include "../apps/metric_flow_x_elastostatic_checkpoint.h"
 #include "test_paths.h"
 
 using namespace dealii;
@@ -157,4 +158,120 @@ TEST(ElasticStaticCheckpoint, BOTH_NativeMeshAndAcceptedDisplacementRoundTrip)
   restored.solve();
   saved -= restored.solution();
   EXPECT_LT(saved.l2_norm(), 1.e-9);
+}
+
+
+TEST(ElasticStaticCheckpoint,
+     BOTH_CylindricalMeshAndAcceptedDisplacementRoundTrip)
+{
+  namespace Checkpoint = elastostatic_checkpoint_detail;
+  const auto directory = TestPaths::output_directory(
+    "elastic-static-cylinder-checkpoint-" +
+    std::to_string(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD)));
+  std::filesystem::create_directories(directory);
+  const auto checkpoint = (std::filesystem::path(directory) / "solid").string();
+
+  ParameterAcceptor::clear();
+  ElasticStaticParameters<3> original_parameters("/Cylinder original/");
+  ElasticStaticParameters<3> restored_parameters("/Cylinder restored/");
+  const auto                 configuration = [](const std::string &section) {
+    return "subsection " + section + R"(
+      set FE degree = 2
+      set Dirichlet boundary ids = 0,1,2
+      subsection Domain
+        set Triangulation type = fullydistributed
+        set Grid generator = subdivided_cylinder
+        set Grid generator arguments = 2:0.25:0.5
+        set Initial refinement = 1
+      end
+      subsection Functions
+        subsection Right hand side
+          set Function expression = -6*(1+t);0;0
+          set Variable names = x,y,z,t
+        end
+        subsection Dirichlet boundary conditions
+          set Function expression = (1+t)*(1+x*x);0;0
+          set Variable names = x,y,z,t
+        end
+      end
+      subsection Solver
+        subsection Control
+          set Tolerance = 1.e-13
+          set Reduction = 1.e-13
+        end
+      end
+    end
+  )";
+  };
+  initialize_parameters_from_string(configuration("Cylinder original") +
+                                    configuration("Cylinder restored"));
+  ElasticStaticProblem<3> original(original_parameters);
+  original.setup();
+  const double time = .37;
+  original.update_time(time);
+  original.solve();
+  const auto signature = mesh_signature(original);
+  const auto manifolds =
+    Checkpoint::describe_solid_manifolds(original.triangulation(),
+                                         MPI_COMM_WORLD);
+  original.save_checkpoint(checkpoint);
+
+  ElasticStaticProblem<3> restored(restored_parameters);
+  restored.setup_from_checkpoint(checkpoint, [&](auto &mesh) {
+    Checkpoint::restore_solid_manifolds(mesh, manifolds);
+  });
+  restored.update_time(time);
+  EXPECT_EQ(mesh_signature(restored), signature);
+  FunctionParser<3> exact(3);
+  exact.initialize("x,y,z,t", "(1+t)*(1+x*x);0;0", {}, true);
+  exact.set_time(time);
+  ElasticStaticProblem<3>::VectorType difference;
+  difference.reinit(restored.solution());
+  VectorTools::interpolate(restored.mapping(),
+                           restored.dof_handler(),
+                           exact,
+                           difference);
+  difference -= restored.solution();
+  EXPECT_LT(difference.l2_norm(), 1.e-9);
+}
+
+TEST(ElasticStaticCheckpoint, BOTH_ManifoldConstructorStateAndInactiveIds)
+{
+  namespace Checkpoint = elastostatic_checkpoint_detail;
+  Triangulation<3> mesh;
+  GridGenerator::subdivided_cylinder(mesh, 2, .25, .5);
+  mesh.refine_global(1);
+  Tensor<1, 3> direction, periodicity;
+  direction[0] = 1.;
+  for (unsigned int d = 0; d < 3; ++d)
+    periodicity[d] = 4.;
+  const Point<3> point_on_axis(.125, 0., 0.);
+  mesh.set_manifold(0,
+                    CylindricalManifold<3>(direction, point_on_axis, 4.e-11));
+  mesh.set_manifold(7, FlatManifold<3>(periodicity, 3.e-11));
+  // The active-only ID list must not lose geometry on inactive parents.
+  for (const auto &cell : mesh.cell_iterators())
+    if (cell->has_children())
+      cell->set_manifold_id(7);
+  const auto manifolds =
+    Checkpoint::describe_solid_manifolds(mesh, MPI_COMM_WORLD);
+  EXPECT_TRUE(std::any_of(manifolds.begin(),
+                          manifolds.end(),
+                          [](const auto &value) { return value.id == 7; }));
+
+  Triangulation<3> restored;
+  Checkpoint::restore_solid_manifolds(restored, manifolds);
+  const auto &cylinder =
+    dynamic_cast<const CylindricalManifold<3> &>(restored.get_manifold(0));
+  EXPECT_EQ(cylinder.get_direction(), direction);
+  EXPECT_EQ(cylinder.get_point_on_axis(), point_on_axis);
+  EXPECT_EQ(cylinder.get_tolerance(), 4.e-11);
+  const auto &flat =
+    dynamic_cast<const FlatManifold<3> &>(restored.get_manifold(7));
+  EXPECT_EQ(flat.get_periodicity(), periodicity);
+  EXPECT_EQ(flat.get_tolerance(), 3.e-11);
+
+  mesh.set_manifold(7, SphericalManifold<3>());
+  EXPECT_THROW(Checkpoint::describe_solid_manifolds(mesh, MPI_COMM_WORLD),
+               dealii::ExceptionBase);
 }

@@ -58,6 +58,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -452,10 +453,15 @@ namespace ImmersX
      * Domain parameters must select fullydistributed storage and the same FE
      * as the writer. Manifold objects and refinement policies are not restored;
      * the stored vertices define the linear mapping without further refinement.
+     * The optional restore_geometry callback attaches required manifolds to the
+     * empty mesh on every rank before native reconstruction.
      * Call update_time() with the manifest time before evaluating equilibrium.
      */
     void
-    setup_from_checkpoint(const std::string &filename)
+    setup_from_checkpoint(
+      const std::string &filename,
+      const std::function<void(Triangulation<dim, spacedim> &)>
+        &restore_geometry = {})
     {
       AssertThrow(space_ == nullptr,
                   ExcMessage(
@@ -466,6 +472,8 @@ namespace ImmersX
       auto &mesh = dynamic_cast<
         typename Domain<dim, spacedim>::FullyDistributedTriangulation &>(
         domain_.triangulation());
+      if (restore_geometry)
+        restore_geometry(mesh);
       mesh.load(filename);
       setup_system();
       assemble_system(nullptr);

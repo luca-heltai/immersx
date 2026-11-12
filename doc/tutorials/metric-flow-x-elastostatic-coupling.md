@@ -161,8 +161,11 @@ Boost archives hold the application metadata.
 
 All ranks participate. Restart requires the same MPI rank count,
 algebra backend, deal.II version, and compatible executables and finite
-elements. The fixed linear mapping uses the stored vertices; manifold
-objects and further mesh refinement are not restored. A checkpoint is
+elements. The fixed linear FE mapping uses the stored vertices. Checkpoints
+restore exact `FlatManifold` and `CylindricalManifold` objects from their
+constructor parameters. Other manifold types and custom subclasses are
+rejected when writing a checkpoint. Further mesh refinement is unavailable
+after restart. A checkpoint is
 published by renaming a complete staging directory; existing destinations
 are rejected. Preserve the entire directory when copying it.
 

@@ -363,7 +363,10 @@ namespace
     SolidProblem solid_problem(solid_parameters);
     if (restarting)
       solid_problem.setup_from_checkpoint(
-        (std::filesystem::path(options.restart) / "solid_mesh").string());
+        (std::filesystem::path(options.restart) / "solid_mesh").string(),
+        [&](auto &mesh) {
+          Checkpoint::restore_solid_manifolds(mesh, restored->solid_manifolds);
+        });
     else
       solid_problem.setup();
     solid_problem.update_time(flow_time.initial_time);

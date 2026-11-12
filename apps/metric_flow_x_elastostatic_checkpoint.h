@@ -9,30 +9,71 @@
 
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/grid/manifold_lib.h>
+
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
+#include <boost/serialization/array.hpp>
 #include <boost/serialization/string.hpp>
 #include <boost/serialization/utility.hpp>
 #include <boost/serialization/vector.hpp>
 
 #include <immersx/physics/elastic_static.h>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
+#include <set>
 #include <string>
+#include <tuple>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
 namespace ImmersX::elastostatic_checkpoint_detail
 {
+  struct SolidManifold
+  {
+    enum class Kind
+    {
+      flat,
+      cylindrical
+    };
+
+    dealii::types::manifold_id id   = dealii::numbers::flat_manifold_id;
+    Kind                       kind = Kind::flat;
+    std::array<double, 3>      periodicity{}, direction{}, point{};
+    double                     tolerance = 0.;
+
+    bool
+    operator==(const SolidManifold &other) const
+    {
+      return std::tie(id, kind, periodicity, direction, point, tolerance) ==
+             std::tie(other.id,
+                      other.kind,
+                      other.periodicity,
+                      other.direction,
+                      other.point,
+                      other.tolerance);
+    }
+
+    template <class Archive>
+    void
+    serialize(Archive &archive, const unsigned int)
+    {
+      archive &id &kind &periodicity &direction &point &tolerance;
+    }
+  };
+
   struct Metadata
   {
     std::string  magic          = "ImmersX MetricFlowX elastostatic checkpoint";
-    unsigned int version        = 1;
+    unsigned int version        = 2;
     std::string  dealii_version = DEAL_II_PACKAGE_VERSION;
     unsigned int ranks          = 0;
     double       time           = 0.;
@@ -40,6 +81,7 @@ namespace ImmersX::elastostatic_checkpoint_detail
     std::string  reference_fe;
     unsigned int reference_component = 0;
     std::string  lambda_fe;
+    std::vector<SolidManifold> solid_manifolds;
 
     template <class Archive>
     void
@@ -47,6 +89,8 @@ namespace ImmersX::elastostatic_checkpoint_detail
     {
       archive &magic &version &dealii_version &ranks &time &parameters
         &reference_fe &reference_component &lambda_fe;
+      if (version >= 2)
+        archive &solid_manifolds;
     }
   };
 
@@ -67,6 +111,129 @@ namespace ImmersX::elastostatic_checkpoint_detail
     for (const auto &message : errors)
       AssertThrow(message.empty(),
                   dealii::ExcMessage("Elastostatic checkpoint: " + message));
+  }
+
+  inline std::vector<SolidManifold>
+  describe_solid_manifolds(const dealii::Triangulation<3> &mesh,
+                           const MPI_Comm                  comm)
+  {
+    std::vector<SolidManifold> local;
+    collective_file_operation(comm, [&] {
+      std::set<dealii::types::manifold_id> ids;
+      // Native load reconstructs inactive levels before their children.
+      for (const auto &cell : mesh.cell_iterators())
+        {
+          ids.insert(cell->manifold_id());
+          for (const auto face : cell->face_indices())
+            ids.insert(cell->face(face)->manifold_id());
+          for (unsigned int line = 0; line < cell->n_lines(); ++line)
+            ids.insert(cell->line(line)->manifold_id());
+        }
+      for (const auto id : ids)
+        {
+          SolidManifold descriptor;
+          descriptor.id        = id;
+          const auto &manifold = mesh.get_manifold(id);
+          if (typeid(manifold) == typeid(dealii::FlatManifold<3>))
+            {
+              const auto &flat =
+                static_cast<const dealii::FlatManifold<3> &>(manifold);
+              for (unsigned int d = 0; d < 3; ++d)
+                descriptor.periodicity[d] = flat.get_periodicity()[d];
+              descriptor.tolerance = flat.get_tolerance();
+            }
+          else if (typeid(manifold) == typeid(dealii::CylindricalManifold<3>))
+            {
+              descriptor.kind = SolidManifold::Kind::cylindrical;
+              const auto &cylinder =
+                static_cast<const dealii::CylindricalManifold<3> &>(manifold);
+              for (unsigned int d = 0; d < 3; ++d)
+                {
+                  descriptor.direction[d] = cylinder.get_direction()[d];
+                  descriptor.point[d]     = cylinder.get_point_on_axis()[d];
+                }
+              descriptor.tolerance = cylinder.get_tolerance();
+            }
+          else
+            AssertThrow(
+              false,
+              dealii::ExcMessage(
+                "Solid checkpoints support exact FlatManifold and "
+                "CylindricalManifold objects; unsupported manifold ID " +
+                std::to_string(id) + "."));
+          local.push_back(descriptor);
+        }
+    });
+    std::map<dealii::types::manifold_id, SolidManifold> descriptions;
+    for (const auto &rank : dealii::Utilities::MPI::all_gather(comm, local))
+      for (const auto &descriptor : rank)
+        {
+          const auto inserted = descriptions.emplace(descriptor.id, descriptor);
+          AssertThrow(
+            inserted.second || inserted.first->second == descriptor,
+            dealii::ExcMessage(
+              "Solid manifold descriptions differ between MPI ranks."));
+        }
+    std::vector<SolidManifold> result;
+    for (const auto &entry : descriptions)
+      result.push_back(entry.second);
+    return result;
+  }
+
+  inline void
+  restore_solid_manifolds(dealii::Triangulation<3>         &mesh,
+                          const std::vector<SolidManifold> &descriptions)
+  {
+    AssertThrow(
+      mesh.n_cells() == 0 && !descriptions.empty(),
+      dealii::ExcMessage(
+        "Restore solid manifolds before loading the checkpoint mesh."));
+    std::set<dealii::types::manifold_id> ids;
+    for (const auto &descriptor : descriptions)
+      {
+        AssertThrow(ids.insert(descriptor.id).second &&
+                      std::isfinite(descriptor.tolerance) &&
+                      descriptor.tolerance > 0.,
+                    dealii::ExcMessage("Invalid solid manifold description."));
+        if (descriptor.kind == SolidManifold::Kind::flat)
+          {
+            dealii::Tensor<1, 3> periodicity;
+            for (unsigned int d = 0; d < 3; ++d)
+              {
+                AssertThrow(std::isfinite(descriptor.periodicity[d]) &&
+                              descriptor.periodicity[d] >= 0.,
+                            dealii::ExcMessage(
+                              "Invalid flat manifold periodicity."));
+                periodicity[d] = descriptor.periodicity[d];
+              }
+            if (descriptor.id != dealii::numbers::flat_manifold_id)
+              mesh.set_manifold(descriptor.id,
+                                dealii::FlatManifold<3>(periodicity,
+                                                        descriptor.tolerance));
+          }
+        else if (descriptor.kind == SolidManifold::Kind::cylindrical)
+          {
+            dealii::Tensor<1, 3> direction;
+            dealii::Point<3>     point;
+            for (unsigned int d = 0; d < 3; ++d)
+              {
+                AssertThrow(std::isfinite(descriptor.direction[d]) &&
+                              std::isfinite(descriptor.point[d]),
+                            dealii::ExcMessage(
+                              "Invalid cylindrical manifold axis."));
+                direction[d] = descriptor.direction[d];
+                point[d]     = descriptor.point[d];
+              }
+            AssertThrow(direction.norm() > 0.,
+                        dealii::ExcMessage("Empty cylindrical manifold axis."));
+            mesh.set_manifold(descriptor.id,
+                              dealii::CylindricalManifold<3>(
+                                direction, point, descriptor.tolerance));
+          }
+        else
+          AssertThrow(false,
+                      dealii::ExcMessage("Unsupported solid manifold kind."));
+      }
   }
 
   using Manifest = std::vector<std::pair<std::string, std::uintmax_t>>;
@@ -110,7 +277,8 @@ namespace ImmersX::elastostatic_checkpoint_detail
       archive >> metadata;
     });
     metadata = dealii::Utilities::MPI::broadcast(comm, metadata, 0);
-    AssertThrow(metadata.magic == Metadata().magic && metadata.version == 1,
+    AssertThrow(metadata.magic == Metadata().magic &&
+                  metadata.version == Metadata().version,
                 dealii::ExcMessage("Unsupported coupled checkpoint version."));
     AssertThrow(metadata.dealii_version == DEAL_II_PACKAGE_VERSION,
                 dealii::ExcMessage("Checkpoint deal.II version differs."));
@@ -187,8 +355,10 @@ namespace ImmersX::elastostatic_checkpoint_detail
                   "Checkpoint times differ between MPI ranks."));
     metadata.ranks          = dealii::Utilities::MPI::n_mpi_processes(comm);
     metadata.magic          = Metadata().magic;
-    metadata.version        = 1;
+    metadata.version        = Metadata().version;
     metadata.dealii_version = DEAL_II_PACKAGE_VERSION;
+    metadata.solid_manifolds =
+      describe_solid_manifolds(solid.triangulation(), comm);
     const std::filesystem::path destination(directory);
     const std::filesystem::path staging(directory + ".incomplete");
     collective_file_operation(comm, [&] {
