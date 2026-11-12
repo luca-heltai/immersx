@@ -13,7 +13,8 @@
 #  include <immersx/algebra/mumps_preconditioner.h>
 #  include <immersx/core/overlap_integration_support.h>
 #  include <immersx/core/sundials_ida_adapter.h>
-#  include <immersx/io/imported_finite_element_fields.h>
+#  include <immersx/grid/lift_co_refinement.h>
+#  include <immersx/io/lifted_particle_output.h>
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastic_static_semidiscrete.h>
 #  include <immersx/physics/metric_flow_x.h>
@@ -32,7 +33,9 @@ namespace
 
   template <typename Check>
   void
-  with_coupled_problem(Check check, const bool pressure_feedback = true)
+  with_coupled_problem(Check      check,
+                       const bool pressure_feedback = true,
+                       const bool co_refine         = false)
   {
     ParameterAcceptor::clear();
     Flow                   flow(MPI_COMM_WORLD);
@@ -42,6 +45,12 @@ namespace
     TensorProductLift<1, 2, 3, 3> wall_lift("/MetricFlowX vessel wall lift/");
     FiniteElementSpaceParameters<1, 3> multiplier_parameters(
       "/MetricFlowX multiplier space/", "auto");
+    ParameterAcceptor coupling("/MetricFlowX coupling/");
+    double            pressure_tolerance = 0.;
+    coupling.add_parameter("Wall pressure absolute tolerance",
+                           pressure_tolerance);
+    LiftedParticleOutputParameters particle_output(
+      "/MetricFlowX coupling/Particle output/");
     const auto input = TestPaths::parameter_path(
       "gtests/parameters/metric_flow_x_elastostatic.prm");
     initialize_parameters(input);
@@ -57,21 +66,96 @@ namespace
         ida.absolute_tolerance = 1.e-11;
         ida.relative_tolerance = 1.e-9;
       }
-    flow.setup();
+    if (co_refine)
+      {
+        time.final_time                                 = 0.0002;
+        time.output_time_interval                       = 0.0001;
+        pressure_tolerance                              = 1.e-7;
+        parameters.domain_parameters.triangulation_type = "fullydistributed";
+      }
     ElasticStaticProblem<3> solid(parameters);
-    solid.setup();
+    DomainParameters<1, 3>  flow_domain_parameters("/Co-refinement test flow/");
+    flow_domain_parameters.name_of_grid =
+      TestPaths::data_filename("metric_flow_x/single_vessel_centered.vtk");
+    flow_domain_parameters.read_vtk_fields = true;
+    Domain<1, 3> flow_domain(flow_domain_parameters, flow.triangulation());
+    if (co_refine)
+      {
+        RefinementParameters<1> refinement("/Co-refinement test/");
+        refinement.refinement_strategy  = "both";
+        refinement.lower_factor         = 0.000001;
+        refinement.upper_factor         = 0.001;
+        refinement.max_refinement_level = 1;
+        flow.setup([&](const auto &coarse, const unsigned int level) {
+          flow_domain_parameters.initial_refinement = level;
+          flow_domain.prepare_grid(coarse);
+          solid.make_grid([&](auto &solid_domain) {
+            solid_domain.prepare_grid();
+            auto &mesh = solid_domain.refinement_triangulation();
+            mesh.set_mesh_smoothing(
+              Triangulation<3>::limit_level_difference_at_vertices);
+            mesh.begin_active()->set_refine_flag();
+            mesh.execute_coarsening_and_refinement();
+            const auto report = co_refine_lifted_domains(
+              solid_domain,
+              flow_domain,
+              wall_lift,
+              refinement,
+              [&](const CellId &cell, const Point<1> &unit) {
+                const double area =
+                  flow_domain.prepared_field_value("a0", cell, unit);
+                EXPECT_NEAR(area, 3.0605e-4, 1.e-14);
+                return std::sqrt(area / numbers::PI);
+              },
+              2);
+            EXPECT_GT(report.fluid_cells, report.initial_fluid_cells);
+            EXPECT_EQ(report.section_level, 2u);
+          });
+        });
+        solid.setup_fe();
+        EXPECT_EQ(Utilities::MPI::max(
+                    solid.triangulation().has_hanging_nodes() ? 1u : 0u,
+                    MPI_COMM_WORLD),
+                  1u);
+        EXPECT_GT(solid.constraints().n_constraints(), 0u);
+      }
+    else
+      {
+        flow.setup([&](const auto &coarse, const unsigned int level) {
+          flow_domain_parameters.initial_refinement = level;
+          flow_domain.prepare_grid(coarse);
+          flow_domain.finalize_grid();
+        });
+        solid.setup();
+      }
     multiplier_parameters.finite_element =
       "FE_DGQ(" + std::to_string(flow.finite_element().base_element(0).degree) +
       ")";
-    FiniteElementSpace<1, 3>          multiplier_space(flow.triangulation(),
+    FiniteElementSpace<1, 3> multiplier_space(flow.triangulation(),
                                               multiplier_parameters);
-    const auto                        lambda_view = multiplier_space.view();
-    const auto                        lambda      = lambda_view.field("lambda");
-    ImportedFiniteElementFields<1, 3> imported(
-      TestPaths::data_filename("metric_flow_x/single_vessel_centered.vtk"),
-      flow.triangulation(),
-      MPI_COMM_WORLD);
-    const auto a0 = imported.field("a0");
+    const auto               lambda_view = multiplier_space.view();
+    const auto               lambda      = lambda_view.field("lambda");
+    const auto               a0          = flow_domain.field("a0");
+    if (co_refine)
+      {
+        const auto          reference = a0.space();
+        FEValues<1, 3>      values(reference.mapping(),
+                              reference.finite_element(),
+                              QGauss<1>(2),
+                              update_values);
+        std::vector<double> areas(2);
+        for (const auto &cell : reference.dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              values.reinit(cell);
+              values[a0.field().extractor()].get_function_values(
+                a0.coefficients(), areas);
+              for (const auto area : areas)
+                {
+                  EXPECT_NEAR(area, 3.0605e-4, 1.e-14);
+                }
+            }
+      }
     const auto radius =
       sqrt(frozen(a0.field(), a0.coefficients()) / numbers::PI);
     const auto          reference_wall = lift(value(lambda), wall_lift, radius);
@@ -114,6 +198,9 @@ namespace
                                             flow_fields.fields().state},
                                     pressure_feedback),
       "wall");
+    if (pressure_tolerance > 0.)
+      adapter.set_absolute_tolerance(wall.fields().multiplier,
+                                     pressure_tolerance);
     auto state     = adapter.make_state();
     auto state_dot = adapter.make_state();
     flow.initialize_state(adapter.field(state, flow_fields.fields().state),
@@ -133,7 +220,7 @@ namespace
           ida);
   }
   void
-  check_transient(const bool pressure_feedback)
+  check_transient(const bool pressure_feedback, const bool co_refine = false)
   {
     with_coupled_problem(
       [pressure_feedback](auto &flow,
@@ -256,7 +343,8 @@ namespace
                       2.e-4 * changed_flow.l2_norm() + 2.e-7);
           }
       },
-      pressure_feedback);
+      pressure_feedback,
+      co_refine);
   }
 } // namespace
 
@@ -407,6 +495,16 @@ TEST(MetricFlowXElastostatic,
   GTEST_SKIP() << "VTK input requires deal.II with VTK";
 #  else
   check_transient(true);
+#  endif
+}
+
+TEST(MetricFlowXElastostatic,
+     BOTH_CoRefinedTransientPreservesEquilibriumAndWallConstraint)
+{
+#  ifndef DEAL_II_WITH_VTK
+  GTEST_SKIP() << "VTK input requires deal.II with VTK";
+#  else
+  check_transient(true, true);
 #  endif
 }
 

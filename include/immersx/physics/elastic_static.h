@@ -413,11 +413,45 @@ namespace ImmersX
     void
     setup()
     {
+      make_grid();
+      setup_fe();
+    }
+
+    /** Create the mesh before attaching finite element spaces.
+     *
+     * An optional initialization policy may prepare, co-refine and finalize
+     * the Domain with another mesh. It must leave the Domain finalized.
+     */
+    void
+    make_grid(
+      const std::function<void(Domain<dim, spacedim> &)> &initialize = {})
+    {
+      AssertThrow(space_ == nullptr &&
+                    domain_.triangulation().n_global_active_cells() == 0,
+                  ExcMessage(
+                    "Static elasticity mesh may only be created once."));
+      if (initialize)
+        initialize(domain_);
+      else
+        domain_.make_grid();
+      AssertThrow(!domain_.grid_is_prepared() &&
+                    domain_.triangulation().n_global_active_cells() > 0,
+                  ExcMessage(
+                    "The grid policy must finalize the solid Domain."));
+    }
+
+    /** Create DoFs, constraints, stiffness and vectors on the finalized mesh.
+     */
+    void
+    setup_fe()
+    {
       AssertThrow(space_ == nullptr,
                   ExcMessage(
-                    "ElasticStaticProblem::setup() may only be called once."));
-
-      domain_.make_grid();
+                    "Static elasticity FE setup may only be called once."));
+      AssertThrow(!domain_.grid_is_prepared() &&
+                    domain_.triangulation().n_global_active_cells() > 0,
+                  ExcMessage(
+                    "Call make_grid() before static elasticity FE setup."));
       setup_system();
       assemble_system(nullptr);
     }

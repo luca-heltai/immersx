@@ -28,6 +28,7 @@
 #  include <immersx/core/overlap_integration_support.h>
 #  include <immersx/core/sundials_ida_adapter.h>
 #  include <immersx/core/weak_term.h>
+#  include <immersx/grid/lift_co_refinement.h>
 #  include <immersx/io/lifted_particle_output.h>
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastic_static_semidiscrete.h>
@@ -220,6 +221,23 @@ namespace
       stop_at_output_times,
       "Take an internal IDA step at saved times to retain nonlinear wall compatibility.");
 
+    RefinementParameters<1> co_refinement(
+      "/MetricFlowX coupling/Co-refinement/");
+    co_refinement.enter_my_subsection(ParameterAcceptor::prm);
+    ParameterAcceptor::prm.set("Refinement strategy", "both");
+    co_refinement.leave_my_subsection(ParameterAcceptor::prm);
+    bool enable_co_refinement = false;
+    co_refinement.add_parameter(
+      "Enabled",
+      enable_co_refinement,
+      "Co-refine solid and fluid on physical lift supports before creating FE spaces.");
+    unsigned int maximum_section_level = 10;
+    co_refinement.add_parameter(
+      "Max section refinement level",
+      maximum_section_level,
+      "Limit circumferential refinement independently of the solid/fluid mesh level cap.");
+    std::optional<LiftCoRefinementReport> co_refinement_report;
+
     const bool                          restarting = !options.restart.empty();
     std::optional<Checkpoint::Metadata> restored;
     if (restarting)
@@ -378,8 +396,71 @@ namespace
         [&](auto &mesh) {
           Checkpoint::restore_solid_manifolds(mesh, restored->solid_manifolds);
         });
-    else
+    else if (!enable_co_refinement)
       solid_problem.setup();
+    std::unique_ptr<Domain<1, 3>> flow_domain;
+    if (!restarting)
+      {
+        flow_domain_parameters.name_of_grid =
+          metric_flow_parameter("Vtk file path for mesh input");
+        flow_domain_parameters.read_vtk_fields = true;
+        flow_domain =
+          std::make_unique<Domain<1, 3>>(flow_domain_parameters,
+                                         flow_problem.triangulation());
+        flow_problem.setup(
+          [&](const auto &coarse_mesh, const unsigned int refinement) {
+            flow_domain_parameters.initial_refinement = refinement;
+            flow_domain->prepare_grid(coarse_mesh);
+            if (enable_co_refinement)
+              solid_problem.make_grid([&](auto &solid_domain) {
+                solid_domain.prepare_grid();
+                solid_domain.refinement_triangulation().set_mesh_smoothing(
+                  Triangulation<3>::limit_level_difference_at_vertices);
+                co_refinement_report = co_refine_lifted_domains(
+                  solid_domain,
+                  *flow_domain,
+                  wall_lift,
+                  co_refinement,
+                  [&](const CellId &cell, const Point<1> &unit) {
+                    const double area =
+                      flow_domain->prepared_field_value("a0", cell, unit);
+                    AssertThrow(std::isfinite(area) && area > 0.,
+                                ExcMessage("Reference a0 must be positive."));
+                    return std::sqrt(area / numbers::PI);
+                  },
+                  maximum_section_level);
+              });
+            else
+              flow_domain->finalize_grid();
+          });
+      }
+    else
+      lambda_parameters.finite_element = restored->lambda_fe;
+    if (!restarting && enable_co_refinement)
+      solid_problem.setup_fe();
+    // Co-refinement can increase the section level after the initial snapshot.
+    // Persist this resolved value without printing runtime ParameterAcceptors.
+    prm.enter_subsection("MetricFlowX vessel wall lift");
+    prm.enter_subsection("Cross section");
+    prm.set("Refinement level",
+            std::to_string(wall_lift.section.refinement_level));
+    prm.leave_subsection();
+    prm.leave_subsection();
+    if (!options.checkpoint.empty())
+      checkpoint_parameters
+        << "\nsubsection MetricFlowX vessel wall lift\n"
+        << "  subsection Cross section\n"
+        << "    set Refinement level = " << wall_lift.section.refinement_level
+        << "\n  end\nend\n";
+    if (co_refinement_report &&
+        Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      std::cout << "Co-refinement solid cells: "
+                << co_refinement_report->initial_solid_cells << " -> "
+                << co_refinement_report->solid_cells << "; fluid cells: "
+                << co_refinement_report->initial_fluid_cells << " -> "
+                << co_refinement_report->fluid_cells
+                << "; section level: " << co_refinement_report->section_level
+                << std::endl;
     solid_problem.update_time(flow_time.initial_time);
     // A complete vector Dirichlet face or a positive Robin spring on a face
     // removes rigid motion on a connected solid. Imported disconnected
@@ -421,24 +502,6 @@ namespace
                   "Robin face with positive initial spring coefficient to "
                   "anchor solid rigid motion."));
 
-    std::unique_ptr<Domain<1, 3>> flow_domain;
-    if (!restarting)
-      {
-        flow_domain_parameters.name_of_grid =
-          metric_flow_parameter("Vtk file path for mesh input");
-        flow_domain_parameters.read_vtk_fields = true;
-        flow_domain =
-          std::make_unique<Domain<1, 3>>(flow_domain_parameters,
-                                         flow_problem.triangulation());
-        flow_problem.setup(
-          [&](const auto &coarse_mesh, const unsigned int refinement) {
-            flow_domain_parameters.initial_refinement = refinement;
-            flow_domain->prepare_grid(coarse_mesh);
-            flow_domain->finalize_grid();
-          });
-      }
-    else
-      lambda_parameters.finite_element = restored->lambda_fe;
     if (lambda_parameters.finite_element == "auto")
       lambda_parameters.finite_element =
         "FE_DGQ(" +

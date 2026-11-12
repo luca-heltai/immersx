@@ -24,6 +24,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X AND DEAL_II_WITH_SUNDIALS)
         "-DTEST_EXECUTABLE=$<TARGET_FILE:metric_flow_x_elastostatic${${_build_type}_postfix}>"
         "-DPARAMETER_FILE=${_parameter}"
         "-DOUTPUT_DIRECTORY=${TEST_OUTPUT_DIR}/metric-flow-x-elastostatic"
+        "-DPARTICLE_PROPERTIES=weight,mode_values,modal_coefficients,lifted_value,modal_data,representative_point,radius,indices,bulk_field"
+        "-DPYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
+        "-DPARTICLE_CHECKER=${CMAKE_SOURCE_DIR}/scripts/lifted_particle_output_checks.py"
         "-DEXPECTED_TIMES=0;0.001;0.002"
         -DAPPLICATION_TIMEOUT=300 ${_mpi_args}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_coupled.cmake")
@@ -40,6 +43,15 @@ if(IMMERSX_WITH_METRIC_FLOW_X AND DEAL_II_WITH_SUNDIALS)
         --parameter "${_parameter}" --output-directory "${TEST_OUTPUT_DIR}/restart"
         --feedback both ${_restart_args})
       set_tests_properties("${_restart_name}" PROPERTIES LABELS "${_labels}"
+        TIMEOUT 1200 PROCESSORS ${_processors} RESOURCE_LOCK ImmersX.TestOutput
+        SKIP_RETURN_CODE 77)
+      set(_refined_restart_name "ImmersX${${_build_type}_ctest_suffix}.application.MetricFlowXElastostatic.Restart.CoRefinement.${_mode}")
+      add_test(NAME "${_refined_restart_name}" COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_elastostatic_restart.py"
+        --executable "$<TARGET_FILE:metric_flow_x_elastostatic${${_build_type}_postfix}>"
+        --parameter "${_parameter}" --output-directory "${TEST_OUTPUT_DIR}/refined-restart"
+        --co-refinement --feedback one-way ${_restart_args})
+      set_tests_properties("${_refined_restart_name}" PROPERTIES LABELS "${_labels}"
         TIMEOUT 1200 PROCESSORS ${_processors} RESOURCE_LOCK ImmersX.TestOutput
         SKIP_RETURN_CODE 77)
       set(TEST_OUTPUT_DIR "${_saved_output}")

@@ -90,6 +90,19 @@ def check_mode(args, base_text, original_vtk, feedback):
              f"  set Pressure feedback = {'true' if feedback else 'false'}\n"
              "  set Wall pressure absolute tolerance = 1e-7\n"
              "end\n")
+    final_time = "0.002"
+    split_time = "0.001"
+    if args.co_refinement:
+        text += ("\nsubsection MetricFlowX coupling\n"
+                 "  subsection Co-refinement\n"
+                 "    set Enabled = true\n"
+                 "    set Refinement strategy = both\n"
+                 "    set Lower factor = 0.000001\n"
+                 "    set Upper factor = 0.001\n"
+                 "    set Max refinement level = 1\n"
+                 "    set Space post-refinement cycles = 1\n"
+                 "    set Max section refinement level = 2\n"
+                 "  end\nend\n")
     command = [str(args.executable)]
     if args.mpiexec:
         command = [str(args.mpiexec), "-np", str(args.ranks)] + command
@@ -97,17 +110,29 @@ def check_mode(args, base_text, original_vtk, feedback):
     full_directory.mkdir()
     source_parameter.write_text(set_entry(text, "Output directory", full_directory))
     full_state = full_directory / "state.txt"
-    run(command + [str(source_parameter), "--final-time", "0.002"],
+    run(command + [str(source_parameter), "--final-time", final_time],
         full_state, full_directory / "run.log", args.timeout)
     split_directory = directory / "split"
     split_directory.mkdir()
     source_parameter.write_text(set_entry(text, "Output directory", split_directory))
     checkpoint = directory / "checkpoint"
-    run(command + [str(source_parameter), "--final-time", "0.001",
+    run(command + [str(source_parameter), "--final-time", split_time,
                    "--checkpoint", str(checkpoint)],
         split_directory / "state.txt", split_directory / "first.log", args.timeout)
     if not checkpoint.is_dir() or not any(checkpoint.iterdir()):
         raise AssertionError(f"No checkpoint files were created: {checkpoint}")
+    if args.co_refinement:
+        first_log = (split_directory / "first.log").read_text()
+        report = re.search(r"Co-refinement solid cells: (\d+) -> (\d+); fluid cells: (\d+) -> (\d+); section level: (\d+)", first_log)
+        if report is None:
+            raise AssertionError("Missing co-refinement report")
+        solid_before, solid_after, flow_before, flow_after, section = map(int, report.groups())
+        if solid_after <= solid_before or flow_after <= flow_before or section != 2:
+            raise AssertionError("Regression did not refine both meshes and the section")
+        metadata = (checkpoint / "coupled.bin").read_bytes()
+        override = f"set Refinement level = {section}\n".encode()
+        if override not in metadata:
+            raise AssertionError("Checkpoint lacks the resolved section-level override")
     full_blocks = read_state(full_state)
     split_blocks = read_state(split_directory / "state.txt")
     if any(len(a) != len(b) for a, b in zip(full_blocks, split_blocks)):
@@ -122,10 +147,12 @@ def check_mode(args, base_text, original_vtk, feedback):
     source_vtk.unlink()
     input_directory.rmdir()
     restarted_state = split_directory / "restarted-state.txt"
-    run(command + ["--restart", str(checkpoint), "--final-time", "0.002"],
+    run(command + ["--restart", str(checkpoint), "--final-time", final_time],
         restarted_state, split_directory / "restart.log", args.timeout)
     if source_parameter.exists() or source_vtk.exists():
         raise AssertionError("Restart unexpectedly recreated the removed input files")
+    if args.co_refinement and "Co-refinement solid cells:" in (split_directory / "restart.log").read_text():
+        raise AssertionError("Restart unexpectedly repeated co-refinement")
     compare_states(split_directory / "state.txt",
                    Path(str(restarted_state) + ".initial"), mode + " restored",
                    absolute=1e-12, relative=1e-12)
@@ -140,6 +167,7 @@ def main():
     parser.add_argument("--mpiexec", type=Path)
     parser.add_argument("--ranks", type=int, default=2)
     parser.add_argument("--timeout", type=float, default=600)
+    parser.add_argument("--co-refinement", action="store_true", help="Exercise refined native meshes and resolved section checkpoint data")
     parser.add_argument("--feedback", choices=("one-way", "two-way", "both"), default="both")
     args = parser.parse_args()
     args.executable = args.executable.resolve()
