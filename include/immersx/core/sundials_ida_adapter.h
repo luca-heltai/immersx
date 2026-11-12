@@ -325,6 +325,7 @@ namespace ImmersX
       current_state_          = &state;
       accumulated_statistics_ = {};
       jacobian_setups_ = linear_solves_ = restarts_ = weight_evaluations_ = 0;
+      initial_condition_jacobian_time_.reset();
       if (compute_consistent_initial_conditions_ &&
           additional_data().ic_type == AdditionalData::use_y_diff)
         {
@@ -619,6 +620,7 @@ namespace ImmersX
                               const GlobalVectorType &state_dot,
                               GlobalVectorType       &residual) {
         dealii::TimerOutput::Scope timer(computing_timer, "Evaluate residual");
+        solved_since_residual_ = false;
         composition_.evaluate_residual(time, state, &state_dot, residual);
         // Let IDA reject a nonfinite trial instead of using it to construct a
         // Newton correction. All ranks must report the same callback status.
@@ -643,6 +645,7 @@ namespace ImmersX
                                          GlobalVectorType       &dst,
                                          const double            tolerance) {
         ++linear_solves_;
+        solved_since_residual_ = true;
         dealii::TimerOutput::Scope timer(computing_timer, "Linear solve");
         AssertThrow(current_jacobian_.has_value(),
                     dealii::ExcMessage("IDA requested a solve without a "
@@ -833,6 +836,7 @@ namespace ImmersX
           {
             accumulated_statistics_ = statistics();
             ++restarts_;
+            initial_condition_jacobian_time_.reset();
           }
         if (restart && compute_consistent_initial_conditions_ &&
             additional_data().reset_type == AdditionalData::use_y_diff)
@@ -995,7 +999,25 @@ namespace ImmersX
                      const GlobalVectorType &state_dot,
                      const double            alpha)
     {
+      // With `use_y_dot`, IDACalcIC solves F(t0, y, y') = 0 for y with alpha
+      // = 0. After the first correction pass it resets the error weights and
+      // runs a second pass, which evaluates the residual at the converged
+      // state and requests a new Jacobian before its first solve. Keep the
+      // first-pass Jacobian for that pass, as IDA's modified Newton iteration
+      // does within a pass; the convergence test still uses the residual at
+      // the current state. A request that follows a solve signals slow
+      // convergence and always rebuilds the Jacobian.
+      if (alpha == 0. && !solved_since_residual_ &&
+          current_jacobian_.has_value() &&
+          initial_condition_jacobian_time_ == time)
+        {
+          pcout << "IDAAdapter: reusing the initial-condition Jacobian for "
+                   "IDA's second correction pass."
+                << std::endl;
+          return;
+        }
       ++jacobian_setups_;
+      initial_condition_jacobian_time_.reset();
       dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
       const bool                 retain_matrices = !solve_;
       const auto                 snapshot =
@@ -1196,6 +1218,8 @@ namespace ImmersX
               current_solver_is_flexible_ = composition_.n_fields() > 1;
             }
         }
+      if (alpha == 0.)
+        initial_condition_jacobian_time_ = time;
     }
 
     std::vector<std::pair<FieldId, std::function<void(FieldVectorType &)>>>
@@ -1229,7 +1253,9 @@ namespace ImmersX
     RestartFunction                     solver_should_restart_;
     GlobalVectorType                   *current_state_              = nullptr;
     bool                                current_solver_is_flexible_ = false;
-    bool                                connected_                  = false;
+    bool                                solved_since_residual_      = false;
+    std::optional<double>               initial_condition_jacobian_time_;
+    bool                                connected_                     = false;
     bool                                include_schur_primal_coupling_ = false;
     unsigned int                        schur_materialization_limit_   = 0;
   };
