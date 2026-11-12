@@ -219,6 +219,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #399](https://github.com/luca-heltai/immersx/pull/399) With `use_y_dot` initial conditions, `IDAAdapter` keeps the Jacobian of IDA's first initial-condition pass for its second pass, which IDA starts at the already corrected state. A request after a linear solve, which IDA makes when the iteration converges slowly, still rebuilds the Jacobian. The IRCAD liver tiny and small runs set up two Jacobians instead of three, with unchanged IDA statistics and output.
+
 - [PR #387](https://github.com/luca-heltai/immersx/pull/387) Assemble nonlinear lifted residuals and Jacobians by source cell without scanning every local sample for each cell.
 
 - [PR #374](https://github.com/luca-heltai/immersx/pull/374) A legacy `Representative domain/Inclusions file` reads the radius column only with `Thickness = radius`. Previously the exact default string `0.01` meant the radius column and any other spelling of the same number was a constant.
