@@ -609,6 +609,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Check lifted wall particle collections, selected quantities, geometry, and traction using a reusable standard-library Python checker.
+
 - [PR #388](https://github.com/luca-heltai/immersx/pull/388) Integrate exported manufactured-solution errors with the Q1 geometry Jacobian on fitted hexahedra and check the quadrature against analytical volumes and moments.
 
 - [PR #381](https://github.com/luca-heltai/immersx/pull/381) Count only cycle and mode collections in lifted-elasticity application tests so optional particle output does not fail the record-count check.
