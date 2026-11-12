@@ -54,8 +54,10 @@ namespace
     adapter.solve(state, state_dot);
     const auto output = testing::internal::GetCapturedStdout();
     if (solver && Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      EXPECT_NE(output.find("after second-order condensation"),
-                std::string::npos);
+      {
+        EXPECT_NE(output.find("after second-order condensation"),
+                  std::string::npos);
+      }
     EXPECT_GT(adapter.statistics().steps, 0);
     FunctionParser<3> exact(3);
     exact.initialize("x,y,z,t", "(1+t*t*t)*(1+x*x);0;0", {}, true);

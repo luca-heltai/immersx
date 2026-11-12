@@ -229,8 +229,8 @@ namespace
   check_transient(const bool pressure_feedback, const bool co_refine = false)
   {
     with_coupled_problem(
-      [pressure_feedback](auto &flow,
-                          auto &,
+      [pressure_feedback](auto       &flow,
+                          auto       &solid,
                           auto       &adapter,
                           const auto &solid_fields,
                           const auto &flow_fields,
