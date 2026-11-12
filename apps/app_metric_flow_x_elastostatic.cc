@@ -640,7 +640,7 @@ namespace
             metadata.time  = flow_time.final_time;
             std::ostringstream parameters;
             ParameterAcceptor::prm.print_parameters(parameters,
-                                                    ParameterHandler::Short);
+                                                    ParameterHandler::ShortPRM);
             metadata.parameters   = parameters.str();
             metadata.reference_fe = reference_view->finite_element().get_name();
             metadata.reference_component =
@@ -677,10 +677,7 @@ main(int argc, char *argv[])
 {
   try
     {
-      dealii::Utilities::MPI::MPI_InitFinalize mpi_initialization(argc,
-                                                                  argv,
-                                                                  1);
-      Options                                  options;
+      Options options;
       for (int i = 1; i < argc; ++i)
         {
           const std::string argument(argv[i]);
@@ -715,6 +712,13 @@ main(int argc, char *argv[])
         options.restart.empty() != options.parameter_file.empty(),
         dealii::ExcMessage(
           "usage: metric_flow_x_elastostatic PARAMETER_FILE [--checkpoint DIRECTORY] [--final-time T] or --restart DIRECTORY --final-time T [--checkpoint DIRECTORY]"));
+      // Keep application options out of PETSc's command-line database.
+      int    runtime_argc        = 1;
+      char  *runtime_arguments[] = {argv[0], nullptr};
+      char **runtime_argv        = runtime_arguments;
+      dealii::Utilities::MPI::MPI_InitFinalize mpi_initialization(runtime_argc,
+                                                                  runtime_argv,
+                                                                  1);
       run_coupled_problem(options);
     }
   catch (const std::exception &exc)
