@@ -586,7 +586,7 @@ namespace ImmersX
       bool
       initialized() const
       {
-        return static_cast<bool>(umfpack_)
+        return diagonal_ || static_cast<bool>(umfpack_)
 #  ifdef DEAL_II_WITH_MUMPS
                || static_cast<bool>(mumps_)
 #  endif
@@ -599,6 +599,13 @@ namespace ImmersX
         return n_entries_;
       }
 
+      /** Whether factorize() found a diagonal matrix and inverted it. */
+      bool
+      diagonal() const
+      {
+        return diagonal_;
+      }
+
       void
       factorize(const LinearSolver        solver,
                 const MatrixType         &matrix,
@@ -609,6 +616,20 @@ namespace ImmersX
 #  ifdef DEAL_II_WITH_MUMPS
         mumps_.reset();
 #  endif
+        // A diagonal matrix, such as a lumped kinematic mass, is inverted
+        // entrywise. MUMPS needs several seconds to analyze a matrix with
+        // 10^5 rows and no off-diagonal entries.
+        diagonal_ = is_invertible_diagonal(matrix, communicator);
+        if (diagonal_)
+          {
+            inverse_diagonal_.reinit(matrix.locally_owned_range_indices(),
+                                     communicator);
+            for (const auto row : matrix.locally_owned_range_indices())
+              inverse_diagonal_(row) = 1. / matrix.diag_element(row);
+            inverse_diagonal_.compress(dealii::VectorOperation::insert);
+            n_entries_ = matrix.m();
+            return;
+          }
         if (solver == LinearSolver::umfpack)
           {
             dealii::DynamicSparsityPattern sparsity(matrix.m(), matrix.n());
@@ -676,7 +697,12 @@ namespace ImmersX
       solve(FieldVectorType &destination, const FieldVectorType &source)
       {
         destination.reinit(source, true);
-        if (umfpack_)
+        if (diagonal_)
+          {
+            destination = source;
+            destination.scale(inverse_diagonal_);
+          }
+        else if (umfpack_)
           {
             dealii::Vector<double> serial_source(source.size()),
               serial_destination(source.size());
@@ -704,6 +730,38 @@ namespace ImmersX
       }
 
     private:
+      /** True on all ranks if every owned row has only a nonzero diagonal. */
+      static bool
+      is_invertible_diagonal(const MatrixType &matrix,
+                             const MPI_Comm    communicator)
+      {
+        bool diagonal = true;
+        for (const auto row : matrix.locally_owned_range_indices())
+          {
+            bool has_diagonal = false;
+            if (matrix.row_length(row) != 0)
+              {
+                for (auto entry = matrix.begin(row), end = matrix.end(row);
+                     entry != end;
+                     ++entry)
+                  {
+                    if (entry->column() == row)
+                      has_diagonal = entry->value() != 0.;
+                    else if (entry->value() != 0.)
+                      diagonal = false;
+                  }
+              }
+            if (!has_diagonal || !diagonal)
+              {
+                diagonal = false;
+                break;
+              }
+          }
+        return dealii::Utilities::MPI::min(diagonal ? 1 : 0, communicator) == 1;
+      }
+
+      bool                                         diagonal_ = false;
+      FieldVectorType                              inverse_diagonal_;
       std::unique_ptr<dealii::SparseDirectUMFPACK> umfpack_;
 #  ifdef DEAL_II_WITH_MUMPS
       std::unique_ptr<dealii::SparseDirectMUMPS> mumps_;
@@ -1214,11 +1272,16 @@ namespace ImmersX
                                                   composition_.communicator(),
                                                   mumps_workspace_relaxation_);
                   kinematic_masses_[p] = mass;
-                  pcout << "IDAAdapter: " << solver_name
-                        << " factorized a second-order mass with "
-                        << matrix->m() << " rows, "
-                        << kinematic_solvers_[p].n_entries()
-                        << " matrix entries." << std::endl;
+                  if (kinematic_solvers_[p].diagonal())
+                    pcout << "IDAAdapter: inverted a diagonal second-order "
+                             "mass with "
+                          << matrix->m() << " rows." << std::endl;
+                  else
+                    pcout << "IDAAdapter: " << solver_name
+                          << " factorized a second-order mass with "
+                          << matrix->m() << " rows, "
+                          << kinematic_solvers_[p].n_entries()
+                          << " matrix entries." << std::endl;
                 }
               const auto &reduced = condensation_->reduced_matrix();
               direct_solver_.factorize(linear_solver_,
