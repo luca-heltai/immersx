@@ -79,7 +79,7 @@ namespace
       monitoring_parameters.add_parameter(
         "Checkpoint interval",
         checkpoint_interval,
-        "Seconds between diagnostic latest-state VTK checkpoints; zero disables periodic checkpoints.");
+        "Seconds between native accepted-state archives and diagnostic VTK checkpoints; zero disables periodic checkpoints.");
       monitoring_parameters.add_parameter(
         "Maximum generation wall time",
         maximum_generation_wall_time,
@@ -330,13 +330,24 @@ namespace
         }
     AssertThrow(Utilities::MPI::min(ready ? 1u : 0u, state.communicator) == 1,
                 ExcMessage("Cannot prepare a growth checkpoint directory."));
-    network = checkpoint_view(std::move(network), state);
     V::ValidationReport diagnostic;
     diagnostic.issues.push_back(
       {"checkpoint",
        V::invalid_id,
        "Incomplete generation checkpoint: diagnostic only, not adoptable or resumable."});
-    V::write_diagnostic_vtk(staging, network, diagnostic, state.communicator);
+    V::write_diagnostic_vtk(staging,
+                            checkpoint_view(network, state),
+                            diagnostic,
+                            state.communicator);
+    // Preserve the accepted registry, including the metadata omitted by VTK.
+    // Empty bed tables keep unfinished compartments out of the archive.
+    V::save_network(staging / "network", network, {}, {}, state.communicator);
+    const bool resumable =
+      progress.system != V::System::arterial &&
+      state.completed[role_index(V::System::arterial)] &&
+      (progress.system == V::System::portal ||
+       state.accepted[role_index(V::System::portal)] == 0 ||
+       state.completed[role_index(V::System::portal)]);
     std::array<std::uint64_t, 3> vessels{};
     for (const auto &[id, vessel] : network.vessels)
       if (vessel.owner == state.rank)
@@ -355,7 +366,12 @@ namespace
                "  \"archive_adoptable\": false,\n  \"resumable\": false,\n"
                "  \"hydraulic_fields_final\": false,\n  \"controlled_stop\": "
             << stopping
-            << ",\n  \"checkpoint_index\": " << state.checkpoint_index
+            << ",\n  \"native_checkpoint\": {\"directory\": \"network\", \"resumable\": "
+            << resumable << ", \"continuation_phase\": "
+            << (resumable ?
+                  std::string("\"") + role_name(progress.system) + "\"" :
+                  "null")
+            << "},\n  \"checkpoint_index\": " << state.checkpoint_index
             << ",\n  \"elapsed_s\": " << monitoring_elapsed(state)
             << ",\n  \"active_role\": \"" << role_name(progress.system)
             << "\",\n  \"requested_terminals_per_role\": "

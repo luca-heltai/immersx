@@ -356,17 +356,36 @@ bootstrap; later safe points follow completed accepted or rejected batches.
 There is no progress notification from the middle of a batch.
 
 `latest-checkpoint/` contains `arterial.pvtu`, `portal.pvtu`, `venous.pvtu`,
-their rank-local pieces, and `checkpoint.json`. The files contain the last
-accepted state, never a staged candidate. Until a companion role starts growing,
+their rank-local pieces, a native `network/` archive, and `checkpoint.json`.
+The files contain the last accepted state, never a staged candidate. Until a
+companion role starts growing,
 its VTK contains its original imported network. The manifest distinguishes
 `original_input` from `accepted_growth` and reports each role's accepted growth
 count separately. Imported physical IDs, coordinates and endpoint radii are
 preserved. Generated hydraulic fields are not final.
 
-Every checkpoint is diagnostic, incomplete, non-adoptable and non-resumable,
-including a snapshot taken just before successful generation finishes. Its
-lengths and geometry do not certify admissibility or an inf-sup bound. The
-application continues to produce the ordinary final archive only after all
+The VTK files remain diagnostic, incomplete, non-adoptable and non-resumable,
+including a snapshot taken just before successful generation finishes. Their
+lengths and geometry do not certify admissibility or an inf-sup bound.
+The separate native `network/` archive preserves the exact accepted Node,
+Vessel and Terminal records, including IDs, territory labels, integrated demands,
+endpoint radii, port normals and extra physical properties. It contains no
+completed compartments. Unlike the VTK view, the native archive retains
+unstarted roles exactly as represented by the generator.
+
+The top-level diagnostic flags describe the VTK exports. The manifest's
+`native_checkpoint` object names the separate native archive and reports
+whether the current phase supports companion continuation. Arterial growth
+cannot yet be resumed. Once arterial growth finishes, portal growth can be
+continued; venous continuation also requires completed portal growth when
+that role is enabled. Keep the original inputs and generation parameters and
+set `Companion checkpoint archive` to `latest-checkpoint/network` and
+`Companion continuation phase` to the reported phase. The native continuation
+validator still checks the physical archive and original attachments before
+accepting it. This starts a new search epoch, preserving accepted physical
+records rather than the previous random generator or candidate history.
+Neither the native checkpoint nor its diagnostic exports are final coupled
+simulation input. The application produces the ordinary final archive only after all
 required generation and validation work succeeds.
 
 Publication writes a temporary `checkpoint-staging/`, then replaces
@@ -380,8 +399,9 @@ directory at every instant.
 The maximum generation wall time requests a cooperative stop. It is checked at
 the safe points above, then writes a checkpoint and finishes reconstructing the
 last accepted state. The application saves the three `invalid-result/*.pvtu`
-files and background mesh, creates no native `network/` archive, and returns
-exit status 2. A batch, bootstrap, checkpoint write or final reconstruction can
+files and background mesh, creates no final top-level `network/`
+archive, and returns exit status 2. A batch, bootstrap, checkpoint write or final
+reconstruction can
 extend past the requested time. Leave a measured allowance before any external
 hard timeout; this parameter is not a hard wall-time bound. Observer or output
 errors return failure and retain diagnostic files already written.
