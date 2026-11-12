@@ -125,9 +125,17 @@ pressure accuracy or validated convergence merely from removing inertia.
 
 ## Checkpoint and restart
 
-A MetricFlowX package with native checkpoint hooks is required for this
-workflow. A package without that API can run the coupled application but
-rejects checkpoint requests explicitly.
+Checkpoint/restart requires the native hooks from
+[MetricFlowX PR #94](https://github.com/luca-heltai/metric-flow-x/pull/94),
+reference revision
+[`7d0937f`](https://github.com/luca-heltai/metric-flow-x/commit/7d0937f7ad92e0003dca8ba5defdf1bf8c2e4bc5).
+A package without these hooks can run the coupled application but rejects
+checkpoint requests explicitly.
+
+For deal.II builds affected by the fully distributed serialization offset
+defect, MPI checkpoints also require the correction in
+[deal.II PR #20374](https://github.com/dealii/dealii/pull/20374). Regenerate
+MPI checkpoints written by the affected serializer.
 
 Use a fully distributed solid mesh (`Elastic static/Domain/Triangulation
 type = fullydistributed`, the application default) and keep

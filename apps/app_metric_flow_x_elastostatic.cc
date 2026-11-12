@@ -584,13 +584,16 @@ namespace
           -1. * value(coupling_fields.fields().multiplier),
           adapter.field(solution, coupling_fields.fields().multiplier),
           pressure_projection);
+      if (pressure_feedback)
+        flow_problem.set_external_pressure_provider(pressure_provider);
+      else
+        flow_problem.clear_external_pressure_provider();
       auto pressure = flow_problem.make_state();
       flow_problem.compute_pressure(flow_state,
+                                    flow_derivative,
                                     pressure,
-                                    time,
-                                    pressure_provider);
+                                    time);
       flow_problem.output_results(flow_state, pressure, step);
-      flow_problem.set_external_pressure_provider(pressure_provider);
       flow_problem.write_output_step(time, flow_state, &flow_derivative);
       flow_problem.clear_external_pressure_provider();
       solid_problem.update_time(time);
