@@ -708,6 +708,15 @@ namespace ImmersX
                                owned_dofs,
                                spatial_dsp,
                                mpi_communicator);
+    {
+      DynamicSparsityPattern diagonal_dsp(dh.n_dofs(), dh.n_dofs(), owned_dofs);
+      for (const auto row : owned_dofs)
+        diagonal_dsp.add(row, row);
+      diagonal_mass_matrix_storage.reinit(owned_dofs,
+                                          owned_dofs,
+                                          diagonal_dsp,
+                                          mpi_communicator);
+    }
     stiffness_matrix_storage.reinit(owned_dofs,
                                     owned_dofs,
                                     spatial_dsp,
@@ -878,6 +887,11 @@ namespace ImmersX
         }
 
     mass_matrix_storage.compress(VectorOperation::add);
+    for (const auto row : owned_dofs)
+      diagonal_mass_matrix_storage.set(row,
+                                       row,
+                                       mass_matrix_storage.diag_element(row));
+    diagonal_mass_matrix_storage.compress(VectorOperation::insert);
     stiffness_matrix_storage.compress(VectorOperation::add);
     damping_matrix_storage.compress(VectorOperation::add);
     homogeneous_mass_matrix_storage.compress(VectorOperation::add);
@@ -1976,6 +1990,14 @@ namespace ImmersX
   ElastodynamicsSolver<dim, spacedim>::mass_matrix() const
   {
     return mass_matrix_storage;
+  }
+
+
+  template <int dim, int spacedim>
+  const typename ElastodynamicsSolver<dim, spacedim>::MatrixType &
+  ElastodynamicsSolver<dim, spacedim>::diagonal_mass_matrix() const
+  {
+    return diagonal_mass_matrix_storage;
   }
 
 
