@@ -196,7 +196,7 @@ namespace ImmersX
      * Jacobian setup. UMFPACK requires one rank; MUMPS uses the composition's
      * communicator and distributed matrix. A MUMPS backsolve may use
      * correction solves with the same factorization to satisfy the retained
-     * Jacobian residual check, as set in IDAParameters::LinearSolverControls.
+     * Jacobian residual check, as set in IDALinearSolverControls.
      */
     void
     set_linear_solver(const LinearSolver solver)

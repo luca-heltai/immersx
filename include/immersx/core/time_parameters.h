@@ -121,6 +121,29 @@ namespace ImmersX
     const bool expose_parameters_;
   };
 
+  /** Stopping criteria of the linear solves IDAAdapter runs for IDA.
+   * All tolerances are relative to the l2 norm of the right-hand side.
+   */
+  struct IDALinearSolverControls
+  {
+    /** Outer GMRES/FGMRES on the IDA Jacobian. It stops at
+     * min(IDA tolerance, krylov_relative_tolerance * |rhs|).
+     */
+    unsigned int krylov_maximum_iterations = 5000;
+    double       krylov_relative_tolerance = 1.e-8;
+    /** Inner GMRES on the multiplier Schur complement (preconditioner). */
+    unsigned int schur_maximum_iterations = 1000;
+    double       schur_relative_tolerance = 1.e-9;
+    /** Inner CG of the displacement/velocity block factorization. */
+    unsigned int second_order_maximum_iterations = 1000;
+    double       second_order_relative_tolerance = 1.e-2;
+    /** MUMPS: residual check with the retained Jacobian and the number of
+     * correction backsolves with the same factorization to reach it.
+     */
+    double       mumps_relative_tolerance  = 1.e-8;
+    unsigned int mumps_maximum_corrections = 3;
+  };
+
   /** IDA-specific adaptive integration and nonlinear-solver controls. */
   class IDAParameters : public dealii::ParameterAcceptor
 #ifdef DEAL_II_WITH_SUNDIALS
@@ -167,32 +190,9 @@ namespace ImmersX
       });
     }
 
-    /** Stopping criteria of the linear solves IDAAdapter runs for IDA.
-     * All tolerances are relative to the l2 norm of the right-hand side.
-     */
-    struct LinearSolverControls
-    {
-      /** Outer GMRES/FGMRES on the IDA Jacobian. It stops at
-       * min(IDA tolerance, krylov_relative_tolerance * |rhs|).
-       */
-      unsigned int krylov_maximum_iterations = 5000;
-      double       krylov_relative_tolerance = 1.e-8;
-      /** Inner GMRES on the multiplier Schur complement (preconditioner). */
-      unsigned int schur_maximum_iterations = 1000;
-      double       schur_relative_tolerance = 1.e-9;
-      /** Inner CG of the displacement/velocity block factorization. */
-      unsigned int second_order_maximum_iterations = 1000;
-      double       second_order_relative_tolerance = 1.e-2;
-      /** MUMPS: residual check with the retained Jacobian and the number of
-       * correction backsolves with the same factorization to reach it.
-       */
-      double       mumps_relative_tolerance  = 1.e-8;
-      unsigned int mumps_maximum_corrections = 3;
-    };
-
-    LinearSolverControls linear_solver_controls;
-    IDAToleranceRamp     tolerance_ramp;
-    bool                 print_statistics = false;
+    IDALinearSolverControls linear_solver_controls;
+    IDAToleranceRamp        tolerance_ramp;
+    bool                    print_statistics = false;
 
     std::string correction_type_at_initial_time = "none";
     std::string correction_type_after_restart   = "none";
