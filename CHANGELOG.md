@@ -13,6 +13,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #403](https://github.com/luca-heltai/immersx/pull/403) Allow semantic fields to retain their configured IDA error tolerances during a startup ramp, with an optional solid displacement and velocity exemption in the coupled vascular application.
 
+- [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
+
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
 
 - [PR #385](https://github.com/luca-heltai/immersx/pull/385) Allow vascular generation to report progress, retain a latest diagnostic three-role VTK checkpoint, and stop cooperatively at completed batch boundaries, returning an explicitly incomplete result.
@@ -533,6 +535,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #77](https://github.com/luca-heltai/immersx/pull/77) Documented the ImmersX core architecture.
 
 ### Tutorial
+
+- [PR #398](https://github.com/luca-heltai/immersx/pull/398) Document the public-source small liver transient and portable inputs, measured DG2 family sizes and the medium failure, and distinguish ten-cycle completion from periodicity of the coupled solution with reproducible solid-drift and startup plots.
 
 - [PR #394](https://github.com/luca-heltai/immersx/pull/394) Document the liver coupled-initialization diagnostics, native HLL correction, artificial continuation stages and unaccepted VTK interpretation.
 
