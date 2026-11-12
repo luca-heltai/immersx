@@ -45,6 +45,19 @@ foreach(_collection flow.pvd solid.pvd pressure_jump.pvd)
   endforeach()
 endforeach()
 
+if(DEFINED PARTICLE_CHECKER)
+  string(REPLACE ";" "," _particle_times "${EXPECTED_TIMES}")
+  execute_process(COMMAND "${PYTHON_EXECUTABLE}" "${PARTICLE_CHECKER}"
+      --directory "${OUTPUT_DIRECTORY}" --times "${_particle_times}"
+      --properties "${PARTICLE_PROPERTIES}" --nonzero-traction
+    RESULT_VARIABLE _particle_result
+    OUTPUT_VARIABLE _particle_stdout ERROR_VARIABLE _particle_stderr)
+  message("${_particle_stdout}${_particle_stderr}")
+  if(NOT "${_particle_result}" STREQUAL "0")
+    message(FATAL_ERROR "Lifted wall particle checks failed: ${_particle_result}")
+  endif()
+endif()
+
 if(REQUIRE_GENERATED_RESPONSE)
   if(NOT _stdout MATCHES "Vessel cells with a vertex outside the solid mesh: 0 of [1-9][0-9]*")
     message(FATAL_ERROR "Generated coupled network is empty or has external vertices")

@@ -312,6 +312,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Sample each vessel cell with its active finite element when exporting particles from native hp flow spaces.
+
 - [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
 
 - [PR #384](https://github.com/luca-heltai/immersx/pull/384) Assemble native vascular pressure cross derivatives from local coefficient stencils when MetricFlowX provides the derivative visitor, avoiding global basis probes for supported discontinuous coupled fields while retaining the general path for other scalar fields and projections.
@@ -602,6 +604,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Verify selected wall-particle properties, geometry and traction in serial and MPI application output.
 
 - [PR #381](https://github.com/luca-heltai/immersx/pull/381) Count only cycle and mode collections in lifted-elasticity application tests so optional particle output does not fail the record-count check.
 
