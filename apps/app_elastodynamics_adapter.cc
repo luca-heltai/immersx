@@ -37,6 +37,15 @@ namespace
     ElastodynamicsParameters<dim, spacedim> parameters("/Elastodynamics/",
                                                        nullptr,
                                                        &fixed_step);
+    ParameterAcceptor                       linear_solver_parameters(
+      "/Elastodynamics/IDA/Linear solver/");
+    std::string linear_solver = "iterative";
+    linear_solver_parameters.add_parameter(
+      "Type",
+      linear_solver,
+      "IDA linear solver. UMFPACK requires one rank; MUMPS supports MPI. Direct solvers condense the kinematic rows.",
+      ParameterAcceptor::prm,
+      Patterns::Selection("iterative|umfpack|mumps"));
     initialize_parameters(parameter_file);
 
     ElastodynamicsSolver<dim, spacedim> problem(parameters);
@@ -62,9 +71,15 @@ namespace
         problem.assemble_operators();
         problem.set_initial_conditions();
 
-        Adapter    adapter(parameters.time_parameters,
+        Adapter adapter(parameters.time_parameters,
                         parameters.ida_parameters,
                         MPI_COMM_WORLD);
+        if (linear_solver == "iterative")
+          adapter.set_linear_solver(Adapter::LinearSolver::iterative);
+        else if (linear_solver == "umfpack")
+          adapter.set_linear_solver(Adapter::LinearSolver::umfpack);
+        else if (linear_solver == "mumps")
+          adapter.set_linear_solver(Adapter::LinearSolver::mumps);
         const auto fields = adapter.add(problem, "elastodynamics");
         adapter.set_output_step(
           [&problem, &adapter, fields](const double        time,
