@@ -38,9 +38,15 @@ staggered coupling application; its exchanged pressure is named
 `vessel_wall_pressure` in the implementation.
 
 The tissue problem recovers normal wall stress from its multiplier field.
-`pressure_at_immersed_surface` and
+The material also fills the vessels, so the multiplier is the jump between the
+normal stress of the tissue and that of the interior material. With
+`Remove interior stress from pressure = true`, the default, the analytic
+interior stress is added back and the result is the normal stress of the
+tissue alone. `pressure_at_immersed_surface` and
 `pressure_at_immersed_surface_by_inclusion` name the vessel and inclusion data;
 they do not imply that an external solver owns the pressure.
+[Pressure on the vessel walls](../concepts/vessel-pressure.md) defines both
+values, their sign, and the interior correction.
 
 ## Prescribed pressure mode
 
@@ -56,7 +62,9 @@ This mode projects the supplied vessel pressure and applies its transpose load
 to the displacement equation. With the mode disabled, the static path solves
 the multiplier saddle-point system instead. The mode does not select an
 external solver or turn data exchange on or off. Existing restrictions on
-quasistatic and dynamic point formulations remain unchanged.
+quasistatic and dynamic point formulations remain unchanged. The load acts on
+the extended solid, so the supplied value is a jump of normal stress across the
+wall; it receives no interior-stress correction.
 
 `Pressure coupling` is a ParameterHandler alias for the same entry. It accepts
 existing files without a deprecation warning. If a file deliberately sets both

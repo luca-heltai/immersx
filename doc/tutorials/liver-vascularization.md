@@ -685,6 +685,68 @@ see its module documentation. The histograms retain all overlap intervals in
 [issue #378](https://github.com/luca-heltai/immersx/issues/378); neither issue
 is closed by these measurements.
 
+### Coupled initialization diagnostics
+
+The setup counts above do not establish an equilibrium or a completed cardiac
+cycle. The current initialization study uses a separate diagnostic network
+with 64 common terminal territories per role and 2776 background tetrahedra.
+It is not the newly generated small family. With degree-two native area and
+velocity and a degree-two multiplier, it has 37897 total coupled DoFs.
+
+Degree two matters for tapered vessels: a linearly interpolated reference
+radius has a quadratic reference area. The measured plain reference rest has
+zero solid displacement, velocity and wall multiplier, zero native velocities,
+and cell and trace areas equal to their reference values. Its wall-constraint
+residual was checked before starting the continuation. A trace-corrected
+initialization and a rigid hydraulic seed are different starting states.
+
+The following controlled diagnostics have not produced an accepted physical
+timestep:
+
+| Diagnostic | Verified result | Limitation |
+| --- | --- | --- |
+| Rigid hydraulic and reaction-pressure seeds | Native fields and wall-pressure projection can be inspected before IDA | Standard static IC still fails |
+| Portal reservoir fitted to the aggregate rigid-flow target | The rigid graph reproduces the requested portal inflow proxy | Changing this boundary alone does not resolve static IC |
+| Existing `HLL_HDG` flux | A directional coupled-Jacobian check passes | Standard static IC still fails |
+| Normal-corrected HLL | Independent normal-reversal tests and a directional coupled-Jacobian check pass | Standard static IC still fails |
+| Affine continuation from the measured DG2 reference rest | Several artificial-load stages pass fresh static-correction checks | The bounded run stops before reaching the original equations |
+
+The HLL orientation defect and its independent tests are described in
+[MetricFlowX PR #92](https://github.com/luca-heltai/metric-flow-x/pull/92).
+A correct Jacobian of a numerical flux does not by itself establish that the
+flux has the correct conservation properties. Conversely, correcting this
+defect has not established coupled convergence.
+
+The continuation uses fixed physical time, zero state derivative and
+
+$$
+F_s(y) = F(y) - (1-s) F(y_{\mathrm{rest}}), \qquad 0 \leq s \leq 1.
+$$
+
+Intermediate stages contain artificial forcing. Only a fresh check of the
+original residual at $s=1$, followed by the original IDA initialization and
+time integration, can produce an accepted simulation. A reduced scaled
+residual or a small regularized pseudo-step is not used as that certificate.
+Directional finite differences check selected perturbations; they do not
+prove a Jacobian is correct at every state.
+
+The portal target used here is a sum of splanchnic arterial terminal flows
+from the MOX input. It is a proxy, not a resolved portal-vein measurement.
+The resistance-driven rigid reference and the coupled pressure-reservoir
+boundary must therefore be checked separately. Neither is patient calibration.
+
+Diagnostic VTK files distinguish the initialized seed, the last certified
+artificial stage, the last attempted stage and the restored last-valid
+candidate. They retain unaccepted-state labels. An initialized seed exported
+after an IDA failure is not IDA's last internal Newton iterate. Keep each VTM
+beside its three role-specific VTU files when opening it in ParaView.
+
+[Tracking issue #378](https://github.com/luca-heltai/immersx/issues/378)
+records the experiment outcomes. The return-code interpretation follows the
+[SUNDIALS 6.7 IDA documentation](https://sundials.readthedocs.io/en/v6.7.0/ida/Usage/index.html):
+`IDA_LINESEARCH_FAIL` reports failure of the initial-condition line search;
+it does not establish that a physical equilibrium does not exist.
+
 ### Check hydraulic capacity before scaling
 
 The first anatomical 64-territory probe retained 835 input segments and grew

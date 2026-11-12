@@ -157,7 +157,10 @@ under `Immersed Problem/Grid generation` and refine before distribution.
 data and call `run_timestep()` for each tissue solve. Pointwise data use the
 overload taking one sample count per vessel. Gather inclusion pressures on
 all ranks before calling `split_pressure_over_inclusions` on rank zero.
-That interpolation performs no MPI operations.
+That interpolation performs no MPI operations. Each tissue solve computes the
+wall pressures, with the interior-stress correction by default, as described in
+[Pressure on the vessel walls](../concepts/vessel-pressure.md); `coupled_elasticity`
+passes their negative, converted from Pa to dyn/cm², to the flow model.
 
 The generated `gtests/parameters/coupled_elasticity_simplex.prm` exercises this
 interface. The external 1D drivers still require a complete library compatible

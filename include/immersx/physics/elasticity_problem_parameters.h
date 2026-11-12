@@ -220,8 +220,9 @@ namespace ImmersX
      * inside the vessel. If this is true, the pressure computed by
      * VesselElasticityProblem::compute_pressure_at_immersed_surface() adds
      * back the analytic normal stress of the interior material, so that it is
-     * the normal stress of the tissue alone. See
-     * doc/reference/coupling-names.md.
+     * the normal stress of the tissue alone. Only VesselElasticityProblem
+     * reads this flag; it changes the reported pressure, not the solve. See
+     * doc/concepts/vessel-pressure.md.
      */
     bool remove_interior_stress_from_pressure = true;
 

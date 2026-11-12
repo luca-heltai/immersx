@@ -44,6 +44,47 @@ constraint offsets. Local matrices are temporary; they are not retained for
 later boundary updates. This also accounts for offsets propagated through
 closed hanging-node constraints.
 
+## Share a linear wall pairing between distinct fields
+
+In a first-order elastodynamics interaction, displacement and velocity have
+different semantic Field identities. A wall constraint reads displacement,
+while its reaction belongs to the velocity equation. Register both rows from
+one linear pairing inside the interaction builder:
+
+```cpp
+const auto solid = adapter.add(solid_problem, "elastodynamics");
+const auto wall = adapter.add([&](auto &builder) {
+  const auto id = builder.algebraic_field(lambda.name(),
+                                         lambda.locally_owned_dofs(),
+                                         lambda.locally_relevant_dofs());
+  const auto registered_wall = lifted_multiplier.with_id(id);
+  weak_term(value(solid.fields().displacement), test(registered_wall))
+    .on(overlap)
+    .with_cached_assembly()
+    .add_constraint_terms(builder, id, 1., 0, solid.fields().velocity);
+  return lambda.with_id(id);
+}, "wall");
+```
+
+The multiplier row receives `B * displacement`; the velocity row receives
+`transpose(B) * lambda`. No reaction is added to the displacement row. The
+last integer before the reaction Field labels the diagnostic term; it is not
+an execution block number. With cached assembly, both rows share one assembled
+matrix, including its point search. Other nonlinear wall terms are registered
+separately and evaluate the current candidate as before.
+
+For a new Interaction with this same structure, pass the typed reaction Field
+as the fifth argument of `WeakTerm::add_constraint_terms`. This overload
+requires a linear trial and source and reaction Fields with the same type,
+identical Space object, component mask and effective constraints object, and
+native unreindexed layouts. All ranks check these conditions before deferred
+assembly, including ranks without representative cells. The shared constraints
+provide the same homogeneous test condensation on the reaction row; source
+affine offsets remain current in the multiplier residual. Multiplier constraints
+must be homogeneous. The existing four-argument overload still places the
+reaction on the source Field. For different spaces, masks or constraints, keep
+the separately registered weak terms.
+
 ## Configure a field space
 
 Register space parameters before reading the application parameter file. The
@@ -273,8 +314,9 @@ Prescribed pressure loads retain their nominal, full-support coefficients and
 restrict only the applied load to the covered samples. A pressure reconstructed
 from multiplier traction uses the same covered wall samples and nominal
 normalization. Tensor-product pressure output retains its centerline mean;
-the interior pressure closure uses the full-support projected datum and the
-existing cell-averaged material coefficients.
+the interior-stress correction uses the full-support projected datum and the
+existing cell-averaged material coefficients. See
+[Pressure on the vessel walls](../concepts/vessel-pressure.md) for the formulas.
 
 Legacy point and modal saddle systems use the same exterior mass block and the
 full sampled Gram matrices. The `Assemble full AL system` option in Reduced
