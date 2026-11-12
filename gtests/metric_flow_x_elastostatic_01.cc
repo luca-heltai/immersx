@@ -74,7 +74,8 @@ namespace
         parameters.domain_parameters.triangulation_type = "fullydistributed";
       }
     ElasticStaticProblem<3> solid(parameters);
-    DomainParameters<1, 3>  flow_domain_parameters("/Co-refinement test flow/");
+    solid.use_fixed_stiffness();
+    DomainParameters<1, 3> flow_domain_parameters("/Co-refinement test flow/");
     flow_domain_parameters.name_of_grid =
       TestPaths::data_filename("metric_flow_x/single_vessel_centered.vtk");
     flow_domain_parameters.read_vtk_fields = true;
@@ -136,9 +137,15 @@ namespace
     const auto               lambda_view = multiplier_space.view();
     const auto               lambda      = lambda_view.field("lambda");
     const auto               a0          = flow_domain.field("a0");
+    const auto               reference   = a0.space();
+    FieldVector              reference_area;
+    reference_area.reinit(reference.locally_owned_dofs(),
+                          reference.locally_relevant_dofs(),
+                          MPI_COMM_WORLD);
+    reference_area = a0.coefficients();
+    reference_area.update_ghost_values();
     if (co_refine)
       {
-        const auto          reference = a0.space();
         FEValues<1, 3>      values(reference.mapping(),
                               reference.finite_element(),
                               QGauss<1>(2),
@@ -148,17 +155,16 @@ namespace
           if (cell->is_locally_owned())
             {
               values.reinit(cell);
-              values[a0.field().extractor()].get_function_values(
-                a0.coefficients(), areas);
+              values[a0.field().extractor()].get_function_values(reference_area,
+                                                                 areas);
               for (const auto area : areas)
                 {
                   EXPECT_NEAR(area, 3.0605e-4, 1.e-14);
                 }
             }
       }
-    const auto radius =
-      sqrt(frozen(a0.field(), a0.coefficients()) / numbers::PI);
-    const auto          reference_wall = lift(value(lambda), wall_lift, radius);
+    const auto radius = sqrt(frozen(a0.field(), reference_area) / numbers::PI);
+    const auto reference_wall = lift(value(lambda), wall_lift, radius);
     GridTools::Cache<3> solid_cache(solid.triangulation(), solid.mapping());
     const auto          supports =
       make_overlap_supports(IntegrationSupport<1, 3>(flow.triangulation()),
@@ -292,6 +298,7 @@ namespace
           [constraints]() -> GlobalVector & { return *constraints; };
         const auto steps = adapter.solve(state, state_dot);
         EXPECT_GT(steps, 0u);
+        EXPECT_EQ(solid.stiffness_assemblies(), 1u);
         EXPECT_GE(observations, 3u);
         EXPECT_NEAR(last_time, time.final_time, 1.e-12);
         auto changed_flow = adapter.field(state, flow_fields.fields().state);

@@ -198,10 +198,14 @@ subsection.
 ## Linear solves
 
 The IDA application uses the iterative coupled solve provided by the adapter.
-The elastic block uses AMG; an unchanged assembled stiffness matrix reuses its
-AMG preconditioner. Matrix values are checked before reuse, so time-dependent
-boundary springs invalidate it when they change the stiffness. This does
-not cache a factorization of the complete saddle system.
+The solid stiffness matrix is assembled once after mesh setup, including any
+initial co-refinement, or once when loading a restart. Candidate times update
+only the loads and inhomogeneous Dirichlet lifting. The application reuses the
+solid operator, IDA tangent and AMG hierarchy without scanning matrix entries.
+Material and Robin spring coefficients remain fixed in this application;
+body loads, tractions and prescribed displacements may vary in time.
+The output reports `Static stiffness assemblies: 1` and the number of AMG
+setups so this behavior can be checked on an actual run.
 
 With a MUMPS-enabled deal.II build, the flow block uses a MUMPS
 factorization for each Newton matrix snapshot. Repeated actions during that

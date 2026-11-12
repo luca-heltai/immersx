@@ -445,6 +445,7 @@ namespace
       ParameterAcceptor::prm.print_parameters(checkpoint_parameters,
                                               ParameterHandler::ShortPRM);
     SolidProblem solid_problem(solid_parameters);
+    solid_problem.use_fixed_stiffness();
     if (restarting)
       solid_problem.setup_from_checkpoint(
         (std::filesystem::path(options.restart) / "solid_mesh").string(),
@@ -727,7 +728,9 @@ namespace
                     << solid_problem.triangulation().n_global_active_cells()
                     << ", flow cells "
                     << flow_problem.triangulation().n_global_active_cells()
-                    << ", wall quadrature points " << points << std::endl;
+                    << ", wall quadrature points " << points
+                    << "\nStatic stiffness assemblies: "
+                    << solid_problem.stiffness_assemblies() << std::endl;
         return;
       }
     if (restarting)
@@ -987,7 +990,9 @@ namespace
 
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       std::cout << "MetricFlowX elastostatic accepted IDA steps: "
-                << accepted_steps << "\nStatic AMG setups: "
+                << accepted_steps << "\nStatic stiffness assemblies: "
+                << solid_problem.stiffness_assemblies()
+                << "\nStatic AMG setups: "
                 << solid_description.preconditioner_builds() << std::endl;
   }
 } // namespace

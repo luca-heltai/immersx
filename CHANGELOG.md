@@ -12,7 +12,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Added
 
 - [PR #401](https://github.com/luca-heltai/immersx/pull/401) Preserve native physical vascular records alongside diagnostic growth checkpoints so completed arterial forests and partial companion growth can be continued without reconstructing terminal metadata from VTK.
-- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IDA application coupling transient native MetricFlowX flow to elastostatic tissue equilibrium, with algebraic displacement and wall traction, optional pressure feedback, reusable elastic AMG and native flow-block MUMPS, coupled initialization, optional solid/flow/lift co-refinement with transferred reference area and restartable refined meshes, self-contained native checkpoint/restart support, and a single-vessel tutorial with serial/MPI verification. Keep the native 1D domain configuration internal and use the MetricFlowX mesh settings. Write selectable wall-particle properties at accepted output times. Load existing native physical network archives with their saved microvascular connections and component tolerances.
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IDA application coupling native MetricFlowX flow to elastostatic tissue, with algebraic displacement and wall traction, optional pressure feedback, consistent initialization, self-contained checkpoints, initial co-refinement and accepted wall-particle output. Include single-vessel and IRCAD11 small tutorials using existing three-network archives and their saved microvascular connections.
+
 
 - [PR #395](https://github.com/luca-heltai/immersx/pull/395) Share one cached linear wall pairing between the displacement constraint and the velocity reaction, preserving their distinct residual rows and current affine offsets.
 
@@ -222,6 +223,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Reuse static solid stiffness and AMG setup when the application declares a fixed operator, while updating time-dependent loads and inhomogeneous Dirichlet lifting.
+
 - [PR #399](https://github.com/luca-heltai/immersx/pull/399) With `use_y_dot` initial conditions, `IDAAdapter` keeps the Jacobian of IDA's first initial-condition pass for its second pass, which IDA starts at the already corrected state. A request after a linear solve, which IDA makes when the iteration converges slowly, still rebuilds the Jacobian. The IRCAD liver tiny and small runs set up two Jacobians instead of three, with unchanged IDA statistics and output.
 
 - [PR #397](https://github.com/luca-heltai/immersx/pull/397) Eliminate the kinematic rows of second-order displacement-velocity pairs before IDA factors the Jacobian with UMFPACK or MUMPS, so the direct solver factors one spatial block per pair instead of two coupled ones. The elastodynamics kinematic rows use the diagonal of the mass instead of the consistent mass, so the Jacobian contains the mass sparsity pattern only once and the kinematic block is inverted entrywise; the solution does not change. The reduced solve is algebraically equivalent; matrices without the kinematic structure keep the monolithic factorization. In Release, the IRCAD liver tiny and small 2 ms runs drop from 10.4 s to 6.3 s and from 24.3 s to 12.1 s; the diagonal kinematic rows lower the tiny and small wall times by another 26% and 17%.
@@ -319,6 +322,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Fixed
 
 - [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
+
+- [PR #400](https://github.com/luca-heltai/immersx/pull/400) Accept the default linear tetrahedral mapping when loading and discretizing native vascular archives.
 
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Sample each vessel cell with its active finite element when exporting particles from native hp flow spaces.
 
