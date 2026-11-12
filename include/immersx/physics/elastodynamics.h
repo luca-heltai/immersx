@@ -107,12 +107,17 @@ namespace ImmersX
     std::unique_ptr<IDAParameters>          owned_ida_parameters;
 
   public:
-    /** Construct the parameters below a configurable subsection. */
+    /**
+     * Construct the parameters below a configurable subsection. Set
+     * expose_refinement_cycles to false when the caller never runs the
+     * standalone refinement loop.
+     */
     explicit ElastodynamicsParameters(
       const std::string      &subsection                   = "/Elastodynamics/",
       TimeIntervalParameters *shared_time_parameters       = nullptr,
       FixedStepParameters    *shared_fixed_step_parameters = nullptr,
-      IDAParameters          *shared_ida_parameters        = nullptr);
+      IDAParameters          *shared_ida_parameters        = nullptr,
+      const bool              expose_refinement_cycles     = true);
 
     std::string                     output_directory = ".";
     std::string                     output_name      = "elastodynamics";

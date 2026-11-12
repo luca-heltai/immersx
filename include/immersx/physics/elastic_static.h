@@ -103,8 +103,14 @@ namespace ImmersX
     std::string subsection_;
 
   public:
+    /**
+     * Set expose_refinement_cycles to false when the caller never runs the
+     * standalone refinement loop, so the input does not offer an entry that
+     * has no effect.
+     */
     explicit ElasticStaticParameters(
-      const std::string &subsection = "/Elastic static/")
+      const std::string &subsection               = "/Elastic static/",
+      const bool         expose_refinement_cycles = true)
       : ParameterAcceptor(
           elastic_static_detail::normalize_subsection(subsection))
       , subsection_(elastic_static_detail::normalize_subsection(subsection))
@@ -144,9 +150,12 @@ namespace ImmersX
       add_parameter("Output name", output_name);
 
 
-      enter_subsection("Refinement");
-      add_parameter("Number of refinement cycles", n_refinement_cycles);
-      leave_subsection();
+      if (expose_refinement_cycles)
+        {
+          enter_subsection("Refinement");
+          add_parameter("Number of refinement cycles", n_refinement_cycles);
+          leave_subsection();
+        }
 
 
       enter_subsection("Material properties");

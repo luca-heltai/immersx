@@ -166,7 +166,8 @@ namespace
     // differential rates in the coupled system, rather than solving K*u=f
     // alone.
     ida_parameters.correction_type_at_initial_time = "use_y_diff";
-    ElasticStaticParameters<3> solid_parameters;
+    // The coupled solve uses one solid mesh, set by Domain/Initial refinement.
+    ElasticStaticParameters<3> solid_parameters("/Elastic static/", false);
     // Keep the bound value and its archived parameter entry in sync.
     solid_parameters.domain_parameters.enter_my_subsection(
       ParameterAcceptor::prm);
@@ -282,10 +283,6 @@ namespace
         solid_parameters.domain_parameters.triangulation_type ==
           "fullydistributed",
       ExcMessage("Checkpoint writing requires a fullydistributed solid mesh."));
-    AssertThrow(
-      solid_parameters.n_refinement_cycles == 1,
-      ExcMessage(
-        "The coupled elastostatic application requires one refinement cycle."));
     const auto check_static_material = [](const auto &material) {
       AssertThrow(
         material.rho == 0. && material.neta == 0. &&

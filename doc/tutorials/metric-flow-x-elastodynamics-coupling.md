@@ -126,6 +126,12 @@ The executable requires MetricFlowX, deal.II with SUNDIALS, and MPI. The
 application and its build requirements are listed in the
 [application reference](../reference/applications).
 
+The coupled solve uses one solid mesh. Set its resolution with
+`Elastodynamics/Domain/Initial refinement`, and optionally with
+`MetricFlowX coupling/Co-refinement`. The standalone
+`Number of refinement cycles` entry, which repeats the solve on globally
+refined meshes, is not part of this application's input.
+
 ## Remove the two fictitious interior modes
 
 For a single straight, connected, fully covered, uniform-radius reference

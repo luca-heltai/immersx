@@ -172,7 +172,8 @@ namespace ImmersX
     const std::string      &subsection,
     TimeIntervalParameters *shared_time_parameters,
     FixedStepParameters    *shared_fixed_step_parameters,
-    IDAParameters          *shared_ida_parameters)
+    IDAParameters          *shared_ida_parameters,
+    const bool              expose_refinement_cycles)
     : ParameterAcceptor(normalize_elastodynamics_subsection(subsection))
     , owned_time_parameters(
         shared_time_parameters == nullptr ?
@@ -245,7 +246,8 @@ namespace ImmersX
     add_parameter("FE degree", fe_degree, "", this->prm, Patterns::Integer(1));
     add_parameter("Output directory", output_directory);
     add_parameter("Output name", output_name);
-    add_parameter("Number of refinement cycles", n_refinement_cycles);
+    if (expose_refinement_cycles)
+      add_parameter("Number of refinement cycles", n_refinement_cycles);
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
     add_parameter("Neumann boundary ids", neumann_ids);
     add_parameter("Robin boundary ids", robin_ids);
