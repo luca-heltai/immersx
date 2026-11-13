@@ -35,8 +35,12 @@
 #    include <ida/ida.h>
 #  endif
 
+// SUNDIALS uses a Handle type that conflicts with OpenCASCADE's macro.
+#  pragma push_macro("Handle")
+#  undef Handle
 #  include <deal.II/sundials/sundials_types.h>
 #  include <deal.II/sundials/sunlinsol_wrapper.h>
+#  pragma pop_macro("Handle")
 
 #  include <boost/signals2.hpp>
 

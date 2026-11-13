@@ -3,6 +3,7 @@
 #include <deal.II/boost_adaptors/segment.h>
 
 #include <deal.II/fe/mapping_fe.h>
+#include <deal.II/fe/mapping_p1.h>
 #include <deal.II/fe/mapping_q.h>
 
 #include <deal.II/grid/grid_tools_cache.h>
@@ -572,7 +573,8 @@ namespace ImmersX::Vascularization
                      communicator,
                      &comparison);
     require_all(
-      ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1)) &&
+      ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1) ||
+       dynamic_cast<const MappingP1<3> *>(&mapping) != nullptr) &&
         (comparison == MPI_IDENT || comparison == MPI_CONGRUENT),
       "Vascular discretization requires a first-order mapping and congruent communicators.");
     DiscretizationResult result;

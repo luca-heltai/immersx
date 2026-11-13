@@ -1,0 +1,101 @@
+subsection Elastic static
+  set FE degree = 1
+  set Dirichlet boundary ids = 0
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastostatic
+  set Output name = solid
+  subsection Domain
+    set Initial refinement = 1
+    set Grid generator = subdivided_cylinder
+    set Grid generator arguments = 4:0.05:0.120685
+  end
+  subsection Refinement
+    set Number of refinement cycles = 1
+  end
+  subsection Material properties
+    subsection default
+      set Lame mu = 1e6
+      set Lame lambda = 1e6
+    end
+  end
+  subsection Functions
+    subsection Right hand side
+      set Variable names = x,y,z,t
+      set Function expression = 0;(1+1000*t)*y;(1+1000*t)*z
+    end
+    subsection Dirichlet boundary conditions
+      set Function expression = 0;0;0
+    end
+  end
+end
+
+subsection Metric Flow Parameters
+  set Density (rho) = 1060.0
+  set Reflection coefficient at outflow boundary (Rt) = 0.0
+  set Tube law exponent (m) = 0.5
+  set Viscosity coefficient (mu) = 0.0
+  set Profile constant for friction term (xi) = 0.0
+end
+
+subsection Functions
+  # Q(0)=Q'(0)=0 is compatible with the initially resting constrained solid.
+  set Inflow function = 5e-8*(1-cos(314.1592653589793*t))
+end
+
+subsection MetricFlowSystem<1, 3>
+  subsection IDA parameters
+    set Initial time = 0.0
+    set Final time = 0.002
+    set Time interval between each output = 0.001
+    subsection Initial condition correction parameters
+      set Correction type at initial time = use_y_diff
+    end
+    subsection Running parameters
+      set Initial step size = 0.0001
+      set Minimum step size = 1e-8
+      set Maximum order of BDF = 2
+      set Maximum number of nonlinear iterations = 8
+    end
+    subsection Error control
+      set Absolute error tolerance = 1e-9
+      set Relative error tolerance = 1e-7
+    end
+  end
+  set Finite element degree = 2
+  set Number of global refinement = 0
+  set Number of refinement cycles = 1
+  set Output filename = flow
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastostatic
+  set Use direct solver = true
+  set Verbosity (console depth) = 0
+  set Numerical flux type = HLL
+  set Outlet boundary condition type = RCR
+  set Vtk file path for mesh input = @TEST_DATA_DIR@/metric_flow_x/single_vessel_centered.vtk
+end
+
+subsection MetricFlowX multiplier space
+  set Finite element = auto
+end
+
+subsection MetricFlowX vessel wall lift
+  set Thickness = 0.01
+  subsection Cross section
+    set Refinement level = 1
+    set Geometry type = hyper_ball
+    set Maximum basis degree = 1
+    set Selected modes = 3, 7
+    set Quadrature type = gauss
+    set Number of points = 3
+  end
+  subsection Representative quadrature
+    set Type = gauss
+    # Resolve all three local basis functions of the degree-two multiplier.
+    set Number of points = 3
+  end
+end
+
+subsection MetricFlowX coupling
+  set Wall pressure absolute tolerance = 0
+  subsection Particle output
+    set Properties = weight, mode_values, modal_coefficients, lifted_value, modal_data, representative_point, radius, indices, bulk_field
+  end
+end

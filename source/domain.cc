@@ -440,8 +440,18 @@ namespace ImmersX
   template <int dim, int spacedim>
   DomainParameters<dim, spacedim>::DomainParameters(
     const std::string &subsection)
-    : dealii::ParameterAcceptor(subsection)
+    : DomainParameters(subsection, true)
+  {}
+
+
+  template <int dim, int spacedim>
+  DomainParameters<dim, spacedim>::DomainParameters(
+    const std::string &subsection,
+    const bool         expose_parameters)
+    : dealii::ParameterAcceptor(expose_parameters ? subsection : "/")
   {
+    if (!expose_parameters)
+      return;
     add_parameter("Grid generator", name_of_grid);
     add_parameter("Grid generator arguments", arguments_for_grid);
     add_parameter("Grid scale", grid_scale);

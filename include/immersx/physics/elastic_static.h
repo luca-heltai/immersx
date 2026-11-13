@@ -38,6 +38,11 @@
 #include <deal.II/lac/vector.h>
 
 #include <deal.II/numerics/data_out.h>
+#if DEAL_II_VERSION_GTE(9, 8, 0)
+#  include <deal.II/numerics/solution_transfer.h>
+#else
+#  include <deal.II/distributed/solution_transfer.h>
+#endif
 #include <deal.II/numerics/vector_tools.h>
 
 #include <immersx/algebra/linear_algebra.h>
@@ -53,6 +58,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -68,6 +74,15 @@ namespace ImmersX
 
   namespace elastic_static_detail
   {
+    template <int dim, typename VectorType, int spacedim>
+#if DEAL_II_VERSION_GTE(9, 8, 0)
+    using CheckpointTransfer =
+      dealii::SolutionTransfer<dim, VectorType, spacedim>;
+#else
+    using CheckpointTransfer = dealii::parallel::distributed::
+      SolutionTransfer<dim, VectorType, spacedim>;
+#endif
+
     inline std::string
     normalize_subsection(std::string subsection)
     {
@@ -394,17 +409,138 @@ namespace ImmersX
       , domain_(parameters_.domain_parameters, communicator_)
     {}
 
+    /** Reuse the first assembled stiffness on each mesh.
+     * Call before setup, including checkpoint setup. The caller guarantees
+     * fixed material and Robin coefficients and a fixed constraint pattern.
+     * Loads and inhomogeneous boundary values may still depend on time.
+     */
+    void
+    use_fixed_stiffness()
+    {
+      AssertThrow(space_ == nullptr,
+                  ExcMessage("Select fixed stiffness before FE setup."));
+      fixed_stiffness_ = true;
+    }
+
+    bool
+    uses_fixed_stiffness() const
+    {
+      return fixed_stiffness_;
+    }
+
+    /** Number of stiffness assembly passes, including initial setup. */
+    unsigned int
+    stiffness_assemblies() const
+    {
+      return stiffness_assemblies_;
+    }
+
     /** Create the mesh, DoFs, constraints, stiffness matrix, and vectors. */
     void
     setup()
     {
+      make_grid();
+      setup_fe();
+    }
+
+    /** Create the mesh before attaching finite element spaces.
+     *
+     * An optional initialization policy may prepare, co-refine and finalize
+     * the Domain with another mesh. It must leave the Domain finalized.
+     */
+    void
+    make_grid(
+      const std::function<void(Domain<dim, spacedim> &)> &initialize = {})
+    {
+      AssertThrow(space_ == nullptr &&
+                    domain_.triangulation().n_global_active_cells() == 0,
+                  ExcMessage(
+                    "Static elasticity mesh may only be created once."));
+      if (initialize)
+        initialize(domain_);
+      else
+        domain_.make_grid();
+      AssertThrow(!domain_.grid_is_prepared() &&
+                    domain_.triangulation().n_global_active_cells() > 0,
+                  ExcMessage(
+                    "The grid policy must finalize the solid Domain."));
+    }
+
+    /** Create DoFs, constraints, stiffness and vectors on the finalized mesh.
+     */
+    void
+    setup_fe()
+    {
       AssertThrow(space_ == nullptr,
                   ExcMessage(
-                    "ElasticStaticProblem::setup() may only be called once."));
-
-      domain_.make_grid();
+                    "Static elasticity FE setup may only be called once."));
+      AssertThrow(!domain_.grid_is_prepared() &&
+                    domain_.triangulation().n_global_active_cells() > 0,
+                  ExcMessage(
+                    "Call make_grid() before static elasticity FE setup."));
       setup_system();
       assemble_system(nullptr);
+    }
+
+    /**
+     * Save the fixed mesh and accepted displacement with native
+     * SolutionTransfer.
+     *
+     * This collective operation requires fullydistributed storage and loading
+     * with the same MPI size. Geometry, material ids, boundary ids, and the FE
+     * displacement are self-contained. Parameters and physical time belong to
+     * the application's checkpoint manifest.
+     */
+    void
+    save_checkpoint(const std::string &filename) const
+    {
+      AssertThrow(space_ != nullptr,
+                  ExcMessage(
+                    "Call setup() before checkpointing static elasticity."));
+      AssertThrow(domain_.uses_fully_distributed_triangulation(),
+                  ExcMessage("Static checkpoints require "
+                             "Triangulation type = fullydistributed."));
+      update_locally_relevant_solution();
+      elastic_static_detail::CheckpointTransfer<dim, VectorType, spacedim>
+        transfer(dof_handler());
+      transfer.prepare_for_serialization(locally_relevant_solution_);
+      triangulation().save(filename);
+    }
+
+    /**
+     * Restore a fixed linear-mapping mesh and its accepted displacement.
+     *
+     * Domain parameters must select fullydistributed storage and the same FE
+     * as the writer. Manifold objects and refinement policies are not restored;
+     * the stored vertices define the linear mapping without further refinement.
+     * The optional restore_geometry callback attaches required manifolds to the
+     * empty mesh on every rank before native reconstruction.
+     * Call update_time() with the manifest time before evaluating equilibrium.
+     */
+    void
+    setup_from_checkpoint(
+      const std::string &filename,
+      const std::function<void(Triangulation<dim, spacedim> &)>
+        &restore_geometry = {})
+    {
+      AssertThrow(space_ == nullptr,
+                  ExcMessage(
+                    "Static elasticity setup may only be called once."));
+      AssertThrow(domain_.uses_fully_distributed_triangulation(),
+                  ExcMessage("Static checkpoint loading requires "
+                             "Triangulation type = fullydistributed."));
+      auto &mesh = dynamic_cast<
+        typename Domain<dim, spacedim>::FullyDistributedTriangulation &>(
+        domain_.triangulation());
+      if (restore_geometry)
+        restore_geometry(mesh);
+      mesh.load(filename);
+      setup_system();
+      assemble_system(nullptr);
+      elastic_static_detail::CheckpointTransfer<dim, VectorType, spacedim>
+        transfer(dof_handler());
+      transfer.deserialize(solution_);
+      update_locally_relevant_solution();
     }
 
     /**
@@ -510,6 +646,41 @@ namespace ImmersX
                   ExcMessage(
                     "Call setup() before setting the elasticity forcing."));
       assemble_system(&function);
+      forcing_override_ = true;
+    }
+
+    /**
+     * Reassemble equilibrium at a candidate time without accepting a solution.
+     *
+     * The mesh, material coefficients, and constrained DoF pattern stay fixed.
+     * Parsed body loads, tractions, springs, and Dirichlet data use this time.
+     * With use_fixed_stiffness(), only loads and Dirichlet lifting are updated;
+     * the stiffness and Robin coefficient remain those of the first assembly.
+     * This selects parameter-driven forcing instead of a set_forcing override.
+     */
+    void
+    update_time(const double time)
+    {
+      AssertThrow(space_ != nullptr,
+                  ExcMessage(
+                    "Call setup() before updating static elasticity time."));
+      if (time == assembly_time_ && !forcing_override_)
+        return;
+      assembly_time_    = time;
+      const auto update = [time](auto &fallback, const auto &overrides) {
+        fallback.set_time(time);
+        for (const auto &[id, function] : overrides)
+          function->set_time(time);
+      };
+      update(parameters_.rhs, parameters_.rhs_by_material_id);
+      update(parameters_.bc, parameters_.dirichlet_bc_by_id);
+      update(parameters_.neumann_bc, parameters_.neumann_bc_by_id);
+      update(parameters_.robin_rhs, parameters_.robin_rhs_by_id);
+      update(parameters_.robin_coefficient,
+             parameters_.robin_coefficient_by_id);
+      update_constraints();
+      assemble_system(nullptr);
+      forcing_override_ = false;
     }
 
     /** Solve the assembled static elasticity system natively. */
@@ -600,6 +771,13 @@ namespace ImmersX
     void
     output_results(const unsigned int cycle) const
     {
+      output_results(cycle, static_cast<double>(cycle));
+    }
+
+    /** Write one accepted quasi-static state at its physical time. */
+    void
+    output_results(const unsigned int cycle, const double time) const
+    {
       std::filesystem::create_directories(parameters_.output_directory);
 
       DataOut<dim, spacedim> data_out;
@@ -630,7 +808,7 @@ namespace ImmersX
                                        filename,
                                      communicator_);
 
-      output_records_.emplace_back(static_cast<double>(cycle), filename);
+      output_records_.emplace_back(time, filename);
 
       if (Utilities::MPI::this_mpi_process(communicator_) == 0)
         {
@@ -669,20 +847,11 @@ namespace ImmersX
           space_->finite_element().is_primitive(),
         ExcMessage(
           "The displacement FE must be primitive with spacedim components."));
-      const auto &dofs        = dof_handler();
-      const auto &owned       = locally_owned_dofs();
-      const auto &relevant    = locally_relevant_dofs();
-      auto       &constraints = space_->constraints();
-      constraints.reinit(owned, relevant);
-      DoFTools::make_hanging_node_constraints(dofs, constraints);
-      for (const auto boundary_id : parameters_.dirichlet_ids)
-        VectorTools::interpolate_boundary_values(mapping(),
-                                                 dofs,
-                                                 boundary_id,
-                                                 parameters_.get_dirichlet_bc(
-                                                   boundary_id),
-                                                 constraints);
-      constraints.close();
+      const auto &dofs     = dof_handler();
+      const auto &owned    = locally_owned_dofs();
+      const auto &relevant = locally_relevant_dofs();
+      update_constraints();
+      const auto &constraints = space_->constraints();
 
       DynamicSparsityPattern sparsity(relevant);
       DoFTools::make_sparsity_pattern(dofs, sparsity, constraints, true);
@@ -692,6 +861,15 @@ namespace ImmersX
                                                  relevant);
 
       stiffness_matrix_.reinit(owned, owned, sparsity, communicator_);
+      stiffness_initialized_ = false;
+      if (fixed_stiffness_ && !parameters_.dirichlet_ids.empty())
+        {
+          uncondensed_stiffness_.reinit(owned, owned, sparsity, communicator_);
+          lifting_.reinit(owned, communicator_);
+          lifting_action_.reinit(owned, communicator_);
+          owned_indices_.assign(owned.begin(), owned.end());
+          local_lifting_action_.reinit(owned.n_elements());
+        }
       forcing_.reinit(owned, communicator_);
       solution_.reinit(owned, communicator_);
       locally_relevant_solution_.reinit(owned, relevant, communicator_);
@@ -701,24 +879,67 @@ namespace ImmersX
     }
 
     void
+    update_constraints()
+    {
+      auto &constraints = space_->constraints();
+      constraints.clear();
+      constraints.reinit(locally_owned_dofs(), locally_relevant_dofs());
+      DoFTools::make_hanging_node_constraints(dof_handler(), constraints);
+      // Keep modulation consistent with body and boundary traction data.
+      class ScaledFunction : public Function<spacedim>
+      {
+      public:
+        ScaledFunction(const ModulatedParsedFunction<spacedim> &function,
+                       const double                             time)
+          : Function<spacedim>(spacedim)
+          , function(function)
+          , factor(function.scale(time))
+        {}
+        double
+        value(const Point<spacedim> &point,
+              const unsigned int     component = 0) const override
+        {
+          return factor * function.value(point, component);
+        }
+
+      private:
+        const ModulatedParsedFunction<spacedim> &function;
+        const double                             factor;
+      };
+      for (const auto boundary_id : parameters_.dirichlet_ids)
+        {
+          const ScaledFunction function(
+            parameters_.get_dirichlet_bc(boundary_id), assembly_time_);
+          VectorTools::interpolate_boundary_values(
+            mapping(), dof_handler(), boundary_id, function, constraints);
+        }
+      constraints.close();
+    }
+
+    void
     assemble_system(const dealii::Function<spacedim> *body_force_override)
     {
+      const bool assemble_stiffness =
+        !fixed_stiffness_ || !stiffness_initialized_;
+      const bool retain_lifting =
+        fixed_stiffness_ && !parameters_.dirichlet_ids.empty();
       const auto &fe_          = space_->finite_element();
       const auto &constraints_ = constraints();
       const auto  quadrature =
         compatibility::gauss_quadrature<dim>(fe_.reference_cell(),
                                              fe_.degree + 1);
-      FEValues<dim, spacedim> fe_values(mapping(),
-                                        fe_,
-                                        quadrature,
-                                        update_values | update_gradients |
-                                          update_quadrature_points |
-                                          update_JxW_values);
+      FEValues<dim, spacedim> fe_values(
+        mapping(),
+        fe_,
+        quadrature,
+        update_values | update_quadrature_points | update_JxW_values |
+          (assemble_stiffness ? update_gradients : update_default));
 
       const unsigned int dofs_per_cell = fe_.n_dofs_per_cell();
       const unsigned int n_q_points    = quadrature.size();
-      FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
-      Vector<double>     cell_rhs(dofs_per_cell);
+      FullMatrix<double> cell_matrix(assemble_stiffness ? dofs_per_cell : 0,
+                                     assemble_stiffness ? dofs_per_cell : 0);
+      Vector<double>                   cell_rhs(dofs_per_cell);
       std::vector<Tensor<2, spacedim>> symmetric_gradients(dofs_per_cell);
       std::vector<double>              divergences(dofs_per_cell);
       std::vector<Vector<double>> values(n_q_points, Vector<double>(spacedim));
@@ -734,39 +955,48 @@ namespace ImmersX
         compatibility::gauss_quadrature<dim - 1>(
           fe_.reference_cell().face_reference_cell(0), fe_.degree + 1),
         update_values | update_quadrature_points | update_JxW_values);
-      parameters_.robin_coefficient.set_time(0.);
-      parameters_.robin_rhs.set_time(0.);
+      parameters_.robin_coefficient.set_time(assembly_time_);
+      parameters_.robin_rhs.set_time(assembly_time_);
       unsigned int invalid_robin = 0;
-      stiffness_matrix_          = 0.;
-      forcing_                   = 0.;
+      if (assemble_stiffness)
+        {
+          stiffness_matrix_ = 0.;
+          if (retain_lifting)
+            uncondensed_stiffness_ = 0.;
+        }
+      forcing_ = 0.;
 
       for (const auto &cell : dof_handler().active_cell_iterators())
         if (cell->is_locally_owned())
           {
-            cell_matrix = 0.;
-            cell_rhs    = 0.;
+            if (assemble_stiffness)
+              cell_matrix = 0.;
+            cell_rhs = 0.;
             fe_values.reinit(cell);
 
             const auto &material =
               parameters_.get_material_properties(cell->material_id());
-            for (unsigned int q = 0; q < n_q_points; ++q)
-              {
-                for (unsigned int k = 0; k < dofs_per_cell; ++k)
-                  {
-                    symmetric_gradients[k] =
-                      fe_values[displacement_].symmetric_gradient(k, q);
-                    divergences[k] = fe_values[displacement_].divergence(k, q);
-                  }
+            if (assemble_stiffness)
+              for (unsigned int q = 0; q < n_q_points; ++q)
+                {
+                  for (unsigned int k = 0; k < dofs_per_cell; ++k)
+                    {
+                      symmetric_gradients[k] =
+                        fe_values[displacement_].symmetric_gradient(k, q);
+                      divergences[k] =
+                        fe_values[displacement_].divergence(k, q);
+                    }
 
-                for (unsigned int i = 0; i < dofs_per_cell; ++i)
-                  for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                    cell_matrix(i, j) +=
-                      (2. * material.Lame_mu *
-                         scalar_product(symmetric_gradients[i],
-                                        symmetric_gradients[j]) +
-                       material.Lame_lambda * divergences[i] * divergences[j]) *
-                      fe_values.JxW(q);
-              }
+                  for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                    for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                      cell_matrix(i, j) +=
+                        (2. * material.Lame_mu *
+                           scalar_product(symmetric_gradients[i],
+                                          symmetric_gradients[j]) +
+                         material.Lame_lambda * divergences[i] *
+                           divergences[j]) *
+                        fe_values.JxW(q);
+                }
 
             if (body_force_override != nullptr)
               body_force_override->vector_value_list(
@@ -776,7 +1006,7 @@ namespace ImmersX
                 const auto &rhs = parameters_.get_rhs(cell->material_id());
                 rhs.vector_value_list(fe_values.get_quadrature_points(),
                                       values);
-                const double scale = rhs.scale(0.);
+                const double scale = rhs.scale(assembly_time_);
                 for (auto &value : values)
                   value *= scale;
               }
@@ -795,24 +1025,73 @@ namespace ImmersX
                   parameters_.robin_ids.count(cell->face(face)->boundary_id()))
                 {
                   robin_values.reinit(cell, face);
-                  invalid_robin |= robin_detail::add_face_terms(
-                    robin_values,
-                    displacement_,
-                    parameters_.get_robin_coefficient(
-                      cell->face(face)->boundary_id()),
-                    parameters_.get_robin_rhs(cell->face(face)->boundary_id()),
-                    cell_matrix,
-                    cell_rhs,
-                    1.,
-                    parameters_.get_robin_rhs(cell->face(face)->boundary_id())
-                      .scale(0.));
+                  if (assemble_stiffness)
+                    invalid_robin |= robin_detail::add_face_terms(
+                      robin_values,
+                      displacement_,
+                      parameters_.get_robin_coefficient(
+                        cell->face(face)->boundary_id()),
+                      parameters_.get_robin_rhs(
+                        cell->face(face)->boundary_id()),
+                      cell_matrix,
+                      cell_rhs,
+                      1.,
+                      parameters_.get_robin_rhs(cell->face(face)->boundary_id())
+                        .scale(assembly_time_));
+                  else
+                    {
+                      const auto &load = parameters_.get_robin_rhs(
+                        cell->face(face)->boundary_id());
+                      const double scale = load.scale(assembly_time_);
+                      for (unsigned int q = 0;
+                           q < robin_values.n_quadrature_points;
+                           ++q)
+                        {
+                          Tensor<1, spacedim> datum;
+                          bool                valid = std::isfinite(scale);
+                          try
+                            {
+                              for (unsigned int d = 0; d < spacedim; ++d)
+                                {
+                                  datum[d] =
+                                    load.value(robin_values.quadrature_point(q),
+                                               d);
+                                  valid = valid && std::isfinite(datum[d]);
+                                }
+                            }
+                          catch (const std::exception &)
+                            {
+                              valid = false;
+                            }
+                          if (!valid)
+                            {
+                              invalid_robin = 1;
+                              continue;
+                            }
+                          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                            cell_rhs(i) +=
+                              scale *
+                              (robin_values[displacement_].value(i, q) *
+                               datum) *
+                              robin_values.JxW(q);
+                        }
+                    }
                 }
             cell->get_dof_indices(local_dof_indices);
-            constraints_.distribute_local_to_global(cell_matrix,
-                                                    cell_rhs,
-                                                    local_dof_indices,
-                                                    stiffness_matrix_,
-                                                    forcing_);
+            if (assemble_stiffness)
+              {
+                if (retain_lifting)
+                  uncondensed_stiffness_.add(local_dof_indices, cell_matrix);
+                constraints_.distribute_local_to_global(cell_matrix,
+                                                        cell_rhs,
+                                                        local_dof_indices,
+                                                        stiffness_matrix_,
+                                                        forcing_);
+              }
+            else
+              constraints_.distribute_local_to_global(cell_rhs,
+                                                      local_dof_indices,
+                                                      forcing_);
 
             if (!parameters_.neumann_ids.empty())
               {
@@ -839,7 +1118,7 @@ namespace ImmersX
                         cell->face(face)->boundary_id());
                       traction.vector_value_list(
                         face_values.get_quadrature_points(), face_values_list);
-                      const double scale = traction.scale(0.);
+                      const double scale = traction.scale(assembly_time_);
                       for (auto &value : face_values_list)
                         value *= scale;
 
@@ -865,8 +1144,30 @@ namespace ImmersX
           }
 
       robin_detail::assert_valid_boundary_data(invalid_robin, communicator_);
-      stiffness_matrix_.compress(VectorOperation::add);
+      if (assemble_stiffness)
+        {
+          stiffness_matrix_.compress(VectorOperation::add);
+          if (retain_lifting)
+            uncondensed_stiffness_.compress(VectorOperation::add);
+          stiffness_initialized_ = true;
+          ++stiffness_assemblies_;
+        }
       forcing_.compress(VectorOperation::add);
+      if (!assemble_stiffness && retain_lifting)
+        {
+          // C^T(f-Kg): g satisfies current inhomogeneous constraints, while
+          // free coefficients vanish. Scatter each owned row exactly once;
+          // this also applies the transpose of hanging-node interpolation.
+          lifting_ = 0.;
+          constraints_.distribute(lifting_);
+          uncondensed_stiffness_.vmult(lifting_action_, lifting_);
+          for (unsigned int i = 0; i < owned_indices_.size(); ++i)
+            local_lifting_action_[i] = -lifting_action_[owned_indices_[i]];
+          constraints_.distribute_local_to_global(local_lifting_action_,
+                                                  owned_indices_,
+                                                  forcing_);
+          forcing_.compress(VectorOperation::add);
+        }
     }
 
     void
@@ -881,10 +1182,19 @@ namespace ImmersX
     Domain<dim, spacedim>                              domain_;
     std::unique_ptr<FiniteElementSpace<dim, spacedim>> space_;
 
-    MatrixType         stiffness_matrix_;
-    VectorType         forcing_;
-    VectorType         solution_;
-    mutable VectorType locally_relevant_solution_;
+    double                               assembly_time_         = 0.;
+    bool                                 forcing_override_      = false;
+    bool                                 fixed_stiffness_       = false;
+    bool                                 stiffness_initialized_ = false;
+    unsigned int                         stiffness_assemblies_  = 0;
+    MatrixType                           uncondensed_stiffness_;
+    VectorType                           lifting_, lifting_action_;
+    std::vector<types::global_dof_index> owned_indices_;
+    dealii::Vector<double>               local_lifting_action_;
+    MatrixType                           stiffness_matrix_;
+    VectorType                           forcing_;
+    VectorType                           solution_;
+    mutable VectorType                   locally_relevant_solution_;
     mutable std::vector<std::pair<double, std::string>> output_records_;
 
     FEValuesExtractors::Vector displacement_{0};
