@@ -569,6 +569,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #415](https://github.com/luca-heltai/immersx/pull/415) Add a case11 coupled liver tutorial with the available small and medium solver profiles, parameter templates, and the current vascular-network limits.
+
 - [PR #413](https://github.com/luca-heltai/immersx/pull/413) Keep the IRCAD11 small parameter template consistent with the coupled application's solid refinement settings.
 
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Document the verified IRCAD11 small archive setup with the setup-only command, measured coupled spaces and the mechanical coupling regularity limit, and distinguish it from the transient startup that has not passed consistent initialization. Qualify the tested checkpoint SDK separately from the newer native flow compatibility serializer and the solid checkpoint requirements.
