@@ -1,0 +1,57 @@
+subsection Elastic static
+  set FE degree = 1
+  set Dirichlet boundary ids = 0
+  set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastostatic-replay/solid
+  set Output name = solid
+  subsection Domain
+    set Initial refinement = 1
+    set Grid generator = subdivided_cylinder
+    set Grid generator arguments = 4:0.05:0.120685
+  end
+  subsection Refinement
+    set Number of refinement cycles = 1
+  end
+  subsection Material properties
+    subsection default
+      set Lame mu = 1e6
+      set Lame lambda = 1e6
+    end
+  end
+  subsection Functions
+    subsection Right hand side
+      set Variable names = x,y,z,t
+      set Function expression = 0;(1+1000*t)*y;(1+1000*t)*z
+    end
+    subsection Dirichlet boundary conditions
+      set Function expression = 0;0;0
+    end
+  end
+end
+
+subsection MetricFlowX multiplier space
+  set Finite element = auto
+end
+
+subsection MetricFlowX vessel wall lift
+  set Thickness = 0.01
+  subsection Cross section
+    set Refinement level = 1
+    set Geometry type = hyper_ball
+    set Maximum basis degree = 1
+    set Selected modes = 3, 7
+    set Quadrature type = gauss
+    set Number of points = 3
+  end
+  subsection Representative quadrature
+    set Type = gauss
+    # Resolve all three local basis functions of the degree-two multiplier.
+    set Number of points = 3
+  end
+end
+
+subsection MetricFlowX replay
+  set Checkpoint history = @TEST_OUTPUT_DIR@/metric-flow-x-elastostatic-replay/history
+  subsection Linear adapter
+    set Solver = direct
+  end
+end

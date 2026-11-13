@@ -10,6 +10,7 @@ coupling and its manufactured solution. See the
 
 Elastostatic coupling walkthrough <metric-flow-x-elastostatic-onboarding>
 metric-flow-x-elastostatic-coupling
+metric-flow-x-elastostatic-replay
 metric-flow-x-elastostatic-ircad11-small
 metric-flow-x-elastodynamics
 metric-flow-x-elastodynamics-mms

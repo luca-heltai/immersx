@@ -331,7 +331,7 @@ configure_file(
 
 if(NOT IMMERSX_WITH_METRIC_FLOW_X OR NOT DEAL_II_WITH_SUNDIALS)
   list(FILTER _main_files EXCLUDE REGEX
-       "app_metric_flow_x(_elastodynamics|_elastostatic)?\\.cc$")
+       "app_metric_flow_x(_elastodynamics|_elastostatic|_elastostatic_replay)?\\.cc$")
 endif()
 
 IF(${ENABLE_COUPLED_PROBLEMS})

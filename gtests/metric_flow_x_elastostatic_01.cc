@@ -18,7 +18,12 @@
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastic_static_semidiscrete.h>
 #  include <immersx/physics/metric_flow_x.h>
+#  include <immersx/physics/metric_flow_x_elastostatic_replay.h>
 #  include <immersx/physics/metric_flow_x_wall.h>
+
+#  include <filesystem>
+#  include <sstream>
+#  include <vector>
 
 #  include "test_paths.h"
 
@@ -512,6 +517,106 @@ TEST(MetricFlowXElastostatic,
   GTEST_SKIP() << "VTK input requires deal.II with VTK";
 #  else
   check_transient(true, true);
+#  endif
+}
+
+TEST(MetricFlowXElastostatic, BOTH_ReplayMatchesOneWayCoupledSolid)
+{
+#  ifndef DEAL_II_WITH_VTK
+  GTEST_SKIP() << "VTK input requires deal.II with VTK";
+#  else
+  // Run the one-way IDA coupling, saving a native flow checkpoint at each
+  // accepted output time. Replaying that history with static solves must
+  // reproduce the coupled solid and multiplier: both satisfy
+  // K u + B lambda = f(t) and B^T u = P_h(A(t)) at those times.
+  const auto history =
+    TestPaths::output_path("metric-flow-x-elastostatic-replay-test/history");
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      std::filesystem::remove_all(history);
+      std::filesystem::create_directories(history);
+    }
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  std::vector<double>      times;
+  std::vector<FieldVector> coupled_displacement, coupled_multiplier;
+  with_coupled_problem(
+    [&](auto       &flow,
+        auto       &solid,
+        auto       &adapter,
+        const auto &solid_fields,
+        const auto &flow_fields,
+        const auto &wall,
+        auto       &state,
+        auto       &state_dot,
+        const auto &,
+        const auto &) {
+      adapter.set_output_step([&](const double        t,
+                                  const GlobalVector &y,
+                                  const GlobalVector &ydot,
+                                  const unsigned int) {
+        std::ostringstream name;
+        name << "checkpoint-" << std::hexfloat << t;
+        flow.save_checkpoint((history / name.str()).string(),
+                             t,
+                             adapter.field(y, flow_fields.fields().state),
+                             adapter.field(ydot, flow_fields.fields().state));
+        times.push_back(t);
+        coupled_displacement.push_back(
+          adapter.field(y, solid_fields.fields().displacement));
+        coupled_multiplier.push_back(
+          adapter.field(y, wall.fields().multiplier));
+      });
+      auto  constraints = std::make_shared<GlobalVector>(adapter.make_state());
+      auto &flow_constraints =
+        adapter.field(*constraints, flow_fields.fields().state);
+      for (const auto component :
+           {Flow::Component::area, Flow::Component::area_trace})
+        for (const auto index : flow.component_dofs(component))
+          flow_constraints[index] = 2.;
+      constraints->compress(VectorOperation::insert);
+      adapter.solver().get_constraint_vector =
+        [constraints]() -> GlobalVector & { return *constraints; };
+      EXPECT_GT(adapter.solve(state, state_dot), 0u);
+      EXPECT_EQ(solid.stiffness_assemblies(), 1u);
+    },
+    false);
+  ASSERT_GE(times.size(), 3u);
+
+  ParameterAcceptor::clear();
+  MetricFlowXElastostaticReplayParameters parameters;
+  // The shared input also configures the native flow, which the replay reads
+  // from the checkpoints instead.
+  initialize_parameters(TestPaths::parameter_path(
+                          "gtests/parameters/metric_flow_x_elastostatic.prm"),
+                        "",
+                        true);
+  parameters.checkpoint_history     = history.string();
+  parameters.execution.solver       = LinearSolver::direct;
+  parameters.solid.output_directory = TestPaths::output_directory(
+    "metric-flow-x-elastostatic-replay-test/output");
+  MetricFlowXElastostaticReplay replay(parameters);
+  replay.setup();
+  ASSERT_EQ(replay.n_steps(), times.size());
+  for (unsigned int step = 0; step < replay.n_steps(); ++step)
+    {
+      EXPECT_EQ(replay.time(step), times[step]);
+      replay.solve_step(step);
+      replay.output_step(step);
+      FieldVector displacement = replay.displacement();
+      displacement -= coupled_displacement[step];
+      EXPECT_LT(displacement.l2_norm(),
+                1.e-6 * coupled_displacement[step].l2_norm());
+      FieldVector multiplier = replay.multiplier();
+      multiplier -= coupled_multiplier[step];
+      EXPECT_LT(multiplier.l2_norm(),
+                1.e-6 * coupled_multiplier[step].l2_norm());
+    }
+  // The load and the flow area change in time, so the steps differ.
+  FieldVector change = coupled_displacement.back();
+  change -= coupled_displacement.front();
+  EXPECT_GT(change.l2_norm(), 1.e-3 * coupled_displacement.back().l2_norm());
+  EXPECT_EQ(replay.solid().stiffness_assemblies(), 1u);
 #  endif
 }
 
