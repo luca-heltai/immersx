@@ -691,14 +691,16 @@ namespace ImmersX
 
     DynamicSparsityPattern combined_dsp(combined_relevant_dofs);
     for (const auto row : relevant_dofs)
-      for (unsigned int k = 0; k < spatial_dsp.row_length(row); ++k)
-        {
-          const auto column = spatial_dsp.column_number(row, k);
-          combined_dsp.add(row, column);
-          combined_dsp.add(row, n_spatial_dofs + column);
-          combined_dsp.add(n_spatial_dofs + row, column);
-          combined_dsp.add(n_spatial_dofs + row, n_spatial_dofs + column);
-        }
+      {
+        combined_dsp.add(row, row);
+        combined_dsp.add(row, n_spatial_dofs + row);
+        for (unsigned int k = 0; k < spatial_dsp.row_length(row); ++k)
+          {
+            const auto column = spatial_dsp.column_number(row, k);
+            combined_dsp.add(n_spatial_dofs + row, column);
+            combined_dsp.add(n_spatial_dofs + row, n_spatial_dofs + column);
+          }
+      }
     SparsityTools::distribute_sparsity_pattern(combined_dsp,
                                                combined_owned_dofs,
                                                mpi_communicator,
@@ -1318,10 +1320,6 @@ namespace ImmersX
               homogeneous_stiffness_matrix_storage.el(row, column);
             const double damping =
               homogeneous_damping_matrix_storage.el(row, column);
-            system_matrix_storage.add(row, column, mass / dt);
-            system_matrix_storage.add(row,
-                                      n_spatial_dofs + column,
-                                      -theta * mass);
             system_matrix_storage.add(n_spatial_dofs + row,
                                       column,
                                       theta * stiffness);
@@ -1329,6 +1327,18 @@ namespace ImmersX
                                       n_spatial_dofs + column,
                                       mass / dt + theta * damping);
           }
+    // On independent DoFs the kinematic equation only enforces u' = v.
+    // Keep its two blocks diagonal, including on locally refined meshes.
+    for (const auto row : owned_dofs)
+      if (!displacement_constraints_storage.is_constrained(row))
+        {
+          const double diagonal =
+            diagonal_mass_matrix_storage.diag_element(row);
+          system_matrix_storage.add(row, row, diagonal / dt);
+          system_matrix_storage.add(row,
+                                    n_spatial_dofs + row,
+                                    -theta * diagonal);
+        }
     system_matrix_storage.compress(VectorOperation::add);
     for (const auto &line : combined_constraints_storage.get_lines())
       if (combined_owned_dofs.is_element(line.index))
@@ -1355,10 +1365,11 @@ namespace ImmersX
     displacement_rhs.reinit(owned_dofs, mpi_communicator);
     velocity_rhs.reinit(displacement_rhs);
     work.reinit(displacement_rhs);
-    mass_matrix_storage.vmult(displacement_rhs, previous_displacement);
+    diagonal_mass_matrix_storage.vmult(displacement_rhs, previous_displacement);
     displacement_rhs /= dt;
+    diagonal_mass_matrix_storage.vmult(work, previous_velocity);
+    displacement_rhs.add(1. - theta, work);
     mass_matrix_storage.vmult(velocity_rhs, previous_velocity);
-    displacement_rhs.add(1. - theta, velocity_rhs);
     velocity_rhs /= dt;
     velocity_rhs.add(-(1. - theta), previous_stiffness_action);
     damping_matrix_storage.vmult(work, previous_velocity);
@@ -1373,12 +1384,13 @@ namespace ImmersX
     velocity_lifting     = 0.;
     displacement_constraints_storage.distribute(displacement_lifting);
     velocity_constraints_storage.distribute(velocity_lifting);
-    mass_matrix_storage.vmult(work, displacement_lifting);
+    diagonal_mass_matrix_storage.vmult(work, displacement_lifting);
     displacement_rhs.add(-1. / dt, work);
     stiffness_matrix_storage.vmult(work, displacement_lifting);
     velocity_rhs.add(-theta, work);
-    mass_matrix_storage.vmult(work, velocity_lifting);
+    diagonal_mass_matrix_storage.vmult(work, velocity_lifting);
     displacement_rhs.add(theta, work);
+    mass_matrix_storage.vmult(work, velocity_lifting);
     velocity_rhs.add(-1. / dt, work);
     damping_matrix_storage.vmult(work, velocity_lifting);
     velocity_rhs.add(-theta, work);
@@ -1387,7 +1399,12 @@ namespace ImmersX
     raw_rhs.reinit(combined_owned_dofs, mpi_communicator);
     for (const auto index : owned_dofs)
       {
-        raw_rhs(index)               = displacement_rhs(index);
+        // Kinematic rows act only on independent DoFs; slave values must
+        // not contribute to their right-hand sides.
+        raw_rhs(index) =
+          displacement_constraints_storage.is_constrained(index) ?
+            0. :
+            displacement_rhs(index);
         raw_rhs(dh.n_dofs() + index) = velocity_rhs(index);
       }
     raw_rhs.compress(VectorOperation::insert);
@@ -1449,6 +1466,7 @@ namespace ImmersX
         time_preconditioner            = std::make_unique<
           SecondOrderBlockPreconditioner<VectorType, MatrixType>>();
         time_preconditioner->initialize(
+          diagonal_mass_matrix_storage,
           homogeneous_mass_matrix_storage,
           homogeneous_stiffness_matrix_storage,
           homogeneous_damping_matrix_storage,
