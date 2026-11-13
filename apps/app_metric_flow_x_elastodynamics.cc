@@ -29,6 +29,7 @@
 #  include <immersx/core/weak_term.h>
 #  include <immersx/coupling/immersed_repartitioner.h>
 #  include <immersx/grid/lift_co_refinement.h>
+#  include <immersx/io/lifted_particle_output.h>
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastodynamics.h>
 #  include <immersx/physics/elastodynamics_semidiscrete.h>
@@ -203,6 +204,9 @@ namespace
     WallLift wall_lift("/MetricFlowX vessel wall lift/");
     FiniteElementSpaceParameters<1, 3> lambda_parameters(
       "/MetricFlowX multiplier space/", "auto");
+
+    LiftedParticleOutputParameters particle_output(
+      "/MetricFlowX coupling/Particle output/");
 
     ParameterAcceptor coupled_solver(
       "/MetricFlowSystem<1, 3>/IDA parameters/Linear solver/");
@@ -589,6 +593,13 @@ namespace
     const auto reference_radius = sqrt(A0 / numbers::PI);
     const auto reference_wall =
       lift(value(lambda), wall_lift, reference_radius);
+    auto wall_points = reference_wall.lifted_points();
+    // This scalar multiplier uses the lift's normalized sum of mode directions.
+    // Export that effective radial mode rather than the individual raw modes.
+    for (auto &point : wall_points)
+      point.mode_values = {point.mode_vector[0],
+                           point.mode_vector[1],
+                           point.mode_vector[2]};
     solid_problem.setup_system();
     if (enable_co_refinement)
       {
@@ -877,6 +888,7 @@ namespace
     const auto flow_output_name = metric_flow_parameter("Output filename");
     std::vector<std::pair<double, std::string>> multiplier_output_records;
     std::vector<std::pair<double, std::string>> flow_output_records;
+    std::vector<std::pair<double, std::string>> particle_output_records;
     const auto                                  output = [&solid_problem,
                          &solid_parameters,
                          &flow_problem,
@@ -884,6 +896,11 @@ namespace
                          &lambda_view,
                          &multiplier_output_records,
                          &flow_output_records,
+                         &particle_output,
+                         &particle_output_records,
+                         &wall_points,
+                         &reference_area,
+                         reference_field,
                          coupling_fields,
                          pressure_projection,
                          modal_correction,
@@ -928,6 +945,112 @@ namespace
           std::ofstream pvd(std::filesystem::path(flow_output_directory) /
                             (flow_output_name + ".pvd"));
           DataOutBase::write_pvd_record(pvd, flow_output_records);
+        }
+      if (particle_output.enabled())
+        {
+          // The native flow state also carries HDG/RCR entries beyond the FE
+          // DoFs. Constrain its full layout before extracting FE coefficients.
+          const auto ghosted = [](const auto &field, const auto &source) {
+            FieldVector owned;
+            owned.reinit(source);
+            owned = source;
+            if (Utilities::MPI::sum(field.constraints().n_constraints(),
+                                    MPI_COMM_WORLD) != 0)
+              field.constraints().distribute(owned);
+            FieldVector execution;
+            execution.reinit(source.locally_owned_elements(),
+                             field.locally_relevant_dofs(),
+                             MPI_COMM_WORLD);
+            execution = owned;
+            execution.update_ghost_values();
+            FieldVector native;
+            native.reinit(field.dof_handler().locally_owned_dofs(),
+                          MPI_COMM_WORLD);
+            native = 0.;
+            for (const auto index : field.dof_handler().locally_owned_dofs())
+              if (field.has_execution_index(index))
+                native[index] = execution[field.execution_index(index)];
+            native.compress(VectorOperation::insert);
+            FieldVector result;
+            result.reinit(field.dof_handler().locally_owned_dofs(),
+                          DoFTools::extract_locally_relevant_dofs(
+                            field.dof_handler()),
+                          MPI_COMM_WORLD);
+            result = native;
+            result.update_ghost_values();
+            return result;
+          };
+          const auto coefficients =
+            ghosted(lambda_view.field("lambda"),
+                    adapter.field(solution,
+                                  coupling_fields.fields().multiplier));
+          const auto samples =
+            sample_at_representative_points(lambda_view.dof_handler(),
+                                            lambda_view.mapping(),
+                                            coefficients,
+                                            wall_points);
+          std::vector<double> target;
+          if (particle_output.selected("modal_data"))
+            {
+              const auto area        = flow_fields.fields().area;
+              const auto flow_values = ghosted(area, flow_state);
+              const auto areas       = sample_at_representative_points(
+                area.dof_handler(), area.mapping(), flow_values, wall_points);
+              const auto reference =
+                sample_at_representative_points(reference_field.dof_handler(),
+                                                reference_field.mapping(),
+                                                reference_area,
+                                                wall_points);
+              for (std::size_t q = 0; q < wall_points.size(); ++q)
+                target.push_back(
+                  std::sqrt(areas[q * area.finite_element().n_components() +
+                                  area.extractor().component] /
+                            numbers::PI) -
+                  std::sqrt(reference[q * reference_field.finite_element()
+                                            .n_components() +
+                                      reference_field.extractor().component] /
+                            numbers::PI));
+            }
+          LiftedParticleLabels labels;
+          labels.value_name      = "wall_traction";
+          labels.mode_labels     = {"radial"};
+          labels.mode_components = 3;
+          const auto columns     = make_lifted_particle_columns(
+            particle_output, labels, wall_points, samples, target);
+          FieldVector displacement;
+          if (particle_output.selected("bulk_field"))
+            {
+              FieldVector owned;
+              owned.reinit(solid_problem.locally_owned_dofs(), MPI_COMM_WORLD);
+              owned = solid_problem.displacement();
+              solid_problem.constraints().distribute(owned);
+              displacement.reinit(solid_problem.locally_owned_dofs(),
+                                  DoFTools::extract_locally_relevant_dofs(
+                                    solid_problem.dof_handler()),
+                                  MPI_COMM_WORLD);
+              displacement = owned;
+              displacement.update_ghost_values();
+            }
+          const auto filename =
+            "wall_particles_" + std::to_string(step) + ".vtu";
+          write_lifted_particles(
+            particle_output,
+            columns,
+            wall_points,
+            LiftedBulkField<3, FieldVector>{"displacement",
+                                            solid_problem.dof_handler(),
+                                            solid_problem.mapping(),
+                                            &displacement,
+                                            0,
+                                            3},
+            (std::filesystem::path(flow_output_directory) / filename).string());
+          particle_output_records.emplace_back(time, filename);
+          if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+            {
+              std::ofstream pvd(std::filesystem::path(flow_output_directory) /
+                                "wall_particles.pvd");
+              DataOutBase::write_pvd_record(pvd, particle_output_records);
+            }
         }
       solid_problem.output_results();
       // Raw operators retain physical Dirichlet values and include the Robin
