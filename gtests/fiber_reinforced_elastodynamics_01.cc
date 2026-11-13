@@ -520,9 +520,9 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
   work_f.reinit(fiber_d_residual);
   work_lambda.reinit(lambda_residual);
 
-  driver.matrix_problem().mass_matrix().vmult(
+  driver.matrix_problem().diagonal_mass_matrix().vmult(
     matrix_d_residual, ida.field(state_dot, matrix.fields().displacement));
-  driver.matrix_problem().mass_matrix().vmult(
+  driver.matrix_problem().diagonal_mass_matrix().vmult(
     work, ida.field(state, matrix.fields().velocity));
   matrix_d_residual -= work;
   zero_constrained_entries<2>(driver.matrix_problem().constraints(),
@@ -544,9 +544,9 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
   zero_constrained_entries<2>(driver.matrix_problem().velocity_constraints(),
                               matrix_v_residual);
 
-  driver.fiber_problem().mass_matrix().vmult(
+  driver.fiber_problem().diagonal_mass_matrix().vmult(
     fiber_d_residual, ida.field(state_dot, fiber.fields().displacement));
-  driver.fiber_problem().mass_matrix().vmult(
+  driver.fiber_problem().diagonal_mass_matrix().vmult(
     work_f, ida.field(state, fiber.fields().velocity));
   fiber_d_residual -= work_f;
   zero_constrained_entries<2>(driver.fiber_problem().constraints(),
@@ -647,11 +647,11 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
   auto expected_fiber_v_action = ida.field(action, fiber.fields().velocity);
   auto expected_lambda_action = ida.field(action, coupling.fields().multiplier);
   work.reinit(expected_matrix_d_action);
-  driver.matrix_problem().mass_matrix().vmult(
+  driver.matrix_problem().diagonal_mass_matrix().vmult(
     expected_matrix_d_action,
     ida.field(increment, matrix.fields().displacement));
   expected_matrix_d_action *= 1.5;
-  driver.matrix_problem().mass_matrix().vmult(
+  driver.matrix_problem().diagonal_mass_matrix().vmult(
     work, ida.field(increment, matrix.fields().velocity));
   expected_matrix_d_action -= work;
   zero_constrained_entries<2>(driver.matrix_problem().constraints(),
@@ -673,10 +673,10 @@ TEST(FiberReinforcedElastodynamicsValidation, MPI_FiveFieldFiberIDA)
                               expected_matrix_v_action);
 
   work_f.reinit(expected_fiber_d_action);
-  driver.fiber_problem().mass_matrix().vmult(
+  driver.fiber_problem().diagonal_mass_matrix().vmult(
     expected_fiber_d_action, ida.field(increment, fiber.fields().displacement));
   expected_fiber_d_action *= 1.5;
-  driver.fiber_problem().mass_matrix().vmult(
+  driver.fiber_problem().diagonal_mass_matrix().vmult(
     work_f, ida.field(increment, fiber.fields().velocity));
   expected_fiber_d_action -= work_f;
   zero_constrained_entries<2>(driver.fiber_problem().constraints(),
