@@ -604,9 +604,8 @@ TEST(MetricFlowXElastostatic, BOTH_ReplayMatchesOneWayCoupledSolid)
   change -= coupled_displacement.front();
   EXPECT_GT(change.l2_norm(), 1.e-3 * coupled_displacement.back().l2_norm());
 
-  for (const auto &[saved, output] :
-       {std::pair{history, "output-checkpoints"},
-        std::pair{fields, "output-fields"}})
+  for (const auto &[saved, output] : {std::pair{history, "output-checkpoints"},
+                                      std::pair{fields, "output-fields"}})
     {
       SCOPED_TRACE(saved.string());
       ParameterAcceptor::clear();

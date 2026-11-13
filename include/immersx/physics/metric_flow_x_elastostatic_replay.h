@@ -99,7 +99,7 @@ namespace ImmersX
     std::string layout;
     /** True when steps hold only coupling fields (fields-<time>), false when
      * they are full checkpoints (checkpoint-<time>). */
-    bool coupling_fields = false;
+    bool                               coupling_fields = false;
     std::vector<MetricFlowXCheckpoint> steps;
   };
 
@@ -228,7 +228,7 @@ namespace ImmersX
                   ExcMessage("Set MetricFlowX replay/Flow history."));
       const auto history =
         metric_flow_x_flow_history(parameters_.flow_history, communicator_);
-      history_ = history.steps;
+      history_         = history.steps;
       coupling_fields_ = history.coupling_fields;
       pcout_ << "MetricFlowX replay: " << history_.size()
              << (coupling_fields_ ? " field" : " checkpoint")
@@ -510,7 +510,7 @@ namespace ImmersX
                                             wall_points_);
           for (std::size_t q = 0; q < wall_points_.size(); ++q)
             {
-              const auto a  = current[q * width + component];
+              const auto a   = current[q * width + component];
               const auto a_d = reference[q * width + component];
               AssertThrow(a > 0. && a_d > 0.,
                           ExcMessage(
