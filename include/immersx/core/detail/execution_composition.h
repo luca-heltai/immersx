@@ -247,6 +247,15 @@ namespace ImmersX::detail
       , field_layout_(layout_)
     {}
 
+    /** Inner CG control of every second-order block factorization. */
+    void
+    set_second_order_inner_solver(const unsigned int maximum_iterations,
+                                  const double       relative_tolerance)
+    {
+      second_order_inner_iterations_ = maximum_iterations;
+      second_order_inner_tolerance_  = relative_tolerance;
+    }
+
     template <typename Problem, typename... Arguments>
     auto
     add(const Problem     &problem,
@@ -2927,6 +2936,8 @@ namespace ImmersX::detail
           cached.inverse  = std::move(inverse);
           cached.revision = revision;
         }
+      cached.inverse->set_inner_solver_control(second_order_inner_iterations_,
+                                               second_order_inner_tolerance_);
       if (alpha == 0.)
         cached.inverse->prepare_static_inverse();
       else
@@ -3288,7 +3299,9 @@ namespace ImmersX::detail
       std::shared_ptr<SecondOrderPreconditioner> inverse;
     };
     mutable std::map<FieldId, CachedSecondOrderPreconditioner>
-      second_order_preconditioners_;
+                 second_order_preconditioners_;
+    unsigned int second_order_inner_iterations_ = 1000;
+    double       second_order_inner_tolerance_  = 1.e-2;
   };
 } // namespace ImmersX::detail
 
