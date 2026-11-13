@@ -162,6 +162,18 @@ one is active. `Schur complement` and `Second-order block` control the inner
 solves of the preconditioner. `MUMPS` sets the residual check after each
 direct backsolve; UMFPACK runs no check.
 
+Set `Linear solver/Type = mumps-blr-fgmres` to run outer FGMRES with a full
+coupled Jacobian factored by MUMPS in block-low-rank mode as its preconditioner.
+IDA reuses that factorization for the linear solves associated with the current
+Jacobian and rebuilds it when IDA requests a new Jacobian. Configure
+`Linear solver/MUMPS BLR/Tolerance` for the BLR truncation threshold,
+`Memory limit MB per rank` for MUMPS's per-rank limit (zero means unlimited),
+and `Output details` to enable MUMPS diagnostics. This mode requires MUMPS and
+the Trilinos vector backend; the normal block preconditioner setting must remain
+`automatic`. It provides an approximate inverse, so FGMRES still controls the
+physical solve residual. The factorization is not reused across changed
+Jacobians.
+
 The wall relation is imposed weakly. With (A) the flow area, (A_0) its
 reference area, (u) the solid displacement, (n) the radial direction and
 (lambda) the pressure-jump multiplier, the lifted kinematic row represents

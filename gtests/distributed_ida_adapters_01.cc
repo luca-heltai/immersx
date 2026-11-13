@@ -207,6 +207,79 @@ end
   EXPECT_DOUBLE_EQ(data.absolute_tolerance, 1.e-4);
 }
 
+#  if defined(DEAL_II_WITH_MUMPS) && !defined(IMMERSX_USE_PETSC_LA)
+TEST(DistributedIDA, BOTH_MumpsBlrFgmresSolvesCoupledDae)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.initial_time                            = 0.;
+  time.final_time                              = 0.02;
+  time.output_time_interval                    = 0.01;
+  parameters.initial_step_size                 = 0.005;
+  parameters.maximum_step_size                 = 0.01;
+  parameters.maximum_order                     = 1;
+  parameters.absolute_tolerance                = 1.e-6;
+  parameters.relative_tolerance                = 1.e-5;
+  parameters.ignore_algebraic_terms_for_errors = false;
+
+  Adapter          adapter(time, parameters, MPI_COMM_SELF);
+  dealii::IndexSet owned(2);
+  owned.add_range(0, 2);
+  owned.compress();
+  dealii::DynamicSparsityPattern sparsity(2, 2, owned);
+  sparsity.add(0, 0);
+  sparsity.add(1, 1);
+  auto identity = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  identity->reinit(owned, owned, sparsity, MPI_COMM_SELF);
+  identity->set(0, 0, 1.);
+  identity->set(1, 1, 1.);
+  identity->compress(dealii::VectorOperation::insert);
+  const auto field = adapter.add(
+    [owned, identity](auto &builder) {
+      using Model      = typename std::decay_t<decltype(builder)>::Model;
+      const auto value = builder.differential_field("value", owned);
+      const auto mass  = builder.matrix_operator(*identity);
+      builder.term(value, "identity")
+        .residual([value](const auto &context) {
+          const auto               &state     = context.state(value);
+          const auto               &state_dot = context.derivative(value);
+          typename Model::Operation result;
+          result.reinit_vector = [state](FieldVector &vector, bool) {
+            vector.reinit(state);
+          };
+          result.apply = [state, state_dot](FieldVector &vector) {
+            vector = state_dot;
+            vector += state;
+          };
+          result.apply_add = [state, state_dot](FieldVector &vector) {
+            FieldVector contribution;
+            contribution.reinit(state);
+            contribution = state_dot;
+            contribution += state;
+            vector += contribution;
+          };
+          return result;
+        })
+        .state(value, mass)
+        .derivative(value, mass);
+      return value;
+    },
+    "identity");
+  adapter.set_linear_solver(Adapter::LinearSolver::mumps_blr_fgmres);
+  adapter.set_mumps_blr_parameters(1.e-5);
+  auto state = adapter.make_state();
+  auto dot   = adapter.make_state();
+  state      = 1.;
+  dot        = -1.;
+
+  EXPECT_GT(adapter.solve(state, dot), 0u);
+  const auto statistics = adapter.statistics();
+  EXPECT_GT(statistics.jacobian_setups, 0u);
+  EXPECT_GT(statistics.linear_solves, 0u);
+  EXPECT_TRUE(std::isfinite(adapter.field(state, field.fields()).l2_norm()));
+}
+#  endif
+
 TEST(DistributedIDA, NativeSetupFailureThrows)
 {
   TimeIntervalParameters time;
