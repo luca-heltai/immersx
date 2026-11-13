@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #414](https://github.com/luca-heltai/immersx/pull/414) Add the `metric_flow_x_elastostatic_replay` application, which reads a saved MetricFlowX checkpoint history and solves a static solid with a vessel wall multiplier at each saved time through one `LinearAdapter`, reproducing the one-way `metric_flow_x_elastostatic` solid without integrating the flow again. `frozen()` expressions can now share a caller-owned coefficient vector that is reread at each solve.
+
 - [PR #410](https://github.com/luca-heltai/immersx/pull/410) Expose the stopping criteria of the linear solves that `IDAAdapter` runs for IDA in the `Linear solver` subsection of the IDA parameters: maximum iterations and relative tolerance of the outer Krylov solve, of the inner Schur complement solve and of the inner second-order block CG, and the MUMPS residual check. The defaults keep the previous hard-coded values. The outer solve also prints its target residual next to the tolerance IDA requested.
 
 - [PR #403](https://github.com/luca-heltai/immersx/pull/403) Allow semantic fields to retain their configured IDA error tolerances during a startup ramp, with an optional solid displacement and velocity exemption in the coupled vascular application.
