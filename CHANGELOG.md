@@ -569,6 +569,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #413](https://github.com/luca-heltai/immersx/pull/413) Keep the IRCAD11 small parameter template consistent with the coupled application's solid refinement settings.
+
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Document the verified IRCAD11 small archive setup with the setup-only command, measured coupled spaces and the mechanical coupling regularity limit, and distinguish it from the transient startup that has not passed consistent initialization. Qualify the tested checkpoint SDK separately from the newer native flow compatibility serializer and the solid checkpoint requirements.
 
 - [PR #398](https://github.com/luca-heltai/immersx/pull/398) Document the public-source small liver transient and portable inputs, measured DG2 family sizes and the medium failure, and distinguish ten-cycle completion from periodicity of the coupled solution with reproducible solid-drift and startup plots.
@@ -640,6 +642,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #413](https://github.com/luca-heltai/immersx/pull/413) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
 
 - [PR #405](https://github.com/luca-heltai/immersx/pull/405) Check lifted wall particle collections, selected quantities, geometry, and traction using a reusable standard-library Python checker.
 

@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <deal.II/base/function_parser.h>
 
+#include <deal.II/dofs/dof_tools.h>
+
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_out.h>
+#include <deal.II/grid/tria_description.h>
 
 #include <deal.II/numerics/vector_tools.h>
 
@@ -54,6 +57,133 @@ namespace
       global.insert(global.end(), entries.begin(), entries.end());
     std::sort(global.begin(), global.end());
     return global;
+  }
+  std::vector<std::string>
+  coefficient_signature(const ElasticStaticProblem<3> &problem)
+  {
+    ElasticStaticProblem<3>::VectorType relevant;
+    relevant.reinit(problem.dof_handler().locally_owned_dofs(),
+                    DoFTools::extract_locally_relevant_dofs(
+                      problem.dof_handler()),
+                    MPI_COMM_WORLD);
+    relevant = problem.solution();
+    relevant.update_ghost_values();
+    std::vector<std::string> local, global;
+    Vector<double> values(problem.dof_handler().get_fe().n_dofs_per_cell());
+    for (const auto &cell : problem.dof_handler().active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          cell->get_dof_values(relevant, values);
+          std::ostringstream entry;
+          entry << cell->id().to_string() << std::hexfloat;
+          for (const auto value : values)
+            entry << ':' << value;
+          local.push_back(entry.str());
+        }
+    for (const auto &entries :
+         Utilities::MPI::all_gather(MPI_COMM_WORLD, local))
+      global.insert(global.end(), entries.begin(), entries.end());
+    std::sort(global.begin(), global.end());
+    return global;
+  }
+
+  void
+  check_partitioned_checkpoint(const unsigned int cells)
+  {
+    ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+    const auto directory = TestPaths::output_directory(
+      "elastic-static-checkpoint-partition-" + std::to_string(cells));
+    std::filesystem::create_directories(directory);
+    const auto checkpoint =
+      (std::filesystem::path(directory) / "solid").string();
+    ParameterAcceptor::clear();
+    ElasticStaticParameters<3> original_parameters("/Partition original/");
+    ElasticStaticParameters<3> restored_parameters("/Partition restored/");
+    const auto                 configuration = [](const std::string &section) {
+      return "subsection " + section + R"(
+        set FE degree = 2
+        set Dirichlet boundary ids = 0,1,2,3,4,5
+        subsection Domain
+          set Triangulation type = fullydistributed
+          set Initial refinement = 0
+        end
+        subsection Functions
+          subsection Right hand side
+            set Function expression = -6*(1+t);-6*(1+t);-6*(1+t)
+            set Variable names = x,y,z,t
+          end
+          subsection Dirichlet boundary conditions
+            set Function expression = (1+t)*(1+x*x);(1+t)*(2+y*y);(1+t)*(3+z*z)
+            set Variable names = x,y,z,t
+          end
+        end
+      end
+      )";
+    };
+    initialize_parameters_from_string(configuration("Partition original") +
+                                      configuration("Partition restored"));
+    ElasticStaticProblem<3> original(original_parameters);
+    original.use_fixed_stiffness();
+    original.make_grid([&](auto &domain) {
+      Triangulation<3> serial;
+      GridGenerator::subdivided_hyper_rectangle(serial,
+                                                std::vector<unsigned int>{cells,
+                                                                          1,
+                                                                          1},
+                                                Point<3>(),
+                                                Point<3>(1., 1., 1.),
+                                                true);
+      unsigned int index = 0;
+      for (const auto &cell : serial.active_cell_iterators())
+        {
+          cell->set_subdomain_id(cells == 1 || index + 1 < cells ? 0 : 1);
+          cell->set_material_id(cell->center()[0] < .5 ? 11 : 17);
+          ++index;
+        }
+      const auto description = TriangulationDescription::Utilities::
+        create_description_from_triangulation(serial, MPI_COMM_WORLD);
+      auto &mesh = dynamic_cast<Domain<3>::FullyDistributedTriangulation &>(
+        domain.triangulation());
+      mesh.create_triangulation(description);
+    });
+    original.setup_fe();
+    const auto ownership = Utilities::MPI::all_gather(
+      MPI_COMM_WORLD, original.triangulation().n_locally_owned_active_cells());
+    ASSERT_EQ(ownership.size(), 2u);
+    EXPECT_EQ(ownership[0], cells == 1 ? 1u : cells - 1);
+    EXPECT_EQ(ownership[1], cells == 1 ? 0u : 1u);
+    const double time = .37;
+    original.update_time(time);
+    FunctionParser<3> exact(3);
+    exact.initialize("x,y,z,t",
+                     "(1+t)*(1+x*x);(1+t)*(2+y*y);(1+t)*(3+z*z)",
+                     {},
+                     true);
+    exact.set_time(time);
+    auto accepted = original.solution();
+    VectorTools::interpolate(original.mapping(),
+                             original.dof_handler(),
+                             exact,
+                             accepted);
+    original.set_solution(accepted);
+    EXPECT_GT(original.solution().l2_norm(), 0.);
+    const auto geometry     = mesh_signature(original);
+    const auto coefficients = coefficient_signature(original);
+    original.save_checkpoint(checkpoint);
+    EXPECT_EQ(original.stiffness_assemblies(), 1u);
+
+    ElasticStaticProblem<3> restored(restored_parameters);
+    restored.use_fixed_stiffness();
+    restored.setup_from_checkpoint(checkpoint);
+    EXPECT_EQ(Utilities::MPI::all_gather(
+                MPI_COMM_WORLD,
+                restored.triangulation().n_locally_owned_active_cells()),
+              ownership);
+    EXPECT_EQ(mesh_signature(restored), geometry);
+    EXPECT_EQ(coefficient_signature(restored), coefficients);
+    restored.update_time(time);
+    EXPECT_EQ(coefficient_signature(restored), coefficients);
+    EXPECT_EQ(restored.stiffness_assemblies(), 1u);
   }
 } // namespace
 
@@ -115,6 +245,7 @@ TEST(ElasticStaticCheckpoint, BOTH_NativeMeshAndAcceptedDisplacementRoundTrip)
                                     configuration("Restored"));
   original_parameters.domain_parameters.name_of_grid = input_mesh;
   ElasticStaticProblem<3> original(original_parameters);
+  original.use_fixed_stiffness();
   original.setup();
   unsigned int material_11 = 0, material_17 = 0;
   for (const auto &cell : original.triangulation().active_cell_iterators())
@@ -128,7 +259,8 @@ TEST(ElasticStaticCheckpoint, BOTH_NativeMeshAndAcceptedDisplacementRoundTrip)
   const double time = .37;
   original.update_time(time);
   original.solve();
-  const auto signature = mesh_signature(original);
+  const auto signature    = mesh_signature(original);
+  const auto coefficients = coefficient_signature(original);
   original.save_checkpoint(checkpoint);
 
   // Restoring must not consult or regenerate the original source mesh.
@@ -137,8 +269,13 @@ TEST(ElasticStaticCheckpoint, BOTH_NativeMeshAndAcceptedDisplacementRoundTrip)
   MPI_Barrier(MPI_COMM_WORLD);
   restored_parameters.domain_parameters.name_of_grid = input_mesh;
   ElasticStaticProblem<3> restored(restored_parameters);
+  restored.use_fixed_stiffness();
   restored.setup_from_checkpoint(checkpoint);
+  EXPECT_EQ(coefficient_signature(restored), coefficients);
   restored.update_time(time);
+  EXPECT_EQ(coefficient_signature(restored), coefficients);
+  EXPECT_EQ(original.stiffness_assemblies(), 1u);
+  EXPECT_EQ(restored.stiffness_assemblies(), 1u);
   EXPECT_EQ(mesh_signature(restored), signature);
   EXPECT_EQ(restored.dof_handler().get_fe().get_name(),
             original.dof_handler().get_fe().get_name());
@@ -206,21 +343,28 @@ TEST(ElasticStaticCheckpoint,
   initialize_parameters_from_string(configuration("Cylinder original") +
                                     configuration("Cylinder restored"));
   ElasticStaticProblem<3> original(original_parameters);
+  original.use_fixed_stiffness();
   original.setup();
   const double time = .37;
   original.update_time(time);
   original.solve();
-  const auto signature = mesh_signature(original);
+  const auto signature    = mesh_signature(original);
+  const auto coefficients = coefficient_signature(original);
   const auto manifolds =
     Checkpoint::describe_solid_manifolds(original.triangulation(),
                                          MPI_COMM_WORLD);
   original.save_checkpoint(checkpoint);
 
   ElasticStaticProblem<3> restored(restored_parameters);
+  restored.use_fixed_stiffness();
   restored.setup_from_checkpoint(checkpoint, [&](auto &mesh) {
     Checkpoint::restore_solid_manifolds(mesh, manifolds);
   });
+  EXPECT_EQ(coefficient_signature(restored), coefficients);
   restored.update_time(time);
+  EXPECT_EQ(coefficient_signature(restored), coefficients);
+  EXPECT_EQ(original.stiffness_assemblies(), 1u);
+  EXPECT_EQ(restored.stiffness_assemblies(), 1u);
   EXPECT_EQ(mesh_signature(restored), signature);
   FunctionParser<3> exact(3);
   exact.initialize("x,y,z,t", "(1+t)*(1+x*x);0;0", {}, true);
@@ -273,5 +417,68 @@ TEST(ElasticStaticCheckpoint, BOTH_ManifoldConstructorStateAndInactiveIds)
 
   mesh.set_manifold(7, SphericalManifold<3>());
   EXPECT_THROW(Checkpoint::describe_solid_manifolds(mesh, MPI_COMM_WORLD),
+               dealii::ExceptionBase);
+}
+
+
+TEST(ElasticStaticCheckpoint, MPI_NativeUnequalOwnershipRoundTrip)
+{
+  check_partitioned_checkpoint(3);
+}
+
+TEST(ElasticStaticCheckpoint, MPI_NativeEmptyRankRoundTrip)
+{
+  check_partitioned_checkpoint(1);
+}
+
+TEST(ElasticStaticCheckpoint, BOTH_RejectIncompleteAndIncompatibleMetadata)
+{
+  namespace Checkpoint = elastostatic_checkpoint_detail;
+  const auto directory = TestPaths::output_directory(
+    "elastic-static-invalid-checkpoint-" +
+    std::to_string(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD)));
+  const auto write_manifest = [&](const std::string          &name,
+                                  const Checkpoint::Metadata &metadata) {
+    const auto root = std::filesystem::path(directory) / name;
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      {
+        std::filesystem::create_directories(root);
+        {
+          std::ofstream file(root / "coupled.bin", std::ios::binary);
+          boost::archive::binary_oarchive archive(file);
+          archive << metadata;
+        }
+        Checkpoint::Manifest files{
+          {"coupled.bin", std::filesystem::file_size(root / "coupled.bin")}};
+        std::ofstream file(root / "COMPLETE", std::ios::binary);
+        boost::archive::binary_oarchive archive(file);
+        archive << files;
+      }
+    MPI_Barrier(MPI_COMM_WORLD);
+    return root.string();
+  };
+  const auto incomplete =
+    (std::filesystem::path(directory) / "checkpoint.incomplete").string();
+  EXPECT_THROW(Checkpoint::read_metadata(incomplete, MPI_COMM_WORLD),
+               dealii::ExceptionBase);
+  Checkpoint::Metadata metadata;
+  metadata.ranks        = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  metadata.time         = .37;
+  metadata.parameters   = "saved parameters";
+  metadata.reference_fe = "saved reference FE";
+  metadata.lambda_fe    = "saved multiplier FE";
+  const auto valid      = write_manifest("valid", metadata);
+  const auto accepted   = Checkpoint::read_metadata(valid, MPI_COMM_WORLD);
+  EXPECT_EQ(accepted.version, metadata.version);
+  EXPECT_EQ(accepted.ranks, metadata.ranks);
+  EXPECT_EQ(accepted.time, metadata.time);
+  ++metadata.version;
+  const auto incompatible = write_manifest("incompatible", metadata);
+  EXPECT_THROW(Checkpoint::read_metadata(incompatible, MPI_COMM_WORLD),
+               dealii::ExceptionBase);
+  --metadata.version;
+  ++metadata.ranks;
+  const auto wrong_ranks = write_manifest("wrong-ranks", metadata);
+  EXPECT_THROW(Checkpoint::read_metadata(wrong_ranks, MPI_COMM_WORLD),
                dealii::ExceptionBase);
 }
