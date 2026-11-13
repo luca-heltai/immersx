@@ -172,8 +172,10 @@ TEST(SecondOrderCondensation, BOTH_ReducedSolveMatchesCoupledJacobian)
           EXPECT_EQ(condensation->reduced_matrix().m(), n + m);
           // The kinematic mass does not depend on the derivative weight.
           if (previous)
-            EXPECT_TRUE(previous->kinematic_mass(0) ==
-                        condensation->kinematic_mass(0));
+            {
+              EXPECT_TRUE(previous->kinematic_mass(0) ==
+                          condensation->kinematic_mass(0));
+            }
           previous = condensation;
 
           GlobalVector rhs(layout, MPI_COMM_WORLD);
