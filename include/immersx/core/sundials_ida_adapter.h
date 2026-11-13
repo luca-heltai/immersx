@@ -147,6 +147,33 @@ namespace ImmersX
       set_local_tolerances(field.id(), std::move(fill));
     }
 
+    /** Include a semantic Field in the configured tolerance ramp. Fields
+     * participate by default. Disabling it retains both the relative and
+     * absolute tolerances for this Field during initialization and integration.
+     */
+    void
+    set_tolerance_ramp_enabled(const FieldId field, const bool enabled)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "Configure tolerances before solver initialization."));
+      AssertThrow(field.value() < composition_.n_fields(),
+                  dealii::ExcMessage("Unknown tolerance Field."));
+      const auto found =
+        std::find(unramped_fields_.begin(), unramped_fields_.end(), field);
+      if (enabled && found != unramped_fields_.end())
+        unramped_fields_.erase(found);
+      else if (!enabled && found == unramped_fields_.end())
+        unramped_fields_.push_back(field);
+    }
+
+    template <typename SemanticField>
+    void
+    set_tolerance_ramp_enabled(const SemanticField &field, const bool enabled)
+    {
+      set_tolerance_ramp_enabled(field.id(), enabled);
+    }
+
     /** IDA counters accumulated across adapter-managed restarts. */
     struct Statistics
     {
@@ -194,9 +221,9 @@ namespace ImmersX
     /** Select the coupled linear solver before initialization.
      * Direct solvers reuse their factorization until IDA requests a new
      * Jacobian setup. UMFPACK requires one rank; MUMPS uses the composition's
-     * communicator and distributed matrix. A MUMPS backsolve may use up to
-     * three corrections with the same factorization to satisfy the retained
-     * Jacobian residual check; the relative tolerance remains 1e-8.
+     * communicator and distributed matrix. A MUMPS backsolve may use
+     * correction solves with the same factorization to satisfy the retained
+     * Jacobian residual check, as set in IDALinearSolverControls.
      */
     void
     set_linear_solver(const LinearSolver solver)
@@ -569,15 +596,17 @@ namespace ImmersX
     schur_preconditioner(const FieldId           multiplier,
                          const GlobalVectorType &state) const
     {
-      return composition_.schur_preconditioner(multiplier,
-                                               state,
-                                               nullptr,
-                                               0.,
-                                               1000,
-                                               1.e-9,
-                                               false,
-                                               nullptr,
-                                               schur_materialization_limit_);
+      const auto &controls = ida_parameters_.linear_solver_controls;
+      return composition_.schur_preconditioner(
+        multiplier,
+        state,
+        nullptr,
+        0.,
+        controls.schur_maximum_iterations,
+        controls.schur_relative_tolerance,
+        false,
+        nullptr,
+        schur_materialization_limit_);
     }
 
   private:
@@ -782,7 +811,10 @@ namespace ImmersX
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
       tolerance_ramp_ = ida_parameters_.tolerance_ramp;
-      auto ida_data   = additional_data();
+      composition_.set_second_order_inner_solver(
+        ida_parameters_.linear_solver_controls.second_order_maximum_iterations,
+        ida_parameters_.linear_solver_controls.second_order_relative_tolerance);
+      auto ida_data = additional_data();
       if (stop_at_output_times_)
         AssertThrow(
           std::isfinite(ida_data.output_period) && ida_data.output_period > 0.,
@@ -896,12 +928,15 @@ namespace ImmersX
                 // action.
                 GlobalVectorType defect;
                 composition_.reinit(defect);
-                constexpr double       relative_target = 1.e-8;
-                constexpr unsigned int max_refinements = 3;
-                const double           rhs_norm        = original_rhs.l2_norm();
-                double                 defect_norm     = 0.;
-                unsigned int           refinement      = 0;
-                std::array<double, max_refinements + 1> defect_history{};
+                const auto  &controls = ida_parameters_.linear_solver_controls;
+                const double relative_target =
+                  controls.mumps_relative_tolerance;
+                const unsigned int max_refinements =
+                  controls.mumps_maximum_corrections;
+                const double        rhs_norm    = original_rhs.l2_norm();
+                double              defect_norm = 0.;
+                unsigned int        refinement  = 0;
+                std::vector<double> defect_history(max_refinements + 1);
                 for (;; ++refinement)
                   {
                     current_jacobian_->vmult(defect, dst);
@@ -964,9 +999,17 @@ namespace ImmersX
             dst = 0.;
             // Small physical loads still need a correction. An absolute floor
             // can accept the initial zero iterate and stall the DAE solve.
-            dealii::SolverControl control(5000,
-                                          std::min(tolerance,
-                                                   1.e-8 * rhs.l2_norm()));
+            const auto &controls = ida_parameters_.linear_solver_controls;
+            dealii::SolverControl control(
+              controls.krylov_maximum_iterations,
+              std::min(tolerance,
+                       controls.krylov_relative_tolerance * rhs.l2_norm()));
+            const auto target = [&control, tolerance]() {
+              std::ostringstream text;
+              text << ", target " << control.tolerance() << " (IDA "
+                   << tolerance << ")";
+              return text.str();
+            };
             // Avoid division by zero at exact Krylov breakdown in deal.II 9.7.
             typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData data;
             data.orthogonalization_strategy = dealii::LinearAlgebra::
@@ -1017,7 +1060,7 @@ namespace ImmersX
                                 iterations, defect.l2_norm()));
                   pcout << "IDAAdapter: FGMRES converged in " << iterations
                         << " iteration(s), true residual " << defect.l2_norm()
-                        << "." << std::endl;
+                        << target() << "." << std::endl;
                 }
               else
                 {
@@ -1027,7 +1070,7 @@ namespace ImmersX
                                *current_preconditioner_);
                   pcout << "IDAAdapter: GMRES converged in "
                         << control.last_step() << " iteration(s), residual "
-                        << control.last_value() << "." << std::endl;
+                        << control.last_value() << target() << "." << std::endl;
                 }
             else
               {
@@ -1037,7 +1080,7 @@ namespace ImmersX
                              dealii::PreconditionIdentity());
                 pcout << "IDAAdapter: GMRES converged in "
                       << control.last_step() << " iteration(s), residual "
-                      << control.last_value() << "." << std::endl;
+                      << control.last_value() << target() << "." << std::endl;
               }
           }
       };
@@ -1125,13 +1168,21 @@ namespace ImmersX
       const auto scales =
         tolerance_ramp_.scales(additional_data().initial_time,
                                additional_data().initial_time);
-      valid = valid && std::isfinite(additional_data().relative_tolerance *
-                                     scales.first);
-      for (const auto index : absolute_tolerances_.locally_owned_elements())
+      for (std::size_t i = 0; i < composition_.n_fields(); ++i)
         {
-          const double value = absolute_tolerances_[index];
-          valid              = valid && std::isfinite(value) && value > 0. &&
-                  std::isfinite(value * scales.second);
+          const FieldId field(i);
+          const bool    ramp = std::find(unramped_fields_.begin(),
+                                      unramped_fields_.end(),
+                                      field) == unramped_fields_.end();
+          valid = valid && std::isfinite(additional_data().relative_tolerance *
+                                         (ramp ? scales.first : 1.));
+          const auto &values = composition_.field(absolute_tolerances_, field);
+          for (const auto index : values.locally_owned_elements())
+            {
+              const double value = values[index];
+              valid = valid && std::isfinite(value) && value > 0. &&
+                      std::isfinite(value * (ramp ? scales.second : 1.));
+            }
         }
       AssertThrow(
         dealii::Utilities::MPI::min(valid ? 1 : 0,
@@ -1151,16 +1202,28 @@ namespace ImmersX
       const auto scales =
         tolerance_ramp_.scales(additional_data().initial_time, time);
       bool valid = std::isfinite(time);
-      for (const auto index : weights.locally_owned_elements())
+      for (std::size_t i = 0; i < composition_.n_fields(); ++i)
         {
-          const double value = state[index];
-          const double denominator =
-            additional_data().relative_tolerance * scales.first *
-              std::abs(value) +
-            scales.second * absolute_tolerances_[index];
-          weights[index] = 1. / denominator;
-          valid          = valid && std::isfinite(value) &&
-                  std::isfinite(weights[index]) && weights[index] > 0.;
+          const FieldId field(i);
+          const bool    ramp   = std::find(unramped_fields_.begin(),
+                                      unramped_fields_.end(),
+                                      field) == unramped_fields_.end();
+          const auto   &values = composition_.field(state, field);
+          const auto   &absolute =
+            composition_.field(absolute_tolerances_, field);
+          auto &field_weights = composition_.field(weights, field);
+          for (const auto index : field_weights.locally_owned_elements())
+            {
+              const double value = values[index];
+              const double denominator =
+                additional_data().relative_tolerance *
+                  (ramp ? scales.first : 1.) * std::abs(value) +
+                (ramp ? scales.second : 1.) * absolute[index];
+              field_weights[index] = 1. / denominator;
+              valid                = valid && std::isfinite(value) &&
+                      std::isfinite(field_weights[index]) &&
+                      field_weights[index] > 0.;
+            }
         }
       weights.compress(dealii::VectorOperation::insert);
       AssertThrow(dealii::Utilities::MPI::min(valid ? 1 : 0,
@@ -1406,8 +1469,10 @@ namespace ImmersX
                   snapshot->state_storage,
                   &snapshot->derivative_storage,
                   alpha,
-                  1000,
-                  1.e-9,
+                  ida_parameters_.linear_solver_controls
+                    .schur_maximum_iterations,
+                  ida_parameters_.linear_solver_controls
+                    .schur_relative_tolerance,
                   include_schur_primal_coupling_,
                   snapshot.get(),
                   schur_materialization_limit_));
@@ -1446,11 +1511,12 @@ namespace ImmersX
     }
 
     std::vector<std::pair<FieldId, std::function<void(FieldVectorType &)>>>
-                     local_tolerances_;
-    GlobalVectorType absolute_tolerances_;
-    IDAToleranceRamp tolerance_ramp_;
-    Statistics       accumulated_statistics_;
-    unsigned long    jacobian_setups_ = 0, linear_solves_ = 0, restarts_ = 0,
+                         local_tolerances_;
+    std::vector<FieldId> unramped_fields_;
+    GlobalVectorType     absolute_tolerances_;
+    IDAToleranceRamp     tolerance_ramp_;
+    Statistics           accumulated_statistics_;
+    unsigned long jacobian_setups_ = 0, linear_solves_ = 0, restarts_ = 0,
                   weight_evaluations_    = 0;
     bool                ramp_stop_armed_ = false, ramp_stop_released_ = false;
     std::optional<int>  mumps_workspace_relaxation_;

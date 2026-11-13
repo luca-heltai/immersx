@@ -126,6 +126,12 @@ The executable requires MetricFlowX, deal.II with SUNDIALS, and MPI. The
 application and its build requirements are listed in the
 [application reference](../reference/applications).
 
+The coupled solve uses one solid mesh. Set its resolution with
+`Elastodynamics/Domain/Initial refinement`, and optionally with
+`MetricFlowX coupling/Co-refinement`. The standalone
+`Number of refinement cycles` entry, which repeats the solve on globally
+refined meshes, is not part of this application's input.
+
 ## Remove the two fictitious interior modes
 
 For a single straight, connected, fully covered, uniform-radius reference
@@ -195,3 +201,30 @@ On the iterative path, register the nonlocal correction through its
 LinearOperator views. Matrix-backed term registrations are retained as matrices
 when the adapter snapshots a Jacobian. The coupled application retains matrix
 provenance for this term only when an explicit direct solve is selected.
+
+## Lifted wall particle output
+
+The accepted IDA output times also produce `wall_particles.pvd` in the flow
+output directory. The default properties are `lifted_value,weight`: the vector
+`wall_traction` is the scalar multiplier in Pa times the effective unit radial
+direction used by the coupling. The direction is the normalized sum of the
+selected cross-section modes.
+
+Select quantities in the parameter file:
+
+```text
+subsection MetricFlowX coupling
+  subsection Particle output
+    set Properties = lifted_value,weight,mode_values,modal_coefficients,modal_data,bulk_field
+  end
+end
+```
+
+`mode_values` exports the effective `mode_radial` vector;
+`modal_coefficients` exports `wall_traction_radial` in Pa.
+`modal_data` exports `data_radial`, the prescribed radial displacement
+`sqrt(A/pi)-sqrt(A0/pi)` in metres. `bulk_field` samples the solid
+`displacement` at each wall point. Other available properties are
+`representative_point`, `radius`, and `indices`. An empty `Properties` list
+disables particle files. Particles are distributed to their owning solid cells;
+wall points outside the solid are omitted.

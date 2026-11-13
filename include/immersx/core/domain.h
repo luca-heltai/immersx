@@ -69,6 +69,11 @@ namespace ImmersX
   public:
     explicit DomainParameters(const std::string &subsection = "/Domain/");
 
+    /** Set expose_parameters to false for configuration owned by another
+     * Problem. */
+    DomainParameters(const std::string &subsection,
+                     const bool         expose_parameters);
+
     std::string  name_of_grid       = "hyper_cube";
     std::string  arguments_for_grid = "-1: 1: false";
     double       grid_scale         = 1.;

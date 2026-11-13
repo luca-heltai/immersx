@@ -84,6 +84,19 @@ namespace ImmersX
                  amg_data);
     }
 
+    /** Stopping criterion of the inner CG solves (mass and Schur inverses,
+     * and the static spatial inverses when they are not fixed AMG actions).
+     */
+    void
+    set_inner_solver_control(const unsigned int maximum_iterations,
+                             const double       relative_tolerance)
+    {
+      AssertThrow(maximum_iterations > 0 && relative_tolerance > 0.,
+                  dealii::ExcMessage("Inner CG controls must be positive."));
+      inner_maximum_iterations_ = maximum_iterations;
+      inner_relative_tolerance_ = relative_tolerance;
+    }
+
     /** Prepare the row-swapped factorization of [0, -W; K, D].
      * The free stiffness block must be invertible, as with Robin support.
      * D need not be invertible. The M/K AMG cycles must be symmetric, as for
@@ -383,7 +396,8 @@ namespace ImmersX
       const double norm = right_hand_side->l2_norm();
       if (norm == 0.)
         return;
-      dealii::SolverControl        control(1000, 1.e-2 * norm);
+      dealii::SolverControl        control(inner_maximum_iterations_,
+                                    inner_relative_tolerance_ * norm);
       dealii::SolverCG<VectorType> solver(control, vector_memory_);
       solver.solve(matrix, destination, *right_hand_side, amg);
     }
@@ -394,10 +408,12 @@ namespace ImmersX
     AMGData                     amg_data_;
     std::shared_ptr<MatrixType> kinematic_, mass_, stiffness_, damping_, schur_;
     std::shared_ptr<MatrixType> static_stiffness_;
-    dealii::LinearOperator<VectorType>              kinematic_amg_, schur_amg_;
-    dealii::LinearOperator<VectorType>              static_stiffness_amg_;
-    std::array<double, 4>                           coefficients_{};
-    bool                                            coefficients_set_ = false;
+    dealii::LinearOperator<VectorType> kinematic_amg_, schur_amg_;
+    dealii::LinearOperator<VectorType> static_stiffness_amg_;
+    std::array<double, 4>              coefficients_{};
+    bool                               coefficients_set_         = false;
+    unsigned int                       inner_maximum_iterations_ = 1000;
+    double                             inner_relative_tolerance_ = 1.e-2;
     mutable dealii::GrowingVectorMemory<VectorType> vector_memory_;
   };
 } // namespace ImmersX

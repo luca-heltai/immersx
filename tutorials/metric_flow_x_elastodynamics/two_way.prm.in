@@ -1,6 +1,5 @@
 subsection Elastodynamics
   set FE degree = 1
-  set Number of refinement cycles = 1
   set Dirichlet boundary ids = 0
   set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastodynamics
   set Output name = solid
