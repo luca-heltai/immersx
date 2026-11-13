@@ -25,6 +25,51 @@ The parameter templates are relocatable equivalents of the supplied small and me
 
 ![Case 11 liver volume and section](https://github.com/luca-heltai/immersx/releases/download/liver-h-scaled-2026-11-10/ircad-case11-dense-volume-section.png)
 
+Download and verify the snapshot, then prepare the anatomy with the environments recorded in issue #393:
+
+```sh
+curl -L \
+  https://github.com/luca-heltai/immersx/releases/download/liver-h-scaled-2026-11-10/ircad-case11-reproducibility-2026-11-11-v2.zip \
+  -o ircad-case11-reproducibility.zip
+echo '3c45d3088ee3648fcfc6cda10c84827fe186c6b0e1c9df3e87b4444570cd6461  ircad-case11-reproducibility.zip' | sha256sum -c -
+mkdir case11-repro
+unzip ircad-case11-reproducibility.zip -d case11-repro
+cd case11-repro
+python3 download_case11.py
+/path/to/vmtk/python prepare_case11.py inputs --mesh-archive MESHES_VTK.zip --with-portal
+/path/to/vtk-numpy/python create_arterial_feeder.py
+/path/to/vtk/python select_growth_leaves.py
+/path/to/gmsh-vtk/python generate_meshes.py
+```
+
+Run the accepted coarse growth and the independent audits as recorded in the snapshot:
+
+```sh
+/path/to/build/liver_vascular generate-dense-no-geometry-distinct.prm
+python3 check_topology_hydraulics.py inputs generation-dense-4804-no-geometry-distinct \
+  --triplets 4804 --separation .004 --portal-separation .003 \
+  --portal-flow-fraction .69576933619234205 --viscosity .00371
+python3 check_coverage.py generation-dense-4804-no-geometry-distinct
+python3 prepare_parameters.py
+```
+
+Place the prepared `meshes/`, `network/` and `inputs/inlet_ha.csv` under the `assets/` layout above, or edit a private parameter copy to point to their actual paths. The build expands `@TEST_DATA_DIR@` and `@TEST_OUTPUT_DIR@` in the checked-in `.prm.in` templates.
+
+## Anatomy and model assumptions
+
+The source VTK coordinates are millimetres; the preparation step scales them by `.001` to metres. Eleven source VTKs are checksum-verified. VMTK found no usable intrahepatic arterial points in this case (1,247 extracted points on 105 lines, zero inside the liver). With explicit authorization, the pipeline adds a modeled 15 mm arterial feeder with 2.2 mm radius. Case 11's selected image-extracted trees contain 888 hepatic venous nodes and 301 portal nodes; other disconnected components are excluded and recorded in the provenance report.
+
+The accepted dense graph has 4,804 HA/PV/HV terminal triplets and 30,011 physical segments. It was grown with geometric admissibility disabled; topology, archive import and hydraulic checks pass, but geometric containment is not certified. The report finds 197 portal and 271 venous terminal locations outside the background volume. The independent whole-cell `2H` distance certificate covers all coarse background cells, but measures proximity rather than containment or perfusion. Do not describe the graph as a validated anatomical vasculature.
+
+| Background | Target edge length | Tetrahedra | Volume |
+| --- | ---: | ---: | ---: |
+| small | 12 mm | 4,804 | 1.37208 L |
+| medium | 4.5 mm | 71,272 | 1.38616 L |
+| large | 1.8 mm | 1,052,000 | 1.38826 L |
+
+The hydraulic reference flow is `2e-9 m^3/s` (0.12 mL/min), with portal fraction 0.6957693362. These are demonstrative model values, not patient calibration. The arterial input is rescaled from the MOX tutorial signal to this target. Mechanical material properties and exterior Robin support are also modeling assumptions.
+
+The effective lift scale is the local reference radius `sqrt(A0/pi)`, derived from the archived physical radii and taper and frozen in time. Although the parameter template contains `MetricFlowX vessel wall lift/Thickness = .001`, the application explicitly passes that local radius to `lift`; the configured 1 mm value does not define the effective lift thickness for this coupled case.
 
 ## Build and prepare a run
 
@@ -45,7 +90,7 @@ mpirun -np 16 /absolute/path/to/build/apps/metric_flow_x_elastodynamics \
   /absolute/path/to/build/data/liver_icar_case11/small.prm
 ```
 
-Choose a fresh output directory in the parameter file for each run. The supplied small and medium profiles use the deliberately permissive tolerances from the case11 campaign: IDA absolute tolerance `1e-1`, relative tolerance `1`, an initial absolute and relative tolerance factor of `1e8` ramped down by 7.4 s, and loose component tolerances for area, velocity, displacement and wall pressure. These settings let the solver return output for diagnosis; they do not give accurate trajectories. Small and medium runs completed with return code 0 in the campaign, but they reused the same network and are not physically validated. A separate small diagnostic using MUMPS-BLR-FGMRES reached 7.27 s over a short 0.07 s interval; it is not a full beat.
+Choose a fresh output directory in the parameter file for each run. The supplied small and medium profiles use the deliberately permissive tolerances from the case11 campaign: IDA absolute tolerance `1e-1`, relative tolerance `1`, an initial absolute and relative tolerance factor of `1e8` ramped down by 7.4 s, and loose component tolerances for area, velocity, displacement and wall pressure. These settings let the solver return output for diagnosis; they do not give accurate trajectories. Small and medium runs completed with return code 0 in the campaign, but they reused the same network and are not physically validated. A separate small diagnostic using MUMPS-BLR-FGMRES reached 7.27 s over a short 0.07 s interval; it is not a full beat. `mumps-blr-fgmres` is not a selectable IDA solver type in current `master`; the diagnostic used an isolated experiment source snapshot and is not runnable from this branch yet.
 
 ## Profiles and solver settings
 
@@ -57,7 +102,7 @@ Choose a fresh output directory in the parameter file for each run. The supplied
 | `medium` | medium, 71,272 cells | P2 / DG2 | Iterative | Uses replicated-flow inverse limit 2,048 and materialized Schur limit 512; no validated case11 transient |
 | `fine` | 1,052,000 cells | P2 / DG2 | Iterative | Network generation remains incomplete; not runnable as a matched case |
 
-The `small` profile uses direct MUMPS. The additional `small-blr-diagnostic` run used MUMPS with block low-rank compression and FGMRES, 16 MPI ranks, an FGMRES limit of 100 iterations and workspace relaxation 20,000. These are diagnostic solver settings. The `medium` profile uses an iterative solver, limits the replicated flow inverse to 2,048 DoFs and materializes the Schur operator only up to 512 DoFs. All profiles preserve the large tolerance ramp from the campaign; do not interpret process completion as physical validation. The checked-in parameter templates reproduce the supplied small and medium settings. The BLR-FGMRES overlay is recorded in issue #393's run artifacts.
+The `small` profile uses direct MUMPS. The additional `small-blr-diagnostic` run used MUMPS with block low-rank compression and FGMRES, 16 MPI ranks, an FGMRES limit of 100 iterations and workspace relaxation 20,000. This configuration came from an isolated experiment source snapshot; `IDAAdapter` on `master` only offers `iterative`, `umfpack` and `mumps`. A separate change is adding the BLR-FGMRES option to the coupled IDA path. The `medium` profile uses an iterative solver, limits the replicated flow inverse to 2,048 DoFs and materializes the Schur operator only up to 512 DoFs. All profiles preserve the large tolerance ramp from the campaign; do not interpret process completion as physical validation. The checked-in parameter templates reproduce the supplied small and medium settings. The BLR-FGMRES overlay is recorded in issue #393's run artifacts.
 
 The case11 exploratory campaign also produced runs that completed with return code 0 under fixed steps and very loose tolerances. That exit status only confirms that the executable finished. It does not establish physical validity. In particular, runs that disable geometric constraints or accept non-finite/negative physical states must not be presented as successful simulations.
 
