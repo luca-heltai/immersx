@@ -5,12 +5,15 @@
 #include <deal.II/distributed/fully_distributed_tria.h>
 #include <deal.II/distributed/tria.h>
 
+#include <deal.II/fe/mapping_p1.h>
 #include <deal.II/fe/mapping_q1.h>
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/tria_description.h>
 
 #include <gtest/gtest.h>
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/vascularization/discretization.h>
 #include <immersx/vascularization/distribution.h>
 #include <immersx/vascularization/io.h>
 
@@ -237,6 +240,61 @@ TEST(VascularIO, BOTH_RoundTripRetainsStablePhysicalDataAndPositiveBeds)
                ExceptionBase);
   check(load_network(directory, bg, MappingQ1<3>(), 0., comm), comm);
 }
+TEST(VascularIO, BOTH_DefaultTetrahedralMappingLoadsAndDiscretizesNativeArchive)
+{
+  const auto comm      = MPI_COMM_WORLD;
+  const auto directory = path("tetrahedral-mapping", comm);
+  if (Utilities::MPI::this_mpi_process(comm) == 0)
+    {
+      parallel::distributed::Triangulation<3> writer(MPI_COMM_SELF);
+      mesh(writer);
+      const auto original = make_archive(writer, MPI_COMM_SELF);
+      save_network(directory,
+                   original.network,
+                   original.territories,
+                   original.terminal_pairs,
+                   MPI_COMM_SELF);
+    }
+  MPI_Barrier(comm);
+
+  Triangulation<3> cubes, tetrahedra;
+  GridGenerator::subdivided_hyper_cube(cubes, 2);
+  GridGenerator::convert_hypercube_to_simplex_mesh(cubes, tetrahedra);
+  const auto   ranks = Utilities::MPI::n_mpi_processes(comm);
+  unsigned int index = 0;
+  for (const auto &cell : tetrahedra.active_cell_iterators())
+    cell->set_subdomain_id(index++ % ranks);
+  const auto description =
+    TriangulationDescription::Utilities::create_description_from_triangulation(
+      tetrahedra, comm);
+  parallel::fullydistributed::Triangulation<3> background(comm);
+  background.create_triangulation(description);
+  const auto &mapping =
+    ImmersX::compatibility::linear_mapping<3>(ReferenceCells::Tetrahedron);
+  ASSERT_NE(dynamic_cast<const MappingP1<3> *>(&mapping), nullptr);
+  const auto restored = load_network(directory, background, mapping, 0., comm);
+  check(restored, comm);
+  const auto result =
+    discretize(background, mapping, restored.network, {}, comm);
+  ASSERT_TRUE(result.validation.valid());
+
+  // Clip each tapered vessel to [0,1] along x and integrate pi*r(x)^2.
+  const double arterial_in  = .0031415926535897933;
+  const double arterial_out = .0017312345678901234;
+  const double venous_in    = .0043212345678901234;
+  const double venous_out   = .0030123456789012345;
+  const auto   volume       = [](double length, double first, double last) {
+    return numbers::PI * length * (first * first + first * last + last * last) /
+           3.;
+  };
+  const double expected =
+    volume(.6, arterial_in, arterial_out) + volume(.3, venous_in, venous_out) +
+    volume(.6, arterial_in + (arterial_out - arterial_in) / 7., arterial_out) +
+    volume(.3, venous_in + (venous_out - venous_in) / 4., venous_out);
+  EXPECT_NEAR(result.inside_volume / expected, 1., 1.e-11);
+  EXPECT_GT(result.exterior_cells, 0u);
+}
+
 TEST(VascularIO, BOTH_EmptyWritersAndEmptyNetworkRemainCollective)
 {
   const auto       comm = MPI_COMM_WORLD;

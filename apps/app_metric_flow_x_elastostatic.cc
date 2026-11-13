@@ -28,12 +28,14 @@
 #  include <immersx/core/overlap_integration_support.h>
 #  include <immersx/core/sundials_ida_adapter.h>
 #  include <immersx/core/weak_term.h>
+#  include <immersx/grid/lift_co_refinement.h>
 #  include <immersx/io/lifted_particle_output.h>
 #  include <immersx/io/utils.h>
 #  include <immersx/physics/elastic_static_semidiscrete.h>
 #  include <immersx/physics/metric_flow_x.h>
 #  include <immersx/physics/metric_flow_x_pressure.h>
 #  include <immersx/physics/metric_flow_x_wall.h>
+#  include <immersx/vascularization/io.h>
 
 #  include <cmath>
 #  include <cstdlib>
@@ -50,11 +52,13 @@
 #  include <vector>
 
 #  include "metric_flow_x_elastostatic_checkpoint.h"
+#  include "metric_flow_x_physical_input.h"
 
 namespace
 {
   using namespace dealii;
   using namespace ImmersX;
+  using namespace ImmersX::metric_flow_x_app_detail;
   std::string
   metric_flow_parameter(const std::string &name)
   {
@@ -123,6 +127,7 @@ namespace
   {
     std::string           parameter_file, restart, checkpoint;
     std::optional<double> final_time;
+    bool                  setup_only = false;
   };
 
   template <typename Flow, typename = void>
@@ -154,7 +159,7 @@ namespace
     using ReferenceField =
       decltype(std::declval<FiniteElementSpaceView<1, 3>>().field("a0"));
     std::unique_ptr<FiniteElementSpace<1, 3>> lambda_space_storage,
-      restored_reference_space;
+      reference_space_storage;
     std::optional<FiniteElementSpaceView<1, 3>> reference_view;
     std::optional<ReferenceField>               reference_field;
     FieldVector reference_area, restored_lambda, restored_lambda_dot;
@@ -182,6 +187,20 @@ namespace
     DomainParameters<1, 3>         flow_domain_parameters("/", false);
     LiftedParticleOutputParameters particle_output(
       "/MetricFlowX coupling/Particle output/");
+    ArchivedFlowParameters                    archive_parameters;
+    Vascularization::DiscretizationParameters archive_discretization;
+    ParameterAcceptor                         archive_mesh_parameters(
+      "/MetricFlowX coupling/Archived network/Discretization/");
+    archive_mesh_parameters.add_parameter("Target length factor",
+                                          archive_discretization.target_factor);
+    archive_mesh_parameters.add_parameter("Lower length factor",
+                                          archive_discretization.lower_factor);
+    archive_mesh_parameters.add_parameter("Upper length factor",
+                                          archive_discretization.upper_factor);
+    archive_mesh_parameters.add_parameter(
+      "Exterior target length", archive_discretization.exterior_length);
+    archive_mesh_parameters.add_parameter("Numerical cell budget",
+                                          archive_discretization.cell_budget);
     ParameterAcceptor linear_solver_parameters(
       "/MetricFlowSystem<1, 3>/IDA parameters/Linear solver/");
     std::string linear_solver = "iterative";
@@ -203,6 +222,22 @@ namespace
       "Native flow block preconditioner in the iterative coupled solve.",
       ParameterAcceptor::prm,
       Patterns::Selection("ilu|mumps"));
+    int mumps_workspace_relaxation = -1;
+    coupling.add_parameter(
+      "MUMPS workspace relaxation",
+      mumps_workspace_relaxation,
+      "Extra MUMPS workspace percentage above its estimate, for global and native flow-block solves; -1 retains the MUMPS default.",
+      ParameterAcceptor::prm,
+      Patterns::Integer(-1));
+    bool use_native_tolerances = false, setup_only = false;
+    coupling.add_parameter(
+      "Use native flow tolerances",
+      use_native_tolerances,
+      "Use MetricFlowX area, velocity and capacitor absolute tolerances in the coupled adapter.");
+    coupling.add_parameter(
+      "Setup only",
+      setup_only,
+      "Build meshes, spaces and coupling data, then report sizes without time integration.");
     bool pressure_feedback = false;
     coupling.add_parameter(
       "Pressure feedback",
@@ -220,6 +255,23 @@ namespace
       "Stop at output times",
       stop_at_output_times,
       "Take an internal IDA step at saved times to retain nonlinear wall compatibility.");
+
+    RefinementParameters<1> co_refinement(
+      "/MetricFlowX coupling/Co-refinement/");
+    co_refinement.enter_my_subsection(ParameterAcceptor::prm);
+    ParameterAcceptor::prm.set("Refinement strategy", "both");
+    co_refinement.leave_my_subsection(ParameterAcceptor::prm);
+    bool enable_co_refinement = false;
+    co_refinement.add_parameter(
+      "Enabled",
+      enable_co_refinement,
+      "Co-refine solid and fluid on physical lift supports before creating FE spaces.");
+    unsigned int maximum_section_level = 10;
+    co_refinement.add_parameter(
+      "Max section refinement level",
+      maximum_section_level,
+      "Limit circumferential refinement independently of the solid/fluid mesh level cap.");
+    std::optional<LiftCoRefinementReport> co_refinement_report;
 
     const bool                          restarting = !options.restart.empty();
     std::optional<Checkpoint::Metadata> restored;
@@ -239,11 +291,11 @@ namespace
               lambda_space_storage = std::make_unique<FiniteElementSpace<1, 3>>(
                 flow_problem.triangulation(), lambda_parameters);
               const auto view = lambda_space_storage->view();
-              restored_reference_space =
+              reference_space_storage =
                 std::make_unique<FiniteElementSpace<1, 3>>(
                   flow_problem.triangulation(),
                   FETools::get_fe_by_name<1, 3>(restored->reference_fe));
-              reference_view = restored_reference_space->view();
+              reference_view = reference_space_storage->view();
               reference_field =
                 reference_view->field("a0",
                                       FEValuesExtractors::Scalar(
@@ -269,6 +321,11 @@ namespace
       }
     else
       initialize_parameters(options.parameter_file);
+    const bool archived_network = !archive_parameters.directory.empty();
+    AssertThrow(
+      !archived_network || !enable_co_refinement,
+      ExcMessage(
+        "Lift co-refinement currently requires native VTK flow input."));
     if (options.final_time)
       flow_time.final_time = *options.final_time;
     AssertThrow(
@@ -321,6 +378,29 @@ namespace
     // ParameterHandler::set also updates bound values, keeping the archived
     // resolved configuration consistent with command-line overrides.
     auto &prm = ParameterAcceptor::prm;
+    if (options.setup_only)
+      {
+        coupling.enter_my_subsection(ParameterAcceptor::prm);
+        ParameterAcceptor::prm.set("Setup only", "true");
+        coupling.leave_my_subsection(ParameterAcceptor::prm);
+      }
+    AssertThrow(!setup_only || options.checkpoint.empty(),
+                ExcMessage(
+                  "Setup only cannot write an accepted-state checkpoint."));
+    if (archived_network && !restarting)
+      {
+        auto directory = std::filesystem::path(archive_parameters.directory);
+        if (directory.is_relative())
+          directory =
+            std::filesystem::absolute(options.parameter_file).parent_path() /
+            directory;
+        archive_parameters.enter_my_subsection(ParameterAcceptor::prm);
+        ParameterAcceptor::prm.set("Directory",
+                                   directory.lexically_normal().string());
+        archive_parameters.leave_my_subsection(ParameterAcceptor::prm);
+      }
+
+
     prm.enter_subsection("MetricFlowSystem<1, 3>");
     prm.enter_subsection("IDA parameters");
     if (options.final_time)
@@ -369,14 +449,107 @@ namespace
       ParameterAcceptor::prm.print_parameters(checkpoint_parameters,
                                               ParameterHandler::ShortPRM);
     SolidProblem solid_problem(solid_parameters);
+    solid_problem.use_fixed_stiffness();
     if (restarting)
       solid_problem.setup_from_checkpoint(
         (std::filesystem::path(options.restart) / "solid_mesh").string(),
         [&](auto &mesh) {
           Checkpoint::restore_solid_manifolds(mesh, restored->solid_manifolds);
         });
-    else
+    else if (!enable_co_refinement)
       solid_problem.setup();
+    std::unique_ptr<Domain<1, 3>>                       flow_domain;
+    std::optional<Vascularization::GenerationResult>    archived_data;
+    std::optional<Vascularization::MetricFlowXTransfer> archive_transfer;
+    if (!restarting && archived_network)
+      {
+        auto archive =
+          Vascularization::load_network(archive_parameters.directory,
+                                        solid_problem.triangulation(),
+                                        solid_problem.mapping(),
+                                        archive_parameters.halo,
+                                        MPI_COMM_WORLD);
+        archived_data.emplace();
+        archived_data->network           = std::move(archive.network);
+        archived_data->territories       = std::move(archive.territories);
+        archived_data->terminal_pairs    = std::move(archive.terminal_pairs);
+        archived_data->terminal_triplets = std::move(archive.terminal_triplets);
+        archived_data->validation =
+          Vascularization::validate_data(archived_data->network,
+                                         Utilities::MPI::n_mpi_processes(
+                                           MPI_COMM_WORLD));
+        archived_data->discretization =
+          Vascularization::discretize(solid_problem.triangulation(),
+                                      solid_problem.mapping(),
+                                      archived_data->network,
+                                      archive_discretization,
+                                      MPI_COMM_WORLD);
+        archive_transfer = prepare_archived_flow(flow_problem,
+                                                 *archived_data,
+                                                 archive_parameters);
+      }
+    else if (!restarting)
+      {
+        flow_domain_parameters.name_of_grid =
+          metric_flow_parameter("Vtk file path for mesh input");
+        flow_domain_parameters.read_vtk_fields = true;
+        flow_domain =
+          std::make_unique<Domain<1, 3>>(flow_domain_parameters,
+                                         flow_problem.triangulation());
+        flow_problem.setup(
+          [&](const auto &coarse_mesh, const unsigned int refinement) {
+            flow_domain_parameters.initial_refinement = refinement;
+            flow_domain->prepare_grid(coarse_mesh);
+            if (enable_co_refinement)
+              solid_problem.make_grid([&](auto &solid_domain) {
+                solid_domain.prepare_grid();
+                solid_domain.refinement_triangulation().set_mesh_smoothing(
+                  Triangulation<3>::limit_level_difference_at_vertices);
+                co_refinement_report = co_refine_lifted_domains(
+                  solid_domain,
+                  *flow_domain,
+                  wall_lift,
+                  co_refinement,
+                  [&](const CellId &cell, const Point<1> &unit) {
+                    const double area =
+                      flow_domain->prepared_field_value("a0", cell, unit);
+                    AssertThrow(std::isfinite(area) && area > 0.,
+                                ExcMessage("Reference a0 must be positive."));
+                    return std::sqrt(area / numbers::PI);
+                  },
+                  maximum_section_level);
+              });
+            else
+              flow_domain->finalize_grid();
+          });
+      }
+    else
+      lambda_parameters.finite_element = restored->lambda_fe;
+    if (!restarting && enable_co_refinement)
+      solid_problem.setup_fe();
+    // Co-refinement can increase the section level after the initial snapshot.
+    // Persist this resolved value without printing runtime ParameterAcceptors.
+    prm.enter_subsection("MetricFlowX vessel wall lift");
+    prm.enter_subsection("Cross section");
+    prm.set("Refinement level",
+            std::to_string(wall_lift.section.refinement_level));
+    prm.leave_subsection();
+    prm.leave_subsection();
+    if (!options.checkpoint.empty())
+      checkpoint_parameters
+        << "\nsubsection MetricFlowX vessel wall lift\n"
+        << "  subsection Cross section\n"
+        << "    set Refinement level = " << wall_lift.section.refinement_level
+        << "\n  end\nend\n";
+    if (co_refinement_report &&
+        Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      std::cout << "Co-refinement solid cells: "
+                << co_refinement_report->initial_solid_cells << " -> "
+                << co_refinement_report->solid_cells << "; fluid cells: "
+                << co_refinement_report->initial_fluid_cells << " -> "
+                << co_refinement_report->fluid_cells
+                << "; section level: " << co_refinement_report->section_level
+                << std::endl;
     solid_problem.update_time(flow_time.initial_time);
     // A complete vector Dirichlet face or a positive Robin spring on a face
     // removes rigid motion on a connected solid. Imported disconnected
@@ -418,24 +591,6 @@ namespace
                   "Robin face with positive initial spring coefficient to "
                   "anchor solid rigid motion."));
 
-    std::unique_ptr<Domain<1, 3>> flow_domain;
-    if (!restarting)
-      {
-        flow_domain_parameters.name_of_grid =
-          metric_flow_parameter("Vtk file path for mesh input");
-        flow_domain_parameters.read_vtk_fields = true;
-        flow_domain =
-          std::make_unique<Domain<1, 3>>(flow_domain_parameters,
-                                         flow_problem.triangulation());
-        flow_problem.setup(
-          [&](const auto &coarse_mesh, const unsigned int refinement) {
-            flow_domain_parameters.initial_refinement = refinement;
-            flow_domain->prepare_grid(coarse_mesh);
-            flow_domain->finalize_grid();
-          });
-      }
-    else
-      lambda_parameters.finite_element = restored->lambda_fe;
     if (lambda_parameters.finite_element == "auto")
       lambda_parameters.finite_element =
         "FE_DGQ(" +
@@ -457,7 +612,28 @@ namespace
         "The multiplier must use the same local DGQ basis as native area."));
     const auto lambda_view = lambda_space.view();
     const auto lambda      = lambda_view.field("lambda");
-    if (!restarting)
+    if (!restarting && archived_network)
+      {
+        unsigned int local_taper = 0;
+        const auto   rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+        for (const auto &[id, vessel] : archived_data->network.vessels)
+          if (vessel.owner == rank && vessel.radii[0] != vessel.radii[1])
+            local_taper = 1;
+        const auto reference_degree =
+          Utilities::MPI::max(local_taper, MPI_COMM_WORLD) ?
+            std::max(2u, area_fe->degree) :
+            area_fe->degree;
+        reference_space_storage = std::make_unique<FiniteElementSpace<1, 3>>(
+          flow_problem.triangulation(),
+          std::make_unique<FE_DGQ<1, 3>>(reference_degree));
+        reference_view = reference_space_storage->view();
+        interpolate_physical_reference_area(flow_problem,
+                                            *archive_transfer,
+                                            *reference_view,
+                                            reference_area);
+        reference_field = reference_view->field("a0");
+      }
+    else if (!restarting)
       {
         const auto a0   = flow_domain->field("a0");
         reference_view  = a0.space();
@@ -484,8 +660,15 @@ namespace
     const auto [pressure_projection, multiplier_metric] =
       make_metric_flow_x_pressure_projection(lambda, supports.overlap);
 
+    AssertThrow(
+      Utilities::MPI::min(mumps_workspace_relaxation, MPI_COMM_WORLD) ==
+        Utilities::MPI::max(mumps_workspace_relaxation, MPI_COMM_WORLD),
+      ExcMessage("MUMPS workspace relaxation differs across ranks."));
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
     adapter.set_stop_at_output_times(stop_at_output_times);
+    if (mumps_workspace_relaxation >= 0)
+      adapter.set_mumps_workspace_relaxation(
+        static_cast<unsigned int>(mumps_workspace_relaxation));
     adapter.set_schur_primal_coupling();
     if (linear_solver == "iterative")
       adapter.set_linear_solver(Adapter::LinearSolver::iterative);
@@ -499,12 +682,12 @@ namespace
     if (flow_block_solver == "mumps")
       {
 #  ifdef DEAL_II_WITH_MUMPS
-        flow_description.preconditioner_factory = [](const auto &matrix,
-                                                     const auto &prototype) {
-          return make_mumps_preconditioner<FieldVector>(matrix,
-                                                        prototype,
-                                                        MPI_COMM_WORLD);
-        };
+        flow_description.preconditioner_factory =
+          [mumps_workspace_relaxation](const auto &matrix,
+                                       const auto &prototype) {
+            return make_mumps_preconditioner<FieldVector>(
+              matrix, prototype, MPI_COMM_WORLD, mumps_workspace_relaxation);
+          };
 #  else
         AssertThrow(
           false, ExcMessage("Flow block MUMPS requires deal.II with MUMPS."));
@@ -529,10 +712,38 @@ namespace
     if (pressure_tolerance > 0.)
       adapter.set_absolute_tolerance(coupling_fields.fields().multiplier,
                                      pressure_tolerance);
+    if (use_native_tolerances)
+      set_native_flow_tolerances(adapter,
+                                 flow_problem,
+                                 flow_fields.fields().state,
+                                 0);
     auto state     = adapter.make_state();
     auto state_dot = adapter.make_state();
     state          = 0.;
     state_dot      = 0.;
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      {
+        std::cout << "Coupled block DoFs:";
+        for (unsigned int b = 0; b < state.n_blocks(); ++b)
+          std::cout << ' ' << state.block(b).size();
+        std::cout << "\nCoupled total DoFs: " << state.size() << std::endl;
+      }
+    if (setup_only)
+      {
+        const auto points =
+          Utilities::MPI::sum(static_cast<unsigned long long>(
+                                reference_wall.lifted_points().size()),
+                              MPI_COMM_WORLD);
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout << "Setup only: solid cells "
+                    << solid_problem.triangulation().n_global_active_cells()
+                    << ", flow cells "
+                    << flow_problem.triangulation().n_global_active_cells()
+                    << ", wall quadrature points " << points
+                    << "\nStatic stiffness assemblies: "
+                    << solid_problem.stiffness_assemblies() << std::endl;
+        return;
+      }
     if (restarting)
       {
         adapter.field(state, solid_fields.fields().displacement) =
@@ -565,13 +776,6 @@ namespace
           adapter.field(state_dot, flow_fields.fields().state),
           flow_time.initial_time);
       }
-    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      {
-        std::cout << "Coupled block DoFs:";
-        for (unsigned int b = 0; b < state.n_blocks(); ++b)
-          std::cout << ' ' << state.block(b).size();
-        std::cout << "\nCoupled total DoFs: " << state.size() << std::endl;
-      }
     auto state_constraints =
       std::make_shared<GlobalVector>(adapter.make_state());
     *state_constraints = 0.;
@@ -600,7 +804,8 @@ namespace
       FieldVector owned;
       owned.reinit(source);
       owned = source;
-      if (field.constraints().n_constraints() != 0)
+      if (Utilities::MPI::sum(field.constraints().n_constraints(),
+                              MPI_COMM_WORLD) != 0)
         field.constraints().distribute(owned);
       FieldVector execution(source.locally_owned_elements(),
                             field.locally_relevant_dofs(),
@@ -796,7 +1001,9 @@ namespace
 
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       std::cout << "MetricFlowX elastostatic accepted IDA steps: "
-                << accepted_steps << "\nStatic AMG setups: "
+                << accepted_steps << "\nStatic stiffness assemblies: "
+                << solid_problem.stiffness_assemblies()
+                << "\nStatic AMG setups: "
                 << solid_description.preconditioner_builds() << std::endl;
   }
 } // namespace
@@ -817,6 +1024,8 @@ main(int argc, char *argv[])
           };
           if (argument == "--restart")
             options.restart = value();
+          else if (argument == "--setup-only")
+            options.setup_only = true;
           else if (argument == "--checkpoint")
             options.checkpoint = value();
           else if (argument == "--final-time")
@@ -840,7 +1049,7 @@ main(int argc, char *argv[])
       AssertThrow(
         options.restart.empty() != options.parameter_file.empty(),
         dealii::ExcMessage(
-          "usage: metric_flow_x_elastostatic PARAMETER_FILE [--checkpoint DIRECTORY] [--final-time T] or --restart DIRECTORY --final-time T [--checkpoint DIRECTORY]"));
+          "usage: metric_flow_x_elastostatic PARAMETER_FILE [--setup-only] [--checkpoint DIRECTORY] [--final-time T] or --restart DIRECTORY --final-time T [--checkpoint DIRECTORY]"));
       // Keep application options out of PETSc's command-line database.
       int    runtime_argc        = 1;
       char  *runtime_arguments[] = {argv[0], nullptr};

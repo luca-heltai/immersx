@@ -122,6 +122,46 @@ selection to `IDA parameters/Linear solver/Type` (`iterative`, `umfpack`, or
 and IDA configuration. The IDA controls also include initial-condition
 correction, nonlinear and linear solver options, and the startup tolerance ramp.
 
+`IDA parameters/Linear solver` also holds the stopping criteria of the linear
+solves that the IDA adapter runs inside each Newton iteration. The values
+below are the defaults:
+
+```text
+subsection MetricFlowSystem<1, 3>
+  subsection IDA parameters
+    subsection Linear solver
+      set Type = iterative
+      set Linear tolerance factor = 0.05
+      subsection Krylov
+        set Maximum iterations = 5000
+        set Relative tolerance = 1e-8
+      end
+      subsection Schur complement
+        set Maximum iterations = 1000
+        set Relative tolerance = 1e-9
+      end
+      subsection Second-order block
+        set Maximum iterations = 1000
+        set Relative tolerance = 0.01
+      end
+      subsection MUMPS
+        set Maximum corrections = 3
+        set Relative tolerance = 1e-8
+      end
+    end
+  end
+end
+```
+
+The outer FGMRES stops when the residual is below the smaller of the
+tolerance IDA requests and `Krylov/Relative tolerance` times the norm of the
+right-hand side. IDA's own request follows from `Linear tolerance factor`,
+`Nonlinear solver/Convergence coefficient` and the error weights. The log line
+`IDAAdapter: FGMRES converged in ...` prints both values, so it shows which
+one is active. `Schur complement` and `Second-order block` control the inner
+solves of the preconditioner. `MUMPS` sets the residual check after each
+direct backsolve; UMFPACK runs no check.
+
 The wall relation is imposed weakly. With (A) the flow area, (A_0) its
 reference area, (u) the solid displacement, (n) the radial direction and
 (lambda) the pressure-jump multiplier, the lifted kinematic row represents

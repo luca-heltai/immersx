@@ -92,7 +92,9 @@ namespace
   integrate(const bool   local,
             const double factor,
             const bool   output,
-            const bool   restart = false)
+            const bool   restart       = false,
+            const int    participation = 0,
+            const bool   check_weights = false)
   {
     TimeIntervalParameters time;
     IDAParameters          parameters;
@@ -125,6 +127,43 @@ namespace
           v = 1.e-7;
         });
       }
+    if (participation != 0)
+      {
+        adapter.set_tolerance_ramp_enabled(small.fields(), false);
+        if (participation > 0)
+          adapter.set_tolerance_ramp_enabled(small.fields(), true);
+      }
+    if (check_weights)
+      adapter.set_stop_at_output_times(true);
+    unsigned int initial_weight_checks = 0, reset_weight_checks = 0,
+                 output_weight_checks = 0;
+    bool initial_output_seen = false, reset_pending = false;
+    std::function<void(const GlobalVector &, GlobalVector &)> native_weights;
+    const auto check_field_weights =
+      [&](const auto &state, const auto &weights, const double multiplier) {
+        for (const auto index :
+             adapter.field(state, small.fields()).locally_owned_elements())
+          {
+            const double denominator =
+              1.e-12 +
+              1.e-9 * std::abs(adapter.field(state, small.fields())[index]);
+            EXPECT_NEAR(adapter.field(weights, small.fields())[index] *
+                          denominator * (participation < 0 ? 1. : multiplier),
+                        1.,
+                        1.e-13);
+          }
+        for (const auto index :
+             adapter.field(state, large.fields()).locally_owned_elements())
+          {
+            const double denominator =
+              1.e-7 +
+              1.e-9 * std::abs(adapter.field(state, large.fields())[index]);
+            EXPECT_NEAR(adapter.field(weights, large.fields())[index] *
+                          denominator * multiplier,
+                        1.,
+                        1.e-13);
+          }
+      };
     auto y = adapter.make_state(), yp = adapter.make_state();
     adapter.field(y, small.fields()) =
       1.e-3 * (2. + std::sin(time.initial_time));
@@ -132,27 +171,96 @@ namespace
     yp                               = 0.;
     if (restart)
       adapter.set_solver_should_restart([&](double t, auto &, auto &) {
-        return t > .26 && adapter.statistics().restarts == 0;
+        const bool due       = check_weights ? t >= .28 - 1.e-14 : t > .26;
+        const bool requested = due && adapter.statistics().restarts == 0;
+        if (requested && check_weights)
+          reset_pending = true;
+        return requested;
       });
     unsigned int outputs        = 0;
     long int     previous_steps = 0;
     if (output)
-      adapter.set_output_step(
-        [&](double t, const auto &, const auto &, unsigned int step) {
-          ++outputs;
-          const auto stats = adapter.statistics();
-          EXPECT_GE(stats.steps, previous_steps);
-          previous_steps = stats.steps;
-          if (step == 0)
+      adapter.set_output_step([&](double t,
+                                  const auto &,
+                                  const auto &,
+                                  unsigned int step) {
+        ++outputs;
+        initial_output_seen = true;
+        if (check_weights)
+          {
+            // Fixed probe values make the expected denominators independent
+            // of the numerical trajectory and the ramp implementation.
+            for (const auto &point : {std::pair<double, double>{.25, 100.},
+                                      {.26, 100.},
+                                      {.28, 10.},
+                                      {.30, 1.},
+                                      {.35, 1.}})
+              if (std::abs(t - point.first) < 1.e-13)
+                {
+                  auto probe                           = adapter.make_state();
+                  auto weights                         = adapter.make_state();
+                  adapter.field(probe, small.fields()) = 3.e-3;
+                  adapter.field(probe, large.fields()) = 3.e3;
+                  native_weights(probe, weights);
+                  for (const auto index : adapter.field(weights, small.fields())
+                                            .locally_owned_elements())
+                    EXPECT_NEAR(adapter.field(weights, small.fields())[index] *
+                                  4.e-12 *
+                                  (participation < 0 ? 1. : point.second),
+                                1.,
+                                1.e-13);
+                  for (const auto index : adapter.field(weights, large.fields())
+                                            .locally_owned_elements())
+                    EXPECT_NEAR(adapter.field(weights, large.fields())[index] *
+                                  3.1e-6 * point.second,
+                                1.,
+                                1.e-13);
+                  ++output_weight_checks;
+                }
+          }
+        const auto stats = adapter.statistics();
+        EXPECT_GE(stats.steps, previous_steps);
+        previous_steps = stats.steps;
+        if (step == 0)
+          {
+            EXPECT_DOUBLE_EQ(t, time.initial_time);
+          }
+        if (parameters.tolerance_ramp.enabled && t < .30)
+          {
+            EXPECT_LE(stats.current_time, .30 + 1.e-14);
+          }
+      });
+    if (check_weights)
+      {
+        auto &solver                 = adapter.solver();
+        native_weights               = solver.compute_error_weights;
+        solver.compute_error_weights = [&](const auto &state, auto &weights) {
+          native_weights(state, weights);
+          if (!initial_output_seen)
             {
-              EXPECT_DOUBLE_EQ(t, time.initial_time);
+              check_field_weights(state, weights, 100.);
+              ++initial_weight_checks;
             }
-          if (parameters.tolerance_ramp.enabled && t < .30)
+          if (reset_pending)
             {
-              EXPECT_LE(stats.current_time, .30 + 1.e-14);
+              double current_time;
+              EXPECT_EQ(IDAGetCurrentTime(solver.get_ida_memory(),
+                                          &current_time),
+                        0);
+              EXPECT_NEAR(current_time, .28, 1.e-13);
+              check_field_weights(state, weights, 10.);
+              ++reset_weight_checks;
+              reset_pending = false;
             }
-        });
+        };
+      }
     const auto steps = adapter.solve(y, yp);
+    if (check_weights)
+      {
+        EXPECT_GT(initial_weight_checks, 0u);
+        EXPECT_EQ(reset_weight_checks, restart ? 1u : 0u);
+        EXPECT_EQ(output_weight_checks, 5u);
+      }
     const auto stats = adapter.statistics();
     EXPECT_EQ(steps, static_cast<unsigned int>(stats.steps));
     EXPECT_EQ(stats.restarts, restart ? 1u : 0u);
@@ -213,18 +321,35 @@ TEST(DistributedIDA, BOTH_LocalTolerancesAndHistoryPreservingRamp)
   EXPECT_EQ(restarted.tolerance_builds, 2u);
 }
 
+TEST(DistributedIDA, BOTH_FieldToleranceRampWeightsAndReset)
+{
+  const auto defaults = integrate(true, 100., true, false, 0, true);
+  const auto enabled  = integrate(true, 100., true, false, 1, true);
+  EXPECT_DOUBLE_EQ(defaults.differential, enabled.differential);
+  EXPECT_DOUBLE_EQ(defaults.algebraic, enabled.algebraic);
+  EXPECT_EQ(defaults.statistics.steps, enabled.statistics.steps);
+  EXPECT_EQ(defaults.statistics.jacobian_setups,
+            enabled.statistics.jacobian_setups);
+  const auto fixed = integrate(true, 100., true, true, -1, true);
+  EXPECT_EQ(fixed.tolerance_builds, 2u);
+}
+
 TEST(DistributedIDA, BOTH_InvalidLocalTolerancesAreCollective)
 {
   TimeIntervalParameters time;
   IDAParameters          parameters;
   Adapter                adapter(time, parameters, MPI_COMM_WORLD);
   const auto             field = add_forced_field(adapter, true, 1.);
+  EXPECT_THROW(adapter.set_tolerance_ramp_enabled(FieldId(1), false),
+               dealii::ExceptionBase);
   adapter.set_local_tolerances(field.fields(), [](FieldVector &v) { v = 0.; });
   auto y = adapter.make_state(), yp = adapter.make_state();
   y  = 1.;
   yp = -1.;
   EXPECT_THROW(adapter.solve(y, yp), dealii::ExceptionBase);
   EXPECT_THROW(adapter.set_absolute_tolerance(field.fields(), 0.),
+               dealii::ExceptionBase);
+  EXPECT_THROW(adapter.set_tolerance_ramp_enabled(field.fields(), false),
                dealii::ExceptionBase);
 }
 
@@ -332,6 +457,67 @@ TEST(DistributedIDA, SharedNativeParameterSection)
   ASSERT_NE(section, std::string::npos);
   EXPECT_EQ(text.find("subsection IDA parameters", section + 1),
             std::string::npos);
+  ParameterAcceptor::clear();
+}
+
+TEST(DistributedIDA, LinearSolverControlsFromParameterFile)
+{
+  using namespace dealii;
+  ParameterAcceptor::clear();
+  auto         &prm = ParameterAcceptor::prm;
+  IDAParameters ida("/IDA/");
+  ParameterAcceptor::declare_all_parameters(prm);
+  const auto &c = ida.linear_solver_controls;
+  EXPECT_EQ(c.krylov_maximum_iterations, 5000u);
+  EXPECT_DOUBLE_EQ(c.krylov_relative_tolerance, 1.e-8);
+  EXPECT_DOUBLE_EQ(c.schur_relative_tolerance, 1.e-9);
+  EXPECT_DOUBLE_EQ(c.second_order_relative_tolerance, 1.e-2);
+  EXPECT_DOUBLE_EQ(c.mumps_relative_tolerance, 1.e-8);
+  prm.parse_input_from_string(R"(
+    subsection IDA
+      subsection Linear solver
+        set Linear tolerance factor = 0.1
+        subsection Krylov
+          set Maximum iterations = 200
+          set Relative tolerance = 1e-4
+        end
+        subsection Schur complement
+          set Maximum iterations = 50
+          set Relative tolerance = 1e-3
+        end
+        subsection Second-order block
+          set Maximum iterations = 20
+          set Relative tolerance = 0.1
+        end
+        subsection MUMPS
+          set Relative tolerance = 1e-10
+          set Maximum corrections = 5
+        end
+      end
+    end
+  )");
+  ParameterAcceptor::parse_all_parameters(prm);
+  EXPECT_DOUBLE_EQ(ida.linear_tolerance_factor, 0.1);
+  EXPECT_EQ(c.krylov_maximum_iterations, 200u);
+  EXPECT_DOUBLE_EQ(c.krylov_relative_tolerance, 1.e-4);
+  EXPECT_EQ(c.schur_maximum_iterations, 50u);
+  EXPECT_DOUBLE_EQ(c.schur_relative_tolerance, 1.e-3);
+  EXPECT_EQ(c.second_order_maximum_iterations, 20u);
+  EXPECT_DOUBLE_EQ(c.second_order_relative_tolerance, 0.1);
+  EXPECT_DOUBLE_EQ(c.mumps_relative_tolerance, 1.e-10);
+  EXPECT_EQ(c.mumps_maximum_corrections, 5u);
+
+  prm.parse_input_from_string(R"(
+    subsection IDA
+      subsection Linear solver
+        subsection Krylov
+          set Relative tolerance = 0
+        end
+      end
+    end
+  )");
+  EXPECT_THROW(ParameterAcceptor::parse_all_parameters(prm),
+               dealii::ExceptionBase);
   ParameterAcceptor::clear();
 }
 

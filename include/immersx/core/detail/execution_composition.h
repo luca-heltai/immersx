@@ -22,6 +22,7 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/contributor.h>
+#include <immersx/core/detail/second_order_condensation.h>
 #include <immersx/core/second_order_preconditioner.h>
 
 #include <algorithm>
@@ -245,6 +246,15 @@ namespace ImmersX::detail
       : communicator_(communicator)
       , field_layout_(layout_)
     {}
+
+    /** Inner CG control of every second-order block factorization. */
+    void
+    set_second_order_inner_solver(const unsigned int maximum_iterations,
+                                  const double       relative_tolerance)
+    {
+      second_order_inner_iterations_ = maximum_iterations;
+      second_order_inner_tolerance_  = relative_tolerance;
+    }
 
     template <typename Problem, typename... Arguments>
     auto
@@ -599,6 +609,28 @@ namespace ImmersX::detail
                              entry->value());
           }
       result.compress(dealii::VectorOperation::insert);
+    }
+
+    using SecondOrderCondensation =
+      detail::SecondOrderCondensation<MatrixType, FieldVectorType>;
+
+    /**
+     * Condense the kinematic rows of every second-order pair out of a
+     * materialized Jacobian for a direct solve. Returns nullptr when there is
+     * no pair or the matrix values do not have the kinematic structure.
+     */
+    std::shared_ptr<const SecondOrderCondensation>
+    second_order_condensation(const BlockMatrixType &block_matrix) const
+    {
+      finalize();
+      std::vector<typename SecondOrderCondensation::Pair> pairs;
+      for (const auto &pair : model_.second_order_pairs())
+        pairs.push_back({field_layout_.block(pair.displacement),
+                         field_layout_.block(pair.velocity)});
+      return SecondOrderCondensation::build(block_matrix,
+                                            pairs,
+                                            field_layout_.block_partitions(),
+                                            communicator_);
     }
 
     MatrixType
@@ -2828,11 +2860,20 @@ namespace ImmersX::detail
         {
           const auto surrogate =
             model.second_order_preconditioner_operators(pair.displacement);
+          // The kinematic rows W (u' - v) and the dynamics rows M v' + ...
+          // give W and M separately; W may be a diagonal instead of the mass.
+          // A surrogate replaces the dynamics rows, so W comes from the
+          // kinematic rows whenever they are a matrix.
+          auto kinematic = model.derivative_matrix_operator(pair.displacement,
+                                                            pair.displacement,
+                                                            context);
+          if (!kinematic && surrogate)
+            kinematic = (*surrogate)[0];
           const auto mass =
             surrogate ?
               std::optional<typename Model::MatrixOperator>((*surrogate)[0]) :
-              model.derivative_matrix_operator(pair.displacement,
-                                               pair.displacement,
+              model.derivative_matrix_operator(pair.velocity,
+                                               pair.velocity,
                                                context);
           const auto stiffness =
             surrogate ?
@@ -2846,9 +2887,11 @@ namespace ImmersX::detail
               model.state_matrix_operator(pair.velocity,
                                           pair.velocity,
                                           context);
-          AssertThrow(mass && stiffness && damping,
-                      dealii::ExcMessage("Second-order factorization requires "
-                                         "matrix-backed M, K and D blocks."));
+          AssertThrow(kinematic && mass && stiffness && damping,
+                      dealii::ExcMessage(
+                        "Second-order factorization requires "
+                        "matrix-backed W, M, K and D blocks."));
+          const auto kinematic_matrix = kinematic->matrix();
           const auto mass_matrix      = mass->matrix();
           const auto stiffness_matrix = stiffness->matrix();
           const auto damping_matrix   = damping->matrix();
@@ -2858,7 +2901,8 @@ namespace ImmersX::detail
                      same_partition(matrix.locally_owned_domain_indices());
             };
           const bool spatial_partitions_match =
-            matrix_matches(*mass_matrix) && matrix_matches(*stiffness_matrix) &&
+            matrix_matches(*kinematic_matrix) && matrix_matches(*mass_matrix) &&
+            matrix_matches(*stiffness_matrix) &&
             matrix_matches(*damping_matrix);
           AssertThrow(dealii::Utilities::MPI::min(static_cast<unsigned int>(
                                                     spatial_partitions_match),
@@ -2869,6 +2913,7 @@ namespace ImmersX::detail
           const auto data    = pair.preconditioner_data();
           auto       inverse = std::make_shared<SecondOrderPreconditioner>();
           inverse->initialize(
+            *kinematic_matrix,
             *mass_matrix,
             *stiffness_matrix,
             *damping_matrix,
@@ -2884,6 +2929,8 @@ namespace ImmersX::detail
           cached.inverse  = std::move(inverse);
           cached.revision = revision;
         }
+      cached.inverse->set_inner_solver_control(second_order_inner_iterations_,
+                                               second_order_inner_tolerance_);
       if (alpha == 0.)
         cached.inverse->prepare_static_inverse();
       else
@@ -3245,7 +3292,9 @@ namespace ImmersX::detail
       std::shared_ptr<SecondOrderPreconditioner> inverse;
     };
     mutable std::map<FieldId, CachedSecondOrderPreconditioner>
-      second_order_preconditioners_;
+                 second_order_preconditioners_;
+    unsigned int second_order_inner_iterations_ = 1000;
+    double       second_order_inner_tolerance_  = 1.e-2;
   };
 } // namespace ImmersX::detail
 

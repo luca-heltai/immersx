@@ -29,7 +29,8 @@ namespace ImmersX
       std::vector<Entry>      entries;
       dealii::IndexSet        rows, columns;
       std::optional<Operator> inverse;
-      unsigned int            builds = 0;
+      unsigned int            builds         = 0;
+      unsigned int            fixed_assembly = 0;
     };
     std::shared_ptr<PreconditionerCache> cache_ =
       std::make_shared<PreconditionerCache>();
@@ -52,6 +53,23 @@ namespace ImmersX
     preconditioner(const Matrix                              &matrix,
                    const std::function<void(Vector &, bool)> &reinit) const
     {
+      if (problem.uses_fixed_stiffness())
+        {
+          if (!cache_->inverse ||
+              cache_->fixed_assembly != problem.stiffness_assemblies())
+            {
+              // The immutable native matrix and its vector layout belong to
+              // the Problem, whose lifetime already bounds this contributor.
+              cache_->inverse = make_amg_preconditioner<Vector>(
+                problem.stiffness_operator(),
+                [native_problem = &problem](Vector &vector, const bool omit) {
+                  vector.reinit(native_problem->solution(), omit);
+                });
+              cache_->fixed_assembly = problem.stiffness_assemblies();
+              ++cache_->builds;
+            }
+          return *cache_->inverse;
+        }
       std::vector<Entry> entries;
       for (const auto row : matrix.locally_owned_range_indices())
         for (auto entry = matrix.begin(row); entry != matrix.end(row); ++entry)
@@ -113,6 +131,19 @@ namespace ImmersX
       id, [description](const auto &matrix, const auto &prototype) {
         return description.preconditioner(matrix, prototype);
       });
+    auto tangent = stiffness;
+    if (dealii::Utilities::MPI::sum(
+          problem.constraints().n_constraints(),
+          problem.stiffness_operator().get_mpi_communicator()) != 0)
+      tangent = semidiscrete_detail::constrained_matrix_operator_with_identity(
+        stiffness, problem.constraints());
+    if (problem.uses_fixed_stiffness())
+      {
+        // IDA uses identity rows for constraints. Retain that tangent once;
+        // shared matrix provenance avoids copying it for later snapshots.
+        using Vector = typename ElasticStaticProblem<dim, spacedim>::VectorType;
+        tangent      = ImmersX::matrix_operator<Vector>(tangent.matrix());
+      }
     builder.term(id, "elastic-equilibrium")
       .residual([id, &problem, stiffness](const auto &context) {
         return semidiscrete_detail::constrained_residual(stiffness.view *
@@ -121,9 +152,7 @@ namespace ImmersX
                                                          context.state(id),
                                                          problem.constraints());
       })
-      .state(id,
-             semidiscrete_detail::constrained_matrix_operator_with_identity(
-               stiffness, problem.constraints()));
+      .state(id, tangent);
     return {displacement, std::move(space)};
   }
 } // namespace ImmersX

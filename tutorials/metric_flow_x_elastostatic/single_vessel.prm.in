@@ -92,4 +92,12 @@ end
 
 subsection MetricFlowX coupling
   set Wall pressure absolute tolerance = 0
+  subsection Co-refinement
+    set Enabled = false
+    set Refinement strategy = both
+    set Lower factor = 0.5
+    set Upper factor = 2
+    set Max refinement level = 10
+    set Max section refinement level = 10
+  end
 end

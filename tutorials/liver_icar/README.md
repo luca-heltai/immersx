@@ -319,6 +319,16 @@ history. This keeps saved states at internal step endpoints, where the
 nonlinear algebraic constraints are solved. Output cadence therefore
 belongs to the reproducible numerical configuration.
 
+The experimental `MetricFlowX coupling/Apply tolerance ramp to solid fields`
+option defaults to `true`, preserving the existing policy. Setting it to
+`false` keeps the configured solid displacement and velocity tolerances
+throughout initial-condition correction and integration. Native flow and wall
+multiplier tolerances still follow the configured ramp. The option controls
+IDA error weights. Physical parameters and boundary prescriptions remain
+unchanged; computed states and flows can vary with numerical accuracy. It
+provides a tolerance-sensitivity experiment; no performance or
+coupled-periodicity result has been established for it.
+
 ### Reuse fixed linear wall assembly
 
 The application's two fixed linear wall pairings opt into
