@@ -17,6 +17,7 @@
 #  include <deal.II/base/mpi.h>
 #  include <deal.II/base/parameter_acceptor.h>
 #  include <deal.II/base/patterns.h>
+#  include <deal.II/base/timer.h>
 
 #  include <deal.II/lac/precondition.h>
 #  include <deal.II/lac/solver_gmres.h>
@@ -134,6 +135,10 @@ namespace ImmersX
       , parameters_(parameters)
       , pcout(std::cout,
               dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
+      , computing_timer(communicator,
+                        pcout,
+                        dealii::TimerOutput::summary,
+                        dealii::TimerOutput::wall_times)
     {}
 
     const KINSOLAdapterParameters &
@@ -248,7 +253,8 @@ namespace ImmersX
       finalize();
       pcout << "KINSOLAdapter: starting steady nonlinear solve with "
             << composition_.n_fields() << " semantic field(s)." << std::endl;
-      const auto n_iterations = kinsol_->solve(state);
+      dealii::TimerOutput::Scope timer(computing_timer, "Solve nonlinear");
+      const auto                 n_iterations = kinsol_->solve(state);
       pcout << "KINSOLAdapter: nonlinear solve finished after " << n_iterations
             << " iteration(s)." << std::endl;
       return n_iterations;
@@ -261,6 +267,7 @@ namespace ImmersX
       if (connected_)
         return;
 
+      dealii::TimerOutput::Scope timer(computing_timer, "Finalize adapter");
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("KINSOLAdapter has no semantic fields."));
       kinsol_ = std::make_unique<dealii::SUNDIALS::KINSOL<GlobalVectorType>>(
@@ -270,6 +277,7 @@ namespace ImmersX
       };
       kinsol_->residual = [this](const GlobalVectorType &state,
                                  GlobalVectorType       &residual) {
+        dealii::TimerOutput::Scope timer(computing_timer, "Evaluate residual");
         composition_.evaluate_residual(0., state, nullptr, residual);
       };
       kinsol_->setup_jacobian = [this](const GlobalVectorType &state,
@@ -279,6 +287,7 @@ namespace ImmersX
       kinsol_->solve_with_jacobian = [this](const GlobalVectorType &rhs,
                                             GlobalVectorType       &dst,
                                             const double            tolerance) {
+        dealii::TimerOutput::Scope timer(computing_timer, "Linear solve");
         AssertThrow(current_jacobian_.has_value(),
                     dealii::ExcMessage(
                       "KINSOL requested a solve without a current Jacobian."));
@@ -372,6 +381,7 @@ namespace ImmersX
     void
     prepare_jacobian(const GlobalVectorType &state)
     {
+      dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
       const auto snapshot      = composition_.make_snapshot(0., state);
       const auto operator_view = composition_.jacobian(snapshot->context, 0.);
       current_jacobian_        = retain_snapshot(operator_view, snapshot);
@@ -409,6 +419,7 @@ namespace ImmersX
     mutable std::optional<AdditionalData> additional_data_;
     std::unique_ptr<dealii::SUNDIALS::KINSOL<GlobalVectorType>> kinsol_;
     mutable dealii::ConditionalOStream                          pcout;
+    mutable dealii::TimerOutput                                 computing_timer;
     std::optional<Operator> current_jacobian_;
     std::optional<Operator> current_preconditioner_;
     bool                    current_solver_is_flexible_ = false;

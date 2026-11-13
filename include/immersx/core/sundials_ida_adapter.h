@@ -382,6 +382,8 @@ namespace ImmersX
           pcout << "IDAAdapter: computing consistent initial conditions "
                    "with the application callback."
                 << std::endl;
+          dealii::TimerOutput::Scope timer(computing_timer,
+                                           "Consistent initial conditions");
           compute_consistent_initial_conditions_(additional_data().initial_time,
                                                  state,
                                                  state_dot);
@@ -827,6 +829,7 @@ namespace ImmersX
       if (connected_)
         return;
 
+      dealii::TimerOutput::Scope timer(computing_timer, "Finalize adapter");
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
       tolerance_ramp_ = ida_parameters_.tolerance_ramp;
@@ -941,6 +944,8 @@ namespace ImmersX
             backsolve(original_rhs, dst);
             if (linear_solver_ == LinearSolver::mumps)
               {
+                dealii::TimerOutput::Scope refinement_timer(
+                  computing_timer, "MUMPS iterative refinement");
                 // MUMPS disables its internal refinement for distributed
                 // right-hand sides. Reuse the factorization for at most three
                 // corrections, measuring each defect with the retained Jacobian
@@ -1115,7 +1120,11 @@ namespace ImmersX
         if (!solver_should_restart_)
           return false;
 
-        const bool restart = solver_should_restart_(time, state, state_dot);
+        bool restart = false;
+        {
+          dealii::TimerOutput::Scope timer(computing_timer, "Restart check");
+          restart = solver_should_restart_(time, state, state_dot);
+        }
         if (restart)
           {
             accumulated_statistics_ = statistics();
@@ -1128,6 +1137,8 @@ namespace ImmersX
             pcout << "IDAAdapter: computing consistent initial conditions "
                      "after restart with the application callback."
                   << std::endl;
+            dealii::TimerOutput::Scope timer(computing_timer,
+                                             "Consistent initial conditions");
             compute_consistent_initial_conditions_(time, state, state_dot);
           }
         return restart;
@@ -1156,7 +1167,11 @@ namespace ImmersX
                   << std::endl;
           }
         if (output_)
-          output_(time, state, state_dot, step);
+          {
+            dealii::TimerOutput::Scope timer(computing_timer,
+                                             "Output callback");
+            output_(time, state, state_dot, step);
+          }
       };
       pcout << "IDAAdapter: finalized with " << composition_.n_fields()
             << " semantic field(s)." << std::endl;
@@ -1174,6 +1189,8 @@ namespace ImmersX
     void
     initialize_tolerances()
     {
+      dealii::TimerOutput::Scope timer(computing_timer,
+                                       "Initialize tolerances");
       AssertThrow(current_state_ != nullptr,
                   dealii::ExcMessage(
                     "Use IDAAdapter::solve() with adapter-owned tolerances."));
@@ -1216,7 +1233,8 @@ namespace ImmersX
     compute_error_weights(const GlobalVectorType &state,
                           GlobalVectorType       &weights)
     {
-      double time;
+      dealii::TimerOutput::Scope timer(computing_timer, "Error weights");
+      double                     time;
       check_ida(IDAGetCurrentTime(ida_->get_ida_memory(), &time));
       const auto scales =
         tolerance_ramp_.scales(additional_data().initial_time, time);
