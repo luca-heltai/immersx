@@ -221,9 +221,9 @@ namespace ImmersX
     /** Select the coupled linear solver before initialization.
      * Direct solvers reuse their factorization until IDA requests a new
      * Jacobian setup. UMFPACK requires one rank; MUMPS uses the composition's
-     * communicator and distributed matrix. A MUMPS backsolve may use up to
-     * three corrections with the same factorization to satisfy the retained
-     * Jacobian residual check; the relative tolerance remains 1e-8.
+     * communicator and distributed matrix. A MUMPS backsolve may use
+     * correction solves with the same factorization to satisfy the retained
+     * Jacobian residual check, as set in IDALinearSolverControls.
      */
     void
     set_linear_solver(const LinearSolver solver)
@@ -596,15 +596,17 @@ namespace ImmersX
     schur_preconditioner(const FieldId           multiplier,
                          const GlobalVectorType &state) const
     {
-      return composition_.schur_preconditioner(multiplier,
-                                               state,
-                                               nullptr,
-                                               0.,
-                                               1000,
-                                               1.e-9,
-                                               false,
-                                               nullptr,
-                                               schur_materialization_limit_);
+      const auto &controls = ida_parameters_.linear_solver_controls;
+      return composition_.schur_preconditioner(
+        multiplier,
+        state,
+        nullptr,
+        0.,
+        controls.schur_maximum_iterations,
+        controls.schur_relative_tolerance,
+        false,
+        nullptr,
+        schur_materialization_limit_);
     }
 
   private:
@@ -809,7 +811,10 @@ namespace ImmersX
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
       tolerance_ramp_ = ida_parameters_.tolerance_ramp;
-      auto ida_data   = additional_data();
+      composition_.set_second_order_inner_solver(
+        ida_parameters_.linear_solver_controls.second_order_maximum_iterations,
+        ida_parameters_.linear_solver_controls.second_order_relative_tolerance);
+      auto ida_data = additional_data();
       if (stop_at_output_times_)
         AssertThrow(
           std::isfinite(ida_data.output_period) && ida_data.output_period > 0.,
@@ -923,12 +928,15 @@ namespace ImmersX
                 // action.
                 GlobalVectorType defect;
                 composition_.reinit(defect);
-                constexpr double       relative_target = 1.e-8;
-                constexpr unsigned int max_refinements = 3;
-                const double           rhs_norm        = original_rhs.l2_norm();
-                double                 defect_norm     = 0.;
-                unsigned int           refinement      = 0;
-                std::array<double, max_refinements + 1> defect_history{};
+                const auto  &controls = ida_parameters_.linear_solver_controls;
+                const double relative_target =
+                  controls.mumps_relative_tolerance;
+                const unsigned int max_refinements =
+                  controls.mumps_maximum_corrections;
+                const double        rhs_norm    = original_rhs.l2_norm();
+                double              defect_norm = 0.;
+                unsigned int        refinement  = 0;
+                std::vector<double> defect_history(max_refinements + 1);
                 for (;; ++refinement)
                   {
                     current_jacobian_->vmult(defect, dst);
@@ -991,9 +999,17 @@ namespace ImmersX
             dst = 0.;
             // Small physical loads still need a correction. An absolute floor
             // can accept the initial zero iterate and stall the DAE solve.
-            dealii::SolverControl control(5000,
-                                          std::min(tolerance,
-                                                   1.e-8 * rhs.l2_norm()));
+            const auto &controls = ida_parameters_.linear_solver_controls;
+            dealii::SolverControl control(
+              controls.krylov_maximum_iterations,
+              std::min(tolerance,
+                       controls.krylov_relative_tolerance * rhs.l2_norm()));
+            const auto target = [&control, tolerance]() {
+              std::ostringstream text;
+              text << ", target " << control.tolerance() << " (IDA "
+                   << tolerance << ")";
+              return text.str();
+            };
             // Avoid division by zero at exact Krylov breakdown in deal.II 9.7.
             typename dealii::SolverGMRES<GlobalVectorType>::AdditionalData data;
             data.orthogonalization_strategy = dealii::LinearAlgebra::
@@ -1044,7 +1060,7 @@ namespace ImmersX
                                 iterations, defect.l2_norm()));
                   pcout << "IDAAdapter: FGMRES converged in " << iterations
                         << " iteration(s), true residual " << defect.l2_norm()
-                        << "." << std::endl;
+                        << target() << "." << std::endl;
                 }
               else
                 {
@@ -1054,7 +1070,7 @@ namespace ImmersX
                                *current_preconditioner_);
                   pcout << "IDAAdapter: GMRES converged in "
                         << control.last_step() << " iteration(s), residual "
-                        << control.last_value() << "." << std::endl;
+                        << control.last_value() << target() << "." << std::endl;
                 }
             else
               {
@@ -1064,7 +1080,7 @@ namespace ImmersX
                              dealii::PreconditionIdentity());
                 pcout << "IDAAdapter: GMRES converged in "
                       << control.last_step() << " iteration(s), residual "
-                      << control.last_value() << "." << std::endl;
+                      << control.last_value() << target() << "." << std::endl;
               }
           }
       };
@@ -1453,8 +1469,10 @@ namespace ImmersX
                   snapshot->state_storage,
                   &snapshot->derivative_storage,
                   alpha,
-                  1000,
-                  1.e-9,
+                  ida_parameters_.linear_solver_controls
+                    .schur_maximum_iterations,
+                  ida_parameters_.linear_solver_controls
+                    .schur_relative_tolerance,
                   include_schur_primal_coupling_,
                   snapshot.get(),
                   schur_materialization_limit_));
