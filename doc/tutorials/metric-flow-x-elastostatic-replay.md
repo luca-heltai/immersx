@@ -36,6 +36,9 @@ wall overlap, and the multiplier is zero outside the solid. The reference area
 $a_0$ is the area of the first checkpoint in the history, so the solid is
 displaced by the change of radius since that time. When the flow starts from
 its reference area, this is the same $a_0$ as in the coupled application.
+MetricFlowX does not yet expose its reference area;
+[MetricFlowX issue #98](https://github.com/luca-heltai/metric-flow-x/issues/98)
+tracks it.
 
 $K$, $B$ and the multiplier metric are assembled once. Each step updates the
 solid loads, the Dirichlet data and $P_h(A_n)$. With the `direct` or `mumps`
@@ -104,9 +107,12 @@ assemblies.
 - MetricFlowX loads each checkpoint into a new `BloodFlowSystem` and
   parses the global parameter tree. The replay therefore clears the
   `ParameterAcceptor` registry before each load. All parameters must be parsed
-  before `setup()`, and each step repeats the native flow setup.
+  before `setup()`. Each step reads a full restart checkpoint and repeats the
+  native flow setup, although the replay uses only the cell area.
   [MetricFlowX issue #96](https://github.com/luca-heltai/metric-flow-x/issues/96)
-  tracks a lighter way to read a state.
+  asks for a lighter state load and
+  [issue #99](https://github.com/luca-heltai/metric-flow-x/issues/99) for
+  writing and reading only selected fields.
 - Co-refinement, wall particle output and archived vascular networks are not
   available in the replay.
 
