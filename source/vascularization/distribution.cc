@@ -1,6 +1,7 @@
 // Copyright (C) 2026 by Luca Heltai
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <deal.II/fe/mapping_fe.h>
+#include <deal.II/fe/mapping_p1.h>
 #include <deal.II/fe/mapping_q.h>
 
 #include <deal.II/grid/grid_tools.h>
@@ -188,7 +189,8 @@ namespace ImmersX::Vascularization
     require_all(
       (comparison == MPI_IDENT || comparison == MPI_CONGRUENT) &&
         std::isfinite(halo) && halo >= 0. &&
-        ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1)) &&
+        ((q && q->get_degree() == 1) || (fe && fe->get_degree() == 1) ||
+         dynamic_cast<const MappingP1<3> *>(&mapping) != nullptr) &&
         internal::validate_counted_data(initial, size, work).valid(),
       communicator,
       "Vascular redistribution requires valid local data, a nonnegative finite halo, a first-order mapping and congruent communicators.");

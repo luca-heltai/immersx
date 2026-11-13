@@ -395,7 +395,9 @@ TEST(DistributedIDA, BOTH_InitialCorrectionReusesFirstPassJacobian)
       const auto first = output.find(reuse);
       EXPECT_NE(first, std::string::npos) << output;
       if (first != std::string::npos)
-        EXPECT_EQ(output.find(reuse, first + 1), std::string::npos) << output;
+        {
+          EXPECT_EQ(output.find(reuse, first + 1), std::string::npos) << output;
+        }
     }
   EXPECT_NEAR(initial_value, 2., 1.e-8);
   EXPECT_NEAR(adapter.field(state, positive.fields()).l2_norm(), 2.02, 1.e-7);

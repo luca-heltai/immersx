@@ -36,6 +36,7 @@
 #  include <immersx/physics/fictitious_interior.h>
 #  include <immersx/physics/metric_flow_x.h>
 #  include <immersx/physics/metric_flow_x_pressure.h>
+#  include <immersx/physics/metric_flow_x_wall.h>
 #  include <immersx/vascularization/io.h>
 #  include <immersx/vascularization/metric_flow_x.h>
 
@@ -54,10 +55,13 @@
 #  include <type_traits>
 #  include <vector>
 
+#  include "metric_flow_x_physical_input.h"
+
 namespace
 {
   using namespace dealii;
   using namespace ImmersX;
+  using namespace ImmersX::metric_flow_x_app_detail;
 
   std::string
   metric_flow_parameter(const std::string &name)
@@ -176,186 +180,6 @@ namespace
       }
   }
 
-  template <class Adapter, class Flow>
-  auto
-  set_native_flow_tolerances(Adapter      &adapter,
-                             Flow         &flow,
-                             const FieldId field,
-                             int)
-    -> decltype(flow.make_absolute_tolerances(), void())
-  {
-    adapter.set_local_tolerances(field, [&flow](auto &values) {
-      values = flow.make_absolute_tolerances();
-    });
-  }
-
-  template <class Adapter, class Flow>
-  void
-  set_native_flow_tolerances(Adapter &, Flow &, const FieldId, long)
-  {
-    AssertThrow(
-      false,
-      ExcMessage(
-        "Native flow tolerances require a compatible MetricFlowX package."));
-  }
-
-  struct ArchivedFlowParameters : ParameterAcceptor
-  {
-    ArchivedFlowParameters()
-      : ParameterAcceptor("/MetricFlowX coupling/Archived network/")
-    {
-      add_parameter(
-        "Directory",
-        directory,
-        "Native physical network archive. Empty uses the ordinary VTK or generation path.");
-      add_parameter(
-        "Young moduli",
-        young_moduli,
-        "Wall Young moduli in Pa, in arterial, venous, portal order.");
-      add_parameter(
-        "Wall thickness ratios",
-        thickness_ratios,
-        "Wall thickness divided by mean reference radius, in arterial, venous, portal order.");
-      add_parameter(
-        "Reference pressures",
-        reference_pressures,
-        "Wall reference pressures in Pa, in arterial, venous, portal order.");
-      add_parameter("Portal pressure",
-                    portal_pressure,
-                    "Prescribed portal root reservoir pressure in Pa.");
-      add_parameter("Venous pressure",
-                    venous_pressure,
-                    "Prescribed venous root reservoir pressure in Pa.");
-      add_parameter(
-        "Root resistance",
-        root_resistance,
-        "Positive root reservoir resistance in Pa s/m^3; saved tissue compartments supply their own resistances.");
-      add_parameter(
-        "Sealed input terminal ids",
-        sealed_input_terminals,
-        "Physical Terminal ids explicitly closed to flow; every other tissue leaf must belong to a saved microvascular bed.");
-      add_parameter("Redistribution halo",
-                    halo,
-                    "Physical archive halo in metres.");
-    }
-
-    std::vector<Vascularization::Id> sealed_input_terminals;
-    std::string                      directory;
-    std::vector<double>              young_moduli{0., 0., 0.};
-    std::vector<double>              thickness_ratios{0., 0., 0.};
-    std::vector<double>              reference_pressures{0., 0., 0.};
-    double portal_pressure = 0., venous_pressure = 0., root_resistance = 0.,
-           halo = 0.;
-  };
-
-  template <class Flow>
-  Vascularization::MetricFlowXTransfer
-  prepare_archived_flow(Flow                                    &flow,
-                        const Vascularization::GenerationResult &generation,
-                        const ArchivedFlowParameters            &parameters)
-  {
-    namespace V = Vascularization;
-    AssertThrow(
-      parameters.young_moduli.size() == 3 &&
-        parameters.thickness_ratios.size() == 3 &&
-        parameters.reference_pressures.size() == 3,
-      ExcMessage(
-        "Archived wall parameters require three values in arterial, venous, portal order."));
-    for (unsigned int i = 0; i < 3; ++i)
-      AssertThrow(
-        std::isfinite(parameters.young_moduli[i]) &&
-          parameters.young_moduli[i] > 0. &&
-          std::isfinite(parameters.thickness_ratios[i]) &&
-          parameters.thickness_ratios[i] > 0. &&
-          std::isfinite(parameters.reference_pressures[i]),
-        ExcMessage(
-          "Archived wall material must be positive and reference pressure finite."));
-    AssertThrow(
-      std::isfinite(parameters.portal_pressure) &&
-        std::isfinite(parameters.venous_pressure) &&
-        std::isfinite(parameters.root_resistance) &&
-        parameters.root_resistance > 0.,
-      ExcMessage(
-        "Archived root pressures must be finite and reservoir resistance positive."));
-
-    // Unselected anatomical ends need an explicit zero-flow declaration.
-    // Independent outlet resistances would add drains beside the saved beds.
-    const std::set<V::Id> sealed(parameters.sealed_input_terminals.begin(),
-                                 parameters.sealed_input_terminals.end());
-    AssertThrow(sealed.size() == parameters.sealed_input_terminals.size(),
-                ExcMessage("A sealed input terminal id is repeated."));
-    std::set<V::Id>    linked;
-    const auto         comm = flow.mpi_communicator();
-    std::vector<V::Id> owned_linked;
-    for (const auto &pair : generation.terminal_pairs)
-      owned_linked.insert(owned_linked.end(), {pair.arterial, pair.venous});
-    for (const auto &triplet : generation.terminal_triplets)
-      owned_linked.insert(owned_linked.end(),
-                          {triplet.arterial, triplet.portal, triplet.venous});
-    for (const auto &ids : Utilities::MPI::all_gather(comm, owned_linked))
-      linked.insert(ids.begin(), ids.end());
-    unsigned int unlinked = 0;
-    const auto   rank     = Utilities::MPI::this_mpi_process(comm);
-    for (const auto &[id, terminal] : generation.network.terminals)
-      if (terminal.owner == rank &&
-          ((linked.count(id) == 0 && sealed.count(id) == 0) ||
-           (linked.count(id) != 0 && sealed.count(id) != 0)))
-        ++unlinked;
-    AssertThrow(
-      Utilities::MPI::sum(unlinked, comm) == 0,
-      ExcMessage(
-        "Every archived tissue leaf must have exactly one microvascular connection or explicit sealed declaration."));
-
-    if constexpr (V::has_metric_flow_x_network_input<Flow>)
-      return V::prepare_metric_flow_x(
-        flow,
-        generation,
-        [&](V::Id, const V::Vessel &vessel) {
-          unsigned int role = 0;
-          if (vessel.system == V::System::venous)
-            role = 1;
-          else if (vessel.system == V::System::portal)
-            role = 2;
-          typename Flow::VesselProperties result;
-          result.E      = parameters.young_moduli[role];
-          result.h_wall = parameters.thickness_ratios[role] * .5 *
-                          (vessel.radii[0] + vessel.radii[1]);
-          result.p_d = parameters.reference_pressures[role];
-          result.p0  = 0.;
-          return result;
-        },
-        [&](V::Id, const V::Node &node, const V::Terminal *terminal) {
-          // The native input validates positive R2 even at linked leaves;
-          // those leaves use the saved resistor graph instead of this RCR.
-          typename Flow::RCRPhysics result;
-          result.R2 = parameters.root_resistance;
-          if (terminal != nullptr)
-            result.label = "microvascular-compartment";
-          else if (node.port == V::Port::portal_inlet)
-            {
-              result.P_out = parameters.portal_pressure;
-              result.label = "portal-root";
-            }
-          else if (node.port == V::Port::venous_outlet)
-            {
-              result.P_out = parameters.venous_pressure;
-              result.label = "venous-root";
-            }
-          else
-            AssertThrow(
-              false, ExcMessage("Unsupported real port in archived network."));
-          return result;
-        },
-        sealed);
-    else
-      {
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Archived flow requires MetricFlowX NetworkPhysics input."));
-        return {};
-      }
-  }
 
   void
   run_coupled_problem(const std::string &parameter_file)
@@ -373,11 +197,11 @@ namespace
     FixedStepParameters    fixed_step("/", false);
     IDAParameters ida_parameters("/MetricFlowSystem<1, 3>/IDA parameters/",
                                  &flow_time);
-    ElastodynamicsParameters<3> solid_parameters("/Elastodynamics/",
-                                                 &flow_time,
-                                                 &fixed_step,
-                                                 &ida_parameters);
-    WallLift                    wall_lift("/MetricFlowX vessel wall lift/");
+    // The coupled solve uses one solid mesh, set by Domain/Initial refinement
+    // and optional co-refinement.
+    ElastodynamicsParameters<3> solid_parameters(
+      "/Elastodynamics/", &flow_time, &fixed_step, &ida_parameters, false);
+    WallLift wall_lift("/MetricFlowX vessel wall lift/");
     FiniteElementSpaceParameters<1, 3> lambda_parameters(
       "/MetricFlowX multiplier space/", "auto");
 
@@ -723,42 +547,10 @@ namespace
               std::make_unique<FE_DGQ<1, 3>>(reference_degree));
           generated_reference_view.emplace(generated_reference_space->view());
           const auto &reference_view = *generated_reference_view;
-          reference_area.reinit(reference_view.locally_owned_dofs(),
-                                reference_view.locally_relevant_dofs(),
-                                MPI_COMM_WORLD);
-          // Trilinos ghosted vectors are read-only. Assemble owned values,
-          // then import them into the field used by lifted evaluation.
-          FieldVector owned_reference_area;
-          owned_reference_area.reinit(reference_view.locally_owned_dofs(),
-                                      MPI_COMM_WORLD);
-          std::vector<types::global_dof_index> indices(
-            reference_view.finite_element().n_dofs_per_cell());
-          for (const auto &cell :
-               reference_view.dof_handler().active_cell_iterators())
-            if (cell->is_locally_owned())
-              {
-                cell->get_dof_indices(indices);
-                const auto interval =
-                  Vascularization::physical_reference(cell->id(),
-                                                      transfer->flow_cells);
-                const auto &properties =
-                  flow_problem.vessel_properties(cell->material_id());
-                for (unsigned int i = 0; i < indices.size(); ++i)
-                  {
-                    const double xi = cell->get_fe().unit_support_point(i)[0];
-                    const double t =
-                      interval.begin + xi * (interval.end - interval.begin);
-                    const double radius =
-                      properties.r_in == properties.r_out ?
-                                                         properties.r_in :
-                                                         (1. - t) * properties.r_in + t * properties.r_out;
-                    owned_reference_area[indices[i]] =
-                      numbers::PI * radius * radius;
-                  }
-              }
-          owned_reference_area.compress(VectorOperation::insert);
-          reference_area = owned_reference_area;
-          reference_area.update_ghost_values();
+          interpolate_physical_reference_area(flow_problem,
+                                              *transfer,
+                                              reference_view,
+                                              reference_area);
           return reference_view.field("a0");
         }
       const auto a0 = flow_domain.field("a0");
@@ -1023,93 +815,19 @@ namespace
       }
 
     const auto coupling_fields = adapter.add(
-      [&](auto &builder) {
-        const auto id          = builder.algebraic_field(lambda.name(),
-                                                lambda.locally_owned_dofs(),
-                                                lambda.locally_relevant_dofs());
-        const auto multiplier  = lambda.with_id(id);
-        const auto radius      = reference_radius;
-        const auto lambda_wall = reference_wall.with_id(id);
-        const auto negative_wall_displacement =
-          lift(radius - sqrt(value(flow_fields.fields().area) / numbers::PI),
-               wall_lift,
-               radius);
-
-        weak_term(value(solid_fields.fields().displacement), test(lambda_wall))
-          .on(supports.overlap)
-          .with_cached_assembly()
-          .add_constraint_terms(
-            builder, id, 1., 0, solid_fields.fields().velocity);
-        weak_term(negative_wall_displacement, test(multiplier))
-          .on(supports.overlap)
-          .add(builder);
-        weak_term(-1. * value(multiplier), test(multiplier))
-          .on(supports.outside)
-          .add(builder);
-
-        const auto pressure      = -1. * value(multiplier);
-        const auto flow_id       = flow_fields.fields().state;
-        auto       pressure_term = builder.term(flow_id, "native-pressure");
-        pressure_term.residual([&, pressure, flow_id, id](const auto &context) {
-          auto contribution = std::make_shared<MetricFlowX::VectorType>(
-            flow_problem.make_state());
-          *contribution = 0.;
-          flow_problem.add_external_pressure_residual(
-            context.time(),
-            context.state(flow_id),
-            metric_flow_x_pressure_provider(pressure,
-                                            context.state(id),
-                                            pressure_projection),
-            *contribution);
-          dealii::PackagedOperation<MetricFlowX::VectorType> result;
-          result.reinit_vector = [&flow_problem](auto &dst, const bool) {
-            flow_problem.reinit_state(dst);
-          };
-          result.apply     = [contribution](auto &dst) { dst = *contribution; };
-          result.apply_add = [contribution](auto &dst) {
-            dst += *contribution;
-          };
-          return result;
-        });
-        typename std::decay_t<decltype(builder)>::Model::MatrixOperatorFactory
-          pressure_jacobian = [&, pressure, flow_id](const auto &context) {
-            return metric_flow_x_pressure_operator(flow_problem,
-                                                   pressure,
-                                                   context.state(flow_id),
-                                                   context.time(),
-                                                   pressure_projection);
-          };
-        pressure_term.state(id, std::move(pressure_jacobian));
-        if constexpr (detail::has_external_pressure_state_jacobian<
-                        std::decay_t<decltype(flow_problem)>>::value)
-          {
-            typename std::decay_t<decltype(builder)>::Model::
-              MatrixOperatorFactory pressure_state_jacobian =
-                [&, pressure, flow_id, id](const auto &context) {
-                  return metric_flow_x_pressure_state_operator(
-                    flow_problem,
-                    pressure,
-                    context.state(id),
-                    context.state(flow_id),
-                    context.time(),
-                    pressure_projection);
-                };
-            pressure_term.state(flow_id, std::move(pressure_state_jacobian));
-          }
-
-
-        auto metric        = builder.matrix_operator(*multiplier_metric);
-        metric.materialize = [multiplier_metric] { return multiplier_metric; };
-        metric.materialize_into = [multiplier_metric](auto &destination) {
-          destination.copy_from(*multiplier_metric);
-        };
-        builder.saddle_point(id,
-                             {solid_fields.fields().displacement.id(),
-                              solid_fields.fields().velocity.id(),
-                              flow_fields.fields().state},
-                             metric);
-        return ConstraintFields<std::decay_t<decltype(lambda)>>{multiplier};
-      },
+      metric_flow_x_wall_constraint(flow_problem,
+                                    solid_fields.fields().displacement,
+                                    flow_fields.fields(),
+                                    lambda,
+                                    wall_lift,
+                                    reference_radius,
+                                    supports,
+                                    pressure_projection,
+                                    multiplier_metric,
+                                    solid_fields.fields().velocity,
+                                    {solid_fields.fields().displacement.id(),
+                                     solid_fields.fields().velocity.id(),
+                                     flow_fields.fields().state}),
       "vessel-wall");
 
     AssertThrow(displacement_tolerance >= 0. && velocity_tolerance >= 0. &&

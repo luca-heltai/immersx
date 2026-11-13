@@ -68,6 +68,8 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     DistributedLiftedQuadrature
     ElasticStaticDimensions
     ElasticStaticExecution
+    ElasticStaticSemidiscrete
+    ElasticStaticCheckpoint
     ElasticStaticProblem
     ElasticityProblem
     ElasticityCouplingParameters
