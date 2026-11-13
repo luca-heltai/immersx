@@ -95,6 +95,8 @@ $Ku+B\lambda-f(t)=0$ and $B^Tu-P_h(A)=0$. Disabling feedback removes only
 the external-pressure residual and its Jacobians from the flow equations;
 it does not remove the wall constraint or the traction reaction. Set
 `Pressure feedback = true` to restore the two-way equations above.
+To reuse one flow run for several solids, save it with MetricFlowX checkpoints
+and [replay it](metric-flow-x-elastostatic-replay.md) with static solves.
 
 The application accepts VTK vessel input or an existing native physical network
 archive. The [IRCAD11 small tutorial](metric-flow-x-elastostatic-ircad11-small.md)

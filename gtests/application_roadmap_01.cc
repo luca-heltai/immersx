@@ -198,6 +198,55 @@ TEST(ApplicationRoadmap, P1G0UsesFrozenForcingWithoutMultiplier)
   EXPECT_TRUE(output_has_field(parameters.output_directory, "solution"));
 }
 
+TEST(ApplicationRoadmap, BOTH_P1G0ReadsSharedFrozenForcingAtEachSolve)
+{
+  ParameterAcceptor::clear();
+  PoissonParameters<2> parameters("/P1 shared/");
+  initialize_parameters_from_string(R"(
+    subsection P1 shared
+      subsection Right hand side
+        set Function expression = 0
+        set Variable names = x,y,t
+      end
+      subsection Dirichlet boundary conditions
+        set Function expression = 0
+        set Variable names = x,y,t
+      end
+    end
+  )");
+  initialize_poisson_parameters("p1-g0-shared", parameters);
+
+  PoissonSolver<2> problem(parameters);
+  setup(problem);
+
+  LinearSolverParameters adapter_parameters;
+  Adapter                adapter(adapter_parameters, MPI_COMM_WORLD);
+  const auto             fields = adapter.add(problem, "poisson");
+  const auto             space  = fe_space(problem.dof_handler(),
+                              StaticMappingQ1<2>::mapping,
+                              problem.constraints(),
+                              problem.locally_relevant_dofs());
+  auto                   prescribed =
+    std::make_shared<FieldVector>(problem.locally_owned_dofs(), MPI_COMM_WORLD);
+  *prescribed = 1.;
+  adapter.add(weak_term(frozen(space.field("prescribed_source"), prescribed),
+                        test(fields.fields().solution)),
+              "prescribed-forcing");
+
+  auto state = adapter.make_state();
+  adapter.solve(state);
+  const FieldVector first = adapter.field(state, fields.fields().solution);
+  ASSERT_GT(first.l2_norm(), 0.);
+
+  // The registered term shares the vector, so the next solve uses the new
+  // forcing without rebuilding the adapter. The problem is linear in it.
+  *prescribed = 2.;
+  adapter.solve(state);
+  FieldVector difference = adapter.field(state, fields.fields().solution);
+  difference.add(-2., first);
+  EXPECT_LT(difference.l2_norm(), 1.e-8 * first.l2_norm());
+}
+
 TEST(ApplicationRoadmap, P2G0UsesPrescribedConstraintAndReaction)
 {
   ParameterAcceptor::clear();

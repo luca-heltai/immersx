@@ -798,38 +798,8 @@ namespace
     particle_labels.mode_labels     = {"radial"};
     particle_labels.mode_components = 3;
 
-    // Native flow states can also contain trace and terminal unknowns. Map
-    // their semantic field back to FE numbering before sampling the curve.
     const auto sample_field = [&](const auto &field, const auto &source) {
-      FieldVector owned;
-      owned.reinit(source);
-      owned = source;
-      if (Utilities::MPI::sum(field.constraints().n_constraints(),
-                              MPI_COMM_WORLD) != 0)
-        field.constraints().distribute(owned);
-      FieldVector execution(source.locally_owned_elements(),
-                            field.locally_relevant_dofs(),
-                            MPI_COMM_WORLD);
-      execution = owned;
-      execution.update_ghost_values();
-      FieldVector native(field.dof_handler().locally_owned_dofs(),
-                         MPI_COMM_WORLD);
-      native = 0.;
-      for (const auto index : field.dof_handler().locally_owned_dofs())
-        if (field.has_execution_index(index))
-          native[index] = execution[field.execution_index(index)];
-      native.compress(VectorOperation::insert);
-      const auto relevant =
-        DoFTools::extract_locally_relevant_dofs(field.dof_handler());
-      FieldVector ghosted(field.dof_handler().locally_owned_dofs(),
-                          relevant,
-                          MPI_COMM_WORLD);
-      ghosted = native;
-      ghosted.update_ghost_values();
-      return sample_at_representative_points(field.dof_handler(),
-                                             field.mapping(),
-                                             ghosted,
-                                             wall_points);
+      return sample_field_at_representative_points(field, source, wall_points);
     };
     std::vector<std::pair<double, std::string>> flow_records,
       multiplier_records, particle_records;

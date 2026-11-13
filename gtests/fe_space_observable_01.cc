@@ -462,6 +462,51 @@ TEST(FESpace, SymbolicKernelSuppliesTransformDerivatives)
     1.);
 }
 
+TEST(FESpace, LiftReadsSharedFrozenCoefficientsAtEvaluation)
+{
+  Triangulation<1, 2> tria;
+  GridGenerator::hyper_cube(tria);
+  FE_Q<1, 2>       fe(1);
+  DoFHandler<1, 2> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+  const auto V =
+    ImmersX::fe_space(dof_handler, StaticMappingQ1<1, 2>::mapping, constraints);
+  ImmersX::StateLayout layout;
+  const auto           source = V.field(layout, "source");
+  using State                 = ImmersX::ImmersXLA::MPI::Vector;
+  auto shared =
+    std::make_shared<State>(dof_handler.locally_owned_dofs(), MPI_COMM_SELF);
+  *shared                  = 1.;
+  const auto frozen_source = ImmersX::frozen(source, shared);
+  EXPECT_TRUE(frozen_source.is_frozen());
+  EXPECT_TRUE(frozen_source.dependencies().empty());
+
+  ImmersX::TensorProductLift<1, 2, 2, 1> descriptor;
+  descriptor.section.selected_coefficients = {0u};
+  descriptor.section.inclusion_degree      = 1;
+  descriptor.section.refinement_level      = 0;
+  descriptor.section.n_q_points            = 2;
+  descriptor.representative_n_q_points     = 2;
+  // The vessel wall term lifts a square root of frozen area in the same way.
+  const auto lifted = ImmersX::lift(ImmersX::sqrt(frozen_source), descriptor);
+
+  State state;
+  state.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_SELF);
+  ImmersX::StateView<State> state_view(layout, 0.);
+  state_view.bind(source.field_id(), state);
+  const ImmersX::EvaluationContext<State> context(0., state_view);
+  const auto                              first = lifted.evaluate(context);
+
+  *shared           = 4.;
+  const auto second = lifted.evaluate(context);
+  ASSERT_EQ(first.size(), second.size());
+  ASSERT_GT(first.size(), 0u);
+  for (unsigned int q = 0; q < first.size(); ++q)
+    EXPECT_NEAR(second[q], 2. * first[q], 1.e-12 * std::abs(first[q]));
+}
+
 TEST(FESpace, NonlinearLiftUsesComposedSource)
 {
   struct AffineKernel
