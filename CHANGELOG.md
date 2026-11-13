@@ -11,6 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
+
 - [PR #410](https://github.com/luca-heltai/immersx/pull/410) Expose the stopping criteria of the linear solves that `IDAAdapter` runs for IDA in the `Linear solver` subsection of the IDA parameters: maximum iterations and relative tolerance of the outer Krylov solve, of the inner Schur complement solve and of the inner second-order block CG, and the MUMPS residual check. The defaults keep the previous hard-coded values. The outer solve also prints its target residual next to the tolerance IDA requested.
 
 - [PR #405](https://github.com/luca-heltai/immersx/pull/405) Export configurable lifted wall particles at accepted times in the MetricFlowX elastodynamics application.

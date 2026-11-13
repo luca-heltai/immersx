@@ -2092,14 +2092,19 @@ namespace ImmersX::detail
       else
         context.emplace(0., state_view, nullptr);
 
+      const auto &model            = prepared_model ? *prepared_model : model_;
       const auto &selected_context = snapshot ? snapshot->context : *context;
       std::vector<LocalOperator> diagonal;
       diagonal.reserve(field_layout_.n_blocks());
       for (unsigned int block = 0; block < field_layout_.n_blocks(); ++block)
         {
           const auto field = field_layout_.field(block);
-          const auto local = local_preconditioner(
-            field, state, selected_context, alpha, false, prepared_model);
+          const auto local =
+            model.has_multiplier_metric(field) ?
+              std::optional<LocalOperator>(multiplier_preconditioner(
+                field, state, selected_context, prepared_model)) :
+              local_preconditioner(
+                field, state, selected_context, alpha, false, prepared_model);
           AssertThrow(local.has_value(),
                       dealii::ExcMessage(
                         "Block diagonal preconditioning requires a local "
@@ -2178,17 +2183,19 @@ namespace ImmersX::detail
         context.emplace(0., state_view, nullptr);
 
       const unsigned int n         = field_layout_.n_blocks();
+      const auto        &model     = prepared_model ? *prepared_model : model_;
       const auto &selected_context = snapshot ? snapshot->context : *context;
       std::vector<LocalOperator> diagonal;
       diagonal.reserve(n);
       for (unsigned int block = 0; block < n; ++block)
         {
-          const auto local = local_preconditioner(field_layout_.field(block),
-                                                  state,
-                                                  selected_context,
-                                                  alpha,
-                                                  false,
-                                                  prepared_model);
+          const auto field = field_layout_.field(block);
+          const auto local =
+            model.has_multiplier_metric(field) ?
+              std::optional<LocalOperator>(multiplier_preconditioner(
+                field, state, selected_context, prepared_model)) :
+              local_preconditioner(
+                field, state, selected_context, alpha, false, prepared_model);
           AssertThrow(local.has_value(),
                       dealii::ExcMessage(
                         "Block triangular preconditioning requires a local "

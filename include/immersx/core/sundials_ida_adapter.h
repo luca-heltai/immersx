@@ -80,6 +80,14 @@ namespace ImmersX
       mumps
     };
 
+    enum class BlockPreconditioner
+    {
+      automatic,
+      schur,
+      block_diagonal,
+      block_triangular
+    };
+
     IDAAdapter(const TimeIntervalParameters &time_parameters,
                const IDAParameters          &ida_parameters,
                const MPI_Comm                communicator,
@@ -259,6 +267,17 @@ namespace ImmersX
         dealii::ExcMessage(
           "A direct solver cannot be combined with a custom linear solver."));
       linear_solver_ = solver;
+    }
+
+    /** Select the iterative block preconditioner before initialization. */
+    void
+    set_block_preconditioner(const BlockPreconditioner preconditioner)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "The block preconditioner must be selected before "
+                    "solver initialization."));
+      block_preconditioner_ = preconditioner;
     }
 
     /** Select serial UMFPACK, or restore the default iterative solver. */
@@ -1458,7 +1477,30 @@ namespace ImmersX
             };
             return result;
           };
-          if (!composition_.saddle_points().empty())
+          if (block_preconditioner_ == BlockPreconditioner::block_diagonal)
+            {
+              current_preconditioner_ =
+                keep_snapshot(composition_.block_diagonal_preconditioner(
+                  snapshot->state_storage,
+                  &snapshot->derivative_storage,
+                  alpha,
+                  snapshot.get()));
+            }
+          else if (block_preconditioner_ ==
+                   BlockPreconditioner::block_triangular)
+            {
+              current_preconditioner_ =
+                keep_snapshot(composition_.block_triangular_preconditioner(
+                  snapshot->state_storage,
+                  true,
+                  &snapshot->derivative_storage,
+                  alpha,
+                  snapshot.get()));
+              current_solver_is_flexible_ = true;
+            }
+          else if (!composition_.saddle_points().empty() &&
+                   (block_preconditioner_ == BlockPreconditioner::automatic ||
+                    block_preconditioner_ == BlockPreconditioner::schur))
             {
               dealii::TimerOutput::Scope schur_timer(
                 computing_timer, "Build Schur preconditioner");
@@ -1522,6 +1564,7 @@ namespace ImmersX
     std::optional<int>  mumps_workspace_relaxation_;
     bool                stop_at_output_times_ = false;
     LinearSolver        linear_solver_        = LinearSolver::iterative;
+    BlockPreconditioner block_preconditioner_ = BlockPreconditioner::automatic;
     DirectFactorization direct_solver_;
     std::shared_ptr<const typename Composition::SecondOrderCondensation>
                                      condensation_;
