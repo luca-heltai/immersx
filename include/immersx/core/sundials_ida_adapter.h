@@ -22,6 +22,7 @@
 #include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/sparse_direct.h>
+#include <deal.II/lac/vector_memory.h>
 
 #include <immersx/core/detail/execution_composition.h>
 #include <immersx/core/problem_handle.h>
@@ -77,7 +78,8 @@ namespace ImmersX
     {
       iterative,
       umfpack,
-      mumps
+      mumps,
+      mumps_blr_fgmres
     };
 
     enum class BlockPreconditioner
@@ -262,6 +264,15 @@ namespace ImmersX
               "The MUMPS solver requires deal.II configured with MUMPS."));
 #  endif
         }
+      else if (solver == LinearSolver::mumps_blr_fgmres)
+        {
+#  if !defined(DEAL_II_WITH_MUMPS) || defined(IMMERSX_USE_PETSC_LA)
+          AssertThrow(
+            false,
+            dealii::ExcMessage(
+              "MUMPS BLR FGMRES requires MUMPS and the Trilinos vector backend."));
+#  endif
+        }
       AssertThrow(
         solver == LinearSolver::iterative || !solve_,
         dealii::ExcMessage(
@@ -311,6 +322,30 @@ namespace ImmersX
         dealii::ExcMessage(
           "Configure Schur materialization before solver initialization."));
       schur_materialization_limit_ = maximum_dofs;
+    }
+
+    /** Configure the MUMPS block-low-rank factorization used by FGMRES.
+     * The tolerance is the MUMPS BLR truncation threshold. A memory limit of
+     * zero leaves MUMPS unlimited. Available only with MUMPS and Trilinos.
+     */
+    void
+    set_mumps_blr_parameters(const double       tolerance,
+                             const unsigned int memory_limit_mb = 0,
+                             const bool         output_details  = false)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "Configure MUMPS BLR before solver initialization."));
+      AssertThrow(std::isfinite(tolerance) && tolerance > 0. && tolerance < 1.,
+                  dealii::ExcMessage(
+                    "MUMPS BLR tolerance must be between zero and one."));
+      AssertThrow(memory_limit_mb <=
+                    static_cast<unsigned int>(std::numeric_limits<int>::max()),
+                  dealii::ExcMessage(
+                    "MUMPS BLR memory limit exceeds its integer range."));
+      mumps_blr_tolerance_      = tolerance;
+      mumps_blr_memory_limit_   = memory_limit_mb;
+      mumps_blr_output_details_ = output_details;
     }
 
     /** Configure IDA controls before solver() or solve() connects callbacks. */
@@ -821,6 +856,116 @@ namespace ImmersX
 #  endif
       std::size_t n_entries_ = 0;
     };
+    template <typename BlockMatrixType>
+    Operator
+    make_mumps_blr_preconditioner(const Operator        &operator_view,
+                                  const BlockMatrixType &blocks) const
+    {
+#  if defined(DEAL_II_WITH_MUMPS) && !defined(IMMERSX_USE_PETSC_LA)
+      auto matrix = std::make_shared<MatrixType>();
+      composition_.monolithic_matrix(blocks, *matrix);
+      const auto communicator = composition_.communicator();
+      AssertThrow(
+        matrix->m() >= dealii::Utilities::MPI::n_mpi_processes(communicator),
+        dealii::ExcMessage(
+          "MUMPS BLR requires at least one coupled unknown per MPI rank."));
+
+      dealii::SparseDirectMUMPS::AdditionalData data;
+      data.output_details        = mumps_blr_output_details_;
+      data.symmetric             = false;
+      data.posdef                = false;
+      data.blr_factorization     = true;
+      data.blr.lowrank_threshold = mumps_blr_tolerance_;
+      data.blr.blr_ucfs          = true;
+      auto factor =
+        std::make_shared<dealii::SparseDirectMUMPS>(data, communicator);
+      auto *control = factor->get_icntl();
+      control[7]    = 8; // Scale before truncating frontal matrices.
+      control[9]    = 0; // FGMRES controls the physical solve accuracy.
+      control[14]   = 0;
+      control[22]   = static_cast<int>(mumps_blr_memory_limit_);
+      control[35]   = 1;
+      pcout << "IDAAdapter: factorizing the MUMPS BLR FGMRES preconditioner."
+            << std::endl;
+      factor->initialize(*matrix);
+      auto balanced = std::make_shared<FieldVectorType>();
+      balanced->reinit(
+        dealii::Utilities::MPI::create_evenly_distributed_partitioning(
+          communicator, matrix->m()),
+        communicator);
+      auto solution = std::make_shared<FieldVectorType>(
+        composition_.pack(composition_.make_state()));
+      // MUMPS owns its coefficient arrays after initialize().
+      matrix.reset();
+
+      const auto apply = [this,
+                          factor,
+                          balanced,
+                          solution](GlobalVectorType       &dst,
+                                    const GlobalVectorType &src,
+                                    const bool              transpose) {
+        const auto   rhs      = composition_.pack(src);
+        const double rhs_norm = rhs.l2_norm();
+        AssertThrow(std::isfinite(rhs_norm),
+                    dealii::ExcMessage(
+                      "Non-finite MUMPS BLR right-hand side."));
+        if (rhs_norm == 0.)
+          {
+            dst = 0.;
+            return;
+          }
+        if (transpose)
+          factor->Tvmult(*balanced, rhs);
+        else
+          factor->vmult(*balanced, rhs);
+        *solution                  = *balanced;
+        const double solution_norm = solution->l2_norm();
+        AssertThrow(std::isfinite(solution_norm) && solution_norm > 0.,
+                    dealii::ExcMessage(
+                      "MUMPS BLR returned an invalid preconditioner action."));
+        composition_.unpack(*solution, dst);
+      };
+
+      Operator result;
+      result.reinit_range_vector  = operator_view.reinit_range_vector;
+      result.reinit_domain_vector = operator_view.reinit_domain_vector;
+      result.vmult                = [apply](GlobalVectorType       &dst,
+                             const GlobalVectorType &src) {
+        apply(dst, src, false);
+      };
+      result.Tvmult = [apply](GlobalVectorType       &dst,
+                              const GlobalVectorType &src) {
+        apply(dst, src, true);
+      };
+      auto memory =
+        std::make_shared<dealii::GrowingVectorMemory<GlobalVectorType>>();
+      result.vmult_add = [apply, memory](GlobalVectorType       &dst,
+                                         const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer temporary(
+          *memory);
+        temporary->reinit(dst);
+        apply(*temporary, src, false);
+        dst += *temporary;
+      };
+      result.Tvmult_add = [apply, memory](GlobalVectorType       &dst,
+                                          const GlobalVectorType &src) {
+        typename dealii::VectorMemory<GlobalVectorType>::Pointer temporary(
+          *memory);
+        temporary->reinit(dst);
+        apply(*temporary, src, true);
+        dst += *temporary;
+      };
+      return result;
+#  else
+      (void)blocks;
+      AssertThrow(
+        false,
+        dealii::ExcMessage(
+          "MUMPS BLR FGMRES requires MUMPS and the Trilinos vector backend."));
+      return dealii::identity_operator(operator_view);
+#  endif
+    }
+
     void
     finalize()
     {
@@ -1477,7 +1622,19 @@ namespace ImmersX
             };
             return result;
           };
-          if (block_preconditioner_ == BlockPreconditioner::block_diagonal)
+          if (linear_solver_ == LinearSolver::mumps_blr_fgmres)
+            {
+              auto blocks =
+                composition_.block_matrix(snapshot->state_storage,
+                                          &snapshot->derivative_storage,
+                                          alpha,
+                                          time,
+                                          &snapshot->linearization);
+              current_preconditioner_ =
+                make_mumps_blr_preconditioner(*current_jacobian_, blocks);
+              current_solver_is_flexible_ = true;
+            }
+          else if (block_preconditioner_ == BlockPreconditioner::block_diagonal)
             {
               current_preconditioner_ =
                 keep_snapshot(composition_.block_diagonal_preconditioner(
@@ -1562,8 +1719,11 @@ namespace ImmersX
                   weight_evaluations_    = 0;
     bool                ramp_stop_armed_ = false, ramp_stop_released_ = false;
     std::optional<int>  mumps_workspace_relaxation_;
-    bool                stop_at_output_times_ = false;
-    LinearSolver        linear_solver_        = LinearSolver::iterative;
+    double              mumps_blr_tolerance_      = 1.e-5;
+    unsigned int        mumps_blr_memory_limit_   = 0;
+    bool                mumps_blr_output_details_ = false;
+    bool                stop_at_output_times_     = false;
+    LinearSolver        linear_solver_            = LinearSolver::iterative;
     BlockPreconditioner block_preconditioner_ = BlockPreconditioner::automatic;
     DirectFactorization direct_solver_;
     std::shared_ptr<const typename Composition::SecondOrderCondensation>
