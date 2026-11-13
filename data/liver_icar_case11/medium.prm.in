@@ -1,0 +1,22 @@
+include @TEST_DATA_DIR@/liver_icar_case11/common.prm
+subsection Elastodynamics
+  set FE degree = 2
+  set Output directory = @TEST_OUTPUT_DIR@/liver_icar_case11/medium/solid
+  subsection Domain
+    set Grid generator = @TEST_DATA_DIR@/liver_icar_case11/assets/meshes/medium.msh
+  end
+end
+subsection MetricFlowSystem<1, 3>
+  set Finite element degree = 2
+  set Output directory = @TEST_OUTPUT_DIR@/liver_icar_case11/medium/flow
+  subsection IDA parameters
+    subsection Linear solver
+      set Type = iterative
+      set Maximum replicated flow inverse DoFs = 2048
+      set Maximum materialized Schur DoFs = 512
+    end
+  end
+end
+subsection MetricFlowX coupling
+  set Setup only = false
+end
