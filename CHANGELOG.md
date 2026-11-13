@@ -569,7 +569,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add a case11 coupled liver tutorial with the available small and medium solver profiles, parameter templates, and the current vascular-network limits.
+- [PR #415](https://github.com/luca-heltai/immersx/pull/415) Add a case11 coupled liver tutorial with the available small and medium solver profiles, parameter templates, and the current vascular-network limits.
 
 - [PR #413](https://github.com/luca-heltai/immersx/pull/413) Keep the IRCAD11 small parameter template consistent with the coupled application's solid refinement settings.
 
