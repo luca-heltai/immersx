@@ -54,4 +54,7 @@ subsection MetricFlowX replay
   subsection Linear adapter
     set Solver = direct
   end
+  subsection Particle output
+    set Properties = weight, lifted_value, modal_data, bulk_field
+  end
 end

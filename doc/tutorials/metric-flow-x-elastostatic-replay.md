@@ -92,10 +92,26 @@ and meaning as in the coupled application, so the solid part of an existing
 coupled input can be reused. The native flow sections are not read: mesh,
 physics and state come from the checkpoints.
 
-The output directory of `Elastic static` receives `solid.pvd` and
-`pressure_jump.pvd`, with one record per checkpoint time. The application
-prints the adapter residual of each step and the number of stiffness
-assemblies.
+The output directory of `Elastic static` receives `solid.pvd`,
+`pressure_jump.pvd` and `wall_particles.pvd`, with one record per checkpoint
+time. The application prints the adapter residual of each step and the number
+of stiffness assemblies.
+
+The wall particles are the lifted quadrature points, written as in the
+[coupled application](metric-flow-x-elastostatic-coupling.md).
+Select their properties under the replay section:
+
+```text
+subsection MetricFlowX replay
+  subsection Particle output
+    set Properties = weight, lifted_value, modal_data, bulk_field
+  end
+end
+```
+
+`wall_traction` is the multiplier, `data_radial` the imposed radius change
+$\sqrt{A_n/\pi}-\sqrt{a_0/\pi}$ of the step, and `displacement` the solid
+solution at the wall. An empty list disables the particle files.
 
 ## Restrictions
 
@@ -113,8 +129,9 @@ assemblies.
   asks for a lighter state load and
   [issue #99](https://github.com/luca-heltai/metric-flow-x/issues/99) for
   writing and reading only selected fields.
-- Co-refinement, wall particle output and archived vascular networks are not
-  available in the replay.
+- The flow mesh comes from the checkpoints and cannot be refined, so the
+  co-refinement of the coupled application is not available. Archived
+  vascular networks are not supported either.
 
 ## Use the replay from C++
 

@@ -31,6 +31,7 @@
 #  include <immersx/core/observable_lift.h>
 #  include <immersx/core/overlap_integration_support.h>
 #  include <immersx/coupling/tensor_product_lift.h>
+#  include <immersx/io/lifted_particle_output.h>
 #  include <immersx/physics/elastic_static.h>
 #  include <immersx/physics/metric_flow_x_pressure.h>
 #  include <immersx/physics/metric_flow_x_wall.h>
@@ -65,6 +66,7 @@ namespace ImmersX
       , wall_lift("/MetricFlowX vessel wall lift/")
       , multiplier_space("/MetricFlowX multiplier space/", "auto")
       , execution("/MetricFlowX replay/Linear adapter/")
+      , particle_output("/MetricFlowX replay/Particle output/")
     {
       add_parameter(
         "Checkpoint history",
@@ -77,6 +79,7 @@ namespace ImmersX
     TensorProductLift<1, 2, 3, 3>      wall_lift;
     FiniteElementSpaceParameters<1, 3> multiplier_space;
     LinearAdapterParameters            execution;
+    LiftedParticleOutputParameters     particle_output;
     std::string                        checkpoint_history;
   };
 
@@ -223,9 +226,13 @@ namespace ImmersX
                                        communicator_);
       *area_ = flow_->state();
       area_->update_ghost_values();
-      const Vector reference_area(*area_);
-      const auto   reference_radius =
-        sqrt(frozen(area_field, reference_area) / numbers::PI);
+      reference_area_.reinit(flow_->locally_owned_dofs(),
+                             flow_->locally_relevant_dofs(),
+                             communicator_);
+      reference_area_ = *area_;
+      reference_area_.update_ghost_values();
+      const auto reference_radius =
+        sqrt(frozen(area_field, reference_area_) / numbers::PI);
 
       const auto *area_fe = dynamic_cast<const FE_DGQ<1, 3> *>(
         &flow_->finite_element().base_element(0));
@@ -260,6 +267,13 @@ namespace ImmersX
                               solid_cache);
       const auto metric = std::get<1>(
         make_metric_flow_x_pressure_projection(lambda, supports.overlap));
+      // Wall particles are the lifted quadrature points, labelled as in the
+      // coupled elastostatic application.
+      wall_points_ = reference_wall.lifted_points();
+      for (auto &point : wall_points_)
+        point.mode_values = {point.mode_vector[0],
+                             point.mode_vector[1],
+                             point.mode_vector[2]};
 
       adapter_ =
         std::make_unique<Adapter>(parameters_.execution, communicator_);
@@ -346,6 +360,7 @@ namespace ImmersX
           std::ofstream pvd(directory / "pressure_jump.pvd");
           DataOutBase::write_pvd_record(pvd, multiplier_records_);
         }
+      output_wall_particles(step, directory);
     }
 
     /** Replay every checkpoint of the history. */
@@ -414,6 +429,84 @@ namespace ImmersX
     }
 
   private:
+    /** Write the lifted wall points with the selected particle properties.
+     *
+     * wall_traction is the multiplier, mode_radial its unit radial
+     * direction, and data_radial the radius change sqrt(A/pi) - sqrt(a0/pi)
+     * imposed at this step.
+     */
+    void
+    output_wall_particles(const unsigned int           step,
+                          const std::filesystem::path &directory)
+    {
+      using namespace dealii;
+      const auto &options = parameters_.particle_output;
+      if (!options.enabled())
+        return;
+      LiftedParticleLabels labels;
+      labels.value_name      = "wall_traction";
+      labels.mode_labels     = {"radial"};
+      labels.mode_components = 3;
+
+      std::vector<double> coefficients, data;
+      if (options.selected("modal_coefficients") ||
+          options.selected("lifted_value"))
+        coefficients = sample_field_at_representative_points(*multiplier_,
+                                                             multiplier(),
+                                                             wall_points_);
+      if (options.selected("modal_data"))
+        {
+          const auto &dofs      = flow_->dof_handler();
+          const auto  width     = flow_->finite_element().n_components();
+          const auto  component = flow_->area_extractor().component;
+          const auto  current   = sample_at_representative_points(
+            dofs, StaticMappingQ1<1, 3>::mapping, *area_, wall_points_);
+          const auto initial =
+            sample_at_representative_points(dofs,
+                                            StaticMappingQ1<1, 3>::mapping,
+                                            reference_area_,
+                                            wall_points_);
+          for (std::size_t q = 0; q < wall_points_.size(); ++q)
+            {
+              const auto a  = current[q * width + component];
+              const auto a0 = initial[q * width + component];
+              AssertThrow(a > 0. && a0 > 0.,
+                          ExcMessage(
+                            "Wall particle radii require positive area."));
+              data.push_back(std::sqrt(a / numbers::PI) -
+                             std::sqrt(a0 / numbers::PI));
+            }
+        }
+      const auto columns = make_lifted_particle_columns(
+        options, labels, wall_points_, coefficients, data);
+
+      std::optional<Vector> displacement;
+      if (options.selected("bulk_field"))
+        {
+          displacement.emplace(solid_.locally_owned_dofs(),
+                               solid_.locally_relevant_dofs(),
+                               communicator_);
+          *displacement = solid_.solution();
+          displacement->update_ghost_values();
+        }
+      const LiftedBulkField<3, Vector> bulk{"displacement",
+                                            solid_.dof_handler(),
+                                            solid_.mapping(),
+                                            displacement ? &*displacement :
+                                                           nullptr,
+                                            0,
+                                            3};
+      const auto filename = "wall_particles_" + std::to_string(step) + ".vtu";
+      write_lifted_particles(
+        options, columns, wall_points_, bulk, (directory / filename).string());
+      particle_records_.emplace_back(history_[step].time, filename);
+      if (Utilities::MPI::this_mpi_process(communicator_) == 0)
+        {
+          std::ofstream pvd(directory / "wall_particles.pvd");
+          DataOutBase::write_pvd_record(pvd, particle_records_);
+        }
+    }
+
     void
     assert_same_discretization(const FlowProblem &loaded) const
     {
@@ -481,6 +574,9 @@ namespace ImmersX
     bool                                        factorized_    = false;
     double                                      residual_norm_ = 0.;
     std::vector<std::pair<double, std::string>> multiplier_records_;
+    Vector                                      reference_area_;
+    std::vector<LiftedWallPoint<3>>             wall_points_;
+    std::vector<std::pair<double, std::string>> particle_records_;
   };
 } // namespace ImmersX
 

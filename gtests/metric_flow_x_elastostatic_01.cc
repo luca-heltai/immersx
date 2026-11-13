@@ -22,6 +22,8 @@
 #  include <immersx/physics/metric_flow_x_wall.h>
 
 #  include <filesystem>
+#  include <fstream>
+#  include <iterator>
 #  include <sstream>
 #  include <vector>
 
@@ -595,6 +597,8 @@ TEST(MetricFlowXElastostatic, BOTH_ReplayMatchesOneWayCoupledSolid)
   parameters.execution.solver       = LinearSolver::direct;
   parameters.solid.output_directory = TestPaths::output_directory(
     "metric-flow-x-elastostatic-replay-test/output");
+  parameters.particle_output.properties =
+    LiftedParticleOutputParameters::available_properties();
   MetricFlowXElastostaticReplay replay(parameters);
   replay.setup();
   ASSERT_EQ(replay.n_steps(), times.size());
@@ -617,6 +621,21 @@ TEST(MetricFlowXElastostatic, BOTH_ReplayMatchesOneWayCoupledSolid)
   change -= coupled_displacement.front();
   EXPECT_GT(change.l2_norm(), 1.e-3 * coupled_displacement.back().l2_norm());
   EXPECT_EQ(replay.solid().stiffness_assemblies(), 1u);
+
+  // One wall particle record per replayed time.
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      std::ifstream pvd(
+        std::filesystem::path(parameters.solid.output_directory) /
+        "wall_particles.pvd");
+      const std::string contents((std::istreambuf_iterator<char>(pvd)),
+                                 std::istreambuf_iterator<char>());
+      std::size_t       records = 0;
+      for (auto at = contents.find("<DataSet"); at != std::string::npos;
+           at      = contents.find("<DataSet", at + 1))
+        ++records;
+      EXPECT_EQ(records, replay.n_steps());
+    }
 #  endif
 }
 
