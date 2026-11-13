@@ -333,6 +333,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #412](https://github.com/luca-heltai/immersx/pull/412) Remove GCC 15 warnings about lambdas capturing structured bindings in `modal_lift.h` and `harmonic_robin_boundary.h`, and remove dangling-else and range-loop copy warnings in gtest sources.
+
 - [PR #405](https://github.com/luca-heltai/immersx/pull/405) Sample lifted wall modal fields with each cell's active finite element, including terminal RCR elements in hp collections.
 
 - [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
