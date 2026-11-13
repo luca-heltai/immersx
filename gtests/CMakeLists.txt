@@ -469,6 +469,13 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           endif()
           set(_coupled_timeout 115)
           set(_coupled_application_timeout 110)
+          set(_particle_check_arguments)
+          if(_case STREQUAL "Coupled" AND IMMERSX_PYTHON_EXECUTABLE)
+            list(APPEND _particle_check_arguments
+              "-DPARTICLE_CHECKER=${CMAKE_SOURCE_DIR}/scripts/lifted_particle_output_checks.py"
+              "-DPYTHON_EXECUTABLE=${IMMERSX_PYTHON_EXECUTABLE}"
+              "-DPARTICLE_PROPERTIES=lifted_value,weight")
+          endif()
           add_test(NAME "${_coupled_name}"
             COMMAND "${CMAKE_COMMAND}"
               "-DTEST_EXECUTABLE=$<TARGET_FILE:metric_flow_x_elastodynamics${${_build_type}_postfix}>"
@@ -478,6 +485,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "-DMPIEXEC=${_coupled_mpiexec}"
               "-DMPI_RANKS=${_coupled_ranks}"
               "-DREQUIRE_GENERATED_RESPONSE=$<STREQUAL:${_case},Generated>"
+              ${_particle_check_arguments}
               "-DAPPLICATION_TIMEOUT=${_coupled_application_timeout}"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_coupled.cmake")
           set_tests_properties("${_coupled_name}" PROPERTIES

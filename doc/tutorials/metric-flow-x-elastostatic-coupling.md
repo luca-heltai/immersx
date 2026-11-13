@@ -75,8 +75,11 @@ Use the generated build-tree parameter file. CMake expands its data and
 output paths. The example has a nonzero, smoothly increasing inlet flow
 and a time-dependent radial body load that is already nonzero initially. Its solid material and boundary data
 live under `Elastic static`; there are no solid velocity or initial-velocity
-parameters. The lift and multiplier subsections retain the names used by
-the dynamic application.
+parameters. The coupled solve uses one solid mesh, refined by
+`Elastic static/Domain/Initial refinement`; the standalone
+`Refinement/Number of refinement cycles` entry is not part of this input.
+The lift and multiplier subsections retain the names used by the dynamic
+application.
 
 The default setting is:
 
@@ -263,8 +266,19 @@ the supported fixed finite element and same-partition restart.
 Neither path requires patching deal.II with
 [PR #20374](https://github.com/dealii/dealii/pull/20374) for this workflow.
 This does not make checkpoints portable between MPI sizes, partitions or
-serializer versions. Keep the same executable and dependency versions for
-checkpoint and restart.
+serializer versions. Keep the same executable and dependency builds,
+including any local serializer patches, for checkpoint and restart.
+Recreate checkpoints when switching from the earlier patched dependency
+stack to the unmodified stack.
+
+The validation stack uses the official `dealii/dealii:v9.7.1-noble`
+image (deal.II 9.7.1, SUNDIALS 6.4.1 and GCC 13.3), Trilinos vectors and
+MetricFlowX `49a88a5`. The application regression checks exercise
+fresh-process restart in serial and with two MPI ranks, feedback off/on,
+CSV input removal and initial co-refinement. They compare the restored
+state, native flow and multiplier rates, and frozen reference area exactly;
+continuation retains its field comparison tolerances. Each process must
+report one solid stiffness assembly and one AMG setup.
 
 Use a fully distributed solid mesh (`Elastic static/Domain/Triangulation
 type = fullydistributed`, the application default) and keep

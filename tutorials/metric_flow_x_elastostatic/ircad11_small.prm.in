@@ -13,9 +13,6 @@ subsection Elastic static
       set Input = volume
     end
   end
-  subsection Refinement
-    set Number of refinement cycles = 1
-  end
   subsection Material properties
     subsection default
       set Density = 0
