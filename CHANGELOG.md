@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add MUMPS BLR-preconditioned FGMRES for coupled IDA solves, with controls for low-rank truncation, per-rank memory and MUMPS diagnostics.
+- [PR #416](https://github.com/luca-heltai/immersx/pull/416) Add MUMPS BLR-preconditioned FGMRES for coupled IDA solves, with controls for low-rank truncation, per-rank memory and MUMPS diagnostics.
 
 - [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 
