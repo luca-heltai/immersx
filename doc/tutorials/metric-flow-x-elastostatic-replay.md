@@ -2,7 +2,7 @@
 
 The `metric_flow_x_elastostatic_replay` application drives a static solid with
 blood flow that MetricFlowX computed beforehand. The flow runs once, on its
-own, and saves native checkpoints. The replay then solves one static
+own, and saves its area at each output time. The replay then solves one static
 elasticity problem with a wall multiplier at each saved time. The flow does
 not see the solid.
 
@@ -15,8 +15,8 @@ rows inside IDA.
 
 ## Equations
 
-At each checkpoint time $t_n$ the application reads the native flow area
-$A_n$ and solves
+At each saved time $t_n$ the application reads the native flow area $A_n$ and
+solves
 
 $$
 \begin{aligned}
@@ -25,20 +25,20 @@ B^T u&=P_h(A_n),
 \end{aligned}
 $$
 
-with the radius map of the coupled application,
+with the radius map
 
 $$
-R_0=\sqrt{a_0/\pi},\qquad \delta R(A)=\sqrt{A/\pi}-R_0 .
+R_d=\sqrt{a_d/\pi},\qquad \delta R(A)=\sqrt{A/\pi}-R_d .
 $$
 
 $P_h(A)$ integrates $\delta R(A)$ against the multiplier basis on the lifted
 wall overlap, and the multiplier is zero outside the solid. The reference area
-$a_0$ is the area of the first checkpoint in the history, so the solid is
-displaced by the change of radius since that time. When the flow starts from
-its reference area, this is the same $a_0$ as in the coupled application.
-MetricFlowX does not yet expose its reference area;
-[MetricFlowX issue #98](https://github.com/luca-heltai/metric-flow-x/issues/98)
-tracks it.
+$a_d(x)$ is the tapered diastolic area of MetricFlowX
+(`BloodFlowSystem::reference_area()`), relative to which the flow evaluates its
+wall laws. It is interpolated into the native area space, and its radius $R_d$
+also places the lifted wall. When the vessel input gives `a0` equal to
+$a_d$, as in the single-vessel example, this is the reference of the coupled
+application.
 
 $K$, $B$ and the multiplier metric are assembled once. Each step updates the
 solid loads, the Dirichlet data and $P_h(A_n)$. With the `direct` or `mumps`
@@ -47,9 +47,10 @@ solver the saddle-point matrix is factored once and reused for every step.
 ## Run the single-vessel example
 
 The example uses the geometry, inflow and solid of the single-vessel
-elastostatic tutorial. Build ImmersX against a MetricFlowX package with native
-checkpoints ([MetricFlowX PR #94](https://github.com/luca-heltai/metric-flow-x/pull/94)
-or later):
+elastostatic tutorial. Build ImmersX against a MetricFlowX package with
+coupling field output and `reference_area()`
+([MetricFlowX PR #97](https://github.com/luca-heltai/metric-flow-x/pull/97) and
+[PR #100](https://github.com/luca-heltai/metric-flow-x/pull/100) or later):
 
 ```bash
 cmake -S . -B build-metric-debug -DCMAKE_BUILD_TYPE=Debug \
@@ -58,15 +59,26 @@ cmake --build build-metric-debug \
   --target metric_flow_x_elastostatic_replay_debug -j2
 ```
 
-First run the MetricFlowX `blood_flow` application with the flow input and a
-checkpoint directory. It writes one checkpoint per output time:
+First run the MetricFlowX `blood_flow` application with the flow input:
 
 ```bash
 blood_flow \
-  build-metric-debug/tutorials/metric_flow_x_elastostatic/single_vessel_flow.prm \
-  --checkpoint-directory \
-  build-metric-debug/test_output/metric-flow-x-elastostatic-replay/history
+  build-metric-debug/tutorials/metric_flow_x_elastostatic/single_vessel_flow.prm
 ```
+
+The input sets a coupling output directory:
+
+```text
+subsection MetricFlowSystem<1, 3>
+  set Coupling output directory = .../metric-flow-x-elastostatic-replay/coupling
+  set Coupling output fields = area
+end
+```
+
+`blood_flow` writes one native checkpoint `layout` at the first output time,
+with the mesh, physics and DoF layout, and then only the cell area in a
+`fields-<time>` directory at every output time. MetricFlowX does not overwrite
+existing directories, so remove `coupling` before running the flow again.
 
 Then replay the history:
 
@@ -79,22 +91,23 @@ The replay input points to the history:
 
 ```text
 subsection MetricFlowX replay
-  set Checkpoint history = .../metric-flow-x-elastostatic-replay/history
+  set Flow history = .../metric-flow-x-elastostatic-replay/coupling
   subsection Linear adapter
     set Solver = direct
   end
 end
 ```
 
-Every committed `checkpoint-<time>` directory in the history is replayed in
-time order. The solid, wall lift and multiplier sections have the same names
-and meaning as in the coupled application, so the solid part of an existing
-coupled input can be reused. The native flow sections are not read: mesh,
-physics and state come from the checkpoints.
+The replay loads `layout` once and then reads only the area of every committed
+`fields-<time>` directory, in time order. A directory written by
+`blood_flow --checkpoint-directory` works too: the first `checkpoint-<time>` is
+loaded once and the replay reads only the state of the others. The solid, wall
+lift and multiplier sections have the same names and meaning as in the coupled
+application, so the solid part of an existing coupled input can be reused. The
+native flow sections are not read: mesh and physics come from the layout.
 
 The output directory of `Elastic static` receives `solid.pvd`,
-`pressure_jump.pvd` and `wall_particles.pvd`, with one record per checkpoint
-time. The application prints the adapter residual of each step and the number
+`pressure_jump.pvd` and `wall_particles.pvd`, with one record per saved time. The application prints the adapter residual of each step and the number
 of stiffness assemblies.
 
 The wall particles are the lifted quadrature points, written as in the
@@ -110,26 +123,19 @@ end
 ```
 
 `wall_traction` is the multiplier, `data_radial` the imposed radius change
-$\sqrt{A_n/\pi}-\sqrt{a_0/\pi}$ of the step, and `displacement` the solid
+$\sqrt{A_n/\pi}-\sqrt{a_d/\pi}$ of the step, and `displacement` the solid
 solution at the wall. An empty list disables the particle files.
 
 ## Restrictions
 
 - Run the replay with the same number of MPI ranks as `blood_flow`.
-  MetricFlowX rejects checkpoints written with a different rank count.
-- All checkpoints must come from one history with a fixed flow mesh. The
-  replay checks the mesh and DoF numbering of each checkpoint against the
-  first one.
-- MetricFlowX loads each checkpoint into a new `BloodFlowSystem` and
-  parses the global parameter tree. The replay therefore clears the
-  `ParameterAcceptor` registry before each load. All parameters must be parsed
-  before `setup()`. Each step reads a full restart checkpoint and repeats the
-  native flow setup, although the replay uses only the cell area.
-  [MetricFlowX issue #96](https://github.com/luca-heltai/metric-flow-x/issues/96)
-  asks for a lighter state load and
-  [issue #99](https://github.com/luca-heltai/metric-flow-x/issues/99) for
-  writing and reading only selected fields.
-- The flow mesh comes from the checkpoints and cannot be refined, so the
+  MetricFlowX rejects data written with a different rank count or partition.
+- All saved times must come from one run with a fixed flow mesh. MetricFlowX
+  checks each one against the loaded layout.
+- Loading the layout parses its archived parameter tree into the global one.
+  The replay therefore clears the `ParameterAcceptor` registry before that
+  load, and all parameters must be parsed before `setup()`.
+- The flow mesh comes from the layout and cannot be refined, so the
   co-refinement of the coupled application is not available. Archived
   vascular networks are not supported either.
 
@@ -153,12 +159,14 @@ for (unsigned int step = 0; step < replay.n_steps(); ++step)
   }
 ```
 
-`run()` does the same. The wall rows come from
+`run()` does the same. A C++ flow solver that owns its time loop can write
+the same history with `BloodFlowSystem::save_checkpoint()` for `layout` and
+`save_coupling_fields()` for each `fields-<time>`. The wall rows come from
 `metric_flow_x_prescribed_wall_constraint()`, which takes the flow area as a
 `frozen()` expression sharing its coefficient vector. Overwriting that vector
 changes only the constraint data of the next solve.
 
 The `MetricFlowXElastostatic.BOTH_ReplayMatchesOneWayCoupledSolid` test runs
 the coupled IDA application without pressure feedback, saves the flow at each
-output time, replays it and compares displacement and multiplier at every
-step.
+output time both as checkpoints and as coupling fields, replays both histories
+and compares displacement and multiplier at every step.

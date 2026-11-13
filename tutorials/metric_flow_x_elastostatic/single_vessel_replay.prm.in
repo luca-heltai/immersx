@@ -50,7 +50,7 @@ subsection MetricFlowX vessel wall lift
 end
 
 subsection MetricFlowX replay
-  set Checkpoint history = @TEST_OUTPUT_DIR@/metric-flow-x-elastostatic-replay/history
+  set Flow history = @TEST_OUTPUT_DIR@/metric-flow-x-elastostatic-replay/coupling
   subsection Linear adapter
     set Solver = direct
   end

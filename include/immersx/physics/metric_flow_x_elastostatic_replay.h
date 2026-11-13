@@ -69,10 +69,12 @@ namespace ImmersX
       , particle_output("/MetricFlowX replay/Particle output/")
     {
       add_parameter(
-        "Checkpoint history",
-        checkpoint_history,
-        "Directory written by blood_flow --checkpoint-directory. Every "
-        "committed checkpoint in it is replayed in time order.");
+        "Flow history",
+        flow_history,
+        "Directory written by blood_flow --coupling-output-directory "
+        "(a layout checkpoint and fields-<time> directories) or by blood_flow "
+        "--checkpoint-directory (checkpoint-<time> directories). Every saved "
+        "time in it is replayed in time order.");
     }
 
     ElasticStaticParameters<3>         solid;
@@ -80,35 +82,52 @@ namespace ImmersX
     FiniteElementSpaceParameters<1, 3> multiplier_space;
     LinearAdapterParameters            execution;
     LiftedParticleOutputParameters     particle_output;
-    std::string                        checkpoint_history;
+    std::string                        flow_history;
   };
 
-  /** A saved native flow state: its physical time and checkpoint directory. */
+  /** A saved native flow time: its physical time and directory. */
   struct MetricFlowXCheckpoint
   {
     double      time = 0.;
     std::string directory;
   };
 
-  /** Committed native checkpoints in a blood_flow history, sorted by time.
+  /** The saved times of a MetricFlowX history, sorted by time. */
+  struct MetricFlowXFlowHistory
+  {
+    /** Native checkpoint that provides the mesh, physics and DoF layout. */
+    std::string layout;
+    /** True when steps hold only coupling fields (fields-<time>), false when
+     * they are full checkpoints (checkpoint-<time>). */
+    bool coupling_fields = false;
+    std::vector<MetricFlowXCheckpoint> steps;
+  };
+
+  /** List the saved times of a blood_flow history. Collective.
    *
-   * MetricFlowX names each checkpoint `checkpoint-<hexadecimal time>`.
-   * Staging directories ending in `.incomplete` are skipped. Collective.
+   * A directory with a `layout` checkpoint is a coupling output: its
+   * `fields-<hexadecimal time>` directories are the steps. Otherwise the
+   * steps are the `checkpoint-<hexadecimal time>` directories, and the first
+   * one is the layout. Staging directories (`.incomplete`) and names whose
+   * suffix is not a time, such as `<checkpoint>-coupling`, are skipped.
    */
-  inline std::vector<MetricFlowXCheckpoint>
-  metric_flow_x_checkpoint_history(const std::string &history,
-                                   const MPI_Comm     communicator)
+  inline MetricFlowXFlowHistory
+  metric_flow_x_flow_history(const std::string &history,
+                             const MPI_Comm     communicator)
   {
     using namespace dealii;
     std::vector<std::pair<double, std::string>> entries;
-    std::string                                 error;
+    std::string                                 layout, error;
+    bool                                        coupling_fields = false;
     if (Utilities::MPI::this_mpi_process(communicator) == 0)
       {
         try
           {
-            const std::string prefix = "checkpoint-";
-            for (const auto &entry :
-                 std::filesystem::directory_iterator(history))
+            const std::filesystem::path root(history);
+            coupling_fields = std::filesystem::is_directory(root / "layout");
+            const std::string prefix =
+              coupling_fields ? "fields-" : "checkpoint-";
+            for (const auto &entry : std::filesystem::directory_iterator(root))
               {
                 const auto name = entry.path().filename().string();
                 if (!entry.is_directory() || name.rfind(prefix, 0) != 0 ||
@@ -117,17 +136,19 @@ namespace ImmersX
                 const auto text = name.substr(prefix.size());
                 char      *end  = nullptr;
                 const auto time = std::strtod(text.c_str(), &end);
-                AssertThrow(end == text.c_str() + text.size() &&
-                              std::isfinite(time),
-                            ExcMessage("Cannot read the time of checkpoint " +
-                                       name + "."));
+                if (text.empty() || end != text.c_str() + text.size() ||
+                    !std::isfinite(time))
+                  continue;
                 entries.emplace_back(
                   time, std::filesystem::absolute(entry.path()).string());
               }
             std::sort(entries.begin(), entries.end());
             AssertThrow(!entries.empty(),
-                        ExcMessage("No MetricFlowX checkpoints in " + history +
-                                   "."));
+                        ExcMessage("No saved MetricFlowX " + prefix +
+                                   "<time> directories in " + history + "."));
+            layout = coupling_fields ?
+                       std::filesystem::absolute(root / "layout").string() :
+                       entries.front().second;
           }
         catch (const std::exception &exception)
           {
@@ -136,36 +157,42 @@ namespace ImmersX
       }
     error = Utilities::MPI::broadcast(communicator, error, 0);
     AssertThrow(error.empty(), ExcMessage(error));
+    MetricFlowXFlowHistory result;
+    result.layout = Utilities::MPI::broadcast(communicator, layout, 0);
+    result.coupling_fields =
+      Utilities::MPI::broadcast(communicator, coupling_fields, 0);
     entries = Utilities::MPI::broadcast(communicator, entries, 0);
-    std::vector<MetricFlowXCheckpoint> result;
     for (const auto &[time, directory] : entries)
-      result.push_back({time, directory});
+      result.steps.push_back({time, directory});
     return result;
   }
 
   /**
    * One-way coupling of a saved MetricFlowX history to static elasticity.
    *
-   * For each checkpoint time t_n, the solid solves
+   * For each saved time t_n, the solid solves
    *
    *   K u + B lambda = f(t_n),    B^T u = P_h(A_n),
    *
-   * with the native flow area A_n read from the checkpoint and
-   * P_h(A) = (sqrt(A/pi) - sqrt(a0/pi), mu) on the lifted wall overlap.
+   * with the native flow area A_n read from the history and
+   * P_h(A) = (sqrt(A/pi) - sqrt(a_d/pi), mu) on the lifted wall overlap.
    * These are the solid and wall rows of metric_flow_x_elastostatic without
-   * pressure feedback. The reference area a0 is the area of the first
-   * checkpoint in the history.
+   * pressure feedback. The reference area a_d is the tapered diastolic area of
+   * BloodFlowSystem::reference_area(), relative to which MetricFlowX evaluates
+   * its wall laws.
    *
    * The ElasticStaticProblem owns the solid; one LinearAdapter owns the
    * saddle-point system. Stiffness, wall pairing and multiplier metric are
    * assembled once; each step updates the loads, the Dirichlet data and the
    * shared area vector. A direct or MUMPS solver is factored once.
    *
-   * Native MetricFlowX checkpoints load into a fresh BloodFlowSystem and
-   * reparse the global ParameterAcceptor tree. setup() and solve_step()
-   * therefore call ParameterAcceptor::clear() before each load: parse all
-   * parameters before setup(). All checkpoints must come from one history,
-   * with the MPI size used to write them.
+   * setup() loads the layout checkpoint once into a BloodFlowSystem. That
+   * load parses the archived parameter tree, so setup() first calls
+   * ParameterAcceptor::clear(): parse all parameters before setup(). Each step
+   * then reads only its state (load_checkpoint_state()) or its area field
+   * (load_coupling_field()) into the same object, which checks that it was
+   * written on the same mesh and partition. Run with the MPI size used to
+   * write the history.
    */
   class MetricFlowXElastostaticReplay
   {
@@ -191,27 +218,32 @@ namespace ImmersX
       , solid_(parameters.solid, communicator)
     {}
 
-    /** Load the first checkpoint, build the solid and the wall coupling. */
+    /** Load the flow layout, build the solid and the wall coupling. */
     void
     setup()
     {
       using namespace dealii;
       AssertThrow(!adapter_, ExcMessage("The replay may only be set up once."));
-      AssertThrow(!parameters_.checkpoint_history.empty(),
-                  ExcMessage("Set MetricFlowX replay/Checkpoint history."));
-      history_ =
-        metric_flow_x_checkpoint_history(parameters_.checkpoint_history,
-                                         communicator_);
+      AssertThrow(!parameters_.flow_history.empty(),
+                  ExcMessage("Set MetricFlowX replay/Flow history."));
+      const auto history =
+        metric_flow_x_flow_history(parameters_.flow_history, communicator_);
+      history_ = history.steps;
+      coupling_fields_ = history.coupling_fields;
       pcout_ << "MetricFlowX replay: " << history_.size()
-             << " checkpoint(s) from " << history_.front().time << " to "
+             << (coupling_fields_ ? " field" : " checkpoint")
+             << " time(s) from " << history_.front().time << " to "
              << history_.back().time << std::endl;
 
-      // The first checkpoint provides the flow mesh for the multiplier and
-      // the reference area a0.
+      // The layout provides the flow mesh for the multiplier and the
+      // reference area. Its archived parameter text is parsed into the global
+      // tree; clearing the registry first keeps it from overwriting the
+      // replay's own acceptors.
       ParameterAcceptor::clear();
       flow_ = std::make_unique<FlowProblem>(communicator_);
-      flow_->load_checkpoint(history_.front().directory);
-      loaded_step_ = 0;
+      flow_->load_checkpoint(history.layout);
+      if (!coupling_fields_)
+        loaded_step_ = 0;
 
       flow_space_.emplace(flow_->dof_handler(),
                           StaticMappingQ1<1, 3>::mapping,
@@ -226,10 +258,12 @@ namespace ImmersX
                                        communicator_);
       *area_ = flow_->state();
       area_->update_ghost_values();
+      auto owned_reference = flow_->make_state();
+      flow_->interpolate_reference_area(owned_reference);
       reference_area_.reinit(flow_->locally_owned_dofs(),
                              flow_->locally_relevant_dofs(),
                              communicator_);
-      reference_area_ = *area_;
+      reference_area_ = owned_reference;
       reference_area_.update_ghost_values();
       const auto reference_radius =
         sqrt(frozen(area_field, reference_area_) / numbers::PI);
@@ -294,23 +328,31 @@ namespace ImmersX
       residual_ = adapter_->make_state();
     }
 
-    /** Load the flow area of one checkpoint and solve the static system. */
+    /** Read the flow area of one saved time and solve the static system. */
     void
     solve_step(const unsigned int step)
     {
       using namespace dealii;
       AssertThrow(adapter_, ExcMessage("Call setup() before solve_step()."));
       AssertIndexRange(step, history_.size());
-      if (step != loaded_step_)
+      if (loaded_step_ != step)
         {
-          // Each native load needs a fresh flow object and parses the global
-          // parameter tree. Clearing it first keeps the add_parameter actions
-          // of destroyed flows from running.
-          ParameterAcceptor::clear();
-          FlowProblem scratch(communicator_);
-          scratch.load_checkpoint(history_[step].directory);
-          assert_same_discretization(scratch);
-          *area_ = scratch.state();
+          const auto &saved = history_[step];
+          if (coupling_fields_)
+            {
+              auto       values = flow_->make_state();
+              const auto t =
+                flow_->load_coupling_field(saved.directory, "area", values);
+              AssertThrow(t == saved.time,
+                          ExcMessage("The time stored in " + saved.directory +
+                                     " does not match its name."));
+              *area_ = values;
+            }
+          else
+            {
+              flow_->load_checkpoint_state(saved.directory);
+              *area_ = flow_->state();
+            }
           area_->update_ghost_values();
           loaded_step_ = step;
         }
@@ -403,7 +445,7 @@ namespace ImmersX
       return adapter_->field(state_, *multiplier_);
     }
 
-    /** Native flow area coefficients of the last loaded checkpoint. */
+    /** Native flow area coefficients of the last loaded time. */
     const Vector &
     area() const
     {
@@ -432,7 +474,7 @@ namespace ImmersX
     /** Write the lifted wall points with the selected particle properties.
      *
      * wall_traction is the multiplier, mode_radial its unit radial
-     * direction, and data_radial the radius change sqrt(A/pi) - sqrt(a0/pi)
+     * direction, and data_radial the radius change sqrt(A/pi) - sqrt(a_d/pi)
      * imposed at this step.
      */
     void
@@ -461,7 +503,7 @@ namespace ImmersX
           const auto  component = flow_->area_extractor().component;
           const auto  current   = sample_at_representative_points(
             dofs, StaticMappingQ1<1, 3>::mapping, *area_, wall_points_);
-          const auto initial =
+          const auto reference =
             sample_at_representative_points(dofs,
                                             StaticMappingQ1<1, 3>::mapping,
                                             reference_area_,
@@ -469,12 +511,12 @@ namespace ImmersX
           for (std::size_t q = 0; q < wall_points_.size(); ++q)
             {
               const auto a  = current[q * width + component];
-              const auto a0 = initial[q * width + component];
-              AssertThrow(a > 0. && a0 > 0.,
+              const auto a_d = reference[q * width + component];
+              AssertThrow(a > 0. && a_d > 0.,
                           ExcMessage(
                             "Wall particle radii require positive area."));
               data.push_back(std::sqrt(a / numbers::PI) -
-                             std::sqrt(a0 / numbers::PI));
+                             std::sqrt(a_d / numbers::PI));
             }
         }
       const auto columns = make_lifted_particle_columns(
@@ -507,54 +549,6 @@ namespace ImmersX
         }
     }
 
-    void
-    assert_same_discretization(const FlowProblem &loaded) const
-    {
-      using namespace dealii;
-      const auto  &reference = *flow_;
-      unsigned int same =
-        reference.dof_handler().n_dofs() == loaded.dof_handler().n_dofs() &&
-        reference.locally_owned_dofs() == loaded.locally_owned_dofs() &&
-        reference.triangulation().n_global_active_cells() ==
-          loaded.triangulation().n_global_active_cells();
-      if (same)
-        {
-          std::vector<types::global_dof_index> a, b;
-          auto first  = reference.dof_handler().begin_active();
-          auto second = loaded.dof_handler().begin_active();
-          for (; same && first != reference.dof_handler().end() &&
-                 second != loaded.dof_handler().end();
-               ++first, ++second)
-            {
-              // Artificial cells of a fully distributed mesh have no CellId.
-              if (first->is_artificial() != second->is_artificial())
-                same = 0;
-              else if (first->is_artificial())
-                continue;
-              else if (first->id() != second->id() ||
-                       first->is_locally_owned() != second->is_locally_owned())
-                same = 0;
-              else if (first->is_locally_owned())
-                {
-                  a.resize(first->get_fe().n_dofs_per_cell());
-                  b.resize(second->get_fe().n_dofs_per_cell());
-                  first->get_dof_indices(a);
-                  second->get_dof_indices(b);
-                  same =
-                    first->active_fe_index() == second->active_fe_index() &&
-                    a == b &&
-                    first->center().distance(second->center()) <=
-                      1.e-12 * first->diameter();
-                }
-            }
-          same = same && first == reference.dof_handler().end() &&
-                 second == loaded.dof_handler().end();
-        }
-      AssertThrow(Utilities::MPI::min(same, communicator_) == 1,
-                  ExcMessage("All replayed checkpoints must share the mesh "
-                             "and DoF numbering of the first one."));
-    }
-
     const MetricFlowXElastostaticReplayParameters &parameters_;
     MPI_Comm                                       communicator_;
     dealii::ConditionalOStream                     pcout_;
@@ -570,7 +564,8 @@ namespace ImmersX
     std::optional<SolidFields>                  solid_fields_;
     std::optional<Multiplier>                   multiplier_;
     GlobalVector                                state_, residual_;
-    unsigned int                                loaded_step_   = 0;
+    bool                                        coupling_fields_ = false;
+    std::optional<unsigned int>                 loaded_step_;
     bool                                        factorized_    = false;
     double                                      residual_norm_ = 0.;
     std::vector<std::pair<double, std::string>> multiplier_records_;

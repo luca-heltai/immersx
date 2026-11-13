@@ -527,17 +527,21 @@ TEST(MetricFlowXElastostatic, BOTH_ReplayMatchesOneWayCoupledSolid)
 #  ifndef DEAL_II_WITH_VTK
   GTEST_SKIP() << "VTK input requires deal.II with VTK";
 #  else
-  // Run the one-way IDA coupling, saving a native flow checkpoint at each
-  // accepted output time. Replaying that history with static solves must
-  // reproduce the coupled solid and multiplier: both satisfy
-  // K u + B lambda = f(t) and B^T u = P_h(A(t)) at those times.
+  // Run the one-way IDA coupling, saving the flow at each accepted output
+  // time both as native checkpoints and as coupling fields. Replaying either
+  // history with static solves must reproduce the coupled solid and
+  // multiplier: both satisfy K u + B lambda = f(t) and B^T u = P_h(A(t)) at
+  // those times.
   const auto history =
     TestPaths::output_path("metric-flow-x-elastostatic-replay-test/history");
+  const auto fields =
+    TestPaths::output_path("metric-flow-x-elastostatic-replay-test/fields");
   if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-    {
-      std::filesystem::remove_all(history);
-      std::filesystem::create_directories(history);
-    }
+    for (const auto &directory : {history, fields})
+      {
+        std::filesystem::remove_all(directory);
+        std::filesystem::create_directories(directory);
+      }
   MPI_Barrier(MPI_COMM_WORLD);
 
   std::vector<double>      times;
@@ -557,12 +561,22 @@ TEST(MetricFlowXElastostatic, BOTH_ReplayMatchesOneWayCoupledSolid)
                                   const GlobalVector &y,
                                   const GlobalVector &ydot,
                                   const unsigned int) {
-        std::ostringstream name;
-        name << "checkpoint-" << std::hexfloat << t;
-        flow.save_checkpoint((history / name.str()).string(),
+        const auto &flow_y    = adapter.field(y, flow_fields.fields().state);
+        const auto &flow_ydot = adapter.field(ydot, flow_fields.fields().state);
+        std::ostringstream checkpoint, field;
+        checkpoint << "checkpoint-" << std::hexfloat << t;
+        field << "fields-" << std::hexfloat << t;
+        flow.save_checkpoint((history / checkpoint.str()).string(),
                              t,
-                             adapter.field(y, flow_fields.fields().state),
-                             adapter.field(ydot, flow_fields.fields().state));
+                             flow_y,
+                             flow_ydot);
+        if (times.empty())
+          flow.save_checkpoint((fields / "layout").string(),
+                               t,
+                               flow_y,
+                               flow_ydot);
+        flow.save_coupling_fields(
+          (fields / field.str()).string(), t, flow_y, flow_ydot, {"area"});
         times.push_back(t);
         coupled_displacement.push_back(
           adapter.field(y, solid_fields.fields().displacement));
@@ -585,56 +599,64 @@ TEST(MetricFlowXElastostatic, BOTH_ReplayMatchesOneWayCoupledSolid)
     false);
   ASSERT_GE(times.size(), 3u);
 
-  ParameterAcceptor::clear();
-  MetricFlowXElastostaticReplayParameters parameters;
-  // The shared input also configures the native flow, which the replay reads
-  // from the checkpoints instead.
-  initialize_parameters(TestPaths::parameter_path(
-                          "gtests/parameters/metric_flow_x_elastostatic.prm"),
-                        "",
-                        true);
-  parameters.checkpoint_history     = history.string();
-  parameters.execution.solver       = LinearSolver::direct;
-  parameters.solid.output_directory = TestPaths::output_directory(
-    "metric-flow-x-elastostatic-replay-test/output");
-  parameters.particle_output.properties =
-    LiftedParticleOutputParameters::available_properties();
-  MetricFlowXElastostaticReplay replay(parameters);
-  replay.setup();
-  ASSERT_EQ(replay.n_steps(), times.size());
-  for (unsigned int step = 0; step < replay.n_steps(); ++step)
-    {
-      EXPECT_EQ(replay.time(step), times[step]);
-      replay.solve_step(step);
-      replay.output_step(step);
-      FieldVector displacement = replay.displacement();
-      displacement -= coupled_displacement[step];
-      EXPECT_LT(displacement.l2_norm(),
-                1.e-6 * coupled_displacement[step].l2_norm());
-      FieldVector multiplier = replay.multiplier();
-      multiplier -= coupled_multiplier[step];
-      EXPECT_LT(multiplier.l2_norm(),
-                1.e-6 * coupled_multiplier[step].l2_norm());
-    }
   // The load and the flow area change in time, so the steps differ.
   FieldVector change = coupled_displacement.back();
   change -= coupled_displacement.front();
   EXPECT_GT(change.l2_norm(), 1.e-3 * coupled_displacement.back().l2_norm());
-  EXPECT_EQ(replay.solid().stiffness_assemblies(), 1u);
 
-  // One wall particle record per replayed time.
-  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+  for (const auto &[saved, output] :
+       {std::pair{history, "output-checkpoints"},
+        std::pair{fields, "output-fields"}})
     {
-      std::ifstream pvd(
-        std::filesystem::path(parameters.solid.output_directory) /
-        "wall_particles.pvd");
-      const std::string contents((std::istreambuf_iterator<char>(pvd)),
-                                 std::istreambuf_iterator<char>());
-      std::size_t       records = 0;
-      for (auto at = contents.find("<DataSet"); at != std::string::npos;
-           at      = contents.find("<DataSet", at + 1))
-        ++records;
-      EXPECT_EQ(records, replay.n_steps());
+      SCOPED_TRACE(saved.string());
+      ParameterAcceptor::clear();
+      MetricFlowXElastostaticReplayParameters parameters;
+      // The shared input also configures the native flow, which the replay
+      // reads from the saved layout instead.
+      initialize_parameters(
+        TestPaths::parameter_path(
+          "gtests/parameters/metric_flow_x_elastostatic.prm"),
+        "",
+        true);
+      parameters.flow_history           = saved.string();
+      parameters.execution.solver       = LinearSolver::direct;
+      parameters.solid.output_directory = TestPaths::output_directory(
+        std::string("metric-flow-x-elastostatic-replay-test/") + output);
+      parameters.particle_output.properties =
+        LiftedParticleOutputParameters::available_properties();
+      MetricFlowXElastostaticReplay replay(parameters);
+      replay.setup();
+      ASSERT_EQ(replay.n_steps(), times.size());
+      for (unsigned int step = 0; step < replay.n_steps(); ++step)
+        {
+          EXPECT_EQ(replay.time(step), times[step]);
+          replay.solve_step(step);
+          replay.output_step(step);
+          FieldVector displacement = replay.displacement();
+          displacement -= coupled_displacement[step];
+          EXPECT_LT(displacement.l2_norm(),
+                    1.e-6 * coupled_displacement[step].l2_norm());
+          FieldVector multiplier = replay.multiplier();
+          multiplier -= coupled_multiplier[step];
+          EXPECT_LT(multiplier.l2_norm(),
+                    1.e-6 * coupled_multiplier[step].l2_norm());
+        }
+      EXPECT_EQ(replay.solid().stiffness_assemblies(), 1u);
+
+      // One wall particle record per replayed time.
+      if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+        {
+          std::ifstream pvd(
+            std::filesystem::path(parameters.solid.output_directory) /
+            "wall_particles.pvd");
+          const std::string contents((std::istreambuf_iterator<char>(pvd)),
+                                     std::istreambuf_iterator<char>());
+          std::size_t       records = 0;
+          for (auto at = contents.find("<DataSet"); at != std::string::npos;
+               at      = contents.find("<DataSet", at + 1))
+            ++records;
+          EXPECT_EQ(records, replay.n_steps());
+        }
     }
 #  endif
 }

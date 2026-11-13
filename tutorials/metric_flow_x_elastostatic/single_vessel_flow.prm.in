@@ -35,6 +35,9 @@ subsection MetricFlowSystem<1, 3>
   set Number of refinement cycles = 1
   set Output filename = flow
   set Output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastostatic-replay/flow
+  # Mesh and physics once in 'layout', then only the area at each output.
+  set Coupling output directory = @TEST_OUTPUT_DIR@/metric-flow-x-elastostatic-replay/coupling
+  set Coupling output fields = area
   set Use direct solver = true
   set Verbosity (console depth) = 0
   set Numerical flux type = HLL
