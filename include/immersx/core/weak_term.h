@@ -4994,8 +4994,10 @@ namespace ImmersX
       else if (observable_.is_frozen())
         {
           const auto pairing = make_pairing(builder, target_, region_);
-          const auto frozen  = observable_.template frozen_values<VectorType>();
-          term.residual([pairing, frozen](const auto &) {
+          // Shared frozen coefficients may change between solves, so read
+          // them when the operation is applied rather than when it is added.
+          const auto observable = observable_;
+          term.residual([pairing, observable](const auto &) {
             const auto                affine_rhs = pairing.affine_rhs_factory ?
                                                      pairing.affine_rhs_factory() :
                                                      pairing.affine_rhs;
@@ -5003,17 +5005,19 @@ namespace ImmersX
             result.reinit_vector =
               pairing.operator_with_matrix.view.reinit_range_vector;
             result.apply =
-              [pairing, frozen, affine_rhs](VectorType &destination) {
-                pairing.operator_with_matrix.view.vmult(destination, frozen);
+              [pairing, observable, affine_rhs](VectorType &destination) {
+                pairing.operator_with_matrix.view.vmult(
+                  destination, observable.template frozen_values<VectorType>());
                 if (affine_rhs != nullptr)
                   destination -= *affine_rhs;
               };
-            result.apply_add = [pairing, frozen, affine_rhs](
-                                 VectorType &destination) {
-              pairing.operator_with_matrix.view.vmult_add(destination, frozen);
-              if (affine_rhs != nullptr)
-                destination -= *affine_rhs;
-            };
+            result.apply_add =
+              [pairing, observable, affine_rhs](VectorType &destination) {
+                pairing.operator_with_matrix.view.vmult_add(
+                  destination, observable.template frozen_values<VectorType>());
+                if (affine_rhs != nullptr)
+                  destination -= *affine_rhs;
+              };
             return result;
           });
         }
