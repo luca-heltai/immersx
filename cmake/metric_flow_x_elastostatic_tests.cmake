@@ -45,14 +45,23 @@ if(IMMERSX_WITH_METRIC_FLOW_X AND DEAL_II_WITH_SUNDIALS)
       set_tests_properties("${_restart_name}" PROPERTIES LABELS "${_labels}"
         TIMEOUT 1200 PROCESSORS ${_processors} RESOURCE_LOCK ImmersX.TestOutput
         SKIP_RETURN_CODE 77)
+      set(_csv_restart_name "ImmersX${${_build_type}_ctest_suffix}.application.MetricFlowXElastostatic.Restart.CSV.${_mode}")
+      add_test(NAME "${_csv_restart_name}" COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_elastostatic_restart.py"
+        --executable "$<TARGET_FILE:metric_flow_x_elastostatic${${_build_type}_postfix}>"
+        --parameter "${_parameter}" --output-directory "${TEST_OUTPUT_DIR}/csv-restart"
+        --csv-inflow --feedback both ${_restart_args})
+      set_tests_properties("${_csv_restart_name}" PROPERTIES LABELS "${_labels}"
+        TIMEOUT 1200 PROCESSORS ${_processors} RESOURCE_LOCK ImmersX.TestOutput
+        SKIP_RETURN_CODE 77)
       set(_refined_restart_name "ImmersX${${_build_type}_ctest_suffix}.application.MetricFlowXElastostatic.Restart.CoRefinement.${_mode}")
       add_test(NAME "${_refined_restart_name}" COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_elastostatic_restart.py"
         --executable "$<TARGET_FILE:metric_flow_x_elastostatic${${_build_type}_postfix}>"
         --parameter "${_parameter}" --output-directory "${TEST_OUTPUT_DIR}/refined-restart"
-        --co-refinement --feedback one-way ${_restart_args})
+        --co-refinement --feedback both ${_restart_args})
       set_tests_properties("${_refined_restart_name}" PROPERTIES LABELS "${_labels}"
-        TIMEOUT 1200 PROCESSORS ${_processors} RESOURCE_LOCK ImmersX.TestOutput
+        TIMEOUT 2400 PROCESSORS ${_processors} RESOURCE_LOCK ImmersX.TestOutput
         SKIP_RETURN_CODE 77)
       set(TEST_OUTPUT_DIR "${_saved_output}")
     endforeach()

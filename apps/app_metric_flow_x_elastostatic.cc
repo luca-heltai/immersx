@@ -836,6 +836,18 @@ namespace
     };
     std::vector<std::pair<double, std::string>> flow_records,
       multiplier_records, particle_records;
+    const auto write_checkpoint_diagnostics =
+      [&](const GlobalVector &solution,
+          const GlobalVector &solution_dot,
+          const std::string  &filename) {
+        write_regression_state(solution, filename);
+        write_regression_state(solution_dot, filename + ".rate");
+        GlobalVector reference(1);
+        reference.block(0).reinit(reference_area);
+        reference.block(0) = reference_area;
+        reference.collect_sizes();
+        write_regression_state(reference, filename + ".reference");
+      };
     adapter.set_output_step([&](const double        time,
                                 const GlobalVector &solution,
                                 const GlobalVector &solution_dot,
@@ -843,7 +855,9 @@ namespace
       if (step == 0)
         if (const char *filename =
               std::getenv("IMMERSX_ELASTOSTATIC_STATE_OUTPUT"))
-          write_regression_state(solution, std::string(filename) + ".initial");
+          write_checkpoint_diagnostics(solution,
+                                       solution_dot,
+                                       std::string(filename) + ".initial");
       const auto &flow_state =
         adapter.field(solution, flow_fields.fields().state);
       const auto &flow_derivative =
@@ -970,7 +984,7 @@ namespace
     flow_problem.open_output_files();
     const auto accepted_steps = adapter.solve(state, state_dot);
     if (const char *filename = std::getenv("IMMERSX_ELASTOSTATIC_STATE_OUTPUT"))
-      write_regression_state(state, filename);
+      write_checkpoint_diagnostics(state, state_dot, filename);
     if (!options.checkpoint.empty())
       {
         if constexpr (HasCheckpoint<FlowProblem>::value)

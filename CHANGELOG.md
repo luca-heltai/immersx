@@ -631,6 +631,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
+
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Verify selected wall-particle properties, geometry and traction in serial and MPI application output.
 
 - [PR #388](https://github.com/luca-heltai/immersx/pull/388) Integrate exported manufactured-solution errors with the Q1 geometry Jacobian on fitted hexahedra and check the quadrature against analytical volumes and moments.
