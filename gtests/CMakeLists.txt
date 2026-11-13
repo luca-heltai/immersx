@@ -390,6 +390,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       endforeach()
       foreach(_case Coupled Generated MMS MMSNeumann RCRDefault RCRImmersed RCRSimplexDefault RCRSimplexImmersed)
         set(_coupled_modes Serial MPI)
+        if(_case STREQUAL "MMS")
+          list(APPEND _coupled_modes SerialBlockDiagonal MPIBlockTriangular)
+        endif()
         if(DEAL_II_WITH_UMFPACK)
           list(APPEND _coupled_modes SerialUMFPACK)
         endif()
@@ -455,6 +458,12 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           elseif(_mode STREQUAL "SerialMUMPS" OR _mode STREQUAL "MPIMUMPS" OR _mode STREQUAL "MPI4MUMPS")
             file(APPEND "${_coupled_input}"
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = mumps\n    end\n  end\nend\n")
+          elseif(_mode STREQUAL "SerialBlockDiagonal")
+            file(APPEND "${_coupled_input}"
+              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Block preconditioner = block diagonal\n    end\n  end\nend\n")
+          elseif(_mode STREQUAL "MPIBlockTriangular")
+            file(APPEND "${_coupled_input}"
+              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Block preconditioner = block triangular\n    end\n  end\nend\n")
           endif()
           set(TEST_OUTPUT_DIR "${_saved_output_dir}")
           set(_coupled_mpiexec "")
@@ -469,6 +478,13 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           endif()
           set(_coupled_timeout 115)
           set(_coupled_application_timeout 110)
+          set(_particle_check_arguments)
+          if(_case STREQUAL "Coupled" AND IMMERSX_PYTHON_EXECUTABLE)
+            list(APPEND _particle_check_arguments
+              "-DPARTICLE_CHECKER=${CMAKE_SOURCE_DIR}/scripts/lifted_particle_output_checks.py"
+              "-DPYTHON_EXECUTABLE=${IMMERSX_PYTHON_EXECUTABLE}"
+              "-DPARTICLE_PROPERTIES=lifted_value,weight")
+          endif()
           add_test(NAME "${_coupled_name}"
             COMMAND "${CMAKE_COMMAND}"
               "-DTEST_EXECUTABLE=$<TARGET_FILE:metric_flow_x_elastodynamics${${_build_type}_postfix}>"
@@ -478,6 +494,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "-DMPIEXEC=${_coupled_mpiexec}"
               "-DMPI_RANKS=${_coupled_ranks}"
               "-DREQUIRE_GENERATED_RESPONSE=$<STREQUAL:${_case},Generated>"
+              ${_particle_check_arguments}
               "-DAPPLICATION_TIMEOUT=${_coupled_application_timeout}"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_coupled.cmake")
           set_tests_properties("${_coupled_name}" PROPERTIES

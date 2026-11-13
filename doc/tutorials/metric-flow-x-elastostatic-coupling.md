@@ -75,8 +75,11 @@ Use the generated build-tree parameter file. CMake expands its data and
 output paths. The example has a nonzero, smoothly increasing inlet flow
 and a time-dependent radial body load that is already nonzero initially. Its solid material and boundary data
 live under `Elastic static`; there are no solid velocity or initial-velocity
-parameters. The lift and multiplier subsections retain the names used by
-the dynamic application.
+parameters. The coupled solve uses one solid mesh, refined by
+`Elastic static/Domain/Initial refinement`; the standalone
+`Refinement/Number of refinement cycles` entry is not part of this input.
+The lift and multiplier subsections retain the names used by the dynamic
+application.
 
 The default setting is:
 
@@ -253,28 +256,31 @@ Use the same executable and dependency versions to save and load a checkpoint.
 
 Checkpoint/restart requires the native hooks from
 [MetricFlowX PR #94](https://github.com/luca-heltai/metric-flow-x/pull/94).
-The coupled checkpoint checks reported here used the frozen revision
-[`7d0937f`](https://github.com/luca-heltai/metric-flow-x/commit/7d0937f7ad92e0003dca8ba5defdf1bf8c2e4bc5)
-and a deal.II build with the serialization correction described below.
-A package without the native hooks can run the application but rejects
-checkpoint requests explicitly.
+Use a MetricFlowX package containing revision
+[`49a88a5`](https://github.com/luca-heltai/metric-flow-x/commit/49a88a57cc3636008f28381ab1c8267b66b21a37)
+or its descendants. A package without the native hooks can run the
+application but rejects checkpoint requests explicitly.
 
-PR #94 has since merged at
-[`49a88a5`](https://github.com/luca-heltai/metric-flow-x/commit/49a88a57cc3636008f28381ab1c8267b66b21a37).
-Its native flow serializer uses a local compatibility triangulation and does
-not require a patched deal.II installation for that path. API inspection found
-unchanged mesh setup and extra-field hooks; the coupled ImmersX application has
-not been compiled or run against this newer SDK in the checks reported here.
-Upstream native checkpoint tests are separate evidence.
+MetricFlowX supplies its local compatibility serializer for the native flow
+mesh. The solid uses deal.II's existing fully distributed triangulation
+serializer and `SolutionTransfer`; no ImmersX replacement is needed for
+the supported fixed finite element and same-partition restart.
+Neither path requires patching deal.II with
+[PR #20374](https://github.com/dealii/dealii/pull/20374) for this workflow.
+This does not make checkpoints portable between MPI sizes, partitions or
+serializer versions. Keep the same executable and dependency builds,
+including any local serializer patches, for checkpoint and restart.
+Recreate checkpoints when switching from the earlier patched dependency
+stack to the unmodified stack.
 
-The solid checkpoint still calls deal.II's fully distributed triangulation
-serializer directly. On deal.II builds affected by its serialization offset
-defect, that solid path still needs the correction in
-[deal.II PR #20374](https://github.com/dealii/dealii/pull/20374) or a version
-containing it. MetricFlowX's local flow compatibility class does not replace
-this solid serializer. Regenerate MPI checkpoints written by the defective
-serializer, and retain the same executable and dependency versions when
-comparing the coupled restart results.
+The validation stack uses the official `dealii/dealii:v9.7.1-noble`
+image (deal.II 9.7.1, SUNDIALS 6.4.1 and GCC 13.3), Trilinos vectors and
+MetricFlowX `49a88a5`. The application regression checks exercise
+fresh-process restart in serial and with two MPI ranks, feedback off/on,
+CSV input removal and initial co-refinement. They compare the restored
+state, native flow and multiplier rates, and frozen reference area exactly;
+continuation retains its field comparison tolerances. Each process must
+report one solid stiffness assembly and one AMG setup.
 
 Use a fully distributed solid mesh (`Elastic static/Domain/Triangulation
 type = fullydistributed`, the application default) and keep

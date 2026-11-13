@@ -8,9 +8,6 @@ subsection Elastic static
     set Grid generator = subdivided_cylinder
     set Grid generator arguments = 4:0.05:0.120685
   end
-  subsection Refinement
-    set Number of refinement cycles = 1
-  end
   subsection Material properties
     subsection default
       set Lame mu = 1e6

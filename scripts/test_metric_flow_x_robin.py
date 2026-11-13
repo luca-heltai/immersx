@@ -15,6 +15,8 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zlib
 
+from lifted_particle_output_checks import check_wall_particles
+
 
 def data_array(array, tree):
     text = "".join((array.text or "").split())
@@ -71,12 +73,23 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--ranks", type=int, choices=(1, 2), default=1)
     parser.add_argument("--mpiexec", default="mpirun")
+    parser.add_argument("--disable-particles", action="store_true")
+    parser.add_argument("--all-particle-properties", action="store_true")
     args = parser.parse_args()
+    particle_properties = ([] if args.disable_particles else
+        ["lifted_value", "weight", "mode_values", "modal_coefficients", "modal_data",
+         "representative_point", "radius", "indices", "bulk_field"]
+        if args.all_particle_properties else ["lifted_value", "weight"])
     args.output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="robin-rcr-", dir=args.output) as temporary:
         scratch = Path(temporary)
         solid, flow = scratch/"solid", scratch/"flow"
         text = args.parameters.read_text() + f"""
+subsection MetricFlowX coupling
+  subsection Particle output
+    set Properties = {','.join(particle_properties)}
+  end
+end
 subsection Elastodynamics
   set Output directory = {solid}
 end
@@ -132,6 +145,9 @@ end
                     expected = struct.unpack("<f", struct.pack("<f", {0: 1.e-4, 1: 2.e-4}[int(vessel)]))[0]
                     assert abs(area - expected) < 1.e-12
             assert vessel_ids == {0, 1}, vessel_ids
+        check_wall_particles(flow, (0., .001, .002), particle_properties,
+                             displacement=(expected_u, 0., 0.), target=0.,
+                             disabled=args.disable_particles)
         with (solid/"energies.csv").open() as stream:
             energies = list(csv.DictReader(stream))
         assert len(energies) == 3

@@ -12,8 +12,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Added
 
 - [PR #414](https://github.com/luca-heltai/immersx/pull/414) Add the `metric_flow_x_elastostatic_replay` application, which reads the flow area saved by MetricFlowX (coupling field output or a checkpoint history) and solves a static solid with a vessel wall multiplier at each saved time through one `LinearAdapter`, relative to the MetricFlowX wall reference area, reproducing the one-way `metric_flow_x_elastostatic` solid without integrating the flow again. `frozen()` expressions can now share a caller-owned coefficient vector that is reread at each solve.
+- [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 
 - [PR #410](https://github.com/luca-heltai/immersx/pull/410) Expose the stopping criteria of the linear solves that `IDAAdapter` runs for IDA in the `Linear solver` subsection of the IDA parameters: maximum iterations and relative tolerance of the outer Krylov solve, of the inner Schur complement solve and of the inner second-order block CG, and the MUMPS residual check. The defaults keep the previous hard-coded values. The outer solve also prints its target residual next to the tolerance IDA requested.
+
+- [PR #405](https://github.com/luca-heltai/immersx/pull/405) Export configurable lifted wall particles at accepted times in the MetricFlowX elastodynamics application.
 
 - [PR #403](https://github.com/luca-heltai/immersx/pull/403) Allow semantic fields to retain their configured IDA error tolerances during a startup ramp, with an optional solid displacement and velocity exemption in the coupled vascular application.
 
@@ -229,6 +232,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #406](https://github.com/luca-heltai/immersx/pull/406) `metric_flow_x_elastodynamics` and `metric_flow_x_elastostatic` no longer accept the solid `Number of refinement cycles` entry. The coupled solve uses one solid mesh, refined by `Domain/Initial refinement`; `metric_flow_x_elastodynamics` previously ignored the entry and `metric_flow_x_elastostatic` rejected values other than 1. The standalone `elastodynamics` and `elastic_static` solvers keep it.
+
 - [PR #404](https://github.com/luca-heltai/immersx/pull/404) Use diagonal kinematic rows in the standalone fixed-step elastodynamics solver, including moving boundary data and hanging nodes, while retaining the consistent mass in the momentum equation. Expose iterative, UMFPACK, and MUMPS selection in `elastodynamics_adapter` through `Elastodynamics/IDA/Linear solver/Type`; direct solvers condense the kinematic rows before factorization. Align the fiber residual and Jacobian regression checks with the same diagonal kinematic weighting.
 
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Expose MUMPS workspace relaxation for both the coupled solver and native flow-block factorization; the IRCAD11 template requests 200% extra estimated workspace without changing physical tolerances.
@@ -330,6 +335,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #73](https://github.com/luca-heltai/immersx/pull/73) Improved distributed tensor-product coupling.
 
 ### Fixed
+
+- [PR #412](https://github.com/luca-heltai/immersx/pull/412) Remove GCC 15 warnings about lambdas capturing structured bindings in `modal_lift.h` and `harmonic_robin_boundary.h`, and remove dangling-else and range-loop copy warnings in gtest sources.
+
+- [PR #405](https://github.com/luca-heltai/immersx/pull/405) Sample lifted wall modal fields with each cell's active finite element, including terminal RCR elements in hp collections.
 
 - [PR #402](https://github.com/luca-heltai/immersx/pull/402) Report the right-hand-side norm, retained-Jacobian defect and refinement history when a coupled MUMPS backsolve fails its unchanged residual check.
 
@@ -561,6 +570,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Tutorial
 
+- [PR #413](https://github.com/luca-heltai/immersx/pull/413) Keep the IRCAD11 small parameter template consistent with the coupled application's solid refinement settings.
+
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Document the verified IRCAD11 small archive setup with the setup-only command, measured coupled spaces and the mechanical coupling regularity limit, and distinguish it from the transient startup that has not passed consistent initialization. Qualify the tested checkpoint SDK separately from the newer native flow compatibility serializer and the solid checkpoint requirements.
 
 - [PR #398](https://github.com/luca-heltai/immersx/pull/398) Document the public-source small liver transient and portable inputs, measured DG2 family sizes and the medium failure, and distinguish ten-cycle completion from periodicity of the coupled solution with reproducible solid-drift and startup plots.
@@ -632,6 +643,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #413](https://github.com/luca-heltai/immersx/pull/413) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
+
+- [PR #405](https://github.com/luca-heltai/immersx/pull/405) Check lifted wall particle collections, selected quantities, geometry, and traction using a reusable standard-library Python checker.
 
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Verify selected wall-particle properties, geometry and traction in serial and MPI application output.
 

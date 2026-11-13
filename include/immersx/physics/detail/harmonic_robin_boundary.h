@@ -128,8 +128,12 @@ namespace ImmersX::harmonic_detail
       return;
     const auto communicator = supports.begin()->second.mpi_communicator();
     std::vector<typename Support::Point> weighted;
-    for (const auto &[id, geometry] : supports)
+    // Plain locals instead of structured bindings: the forcing lambda below
+    // captures id, and capturing a structured binding requires C++20.
+    for (const auto &support : supports)
       {
+        const auto   id          = support.first;
+        const auto  &geometry    = support.second;
         unsigned int invalid     = 0;
         const auto  &coefficient = parameters.get_robin_coefficient(id);
         const auto  &load        = parameters.get_robin_bc(id);
