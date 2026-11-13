@@ -75,8 +75,11 @@ Use the generated build-tree parameter file. CMake expands its data and
 output paths. The example has a nonzero, smoothly increasing inlet flow
 and a time-dependent radial body load that is already nonzero initially. Its solid material and boundary data
 live under `Elastic static`; there are no solid velocity or initial-velocity
-parameters. The lift and multiplier subsections retain the names used by
-the dynamic application.
+parameters. The coupled solve uses one solid mesh, refined by
+`Elastic static/Domain/Initial refinement`; the standalone
+`Refinement/Number of refinement cycles` entry is not part of this input.
+The lift and multiplier subsections retain the names used by the dynamic
+application.
 
 The default setting is:
 

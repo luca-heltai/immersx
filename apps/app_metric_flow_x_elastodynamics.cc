@@ -196,11 +196,11 @@ namespace
     FixedStepParameters    fixed_step("/", false);
     IDAParameters ida_parameters("/MetricFlowSystem<1, 3>/IDA parameters/",
                                  &flow_time);
-    ElastodynamicsParameters<3> solid_parameters("/Elastodynamics/",
-                                                 &flow_time,
-                                                 &fixed_step,
-                                                 &ida_parameters);
-    WallLift                    wall_lift("/MetricFlowX vessel wall lift/");
+    // The coupled solve uses one solid mesh, set by Domain/Initial refinement
+    // and optional co-refinement.
+    ElastodynamicsParameters<3> solid_parameters(
+      "/Elastodynamics/", &flow_time, &fixed_step, &ida_parameters, false);
+    WallLift wall_lift("/MetricFlowX vessel wall lift/");
     FiniteElementSpaceParameters<1, 3> lambda_parameters(
       "/MetricFlowX multiplier space/", "auto");
 
