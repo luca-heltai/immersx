@@ -661,6 +661,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Check imported UCD and VTK material IDs through analytical elastodynamics mass, stiffness and damping forms in serial and MPI, and keep liver-input regressions in CTest.
+
 - [PR #413](https://github.com/luca-heltai/immersx/pull/413) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
 
 - [PR #405](https://github.com/luca-heltai/immersx/pull/405) Check lifted wall particle collections, selected quantities, geometry, and traction using a reusable standard-library Python checker.
