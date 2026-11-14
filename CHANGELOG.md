@@ -533,6 +533,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Documentation
 
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Explain MUMPS per-rank memory limits and reports, and how to update the published liver-family input overlay for current solid parameters.
+
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Add an IRCAD11 small elastostatic tutorial that downloads the existing three grown networks and matching tissue mesh without rerunning growth.
 - [PR #392](https://github.com/luca-heltai/immersx/pull/392) Collect the vessel-wall pressure in one concepts page: why the multiplier is a stress jump, the analytic interior-stress correction for point and tensor-product coupling, the MetricFlowX modal correction, and their signs and units; correct the sign of the multiplier in the MetricFlowX onboarding tutorial.
 
