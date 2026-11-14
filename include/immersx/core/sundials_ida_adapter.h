@@ -1776,7 +1776,7 @@ namespace ImmersX
     bool                mumps_output_details_     = false;
     bool                stop_at_output_times_     = false;
     LinearSolver        linear_solver_            = LinearSolver::iterative;
-    BlockPreconditioner block_preconditioner_     = BlockPreconditioner::automatic;
+    BlockPreconditioner block_preconditioner_ = BlockPreconditioner::automatic;
     DirectFactorization direct_solver_;
     std::shared_ptr<const typename Composition::SecondOrderCondensation>
                                      condensation_;
