@@ -26,7 +26,17 @@ except ImportError:
 
     class Decorators:
         def __getattr__(self, name):
-            return lambda *args, **kwargs: lambda target: target
+            def decorator(*args, **kwargs):
+                # ParaView counts a string default as one element, even when
+                # it contains spaces. Preserve that public decorator contract.
+                if name in ('stringvector', 'intvector'):
+                    count = kwargs.get('number_of_elements', 1)
+                    defaults = kwargs.get('default_values')
+                    size = len(defaults) if isinstance(defaults, (list, tuple)) else 1
+                    if defaults is not None and count != size:
+                        raise ValueError('Property defaults do not match its element count')
+                return lambda target: target
+            return decorator
 
     # Only proxy decorators are replaced. All numerical filters below use VTK.
     decorators = types.ModuleType('paraview.util.vtkAlgorithm')

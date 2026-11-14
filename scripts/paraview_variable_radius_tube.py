@@ -37,7 +37,7 @@ class VariableRadiusTube(VTKPythonAlgorithmBase):
 
     @smproperty.stringvector(name="InputArray", number_of_elements=5,
                              element_types="0 0 0 0 2",
-                             default_values="0 0 0 0 ")
+                             default_values=[0, 0, 0, 0, ""])
     @smdomain.xml('''<ArrayListDomain name="array_list" attribute_type="Scalars"
         input_domain_name="inputs" none_string="Automatic">
         <RequiredProperties><Property name="Input" function="Input"/>
