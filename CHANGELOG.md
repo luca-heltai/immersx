@@ -15,6 +15,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Add an IDA MUMPS working-memory limit per rank and native memory diagnostics for the first factorization.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Apply the working-memory limit and native diagnostics to MUMPS flow-block preconditioners as well as coupled IDA direct factors.
 
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Allow coupled elastodynamics parameters to be validated without loading meshes, and expose per-rank MUMPS memory limits and factorization output controls.
+
 
 - [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 

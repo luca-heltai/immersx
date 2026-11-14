@@ -271,7 +271,10 @@ namespace
     bool                        ramp_solid_tolerances      = true;
     bool                        stop_at_output_times       = false;
     bool                        setup_only                 = false;
+    bool                        parse_only                 = false;
     int                         mumps_workspace_relaxation = -1;
+    unsigned int                mumps_memory_limit_mb      = 0;
+    bool                        mumps_output_details       = false;
     double displacement_tolerance = 0., velocity_tolerance = 0.,
            pressure_tolerance = 0.;
     coupling.add_parameter(
@@ -287,6 +290,10 @@ namespace
       stop_at_output_times,
       "Take an internal IDA step at every saved time to preserve nonlinear algebraic constraints in output.");
     coupling.add_parameter(
+      "Parse only",
+      parse_only,
+      "Validate declared parameters without loading meshes or release assets.");
+    coupling.add_parameter(
       "Setup only",
       setup_only,
       "Build the coupled spaces and report block DoFs without initializing the state, correcting initial conditions or integrating.");
@@ -296,6 +303,14 @@ namespace
       "Extra workspace percentage; -1 retains the MUMPS default.",
       ParameterAcceptor::prm,
       Patterns::Integer(-1));
+    coupling.add_parameter(
+      "MUMPS memory limit MB per rank",
+      mumps_memory_limit_mb,
+      "MUMPS ICNTL(23) working-memory limit in MB per rank; zero uses the solver default.");
+    coupling.add_parameter(
+      "MUMPS output details",
+      mumps_output_details,
+      "Report native MUMPS details for every factorization instead of only the first.");
     coupling.add_parameter(
       "Displacement absolute tolerance",
       displacement_tolerance,
@@ -339,6 +354,13 @@ namespace
     DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
 
     initialize_parameters(parameter_file);
+    AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(parse_only),
+                                    MPI_COMM_WORLD) ==
+                  Utilities::MPI::max(static_cast<unsigned int>(parse_only),
+                                      MPI_COMM_WORLD),
+                ExcMessage("All ranks must use the same parse-only policy."));
+    if (parse_only)
+      return;
     const auto setup_policy = static_cast<unsigned int>(setup_only);
     AssertThrow(Utilities::MPI::min(setup_policy, MPI_COMM_WORLD) ==
                   Utilities::MPI::max(setup_policy, MPI_COMM_WORLD),
@@ -685,6 +707,8 @@ namespace
 
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
     adapter.set_stop_at_output_times(stop_at_output_times);
+    adapter.set_mumps_memory_limit_mb(mumps_memory_limit_mb);
+    adapter.set_mumps_output_details(mumps_output_details);
     if (mumps_workspace_relaxation >= 0)
       adapter.set_mumps_workspace_relaxation(
         static_cast<unsigned int>(mumps_workspace_relaxation));
@@ -905,6 +929,7 @@ namespace
     std::vector<std::pair<double, std::string>> multiplier_output_records;
     std::vector<std::pair<double, std::string>> flow_output_records;
     std::vector<std::pair<double, std::string>> particle_output_records;
+    LiftedParticleOutputCache<3>                wall_particle_cache;
     const auto                                  output = [&solid_problem,
                          &solid_parameters,
                          &flow_problem,
@@ -914,6 +939,7 @@ namespace
                          &flow_output_records,
                          &particle_output,
                          &particle_output_records,
+                         &wall_particle_cache,
                          &wall_points,
                          &reference_area,
                          reference_field,
@@ -1059,7 +1085,8 @@ namespace
                                             &displacement,
                                             0,
                                             3},
-            (std::filesystem::path(flow_output_directory) / filename).string());
+            (std::filesystem::path(flow_output_directory) / filename).string(),
+            &wall_particle_cache);
           particle_output_records.emplace_back(time, filename);
           if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
             {
