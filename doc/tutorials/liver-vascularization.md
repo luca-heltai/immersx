@@ -1849,3 +1849,16 @@ For an archived liver case, `Stop at output times = true` under
 default remains dense output. Internal stops retain the BDF history and avoid
 interpolation defects in nonlinear hydraulic constraints. Control Newton
 convergence separately through the IDA `Nonlinear solver` subsection.
+
+## Diagnosing rejected growth candidates
+
+The growth statistics CSV includes `candidate_length_rejections`,
+`candidate_geometry_rejections`, `candidate_boundary_rejections`, and
+`candidate_no_feasible_start`. Length and geometry counters count rejected
+junction trials, including optimization trials; they are not rejected terminal
+counts. Boundary failures are a subset of geometry failures in the candidate
+search. A candidate with no feasible midpoint or centroid start increments
+`candidate_no_feasible_start` once. Counters accumulate local work and are
+reduced with the other growth statistics; they do not change acceptance gates.
+They do not yet distinguish own-system and cross-system collisions or provide
+a spatial rejection map.

@@ -56,6 +56,10 @@ namespace ImmersX::Vascularization
     demand_reassigned_samples,
     demand_added_samples,
     demand_removed_samples,
+    candidate_length_rejections,
+    candidate_geometry_rejections,
+    candidate_no_feasible_start,
+    candidate_boundary_rejections,
     count
   };
   inline constexpr std::array<const char *,
@@ -108,6 +112,10 @@ namespace ImmersX::Vascularization
       "demand_reassigned_samples",
       "demand_added_samples",
       "demand_removed_samples",
+      "candidate_length_rejections",
+      "candidate_geometry_rejections",
+      "candidate_no_feasible_start",
+      "candidate_boundary_rejections",
     }};
   struct GrowthWork
   {
