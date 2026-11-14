@@ -90,7 +90,10 @@ namespace ImmersX::Vascularization::internal
           (parameters.enforce_geometry &&
            (std::min({a, b, c}) <= guard ||
             std::min({a, b, c}) < parameters.minimum_length * x.minimum_scale)))
-        return {};
+        {
+          count_work(work, GrowthOperation::candidate_length_rejections);
+          return {};
+        }
       const long double exponent         = 2.L / x.murray_exponent;
       const long double viscous_exponent = 2.L - 4.L / x.murray_exponent;
       const auto        aggregate =
@@ -226,7 +229,10 @@ namespace ImmersX::Vascularization::internal
         if (!std::isfinite(edge.radius) || edge.radius <= 0.)
           return {};
       if (parameters.enforce_geometry && !geometry(p.changed))
-        return {};
+        {
+          count_work(work, GrowthOperation::candidate_geometry_rejections);
+          return {};
+        }
       return p;
     }
   } // namespace
@@ -283,7 +289,10 @@ namespace ImmersX::Vascularization::internal
         (parameters.enforce_geometry &&
          (std::min({a, b, c}) <= guard ||
           std::min({a, b, c}) < parameters.minimum_length * x.minimum_scale)))
-      return {};
+      {
+        count_work(work, GrowthOperation::candidate_length_rejections);
+        return {};
+      }
     const auto sum = [&](double power, double original, bool viscous) {
       const double mu = viscous ? selected.viscosity : 1.;
       double       value =
@@ -370,7 +379,10 @@ namespace ImmersX::Vascularization::internal
           }
       }
     if (parameters.enforce_geometry && !geometry(p.changed))
-      return {};
+      {
+        count_work(work, GrowthOperation::candidate_geometry_rejections);
+        return {};
+      }
     return p;
   }
 
@@ -404,7 +416,10 @@ namespace ImmersX::Vascularization::internal
                             geometry,
                             work);
     if (!best)
-      return {};
+      {
+        count_work(work, GrowthOperation::candidate_no_feasible_start);
+        return {};
+      }
     double step = .25 * s[0].distance(s[1]);
     for (unsigned int iteration = 0; iteration < parameters.optimization_steps;
          ++iteration)

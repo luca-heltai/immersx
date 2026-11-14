@@ -123,8 +123,8 @@ def main():
             if '\n' in str(path) or '\r' in str(path):
                 raise ValueError('Parameter paths cannot contain line breaks')
         ranks = args.ranks if args.ranks is not None else default_ranks
-        if ranks < 1 or (args.profile == 'tiny' and ranks != 1):
-            raise ValueError('Ranks must be positive; tiny requires one rank for UMFPACK')
+        if ranks < 1:
+            raise ValueError('Ranks must be positive')
         inputs = [assets / f'meshes/{mesh}.msh', assets / 'inputs/inlet_ha.csv',
                   assets / 'network/manifest']
         for path in inputs:
@@ -169,6 +169,12 @@ def main():
                             tokens, assets, args.profile, output, build)
         parameters = re.sub(r'^include .+$', f'include {output / "common.prm"}',
                             parameters, count=1, flags=re.MULTILINE)
+        if args.profile == 'tiny' and ranks > 1:
+            parameters = parameters.replace(
+                'set Type = umfpack',
+                'set Type = iterative\n'
+                '      set Maximum replicated flow inverse DoFs = 2048\n'
+                '      set Maximum materialized Schur DoFs = 512')
         output.mkdir(parents=True, exist_ok=False)
         (output / 'common.prm').write_text(common)
         (output / 'parameters.prm').write_text(parameters)

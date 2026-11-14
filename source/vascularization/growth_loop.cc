@@ -1020,104 +1020,108 @@ namespace ImmersX::Vascularization::internal
                           branch.port_normals[end];
                     const auto &covered =
                       obstacle_reply.covered_ancestors.at(hit.id);
-                    const auto cheap_geometry =
-                      [&](const std::vector<Edge> &changed) {
-                        std::set<Id> replaced;
-                        using TrialLeaf =
-                          std::pair<BoundingBox<3>, std::size_t>;
-                        std::vector<TrialLeaf> trial_leaves;
-                        for (std::size_t i = 0; i < changed.size(); ++i)
-                          {
-                            replaced.insert(changed[i].id);
-                            trial_leaves.emplace_back(
-                              envelope(changed[i],
-                                       changed[i].radius + clearance_lower),
-                              i);
-                          }
-                        const auto trial_tree = pack_rtree(trial_leaves);
-                        count_work(work, GrowthOperation::network_index_builds);
-                        count_work(work,
-                                   GrowthOperation::network_index_insertions,
-                                   trial_leaves.size());
-                        for (std::size_t i = 0; i < changed.size(); ++i)
-                          {
-                            const auto &e = changed[i];
-                            // The controller proves these unchanged ancestor
-                            // envelopes against the current demand overlay. New
-                            // geometry still checks its pairs with them through
-                            // the trial tree.
-                            if (covered.count(e.id))
-                              continue;
-                            std::array<Point<3>, 2> normals;
-                            for (unsigned int end = 0; end < 2; ++end)
-                              if (const auto normal =
-                                    port_normals.find(e.nodes[end]);
-                                  normal != port_normals.end())
-                                normals[end] = normal->second;
-                            if (!geometry.boundary_separated(
-                                  {e.points[0], e.points[1]},
-                                  e.radius + clearance_lower,
-                                  p.geometry_depth,
-                                  p.geometry_work,
-                                  normals))
+                    const auto cheap_geometry = [&](const std::vector<Edge>
+                                                      &changed) {
+                      std::set<Id> replaced;
+                      using TrialLeaf = std::pair<BoundingBox<3>, std::size_t>;
+                      std::vector<TrialLeaf> trial_leaves;
+                      for (std::size_t i = 0; i < changed.size(); ++i)
+                        {
+                          replaced.insert(changed[i].id);
+                          trial_leaves.emplace_back(envelope(changed[i],
+                                                             changed[i].radius +
+                                                               clearance_lower),
+                                                    i);
+                        }
+                      const auto trial_tree = pack_rtree(trial_leaves);
+                      count_work(work, GrowthOperation::network_index_builds);
+                      count_work(work,
+                                 GrowthOperation::network_index_insertions,
+                                 trial_leaves.size());
+                      for (std::size_t i = 0; i < changed.size(); ++i)
+                        {
+                          const auto &e = changed[i];
+                          // The controller proves these unchanged ancestor
+                          // envelopes against the current demand overlay. New
+                          // geometry still checks its pairs with them through
+                          // the trial tree.
+                          if (covered.count(e.id))
+                            continue;
+                          std::array<Point<3>, 2> normals;
+                          for (unsigned int end = 0; end < 2; ++end)
+                            if (const auto normal =
+                                  port_normals.find(e.nodes[end]);
+                                normal != port_normals.end())
+                              normals[end] = normal->second;
+                          if (!geometry.boundary_separated(
+                                {e.points[0], e.points[1]},
+                                e.radius + clearance_lower,
+                                p.geometry_depth,
+                                p.geometry_work,
+                                normals))
+                            {
+                              count_work(
+                                work,
+                                GrowthOperation::candidate_boundary_rejections);
                               return false;
-                            const double guard =
-                              64. * std::numeric_limits<double>::epsilon() *
-                              std::max(
-                                {1., e.points[0].norm(), e.points[1].norm()});
-                            count_work(work,
-                                       GrowthOperation::network_index_queries);
-                            for (const auto &[segment, id] :
-                                 obstacle_tree |
-                                   bgi::adaptors::queried(
-                                     bgi::intersects(envelope(
-                                       e, e.radius + broad_clearance + guard))))
-                              {
-                                count_work(work,
-                                           GrowthOperation::network_index_hits);
-                                if (!replaced.count(id))
-                                  {
-                                    auto obstacle = obstacles.at(id).edge;
-                                    obstacle.radius =
-                                      (*radii)(id,
-                                               obstacles.at(id).root,
-                                               obstacle.radius);
-                                    const auto profile =
-                                      obstacles.at(id).root == invalid_id ?
-                                        obstacles.at(id).endpoint_radii :
-                                        std::array<double, 2>{
-                                          {obstacle.radius, obstacle.radius}};
-                                    if (!compatible(e,
-                                                    obstacle,
-                                                    p.minimum_angle,
-                                                    clearance_lower,
-                                                    {{e.radius, e.radius}},
-                                                    profile,
-                                                    work))
-                                      return false;
-                                  }
-                              }
-                            count_work(work,
-                                       GrowthOperation::network_index_queries);
-                            for (const auto &[box, j] :
-                                 trial_tree |
-                                   bgi::adaptors::queried(
-                                     bgi::intersects(trial_leaves[i].first)))
-                              {
-                                count_work(work,
-                                           GrowthOperation::network_index_hits);
-                                if (j != i &&
-                                    (j > i || covered.count(changed[j].id)) &&
-                                    !compatible(e,
-                                                changed[j],
-                                                p.minimum_angle,
-                                                clearance_lower,
-                                                work))
-                                  return false;
-                              }
-                          }
-                        return true;
-                      };
+                            }
+                          const double guard =
+                            64. * std::numeric_limits<double>::epsilon() *
+                            std::max(
+                              {1., e.points[0].norm(), e.points[1].norm()});
+                          count_work(work,
+                                     GrowthOperation::network_index_queries);
+                          for (const auto &[segment, id] :
+                               obstacle_tree |
+                                 bgi::adaptors::queried(
+                                   bgi::intersects(envelope(
+                                     e, e.radius + broad_clearance + guard))))
+                            {
+                              count_work(work,
+                                         GrowthOperation::network_index_hits);
+                              if (!replaced.count(id))
+                                {
+                                  auto obstacle = obstacles.at(id).edge;
+                                  obstacle.radius =
+                                    (*radii)(id,
+                                             obstacles.at(id).root,
+                                             obstacle.radius);
+                                  const auto profile =
+                                    obstacles.at(id).root == invalid_id ?
+                                      obstacles.at(id).endpoint_radii :
+                                      std::array<double, 2>{
+                                        {obstacle.radius, obstacle.radius}};
+                                  if (!compatible(e,
+                                                  obstacle,
+                                                  p.minimum_angle,
+                                                  clearance_lower,
+                                                  {{e.radius, e.radius}},
+                                                  profile,
+                                                  work))
+                                    return false;
+                                }
+                            }
+                          count_work(work,
+                                     GrowthOperation::network_index_queries);
+                          for (const auto &[box, j] :
+                               trial_tree |
+                                 bgi::adaptors::queried(
+                                   bgi::intersects(trial_leaves[i].first)))
+                            {
+                              count_work(work,
+                                         GrowthOperation::network_index_hits);
+                              if (j != i &&
+                                  (j > i || covered.count(changed[j].id)) &&
+                                  !compatible(e,
+                                              changed[j],
+                                              p.minimum_angle,
+                                              clearance_lower,
+                                              work))
+                                return false;
+                            }
+                        }
+                      return true;
+                    };
                     if (auto proposal = optimize_growth(
                           x, p, *target, terminal_demand, cheap_geometry, work))
                       if (!best || proposal->cost < best->cost)
