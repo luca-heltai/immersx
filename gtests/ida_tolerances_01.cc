@@ -6,6 +6,8 @@
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/sundials_ida_adapter.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <sstream>
@@ -519,6 +521,32 @@ TEST(DistributedIDA, LinearSolverControlsFromParameterFile)
   EXPECT_THROW(ParameterAcceptor::parse_all_parameters(prm),
                dealii::ExceptionBase);
   ParameterAcceptor::clear();
+}
+
+TEST(DistributedIDA, RampReportsEndTimeBeyondShortenedRun)
+{
+  IDAToleranceRamp ramp;
+  ramp.enabled  = true;
+  ramp.end_time = 7.24;
+  try
+    {
+      ramp.validate(7.2, 7.202, .002);
+      FAIL() << "The ramp must not end after the shortened simulation.";
+    }
+  catch (const dealii::ExceptionBase &error)
+    {
+      std::string message = error.what();
+      message.erase(std::remove_if(message.begin(),
+                                   message.end(),
+                                   [](const unsigned char c) {
+                                     return std::isspace(c);
+                                   }),
+                    message.end());
+      EXPECT_NE(message.find("Toleranceramp/Endtime=7.24"), std::string::npos);
+      EXPECT_NE(message.find("Initialtime(7.2"), std::string::npos);
+      EXPECT_NE(message.find("Holdduration(0)"), std::string::npos);
+      EXPECT_NE(message.find("<Endtime<=Finaltime(7.202"), std::string::npos);
+    }
 }
 
 TEST(DistributedIDA, RampParameterValidation)

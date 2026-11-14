@@ -229,6 +229,16 @@ namespace
       "Extra MUMPS workspace percentage above its estimate, for global and native flow-block solves; -1 retains the MUMPS default.",
       ParameterAcceptor::prm,
       Patterns::Integer(-1));
+    unsigned int mumps_memory_limit_mb = 0;
+    bool         mumps_output_details  = false;
+    coupling.add_parameter(
+      "MUMPS memory limit MB per rank",
+      mumps_memory_limit_mb,
+      "MUMPS working-memory limit in MB per rank; zero uses automatic allocation. This is not a total process-memory limit.");
+    coupling.add_parameter(
+      "MUMPS output details",
+      mumps_output_details,
+      "Keep verbose native MUMPS diagnostics after memory reports.");
     bool use_native_tolerances = false, setup_only = false;
     coupling.add_parameter(
       "Use native flow tolerances",
@@ -666,6 +676,8 @@ namespace
       ExcMessage("MUMPS workspace relaxation differs across ranks."));
     Adapter adapter(flow_time, ida_parameters, MPI_COMM_WORLD);
     adapter.set_stop_at_output_times(stop_at_output_times);
+    adapter.set_mumps_memory_limit_mb(mumps_memory_limit_mb);
+    adapter.set_mumps_output_details(mumps_output_details);
     if (mumps_workspace_relaxation >= 0)
       adapter.set_mumps_workspace_relaxation(
         static_cast<unsigned int>(mumps_workspace_relaxation));
@@ -683,10 +695,16 @@ namespace
       {
 #  ifdef DEAL_II_WITH_MUMPS
         flow_description.preconditioner_factory =
-          [mumps_workspace_relaxation](const auto &matrix,
-                                       const auto &prototype) {
+          [mumps_workspace_relaxation,
+           mumps_memory_limit_mb,
+           mumps_output_details](const auto &matrix, const auto &prototype) {
             return make_mumps_preconditioner<FieldVector>(
-              matrix, prototype, MPI_COMM_WORLD, mumps_workspace_relaxation);
+              matrix,
+              prototype,
+              MPI_COMM_WORLD,
+              mumps_workspace_relaxation,
+              mumps_memory_limit_mb,
+              mumps_output_details);
           };
 #  else
         AssertThrow(

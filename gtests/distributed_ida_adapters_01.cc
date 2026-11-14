@@ -16,6 +16,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -1139,6 +1140,8 @@ namespace
     IDAParameters          ida_parameters;
     Adapter adapter(time_parameters, ida_parameters, MPI_COMM_WORLD);
     adapter.set_linear_solver(Adapter::LinearSolver::mumps);
+    adapter.set_mumps_memory_limit_mb(128);
+    adapter.set_mumps_output_details(false);
     const auto fields =
       adapter
         .add([owned, mass](auto &builder) {
@@ -1207,8 +1210,21 @@ namespace
       }
     EXPECT_THROW(adapter.set_linear_solver(Adapter::LinearSolver::iterative),
                  ExceptionBase);
+    EXPECT_THROW(adapter.set_mumps_memory_limit_mb(64), ExceptionBase);
+    EXPECT_THROW(adapter.set_mumps_output_details(true), ExceptionBase);
   }
 } // namespace
+
+TEST(DistributedIDA, MUMPSRejectsOutOfRangeMemoryLimit)
+{
+  TimeIntervalParameters time_parameters;
+  IDAParameters          ida_parameters;
+  Adapter adapter(time_parameters, ida_parameters, MPI_COMM_SELF);
+  EXPECT_NO_THROW(adapter.set_mumps_memory_limit_mb(0));
+  EXPECT_THROW(adapter.set_mumps_memory_limit_mb(
+                 std::numeric_limits<unsigned int>::max()),
+               dealii::ExceptionBase);
+}
 
 TEST(DistributedIDA, BOTH_MUMPSSolvesCurrentDAEJacobian)
 {

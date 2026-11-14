@@ -22,6 +22,11 @@ For surface preparation and the separate dense-tree growth example, see
 The case below uses three interior feeder stubs and two tissue territories,
 rather than the dense imported trees in that example.
 
+With `--profile tiny --ranks 4`, the runner selects the iterative coupled
+solver with replicated flow inverse limit 2048 and materialized Schur limit
+512, matching the recorded four-rank audit. The default one-rank tiny run
+continues to use UMFPACK.
+
 ## Run from release assets
 
 The [scaling research release](https://github.com/luca-heltai/immersx/releases/tag/liver-icar-scaling-2026-11-06)
@@ -117,8 +122,8 @@ four-rank override with flow/Schur limits 2048/512, distinct from the default
 serial UMFPACK recipe. The complete small beat is the earlier
 `a92bee56` reference. `unvalidated_scale_profile` flags medium/large
 requests beyond their audited intervals; every new run still needs its
-numerical checks. `--ranks` overrides all defaults except tiny's one-rank
-UMFPACK requirement. Match the ranks to the available CPU and memory allocation.
+numerical checks. `--ranks` overrides every profile default; tiny selects the iterative solver
+when more than one rank is requested. Match the ranks to the available CPU and memory allocation.
 
 ## Geometry, CCO and the three spatial scales
 
@@ -346,8 +351,33 @@ retained Jacobian/preconditioner snapshot.
 ### Direct and bounded iterative solvers
 
 Small uses MUMPS with 100% extra workspace relative to the native estimate.
-This is allocation headroom, not a memory limit in MB.[^18] Every returned
-direct correction is checked against the retained Jacobian:
+This is allocation headroom, not a memory limit in MB.[^18]
+`MUMPS workspace relaxation` sets ICNTL(14): increasing it reserves more
+working space, which can cause an operating-system OOM kill even when it
+avoids a MUMPS insufficient-workspace error. `MUMPS memory limit MB per rank`
+sets ICNTL(23); zero leaves MUMPS's automatic allocation policy in effect.
+A positive value bounds MUMPS working memory per rank, not the application's
+total RSS, and can cause factorization to fail when the factors do not fit.
+Allow additional memory for mesh, assembled matrices, solver state and MPI.
+
+The first factorization prints native MUMPS memory estimates and allocation
+statistics. Parallel reports label the estimated maximum and total memory as
+INFOG(16)/(17), and allocated maximum and total memory as INFOG(18)/(19),
+in MB. Sequential reports omit the redundant maximum. These are native logs:
+the adapter does not provide a separate checkpoint between analysis and
+factorization for an automatic memory-budget decision. Enable
+`MUMPS output details` for the native analysis, factorization and solve reports
+on later setups too.
+A tutorial-medium measurement on eight ranks at
+`c819fb3b`, workspace 100, reached 37.8 GB total RSS: rank 0 peaked at 9.0 GB
+and other ranks at 3.9–5.3 GB. These are measurements of one setup, not a
+portable sizing rule. Workspace 300 exceeded a 40 GB job limit. Reserve for
+the largest rank and the job total rather than dividing total RAM evenly.
+MUMPS's reports cover its solver storage; rank-0 RSS also includes other
+application allocations, so those RSS measurements alone do not establish
+the cause of the imbalance.
+
+Every returned direct correction is checked against the retained Jacobian:
 $\|Jx-b\|_2\le10^{-8}\|b\|_2$. A historical insufficient-workspace solve
 returned a zero correction without a native exception; the independent
 residual check rejects that result.

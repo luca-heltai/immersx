@@ -24,6 +24,17 @@ env:
   MKL_NUM_THREADS: "1"
 
 jobs:
+  paraview-vtk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install vtk
+      - name: Tube geometry and array validation
+        run: python tests/paraview/test_variable_radius_tube.py
+
   plan:
     uses: ./.github/workflows/ci-plan.yml
     with:
