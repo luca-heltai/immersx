@@ -80,11 +80,20 @@ set(IMMERSX_DEBUG_BINARY_PREFIX "/immersx/build" CACHE STRING
 if(IMMERSX_USE_CCACHE)
   find_program(IMMERSX_CCACHE_PROGRAM NAMES ccache)
   if(IMMERSX_CCACHE_PROGRAM)
-    # CCACHE_BASEDIR makes source names relative to this worktree before they
-    # are hashed.  CCACHE_HASHDIR prevents the build directory from becoming a
-    # second worktree-specific hash input.  The wrapper also preserves an
-    # explicitly configured CCACHE_DIR; otherwise all worktrees for this user
-    # use the conventional shared cache directory.
+    # Cover both trees, including generated translation units in out-of-source
+    # builds. A source-only base leaves those absolute paths in ccache's
+    # preprocessed input. Walk by path components, not textual prefixes.
+    set(_immersx_ccache_base_dir "${CMAKE_CURRENT_SOURCE_DIR}")
+    file(RELATIVE_PATH _immersx_binary_from_base
+      "${_immersx_ccache_base_dir}" "${CMAKE_CURRENT_BINARY_DIR}")
+    while(_immersx_binary_from_base MATCHES "^\\.\\.(/|$)")
+      get_filename_component(_immersx_ccache_base_dir
+        "${_immersx_ccache_base_dir}" DIRECTORY)
+      file(RELATIVE_PATH _immersx_binary_from_base
+        "${_immersx_ccache_base_dir}" "${CMAKE_CURRENT_BINARY_DIR}")
+    endwhile()
+    # The wrapper preserves an explicit CCACHE_DIR; otherwise all worktrees
+    # use the user's conventional shared cache directory.
     if(DEFINED ENV{CCACHE_DIR} AND NOT "$ENV{CCACHE_DIR}" STREQUAL "")
       set(_immersx_ccache_dir "$ENV{CCACHE_DIR}")
     elseif(DEFINED ENV{HOME} AND NOT "$ENV{HOME}" STREQUAL "")
@@ -119,6 +128,7 @@ if(IMMERSX_USE_CCACHE)
     endif()
     message(STATUS "ccache found: ${IMMERSX_CCACHE_PROGRAM}")
     message(STATUS "ccache cache directory: ${_immersx_ccache_dir}")
+    message(STATUS "ccache base directory: ${_immersx_ccache_base_dir}")
   else()
     message(STATUS "ccache not found; compiler caching is disabled")
   endif()
@@ -136,6 +146,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
   file(RELATIVE_PATH _immersx_relative_source_dir
     "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
   add_compile_options(
+    "-ffile-prefix-map=./=${IMMERSX_DEBUG_BINARY_PREFIX}/"
+    "-fdebug-prefix-map=./=${IMMERSX_DEBUG_BINARY_PREFIX}/"
+    "-fmacro-prefix-map=./=${IMMERSX_DEBUG_BINARY_PREFIX}/"
     "-ffile-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
     "-fdebug-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
     "-fmacro-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}")

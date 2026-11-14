@@ -93,7 +93,10 @@ carry the `_debug` suffix.
 
 CMake detects `ccache` automatically. When it is installed, the project uses a
 small launcher that sets a shared cache directory, removes the worktree from
-ccache's directory hash, and treats the current worktree as `CCACHE_BASEDIR`.
+ccache's directory hash, and uses the nearest common parent of the source and
+build trees as `CCACHE_BASEDIR`. This includes generated translation units in
+out-of-source builds. Equivalent checkouts should keep the same relative layout
+between their source and build trees for cache reuse.
 The default cache is `$HOME/.ccache`; set `CCACHE_DIR` before configuring to use
 another shared cache.
 

@@ -634,6 +634,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Reuse ccache entries for generated translation units in equivalent out-of-source builds by covering both source and build trees with the cache base directory.
+
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Normalize relative source paths rewritten by ccache in file macros and debug information.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Diagnose unsupported Gmsh session APIs during configuration instead of failing later while compiling the mesh importer.
 
