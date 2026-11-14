@@ -96,6 +96,12 @@ The compiler also maps source and generated-file paths to `/immersx/source` and
 the worktree name. The prefixes can be changed with
 `IMMERSX_DEBUG_SOURCE_PREFIX` and `IMMERSX_DEBUG_BINARY_PREFIX`.
 
+For reuse checks across worktrees, keep the same relative layout between the
+source and build directories. ccache hashes preprocessor line markers, whose
+relative filenames remain distinct when that layout changes; compiler prefix
+maps normalize macros and debug information but do not rewrite those markers.
+Verify a real second-checkout hit rather than relying on a no-op rebuild.
+
 Disable the automatic setup with:
 
 ```bash

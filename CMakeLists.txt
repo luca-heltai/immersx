@@ -131,6 +131,14 @@ if((NOT IMMERSX_USE_CCACHE OR NOT IMMERSX_CCACHE_PROGRAM) AND
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+  # ccache rewrites source paths relative to the compiler working directory.
+  # Map that spelling too, so macros and debug information remain stable.
+  file(RELATIVE_PATH _immersx_relative_source_dir
+    "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_compile_options(
+    "-ffile-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
+    "-fdebug-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
+    "-fmacro-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}")
   # Put the source-tree mapping first and the binary-tree mapping last.  The
   # compiler uses the last matching prefix, so generated files below an
   # in-tree build are mapped to the binary prefix rather than the source

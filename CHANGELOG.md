@@ -11,8 +11,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Report rejected CCO junction trials and candidates without feasible starts in growth statistics.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add an IDA MUMPS working-memory limit per rank and native memory diagnostics for the first factorization.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report rejected CCO junction trials and candidates without feasible starts in growth statistics.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Add an IDA MUMPS working-memory limit per rank and native memory diagnostics for the first factorization.
 
 - [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 
@@ -234,7 +234,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Report initialization, callbacks, error weights and MUMPS defect correction in IDA timing summaries, and report solve phases in the linear and KINSOL adapters.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report initialization, callbacks, error weights and MUMPS defect correction in IDA timing summaries, and report solve phases in the linear and KINSOL adapters.
 
 - [PR #406](https://github.com/luca-heltai/immersx/pull/406) `metric_flow_x_elastodynamics` and `metric_flow_x_elastostatic` no longer accept the solid `Number of refinement cycles` entry. The coupled solve uses one solid mesh, refined by `Domain/Initial refinement`; `metric_flow_x_elastodynamics` previously ignored the entry and `metric_flow_x_elastostatic` rejected values other than 1. The standalone `elastodynamics` and `elastic_static` solvers keep it.
 
@@ -621,6 +621,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #80](https://github.com/luca-heltai/immersx/pull/80) Added the random-particle ReducedPoisson tutorials.
 
 ### Build and packaging
+
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Normalize relative source paths rewritten by ccache in file macros and debug information.
 
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Compile particle penalty benchmarks with current deal.II using the triangulation communicator API supported since deal.II 9.7.
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Compile IDA compatibility headers with current deal.II when OpenCASCADE geometry headers were included first.
