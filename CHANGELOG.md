@@ -237,8 +237,6 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report initialization, callbacks, error weights and MUMPS defect correction in IDA timing summaries, and solve phases in the linear and KINSOL adapters.
-
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Consolidate the ParaView tube plugin as Variable Radius Tube, reusing selected Point or Cell radius/area arrays and extracting surfaces only for non-polydata input.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Use affine MappingP1 for simplex elastodynamics when available, retaining MappingFE on older deal.II versions.

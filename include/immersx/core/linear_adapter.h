@@ -14,7 +14,6 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/parameter_acceptor.h>
 #include <deal.II/base/patterns.h>
-#include <deal.II/base/timer.h>
 
 #include <deal.II/lac/precondition.h>
 #include <deal.II/lac/solver_control.h>
@@ -128,10 +127,6 @@ namespace ImmersX
       , parameters_(parameters)
       , pcout(std::cout,
               dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
-      , computing_timer(communicator,
-                        pcout,
-                        dealii::TimerOutput::summary,
-                        dealii::TimerOutput::wall_times)
     {}
 
     const LinearAdapterParameters &
@@ -150,18 +145,11 @@ namespace ImmersX
     void
     setup_direct(const GlobalVectorType &state) const
     {
-      dealii::TimerOutput::Scope timer(computing_timer, "Setup direct solver");
       pcout << "LinearAdapter: materializing and factorizing the linear "
                "system."
             << std::endl;
       direct_matrix_ = std::make_shared<MatrixType>();
-      {
-        dealii::TimerOutput::Scope assembly_timer(computing_timer,
-                                                  "Materialize Jacobian");
-        composition_.monolithic_matrix(state, *direct_matrix_);
-      }
-      dealii::TimerOutput::Scope factor_timer(computing_timer,
-                                              "Factorize Jacobian");
+      composition_.monolithic_matrix(state, *direct_matrix_);
       direct_solver_.reset();
       direct_control_ =
         std::make_unique<dealii::SolverControl>(0, parameters_.tolerance);
@@ -264,7 +252,6 @@ namespace ImmersX
     evaluate_residual(const GlobalVectorType &state,
                       GlobalVectorType       &residual) const
     {
-      dealii::TimerOutput::Scope timer(computing_timer, "Evaluate residual");
       composition_.evaluate_residual(0., state, nullptr, residual);
     }
 
@@ -390,7 +377,6 @@ namespace ImmersX
     void
     solve_direct(GlobalVectorType &state) const
     {
-      dealii::TimerOutput::Scope timer(computing_timer, "Direct solve");
       setup_direct(state);
       solve_with_current_direct(state);
     }
@@ -420,18 +406,12 @@ namespace ImmersX
                     "terms."));
       auto residual = composition_.make_state();
       state         = composition_.make_state();
-      {
-        dealii::TimerOutput::Scope residual_timer(computing_timer,
-                                                  "Evaluate residual");
-        composition_.evaluate_residual(0., state, nullptr, residual);
-      }
+      composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
 
-      auto                       rhs      = composition_.pack(residual);
-      auto                       result   = composition_.make_state();
-      auto                       solution = composition_.pack(result);
-      dealii::TimerOutput::Scope backsolve_timer(computing_timer,
-                                                 "Direct backsolve");
+      auto rhs      = composition_.pack(residual);
+      auto result   = composition_.make_state();
+      auto solution = composition_.pack(result);
 #ifdef DEAL_II_WITH_MUMPS
       if (mumps_solver_)
         mumps_solver_->vmult(solution, rhs);
@@ -452,7 +432,6 @@ namespace ImmersX
               solution += correction;
             }
         }
-      backsolve_timer.stop();
       composition_.unpack(solution, state);
       pcout << "LinearAdapter: direct solve finished." << std::endl;
     }
@@ -460,7 +439,6 @@ namespace ImmersX
     void
     solve(GlobalVectorType &state) const
     {
-      dealii::TimerOutput::Scope timer(computing_timer, "Solve linear system");
       pcout << "LinearAdapter: starting solve with " << composition_.n_fields()
             << " semantic field(s), solver="
             << magic_enum::enum_name(parameters_.solver) << ", preconditioner="
@@ -485,11 +463,7 @@ namespace ImmersX
                     "terms."));
       auto residual = composition_.make_state();
       state         = composition_.make_state();
-      {
-        dealii::TimerOutput::Scope residual_timer(computing_timer,
-                                                  "Evaluate residual");
-        composition_.evaluate_residual(0., state, nullptr, residual);
-      }
+      composition_.evaluate_residual(0., state, nullptr, residual);
       residual *= -1.;
       std::shared_ptr<typename Composition::Snapshot> snapshot;
       std::unique_ptr<BlockMatrixType>                iterative_matrix;
@@ -501,8 +475,6 @@ namespace ImmersX
           // Keep the same linearization for the matrix and its preconditioner.
           // Weak-term views otherwise reassemble coupling at every Schur
           // action.
-          dealii::TimerOutput::Scope assembly_timer(computing_timer,
-                                                    "Materialize Jacobian");
           snapshot = composition_.make_snapshot(0., state, true);
           iterative_matrix.reset(new BlockMatrixType(composition_.block_matrix(
             state, nullptr, 0., 0., &snapshot->linearization)));
@@ -513,22 +485,15 @@ namespace ImmersX
         {
           pcout << "LinearAdapter: invoking the configured linear solver."
                 << std::endl;
-          dealii::TimerOutput::Scope solve_timer(computing_timer,
-                                                 "Configured linear solve");
           solve_(operator_view, residual, state);
           pcout << "LinearAdapter: configured linear solver finished."
                 << std::endl;
         }
       else
         {
-          dealii::TimerOutput::Scope preconditioner_timer(
-            computing_timer, "Build preconditioner");
           const auto preconditioner = make_preconditioner(
             operator_view, state, snapshot.get(), iterative_matrix.get());
-          preconditioner_timer.stop();
-          dealii::TimerOutput::Scope linear_timer(computing_timer,
-                                                  "Iterative solve");
-          dealii::SolverControl      control(parameters_.maximum_iterations,
+          dealii::SolverControl control(parameters_.maximum_iterations,
                                         parameters_.tolerance);
           // Delayed Gram-Schmidt can divide by zero when the Krylov space
           // closes exactly. Use the same modified strategy as IDA and Schur
@@ -815,7 +780,6 @@ namespace ImmersX
     SolveFunction                                    solve_;
     const LinearAdapterParameters                   &parameters_;
     mutable dealii::ConditionalOStream               pcout;
-    mutable dealii::TimerOutput                      computing_timer;
     mutable std::shared_ptr<MatrixType>              direct_matrix_;
     mutable std::unique_ptr<dealii::SolverControl>   direct_control_;
     mutable std::unique_ptr<ImmersXLA::SolverDirect> direct_solver_;
