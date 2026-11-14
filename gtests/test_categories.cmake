@@ -88,6 +88,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     LegacyInclusions
     LiftedIntegrationSupport
     LinearAdapter
+    MUMPSPreconditioner
     PoissonPrimitives
     LiftedPoisson
     KINSOLAdapter
