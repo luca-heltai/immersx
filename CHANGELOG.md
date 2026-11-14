@@ -11,12 +11,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Expose per-rank MUMPS working-memory limits and native memory reports in IDA, native flow-block inverses, and the coupled elastodynamics and elastostatic applications.
+
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Validate coupled elastodynamics parameters without loading meshes or release assets.
+
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report rejected CCO junction trials and candidates without feasible starts in growth statistics.
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Add an IDA MUMPS working-memory limit per rank and native memory diagnostics for the first factorization.
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Apply the working-memory limit and native diagnostics to MUMPS flow-block preconditioners as well as coupled IDA direct factors.
-
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Allow coupled elastodynamics parameters to be validated without loading meshes, and expose per-rank MUMPS memory limits and factorization output controls.
-
 
 - [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 
@@ -238,10 +237,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report initialization, callbacks, error weights and MUMPS defect correction in IDA timing summaries, and report solve phases in the linear and KINSOL adapters.
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Replace Area Tube with Variable Radius Tube, reusing existing point or cell radius arrays, selecting scalar arrays explicitly, and extracting surfaces only for non-polydata input, with persistent VTK geometry tests.
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Use the affine simplex mapping for elastodynamics when the installed deal.II provides MappingP1, retaining the existing mapping on older versions.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report initialization, callbacks, error weights and MUMPS defect correction in IDA timing summaries, and solve phases in the linear and KINSOL adapters.
 
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Consolidate the ParaView tube plugin as Variable Radius Tube, reusing selected Point or Cell radius/area arrays and extracting surfaces only for non-polydata input.
+
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Use affine MappingP1 for simplex elastodynamics when available, retaining MappingFE on older deal.II versions.
 
 - [PR #406](https://github.com/luca-heltai/immersx/pull/406) `metric_flow_x_elastodynamics` and `metric_flow_x_elastostatic` no longer accept the solid `Number of refinement cycles` entry. The coupled solve uses one solid mesh, refined by `Domain/Initial refinement`; `metric_flow_x_elastodynamics` previously ignored the entry and `metric_flow_x_elastostatic` rejected values other than 1. The standalone `elastodynamics` and `elastic_static` solvers keep it.
 
@@ -348,8 +348,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Fixed
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Retain lifted-wall particle locations between accepted outputs and update their properties without repeating distributed point searches.
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Parse all liver tutorial profiles without the removed solid refinement parameter, and let tiny select the bounded iterative solver on multiple MPI ranks.
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Parse all liver tutorial profiles without the removed solid refinement parameter, and let tiny select the bounded iterative solver on multiple MPI ranks, with explicit tolerance-ramp bounds when shortening the run.
+
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Parse liver tutorial profiles without the removed solid refinement parameter, allow tiny MPI iterative runs, and report explicit tolerance-ramp bounds when shortening a run.
 
 - [PR #412](https://github.com/luca-heltai/immersx/pull/412) Remove GCC 15 warnings about lambdas capturing structured bindings in `modal_lift.h` and `harmonic_robin_boundary.h`, and remove dangling-else and range-loop copy warnings in gtest sources.
 
@@ -635,9 +635,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Build and packaging
 
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Reuse ccache entries for generated translation units in equivalent out-of-source builds by covering both source and build trees with the cache base directory.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Normalize file macros and debug information and reuse cached tracked/generated translation units across equivalent out-of-source layouts.
 
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Normalize relative source paths rewritten by ccache in file macros and debug information.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Diagnose unsupported Gmsh session APIs during configuration instead of failing later while compiling the mesh importer.
 
 - [PR #400](https://github.com/luca-heltai/immersx/pull/400) Compile particle penalty benchmarks with current deal.II using the triangulation communicator API supported since deal.II 9.7.
@@ -666,7 +665,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Check imported UCD and VTK material IDs through analytical elastodynamics mass, stiffness and damping forms in serial and MPI, and keep liver-input regressions in CTest.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Check imported UCD/VTK material IDs through analytical mass, stiffness and damping forms in serial/MPI; retain liver parsing and ParaView geometry regressions in CTest/CI.
 
 - [PR #413](https://github.com/luca-heltai/immersx/pull/413) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
 

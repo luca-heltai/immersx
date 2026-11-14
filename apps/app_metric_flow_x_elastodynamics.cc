@@ -310,7 +310,7 @@ namespace
     coupling.add_parameter(
       "MUMPS output details",
       mumps_output_details,
-      "Report native MUMPS details for every factorization instead of only the first.");
+      "Keep verbose native MUMPS diagnostics after memory reports.");
     coupling.add_parameter(
       "Displacement absolute tolerance",
       displacement_tolerance,
