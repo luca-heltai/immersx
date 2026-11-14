@@ -29,6 +29,12 @@ scratch files out of the source tree whenever possible.
 
 Always use an out-of-source build.
 
+When deal.II enables its Gmsh API reader, the Gmsh C++ API must provide
+`gmsh::isInitialized()`. CMake checks this capability before compiling the
+library. ImmersX uses it to preserve ownership of externally initialized Gmsh
+sessions while normalizing physical tags. Use a matching deal.II/Gmsh
+installation; forcing ImmersX to assume that it owns every session is unsafe.
+
 A typical Debug configuration is:
 
 ```bash

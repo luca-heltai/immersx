@@ -417,6 +417,8 @@ int main(){ Model1d m; const std::type_info &ti = typeid(m); (void)ti; return 0;
 ENDIF()
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
+include(cmake/check_gmsh_api.cmake)
+
 # Test and tutorial inputs are configured into the build tree so that tests and
 # documented commands never need to infer the location of source data from
 # their current working directory.
