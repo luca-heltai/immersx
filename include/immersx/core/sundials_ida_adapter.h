@@ -382,6 +382,8 @@ namespace ImmersX
           pcout << "IDAAdapter: computing consistent initial conditions "
                    "with the application callback."
                 << std::endl;
+          dealii::TimerOutput::Scope initial_timer(
+            computing_timer, "Consistent initial conditions");
           compute_consistent_initial_conditions_(additional_data().initial_time,
                                                  state,
                                                  state_dot);
@@ -426,6 +428,33 @@ namespace ImmersX
                   dealii::ExcMessage(
                     "MUMPS workspace percentage exceeds its integer range."));
       mumps_workspace_relaxation_ = static_cast<int>(percentage);
+    }
+
+    /** Set MUMPS ICNTL(23), the working-memory limit in MB per rank.
+     * Zero keeps MUMPS's automatic allocation. This is not a process RSS limit.
+     */
+    void
+    set_mumps_memory_limit_mb(const unsigned int megabytes)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "Configure MUMPS memory before solver initialization."));
+      AssertThrow(
+        megabytes <= static_cast<unsigned int>(std::numeric_limits<int>::max()),
+        dealii::ExcMessage("MUMPS memory limit exceeds its integer range."));
+      mumps_memory_limit_mb_ = static_cast<int>(megabytes);
+    }
+
+    /** Enable native MUMPS analysis/factorization diagnostics on every setup.
+     * By default, report the first factorization of each direct solver only.
+     */
+    void
+    set_mumps_output_details(const bool enabled)
+    {
+      AssertThrow(!connected_,
+                  dealii::ExcMessage(
+                    "Configure MUMPS output before solver initialization."));
+      mumps_output_details_ = enabled;
     }
 
     /** Register native output for IDA's accepted/interpolated output states. */
@@ -662,7 +691,9 @@ namespace ImmersX
       factorize(const LinearSolver        solver,
                 const MatrixType         &matrix,
                 const MPI_Comm            communicator,
-                const std::optional<int> &workspace_relaxation)
+                const std::optional<int> &workspace_relaxation,
+                const int                 memory_limit_mb,
+                const bool                output_details)
       {
         umfpack_.reset();
 #  ifdef DEAL_II_WITH_MUMPS
@@ -724,14 +755,28 @@ namespace ImmersX
                 communicator, matrix.m()),
               communicator);
             mumps_ = std::make_unique<dealii::SparseDirectMUMPS>(
-              dealii::SparseDirectMUMPS::AdditionalData(), communicator);
+              dealii::SparseDirectMUMPS::AdditionalData(output_details ||
+                                                        !reported_memory_),
+              communicator);
             if (workspace_relaxation)
               mumps_->get_icntl()[13] = *workspace_relaxation;
+            mumps_->get_icntl()[22] = memory_limit_mb;
             mumps_->initialize(matrix);
-            n_entries_ = matrix.n_nonzero_elements();
+            if (!output_details)
+              {
+                // Keep the first analysis/factorization report without
+                // repeating native diagnostics for every backsolve.
+                auto controls = mumps_->get_icntl();
+                controls[0] = controls[1] = controls[2] = -1;
+                controls[3]                             = 0;
+              }
+            reported_memory_ = true;
+            n_entries_       = matrix.n_nonzero_elements();
 #  else
             (void)communicator;
             (void)workspace_relaxation;
+            (void)memory_limit_mb;
+            (void)output_details;
             AssertThrow(
               false,
               dealii::ExcMessage(
@@ -812,7 +857,8 @@ namespace ImmersX
         return dealii::Utilities::MPI::min(diagonal ? 1 : 0, communicator) == 1;
       }
 
-      bool                                         diagonal_ = false;
+      bool                                         diagonal_        = false;
+      bool                                         reported_memory_ = false;
       FieldVectorType                              inverse_diagonal_;
       std::unique_ptr<dealii::SparseDirectUMFPACK> umfpack_;
 #  ifdef DEAL_II_WITH_MUMPS
@@ -827,6 +873,7 @@ namespace ImmersX
       if (connected_)
         return;
 
+      dealii::TimerOutput::Scope timer(computing_timer, "Initialize IDA");
       AssertThrow(composition_.n_fields() > 0,
                   dealii::ExcMessage("IDAAdapter has no semantic fields."));
       tolerance_ramp_ = ida_parameters_.tolerance_ramp;
@@ -941,6 +988,8 @@ namespace ImmersX
             backsolve(original_rhs, dst);
             if (linear_solver_ == LinearSolver::mumps)
               {
+                dealii::TimerOutput::Scope refinement_timer(
+                  computing_timer, "MUMPS defect correction");
                 // MUMPS disables its internal refinement for distributed
                 // right-hand sides. Reuse the factorization for at most three
                 // corrections, measuring each defect with the retained Jacobian
@@ -1115,6 +1164,7 @@ namespace ImmersX
         if (!solver_should_restart_)
           return false;
 
+        dealii::TimerOutput::Scope timer(computing_timer, "Restart callback");
         const bool restart = solver_should_restart_(time, state, state_dot);
         if (restart)
           {
@@ -1128,6 +1178,8 @@ namespace ImmersX
             pcout << "IDAAdapter: computing consistent initial conditions "
                      "after restart with the application callback."
                   << std::endl;
+            dealii::TimerOutput::Scope initial_timer(
+              computing_timer, "Consistent initial conditions");
             compute_consistent_initial_conditions_(time, state, state_dot);
           }
         return restart;
@@ -1137,6 +1189,7 @@ namespace ImmersX
                                  const GlobalVectorType &state,
                                  const GlobalVectorType &state_dot,
                                  const unsigned int      step) {
+        dealii::TimerOutput::Scope timer(computing_timer, "Accepted output");
         if (stop_at_output_times_)
           update_output_stop(time);
         else
@@ -1174,6 +1227,8 @@ namespace ImmersX
     void
     initialize_tolerances()
     {
+      dealii::TimerOutput::Scope timer(computing_timer,
+                                       "Initialize tolerances");
       AssertThrow(current_state_ != nullptr,
                   dealii::ExcMessage(
                     "Use IDAAdapter::solve() with adapter-owned tolerances."));
@@ -1216,7 +1271,9 @@ namespace ImmersX
     compute_error_weights(const GlobalVectorType &state,
                           GlobalVectorType       &weights)
     {
-      double time;
+      dealii::TimerOutput::Scope timer(computing_timer,
+                                       "Compute error weights");
+      double                     time;
       check_ida(IDAGetCurrentTime(ida_->get_ida_memory(), &time));
       const auto scales =
         tolerance_ramp_.scales(additional_data().initial_time, time);
@@ -1406,7 +1463,9 @@ namespace ImmersX
                   kinematic_solvers_[p].factorize(linear_solver_,
                                                   *matrix,
                                                   composition_.communicator(),
-                                                  mumps_workspace_relaxation_);
+                                                  mumps_workspace_relaxation_,
+                                                  mumps_memory_limit_mb_,
+                                                  mumps_output_details_);
                   kinematic_masses_[p] = mass;
                   if (kinematic_solvers_[p].diagonal())
                     pcout << "IDAAdapter: inverted a diagonal second-order "
@@ -1423,7 +1482,9 @@ namespace ImmersX
               direct_solver_.factorize(linear_solver_,
                                        reduced,
                                        composition_.communicator(),
-                                       mumps_workspace_relaxation_);
+                                       mumps_workspace_relaxation_,
+                                       mumps_memory_limit_mb_,
+                                       mumps_output_details_);
               pcout << "IDAAdapter: " << solver_name << " factorized "
                     << reduced.m() << " rows after second-order condensation ("
                     << blocks.m() << " coupled), " << direct_solver_.n_entries()
@@ -1434,7 +1495,9 @@ namespace ImmersX
               direct_solver_.factorize(linear_solver_,
                                        *monolithic,
                                        composition_.communicator(),
-                                       mumps_workspace_relaxation_);
+                                       mumps_workspace_relaxation_,
+                                       mumps_memory_limit_mb_,
+                                       mumps_output_details_);
               pcout << "IDAAdapter: " << solver_name << " factorized "
                     << monolithic->m() << " rows, "
                     << direct_solver_.n_entries() << " matrix entries."
@@ -1562,9 +1625,11 @@ namespace ImmersX
                   weight_evaluations_    = 0;
     bool                ramp_stop_armed_ = false, ramp_stop_released_ = false;
     std::optional<int>  mumps_workspace_relaxation_;
-    bool                stop_at_output_times_ = false;
-    LinearSolver        linear_solver_        = LinearSolver::iterative;
-    BlockPreconditioner block_preconditioner_ = BlockPreconditioner::automatic;
+    int                 mumps_memory_limit_mb_ = 0;
+    bool                mumps_output_details_  = false;
+    bool                stop_at_output_times_  = false;
+    LinearSolver        linear_solver_         = LinearSolver::iterative;
+    BlockPreconditioner block_preconditioner_  = BlockPreconditioner::automatic;
     DirectFactorization direct_solver_;
     std::shared_ptr<const typename Composition::SecondOrderCondensation>
                                      condensation_;
