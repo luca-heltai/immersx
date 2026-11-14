@@ -348,6 +348,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Fixed
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Retain lifted-wall particle locations between accepted outputs and update their properties without repeating distributed point searches.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Parse all liver tutorial profiles without the removed solid refinement parameter, and let tiny select the bounded iterative solver on multiple MPI ranks.
 
 - [PR #412](https://github.com/luca-heltai/immersx/pull/412) Remove GCC 15 warnings about lambdas capturing structured bindings in `modal_lift.h` and `harmonic_robin_boundary.h`, and remove dangling-else and range-loop copy warnings in gtest sources.
 

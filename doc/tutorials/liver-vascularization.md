@@ -921,6 +921,13 @@ public source revisions and coupled build instructions. It contains parameters,
 a path-rendering helper and aggregate verification metadata; it does not
 redistribute anatomical inputs, raw field tables or the waveform.
 
+For current ImmersX, remove `set Number of refinement cycles = 1` from
+only the `Elastodynamics` subsection in `profiles/small-common.prm.in` and
+`profiles/medium-common.prm.in` before running the helper. This solid parameter
+was removed in PR #406. Keep the identically named entry under
+`MetricFlowSystem<1, 3>`, which remains valid. The archive and checksum above
+refer to the original, unmodified download.
+
 After verifying and extracting it, prepare paths without starting a solver:
 
 ```bash

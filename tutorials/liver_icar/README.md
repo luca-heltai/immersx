@@ -22,6 +22,11 @@ For surface preparation and the separate dense-tree growth example, see
 The case below uses three interior feeder stubs and two tissue territories,
 rather than the dense imported trees in that example.
 
+With `--profile tiny --ranks 4`, the runner selects the iterative coupled
+solver with replicated flow inverse limit 2048 and materialized Schur limit
+512, matching the recorded four-rank audit. The default one-rank tiny run
+continues to use UMFPACK.
+
 ## Run from release assets
 
 The [scaling research release](https://github.com/luca-heltai/immersx/releases/tag/liver-icar-scaling-2026-11-06)
@@ -117,8 +122,8 @@ four-rank override with flow/Schur limits 2048/512, distinct from the default
 serial UMFPACK recipe. The complete small beat is the earlier
 `a92bee56` reference. `unvalidated_scale_profile` flags medium/large
 requests beyond their audited intervals; every new run still needs its
-numerical checks. `--ranks` overrides all defaults except tiny's one-rank
-UMFPACK requirement. Match the ranks to the available CPU and memory allocation.
+numerical checks. `--ranks` overrides every profile default; tiny selects the iterative solver
+when more than one rank is requested. Match the ranks to the available CPU and memory allocation.
 
 ## Geometry, CCO and the three spatial scales
 
