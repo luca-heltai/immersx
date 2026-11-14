@@ -13,9 +13,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report rejected CCO junction trials and candidates without feasible starts in growth statistics.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Add an IDA MUMPS working-memory limit per rank and native memory diagnostics for the first factorization.
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Apply the working-memory limit and native diagnostics to MUMPS flow-block preconditioners as well as coupled IDA direct factors.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Apply the working-memory limit and native diagnostics to MUMPS flow-block preconditioners as well as coupled IDA direct factors.
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Add an IDA MUMPS working-memory limit per rank and native memory diagnostics for the first factorization.
 
 - [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 
@@ -239,6 +238,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report initialization, callbacks, error weights and MUMPS defect correction in IDA timing summaries, and report solve phases in the linear and KINSOL adapters.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Replace Area Tube with Variable Radius Tube, reusing existing point or cell radius arrays, selecting scalar arrays explicitly, and extracting surfaces only for non-polydata input, with persistent VTK geometry tests.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Use the affine simplex mapping for elastodynamics when the installed deal.II provides MappingP1, retaining the existing mapping on older versions.
+
 
 - [PR #406](https://github.com/luca-heltai/immersx/pull/406) `metric_flow_x_elastodynamics` and `metric_flow_x_elastostatic` no longer accept the solid `Number of refinement cycles` entry. The coupled solve uses one solid mesh, refined by `Domain/Initial refinement`; `metric_flow_x_elastodynamics` previously ignored the entry and `metric_flow_x_elastostatic` rejected values other than 1. The standalone `elastodynamics` and `elastic_static` solvers keep it.
 
