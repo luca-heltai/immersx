@@ -235,6 +235,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Changed
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report initialization, callbacks, error weights and MUMPS defect correction in IDA timing summaries, and report solve phases in the linear and KINSOL adapters.
+- [PR #424](https://github.com/luca-heltai/immersx/pull/424) Replace Area Tube with Variable Radius Tube, reusing existing point or cell radius arrays, selecting scalar arrays explicitly, and extracting surfaces only for non-polydata input, with persistent VTK geometry tests.
 
 - [PR #406](https://github.com/luca-heltai/immersx/pull/406) `metric_flow_x_elastodynamics` and `metric_flow_x_elastostatic` no longer accept the solid `Number of refinement cycles` entry. The coupled solve uses one solid mesh, refined by `Domain/Initial refinement`; `metric_flow_x_elastodynamics` previously ignored the entry and `metric_flow_x_elastostatic` rejected values other than 1. The standalone `elastodynamics` and `elastic_static` solvers keep it.
 

@@ -640,6 +640,16 @@ ENABLE_TESTING()
 set(IMMERSX_NUMERICAL_TEST_ENVIRONMENT
   "DEAL_II_NUM_THREADS=1;OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1")
 include(cmake/container_tests.cmake)
+if(ENABLE_GOOGLE_TESTING OR ENABLE_DEAL_II_APP_TESTING)
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME ImmersX.ParaView.VariableRadiusTube
+      COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_SOURCE_DIR}/tests/paraview/test_variable_radius_tube.py")
+    set_tests_properties(ImmersX.ParaView.VariableRadiusTube PROPERTIES
+      LABELS "unit;quick" TIMEOUT 60 SKIP_RETURN_CODE 77)
+  endif()
+endif()
 include(cmake/mfx_modal_tests.cmake)
 include(cmake/lifted_elasticity_tests.cmake)
 include(cmake/vascular_network_tests.cmake)

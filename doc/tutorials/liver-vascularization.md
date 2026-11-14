@@ -871,7 +871,7 @@ vessel-ID transfer, checked against all 541 cell identities and per-vessel
 cell counts; no geometric matching was used. Native material IDs and physical
 vessel IDs are distinct. Added role, time and source-index metadata identify
 the extraction. The original native patch sampling and precision are retained.
-For radius-aware display, see [Area Tube](../how-to/paraview-area-tube.md).
+For radius-aware display, see [Variable Radius Tube](../how-to/paraview-area-tube.md).
 
 The last-valid, last-converged and last-attempted static snapshots coincide in
 this successful run. Each retains conservative unaccepted labels and a
