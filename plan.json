@@ -173,8 +173,6 @@
   },
   "harness_sha": "c819fb3b5aaa850e79c59326074b3b4db737a516",
   "schema_version": 1,
-  "selected": [
-    "c819fb3b5aaa850e79c59326074b3b4db737a516"
-  ],
+  "selected": [],
   "source_sha": "c819fb3b5aaa850e79c59326074b3b4db737a516"
 }
