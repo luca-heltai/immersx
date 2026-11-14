@@ -3,6 +3,12 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/distributed/tria.h>
+
+#include <deal.II/fe/mapping_q1.h>
+
+#include <deal.II/grid/grid_generator.h>
+
 #include <gtest/gtest.h>
 #include <immersx/io/lifted_particle_output.h>
 
@@ -159,4 +165,62 @@ TEST(LiftedParticleOutput, VectorModeShapes) // NOLINT
   EXPECT_ANY_THROW(
     make_lifted_particle_columns(options, labels, points, coefficients));
   ParameterAcceptor::clear();
+}
+
+TEST(LiftedParticleOutput,
+     BOTH_ReusesLocationsAndUpdatesRemoteProperties) // NOLINT
+{
+  ParameterAcceptor::clear();
+  parallel::distributed::Triangulation<2> tria(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(2);
+  MappingQ1<2>       mapping;
+  const unsigned int rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  // Two ranks supply points when available; MPI4 keeps two empty source
+  // ranks. Put the outside point in the middle to exercise gaps in ids.
+  std::vector<LiftedWallPoint<2>> points;
+  if (rank < 2)
+    for (const auto &position : {Point<2>(.1 + .1 * rank, .2 + .1 * rank),
+                                 Point<2>(2. + rank, 2. + rank),
+                                 Point<2>(.8 - .1 * rank, .7 + .1 * rank)})
+      {
+        LiftedWallPoint<2> point;
+        point.point = position;
+        points.push_back(point);
+      }
+  std::vector<LiftedParticleColumn> columns(1);
+  columns[0].name = "value";
+  for (const auto &point : points)
+    columns[0].values.push_back(point.point[0] + 2. * point.point[1] +
+                                100. * rank);
+  LiftedParticleOutputCache<2> cache;
+  auto &handler = cache.update(tria, mapping, points, columns, 1);
+  EXPECT_EQ(handler.n_global_particles(),
+            2u * std::min(2u, Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD)));
+  std::map<types::particle_index, Point<2>> references;
+  for (auto particle = handler.begin(); particle != handler.end(); ++particle)
+    {
+      const auto position    = particle->get_location();
+      const auto source_rank = particle->get_id() / 3;
+      EXPECT_NE(particle->get_id() % 3, 1u);
+      EXPECT_NEAR(particle->get_properties()[0],
+                  position[0] + 2. * position[1] + 100. * source_rank,
+                  1.e-14);
+      references[particle->get_id()] = particle->get_reference_location();
+    }
+  for (auto &value : columns[0].values)
+    value += 7. * (rank + 1);
+  auto &updated = cache.update(tria, mapping, points, columns, 1);
+  EXPECT_EQ(&handler, &updated);
+  for (auto particle = updated.begin(); particle != updated.end(); ++particle)
+    {
+      const auto position    = particle->get_location();
+      const auto source_rank = particle->get_id() / 3;
+      EXPECT_NEAR(particle->get_properties()[0],
+                  position[0] + 2. * position[1] + 100. * source_rank +
+                    7. * (source_rank + 1),
+                  1.e-14);
+      EXPECT_EQ(references.at(particle->get_id()),
+                particle->get_reference_location());
+    }
 }

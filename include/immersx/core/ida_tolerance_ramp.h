@@ -13,7 +13,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <utility>
 
 namespace ImmersX
@@ -62,16 +64,27 @@ namespace ImmersX
                     output_period > 0.,
                   dealii::ExcMessage(
                     "Invalid IDA interval for tolerance ramp."));
-      AssertThrow(std::isfinite(initial_relative_factor) &&
-                    initial_relative_factor >= 1. &&
-                    std::isfinite(initial_absolute_factor) &&
-                    initial_absolute_factor >= 1. &&
-                    std::isfinite(hold_duration) && hold_duration >= 0. &&
-                    std::isfinite(initial + hold_duration) &&
-                    std::isfinite(end_time) &&
-                    initial + hold_duration < end_time && end_time <= final,
-                  dealii::ExcMessage(
-                    "Invalid IDA tolerance ramp factors or times."));
+      AssertThrow(
+        std::isfinite(initial_relative_factor) &&
+          initial_relative_factor >= 1. &&
+          std::isfinite(initial_absolute_factor) &&
+          initial_absolute_factor >= 1. && std::isfinite(hold_duration) &&
+          hold_duration >= 0. && std::isfinite(initial + hold_duration),
+        dealii::ExcMessage(
+          "Tolerance ramp factors must be finite and at least one; Hold duration must be finite and nonnegative, and Initial time + Hold duration must be finite."));
+      AssertThrow(
+        std::isfinite(end_time) && initial + hold_duration < end_time &&
+          end_time <= final,
+        dealii::ExcMessage([&]() {
+          std::ostringstream message;
+          message << std::setprecision(
+                       std::numeric_limits<double>::max_digits10)
+                  << "Invalid Tolerance ramp/End time = " << end_time
+                  << ". Expected a finite End time satisfying Initial time ("
+                  << initial << ") + Hold duration (" << hold_duration
+                  << ") < End time <= Final time (" << final << ").";
+          return message.str();
+        }()));
       const double periods = (end_time - initial) / output_period;
       AssertThrow(
         std::isfinite(periods) && std::round(periods) >= 1. &&

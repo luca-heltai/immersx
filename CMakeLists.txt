@@ -80,11 +80,20 @@ set(IMMERSX_DEBUG_BINARY_PREFIX "/immersx/build" CACHE STRING
 if(IMMERSX_USE_CCACHE)
   find_program(IMMERSX_CCACHE_PROGRAM NAMES ccache)
   if(IMMERSX_CCACHE_PROGRAM)
-    # CCACHE_BASEDIR makes source names relative to this worktree before they
-    # are hashed.  CCACHE_HASHDIR prevents the build directory from becoming a
-    # second worktree-specific hash input.  The wrapper also preserves an
-    # explicitly configured CCACHE_DIR; otherwise all worktrees for this user
-    # use the conventional shared cache directory.
+    # Cover both trees, including generated translation units in out-of-source
+    # builds. A source-only base leaves those absolute paths in ccache's
+    # preprocessed input. Walk by path components, not textual prefixes.
+    set(_immersx_ccache_base_dir "${CMAKE_CURRENT_SOURCE_DIR}")
+    file(RELATIVE_PATH _immersx_binary_from_base
+      "${_immersx_ccache_base_dir}" "${CMAKE_CURRENT_BINARY_DIR}")
+    while(_immersx_binary_from_base MATCHES "^\\.\\.(/|$)")
+      get_filename_component(_immersx_ccache_base_dir
+        "${_immersx_ccache_base_dir}" DIRECTORY)
+      file(RELATIVE_PATH _immersx_binary_from_base
+        "${_immersx_ccache_base_dir}" "${CMAKE_CURRENT_BINARY_DIR}")
+    endwhile()
+    # The wrapper preserves an explicit CCACHE_DIR; otherwise all worktrees
+    # use the user's conventional shared cache directory.
     if(DEFINED ENV{CCACHE_DIR} AND NOT "$ENV{CCACHE_DIR}" STREQUAL "")
       set(_immersx_ccache_dir "$ENV{CCACHE_DIR}")
     elseif(DEFINED ENV{HOME} AND NOT "$ENV{HOME}" STREQUAL "")
@@ -119,6 +128,7 @@ if(IMMERSX_USE_CCACHE)
     endif()
     message(STATUS "ccache found: ${IMMERSX_CCACHE_PROGRAM}")
     message(STATUS "ccache cache directory: ${_immersx_ccache_dir}")
+    message(STATUS "ccache base directory: ${_immersx_ccache_base_dir}")
   else()
     message(STATUS "ccache not found; compiler caching is disabled")
   endif()
@@ -131,6 +141,17 @@ if((NOT IMMERSX_USE_CCACHE OR NOT IMMERSX_CCACHE_PROGRAM) AND
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+  # ccache rewrites source paths relative to the compiler working directory.
+  # Map that spelling too, so macros and debug information remain stable.
+  file(RELATIVE_PATH _immersx_relative_source_dir
+    "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_compile_options(
+    "-ffile-prefix-map=./=${IMMERSX_DEBUG_BINARY_PREFIX}/"
+    "-fdebug-prefix-map=./=${IMMERSX_DEBUG_BINARY_PREFIX}/"
+    "-fmacro-prefix-map=./=${IMMERSX_DEBUG_BINARY_PREFIX}/"
+    "-ffile-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
+    "-fdebug-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}"
+    "-fmacro-prefix-map=${_immersx_relative_source_dir}=${IMMERSX_DEBUG_SOURCE_PREFIX}")
   # Put the source-tree mapping first and the binary-tree mapping last.  The
   # compiler uses the last matching prefix, so generated files below an
   # in-tree build are mapped to the binary prefix rather than the source
@@ -409,6 +430,8 @@ int main(){ Model1d m; const std::type_info &ti = typeid(m); (void)ti; return 0;
 ENDIF()
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
+include(cmake/check_gmsh_api.cmake)
+
 # Test and tutorial inputs are configured into the build tree so that tests and
 # documented commands never need to infer the location of source data from
 # their current working directory.
@@ -632,11 +655,22 @@ ENABLE_TESTING()
 set(IMMERSX_NUMERICAL_TEST_ENVIRONMENT
   "DEAL_II_NUM_THREADS=1;OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1")
 include(cmake/container_tests.cmake)
+if(ENABLE_GOOGLE_TESTING OR ENABLE_DEAL_II_APP_TESTING)
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME ImmersX.ParaView.VariableRadiusTube
+      COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_SOURCE_DIR}/tests/paraview/test_variable_radius_tube.py")
+    set_tests_properties(ImmersX.ParaView.VariableRadiusTube PROPERTIES
+      LABELS "unit;quick" TIMEOUT 60 SKIP_RETURN_CODE 77)
+  endif()
+endif()
 include(cmake/mfx_modal_tests.cmake)
 include(cmake/lifted_elasticity_tests.cmake)
 include(cmake/vascular_network_tests.cmake)
 include(cmake/liver_vascular_tests.cmake)
 include(cmake/harmonic_fiber_tests.cmake)
+include(cmake/liver_parameter_tests.cmake)
 if(IMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS)
   include(cmake/metric_flow_x_package_tests.cmake)
 endif()
