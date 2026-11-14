@@ -45,7 +45,8 @@ class VariableRadiusTube(VTKPythonAlgorithmBase):
     def SetInputArray(self, index, port, connection, association, name):
         """Explicit array name and Point/Cell Data association."""
         self._association = int(association)
-        self._array = name or ""
+        # ArrayListDomain passes its none_string label as the selected name.
+        self._array = "" if name == "Automatic" else (name or "")
         self.Modified()
 
     @smproperty.intvector(name="Interpretation", default_values=0)

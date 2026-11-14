@@ -16,7 +16,8 @@ Select **InputArray** to choose a particular Point or Cell Data array.
 **Interpretation** is **Automatic**, **Radius**, or **Area**. Automatic treats
 `radius`, `Radius`, `RADIUS` and other case variants as radius; other selected
 names mean area. Explicit Radius or Area overrides this interpretation. An
-explicit selection is never replaced by an unrelated radius array.
+explicit selection is never replaced by an unrelated radius array. `Automatic`
+is reserved for automatic selection in the array chooser.
 
 All selected scalars must be finite and nonnegative and have one value per
 point or cell. Cell values are validated before averaging to points. Area

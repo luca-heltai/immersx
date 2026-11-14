@@ -173,6 +173,49 @@ class RadiusTube(unittest.TestCase):
         with self.assertRaises(ValueError):
             execute(plugin.VariableRadiusTube(), source)
 
+    def test_automatic_selection_label_uses_radius_or_area(self):
+        for unstructured in (False, True):
+            for association in (0, 1):
+                for has_radius in (False, True):
+                    with self.subTest(grid=unstructured, association=association,
+                                      has_radius=has_radius):
+                        source = line(unstructured)
+                        scalar(source, 0, 'area', [math.pi, math.pi])
+                        if has_radius:
+                            scalar(source, association, 'Radius',
+                                   [2.] * (2 if association == 0 else 1))
+                        tube = plugin.VariableRadiusTube()
+                        tube.SetInputArray(
+                            0, 0, 0, vtkDataObject.FIELD_ASSOCIATION_POINTS,
+                            'Automatic')
+                        self.radius(execute(tube, source),
+                                    2. if has_radius else 1.)
+
+    @unittest.skipUnless(HAVE_PARAVIEW, 'requires pvpython for actual proxy properties')
+    def test_paraview_proxy_automatic_selection(self):
+        from paraview.simple import LoadPlugin, TrivialProducer
+        LoadPlugin(str(PLUGIN), remote=False)
+        from paraview.simple import VariableRadiusTube
+        for unstructured in (False, True):
+            for association in (0, 1):
+                for has_radius in (False, True):
+                    with self.subTest(grid=unstructured, association=association,
+                                      has_radius=has_radius):
+                        source = line(unstructured)
+                        scalar(source, 0, 'area', [math.pi, math.pi])
+                        if has_radius:
+                            scalar(source, association, 'Radius',
+                                   [2.] * (2 if association == 0 else 1))
+                        producer = TrivialProducer()
+                        producer.GetClientSideObject().SetOutput(source)
+                        proxy = VariableRadiusTube(Input=producer)
+                        # Leave the real ArrayListDomain's Automatic selection
+                        # untouched instead of overriding it from Python.
+                        proxy.UpdatePipeline()
+                        self.assertAlmostEqual(
+                            proxy.GetDataInformation().GetBounds()[3],
+                            2. if has_radius else 1., places=6)
+
     @unittest.skipUnless(HAVE_PARAVIEW, 'requires pvpython for actual proxy properties')
     def test_paraview_proxy(self):
         from paraview.simple import LoadPlugin, TrivialProducer
