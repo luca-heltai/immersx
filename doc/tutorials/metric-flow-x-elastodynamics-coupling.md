@@ -228,3 +228,22 @@ end
 `representative_point`, `radius`, and `indices`. An empty `Properties` list
 disables particle files. Particles are distributed to their owning solid cells;
 wall points outside the solid are omitted.
+
+
+## Save the flow history for replay
+
+Set `MetricFlowX coupling/Flow history directory` to a fresh directory and
+`MetricFlowX coupling/Stop at output times = true`. The coupled application
+writes every selected output time, including the initial and final states.
+It saves one native MetricFlowX `layout` checkpoint and then only area,
+velocity and physical pressure in `fields-<hexadecimal time>` directories.
+`coupling_fields.csv` records the times and committed field directories.
+
+Pressure is evaluated with the current wall multiplier before its callable
+provider is detached for the layout checkpoint. Thus the saved pressure
+includes the coupled external pressure. The layout alone does not restore the
+coupled dynamics: it contains the native flow mesh and physics for reading
+the saved fields. Use the same MPI rank count and compatible MetricFlowX and
+deal.II versions for replay. Existing history directories are rejected.
+An empty directory parameter disables this output. MetricFlowX must provide
+`save_coupling_fields()`; older packages remain usable with history disabled.
