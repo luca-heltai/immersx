@@ -92,6 +92,34 @@ mpirun -np 16 /absolute/path/to/build/apps/metric_flow_x_elastodynamics \
 
 Choose a fresh output directory in the parameter file for each run. The supplied small and medium profiles use the deliberately permissive tolerances from the case11 campaign: IDA absolute tolerance `1e-1`, relative tolerance `1`, an initial absolute and relative tolerance factor of `1e8` ramped down by 7.4 s, and loose component tolerances for area, velocity, displacement and wall pressure. These settings let the solver return output for diagnosis; they do not give accurate trajectories. Small and medium runs completed with return code 0 in the campaign, but they reused the same network and are not physically validated. A separate small diagnostic using MUMPS-BLR-FGMRES reached 7.27 s over a short 0.07 s interval; it is not a full beat. `mumps-blr-fgmres` is not a selectable IDA solver type in current `master`; the diagnostic used an isolated experiment source snapshot and is not runnable from this branch yet.
 
+## Saved microvascular resistance controls
+
+Both coupled applications (`metric_flow_x_elastodynamics` and
+`metric_flow_x_elastostatic`) accept the following optional setting:
+
+```text
+subsection MetricFlowX coupling
+  subsection Archived network
+    set Triplet arm resistance factors = 1, 1, 1
+  end
+end
+```
+
+The entries multiply the saved three-arm compartment resistances in
+**arterial, portal, venous** order. This differs from the arterial, venous,
+portal order of the wall material lists. Each factor and each resulting arm
+must be finite and strictly positive, and all MPI ranks must supply the same
+factors. The default preserves the saved resistances exactly.
+
+The application applies these factors to temporary native coefficients on each
+setup. It retains the archive, radii, topology, terminal identities, two-terminal
+beds, root reservoir resistances and any boundary capacitances. Reusing the same
+loaded archive therefore does not accumulate scaling. Resistance factors are an
+explicit model configuration: they do not automatically follow the inlet flow,
+change wall compliance, or establish physiological calibration. Record chosen
+values and their pressure/flow targets with the run parameters; no final factors
+are prescribed by this tutorial.
+
 ## Profiles and solver settings
 
 | Profile | Tissue mesh | Solid / flow FE | Linear solver | Evidence and limits |

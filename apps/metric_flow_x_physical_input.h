@@ -57,6 +57,10 @@ namespace ImmersX::metric_flow_x_app_detail
         "Reference pressures",
         reference_pressures,
         "Wall reference pressures in Pa, in arterial, venous, portal order.");
+      add_parameter(
+        "Triplet arm resistance factors",
+        triplet_resistance_factors,
+        "Finite positive factors for saved microvascular star arms in arterial, portal, venous order (unlike wall materials). Two-terminal beds, capacitances and archive files are unchanged.");
       add_parameter("Portal pressure",
                     portal_pressure,
                     "Prescribed portal root reservoir pressure in Pa.");
@@ -76,6 +80,7 @@ namespace ImmersX::metric_flow_x_app_detail
                     "Physical archive halo in metres.");
     }
 
+    std::array<double, 3>            triplet_resistance_factors{{1., 1., 1.}};
     std::vector<Vascularization::Id> sealed_input_terminals;
     std::string                      directory;
     std::vector<double>              young_moduli{0., 0., 0.};
@@ -183,7 +188,8 @@ namespace ImmersX::metric_flow_x_app_detail
               false, ExcMessage("Unsupported real port in archived network."));
           return result;
         },
-        sealed);
+        sealed,
+        parameters.triplet_resistance_factors);
     else
       {
         AssertThrow(
