@@ -1,6 +1,6 @@
 <!-- Add "It closes #<issue>" if this PR closes an issue; omit this line otherwise. -->
 
-- [ ] Update CHANGELOG
+- [ ] Add changelog fragments in `changelog/<category>/YYYY_MM_DD_short_description.md`
 
 ## Overview
 

@@ -521,6 +521,29 @@ Keep independent correctness tests when they validate different layers of the
 software. For example, a physics-level residual/Jacobian test and a solver-level
 integration test are complementary rather than redundant.
 
+## Changelog fragments
+
+Add a file named `changelog/<category>/YYYY_MM_DD_short_description.md`, using
+the date work began and a short meaningful description. A PR can add one file
+in each relevant category: `added`, `changed`, `fix`, `removed`, `docs`,
+`tutorials`, `build`, and `testing`. Use multiple bullets in a file when needed.
+Keep the filename stable: it depends neither on the PR number nor a commit
+identifier. If the same date and description exist in that category, choose a
+more specific description.
+
+Copy `.github/CHANGELOG_TEMPLATE.md` and write plain bullets. The first line is
+`PR: #427`, with the actual PR number. A local draft may use `PR: pending` until
+the PR is opened; then update the metadata without renaming the file. CI and
+documentation require the actual number. The directory supplies the category,
+and the renderer supplies the PR link.
+
+Do not edit the root `CHANGELOG.md` for each PR. Documentation combines the
+fragments with that historical file, ordering new entries within each category
+by activity start date and then filename. `./scripts/build_doc.sh` renders this
+combined page without modifying or deleting fragments. Fragments remain
+separate after merging and are consolidated only at release time. See
+[Changelog and releases](changelog) for validation and the release command.
+
 ## Formatting and commits
 
 The repository formatter is:

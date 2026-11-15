@@ -1,3 +1,4 @@
-```{include} ../CHANGELOG.md
-:heading-offset: 0
-```
+# Changelog
+
+The documentation build combines the historical changelog and pending
+[pull request fragments](developer/changelog.md).

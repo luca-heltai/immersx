@@ -90,7 +90,8 @@ Pull requests normally run the `quick` label in Debug and Release, including
 serial and MPI coverage. Documentation-only PRs run documentation, mathematics,
 formatting, and lightweight tooling checks without compiling numerical or Coral
 targets. The allowlist covers documentation pages and assets, the README,
-changelog, Sphinx configuration, Doxyfile, and documentation requirements.
+changelog, per-PR Markdown fragments under `changelog/`, Sphinx configuration,
+Doxyfile, and documentation requirements.
 Executable examples, parameter files, and unknown inputs retain numerical checks.
 
 `scripts/ci/select_changes.py` compares the actual PR head with its merge base,
@@ -260,3 +261,24 @@ configurations were not run in this local matrix.
 
 ../how-to/testing
 ```
+
+## Changelog validation
+
+The CI plan validates all fragments before selecting numerical jobs. Names use
+`changelog/<category>/YYYY_MM_DD_short_description.md`. Validation rejects invalid
+dates, unknown category directories, empty entries, and multiple files for the
+same PR in one category. A PR may have fragments in different categories.
+When checking a PR diff, only newly added fragments must carry that PR's number;
+existing fragments retain their original reference when edited. Release
+consolidation needs no extra fragment. Fragment-only changes use the
+documentation-only plan.
+
+The renderer and release command are tested against isolated temporary
+histories through the ordinary CI-tooling test suite:
+
+```bash
+python3 scripts/changelog.py check
+python3 -B -m unittest discover -s scripts/ci/tests -v
+```
+
+See [Changelog and releases](changelog) for the format and release consolidation.

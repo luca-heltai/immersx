@@ -1,5 +1,8 @@
 import os
 import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 project = "ImmersX: embedded & mixed-dimensional simulation framework"
 author = "Luca Heltai and contributors"
@@ -30,7 +33,7 @@ html_theme_options = {
     "top_of_page_buttons": ["view", "edit"],
 }
 
-sys.path.insert(0, os.path.abspath(".."))
+sys.path.insert(0, str(_REPO_ROOT))
 
 breathe_projects = {
     project: os.path.abspath("../build/docs/doxygen/xml"),
@@ -59,3 +62,20 @@ myst_enable_extensions = [
 mathjax_path = (
     "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
 )
+
+
+def render_changelog(app, docname, source):
+    if docname == "changes":
+        from scripts.changelog import render
+        source[0] = render(_REPO_ROOT)
+
+
+def refresh_changelog(app, env, added, changed, removed):
+    # New fragments are not dependencies of the previous build yet.
+    return ["changes"]
+
+
+def setup(app):
+    app.connect("source-read", render_changelog)
+    app.connect("env-get-outdated", refresh_changelog)
+    return {"parallel_read_safe": True, "parallel_write_safe": True}

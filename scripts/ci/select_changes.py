@@ -20,6 +20,7 @@ def documentation_path(name):
     path = PurePosixPath(name)
     return (not path.is_absolute() and ".." not in path.parts and
             (name in DOC_FILES or
+             (name.startswith("changelog/") and path.suffix == ".md") or
              (name.startswith("doc/") and path.suffix in DOC_SUFFIXES)))
 
 
