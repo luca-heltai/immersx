@@ -171,7 +171,11 @@ are not a common convergence measure. A native flow state remains one semantic
 field, containing its area, velocity and capacitor-pressure components.
 Each linear solve reports the Newton correction's WRMS per field and over the
 whole state using the actual current IDA error weights. These are corrections
-before IDA's line search, not the accepted step. Recoverable callback reasons
+before IDA's line search, not the accepted step. MUMPS also reports each
+field's final linear defect and RHS norm, and logs the correction before a
+failed residual check can throw. These reuse the existing refinement defect;
+no extra Jacobian action is evaluated. Expert solves outside an initialized
+IDA instance report that WRMS weights are unavailable. Recoverable callback reasons
 include the originating rank, and a final summary prints IDA's native
 backtrack, residual and nonlinear iteration counters even after a solve fails.
 The original exception is logged and rethrown, so an inner solver failure is

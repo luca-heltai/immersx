@@ -1207,6 +1207,11 @@ namespace ImmersX
                     dst -= correction;
                     dst.compress(dealii::VectorOperation::insert);
                   }
+                if (ida_parameters_.print_nonlinear_diagnostics)
+                  {
+                    print_nonlinear_linear_defect(original_rhs, defect);
+                    print_nonlinear_correction(dst);
+                  }
                 // Some supported deal.II MUMPS wrappers do not report failed
                 // factorizations. Do not let a zero correction freeze the DAE.
                 if (!(std::isfinite(defect_norm) &&
@@ -1337,7 +1342,8 @@ namespace ImmersX
                       << control.last_value() << target() << "." << std::endl;
               }
           }
-        if (ida_parameters_.print_nonlinear_diagnostics)
+        if (ida_parameters_.print_nonlinear_diagnostics &&
+            linear_solver_ != LinearSolver::mumps)
           print_nonlinear_correction(dst);
       };
       ida_->differential_components = [this]() {
@@ -1460,8 +1466,65 @@ namespace ImmersX
     }
 
     void
+    print_nonlinear_linear_defect(const GlobalVectorType &rhs,
+                                  const GlobalVectorType &defect) const
+    {
+      const auto communicator = composition_.communicator();
+      for (std::size_t i = 0; i < composition_.n_fields(); ++i)
+        {
+          const FieldId id(i);
+          const auto   &source      = composition_.field(rhs, id);
+          const auto   &error       = composition_.field(defect, id);
+          double        rhs_squared = 0., defect_squared = 0., maximum = 0.;
+          unsigned long bad_rhs = 0, bad_defect = 0;
+          for (const auto index : source.locally_owned_elements())
+            {
+              const double value = source[index], difference = error[index];
+              if (std::isfinite(value))
+                rhs_squared += value * value;
+              else
+                ++bad_rhs;
+              if (std::isfinite(difference))
+                {
+                  defect_squared += difference * difference;
+                  maximum = std::max(maximum, std::abs(difference));
+                }
+              else
+                ++bad_defect;
+            }
+          rhs_squared = dealii::Utilities::MPI::sum(rhs_squared, communicator);
+          defect_squared =
+            dealii::Utilities::MPI::sum(defect_squared, communicator);
+          maximum    = dealii::Utilities::MPI::max(maximum, communicator);
+          bad_rhs    = dealii::Utilities::MPI::sum(bad_rhs, communicator);
+          bad_defect = dealii::Utilities::MPI::sum(bad_defect, communicator);
+          const double       invalid = std::numeric_limits<double>::quiet_NaN();
+          std::ostringstream line;
+          line << std::scientific << std::setprecision(17)
+               << "IDA nonlinear linear defect solve=" << linear_solves_
+               << " field=" << i << " name="
+               << std::quoted(composition_.state_layout().field(id).name)
+               << " rhs_l2=" << (bad_rhs ? invalid : std::sqrt(rhs_squared))
+               << " defect_l2="
+               << (bad_defect ? invalid : std::sqrt(defect_squared))
+               << " defect_linf=" << (bad_defect ? invalid : maximum)
+               << " nonfinite_rhs=" << bad_rhs
+               << " nonfinite_defect=" << bad_defect;
+          pcout << line.str() << std::endl;
+        }
+    }
+
+    void
     print_nonlinear_correction(const GlobalVectorType &correction) const
     {
+      if (!ida_ || !ida_->get_ida_memory())
+        {
+          pcout
+            << "IDA nonlinear correction solve=" << linear_solves_
+            << " field=all wrms=unavailable reason=IDA weights not initialized"
+            << std::endl;
+          return;
+        }
       GlobalVectorType weights;
       composition_.reinit(weights);
       auto view = Compatibility::SUNDIALS::internal::make_nvector_view(
@@ -1471,7 +1534,14 @@ namespace ImmersX
         ida_->get_sun_context()
 #  endif
       );
-      check_ida(IDAGetErrWeights(ida_->get_ida_memory(), view));
+      const int status = IDAGetErrWeights(ida_->get_ida_memory(), view);
+      if (status < 0)
+        {
+          pcout << "IDA nonlinear correction solve=" << linear_solves_
+                << " field=all wrms=unavailable IDAGetErrWeights_status="
+                << status << std::endl;
+          return;
+        }
       const auto communicator = composition_.communicator();
       double     total        = 0.;
       for (std::size_t i = 0; i < composition_.n_fields(); ++i)
@@ -1684,6 +1754,7 @@ namespace ImmersX
           return;
         }
       ++jacobian_setups_;
+      diagnostic_time_ = time;
       if (ida_parameters_.print_nonlinear_diagnostics)
         pcout << "IDA nonlinear Jacobian setup=" << jacobian_setups_
               << " t=" << time << " alpha=" << alpha << std::endl;
