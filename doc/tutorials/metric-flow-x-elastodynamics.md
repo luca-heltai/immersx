@@ -162,6 +162,30 @@ one is active. `Schur complement` and `Second-order block` control the inner
 solves of the preconditioner. `MUMPS` sets the residual check after each
 direct backsolve; UMFPACK runs no check.
 
+Set `MetricFlowSystem<1, 3>/IDA parameters/Print nonlinear diagnostics = true`
+to diagnose initialization or integration failures. The default is false.
+Each residual trial reports the unscaled residual L2 and maximum norms and
+state range for each named semantic field, including counts of nonfinite
+entries. These residual rows have different physical units; their raw norms
+are not a common convergence measure. A native flow state remains one semantic
+field, containing its area, velocity and capacitor-pressure components.
+Each linear solve reports the Newton correction's WRMS per field and over the
+whole state using the actual current IDA error weights. These are corrections
+before IDA's line search, not the accepted step. MUMPS also reports each
+field's final linear defect and RHS norm, and logs the correction before a
+failed residual check can throw. These reuse the existing refinement defect;
+no extra Jacobian action is evaluated. Expert solves outside an initialized
+IDA instance report that WRMS weights are unavailable. Recoverable callback reasons
+include the originating rank, and a final summary prints IDA's native
+backtrack, residual and nonlinear iteration counters even after a solve fails.
+The original exception is logged and rethrown, so an inner solver failure is
+kept distinct from a secondary error message printed by IDA.
+Trial ranges describe evaluated states; candidates rejected internally by
+IDA's inequality constraints need not trigger a residual callback.
+This option adds vector reductions and a temporary weight vector; it does not
+assemble extra residuals or matrices, change tolerances, or alter convergence
+tests. Disable it for performance measurements.
+
 Set `Linear solver/Type = mumps-blr-fgmres` to run outer FGMRES with a full
 coupled Jacobian factored by MUMPS in block-low-rank mode as its preconditioner.
 IDA reuses that factorization for the linear solves associated with the current

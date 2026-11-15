@@ -17,6 +17,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -1242,6 +1243,16 @@ namespace
     mass->compress(VectorOperation::insert);
     TimeIntervalParameters time_parameters;
     IDAParameters          ida_parameters;
+    ida_parameters.print_nonlinear_diagnostics = true;
+    std::ostringstream output;
+    struct RestoreStream
+    {
+      std::streambuf *original;
+      ~RestoreStream()
+      {
+        std::cout.rdbuf(original);
+      }
+    } restore{std::cout.rdbuf(output.rdbuf())};
     Adapter adapter(time_parameters, ida_parameters, MPI_COMM_WORLD);
     adapter.set_linear_solver(Adapter::LinearSolver::mumps);
     adapter.set_mumps_memory_limit_mb(128);
@@ -1311,6 +1322,16 @@ namespace
             action -= scaled_rhs;
             EXPECT_LT(action.l2_norm(), 1.e-10);
           }
+      }
+    if (rank == 0)
+      {
+        EXPECT_NE(output.str().find("IDA nonlinear linear defect solve="),
+                  std::string::npos);
+        EXPECT_NE(output.str().find("rhs_l2="), std::string::npos);
+        EXPECT_NE(output.str().find("defect_l2="), std::string::npos);
+        EXPECT_NE(output.str().find(
+                    "wrms=unavailable reason=IDA weights not initialized"),
+                  std::string::npos);
       }
     EXPECT_THROW(adapter.set_linear_solver(Adapter::LinearSolver::iterative),
                  ExceptionBase);
