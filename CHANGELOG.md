@@ -346,6 +346,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Let IRCAD11 liver profiles parse with the current solid parameters, and check all three profiles without release assets.
+
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Retain lifted-wall particle locations between accepted outputs and update their properties without repeating distributed point searches.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Parse liver tutorial profiles without the removed solid refinement parameter, allow tiny MPI iterative runs, and report explicit tolerance-ramp bounds when shortening a run.
