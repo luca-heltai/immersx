@@ -12,7 +12,7 @@
 #include <sstream>
 
 #ifdef DEAL_II_WITH_SUNDIALS
-TEST(IDAContinuation, BOTH_NativeConvergenceFailureRetriesFromCheckpoint)
+TEST(DistributedIDA, BOTH_NativeConvergenceFailureRetriesFromCheckpoint)
 {
   using namespace ImmersX;
   using Adapter =

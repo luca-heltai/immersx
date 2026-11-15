@@ -1235,7 +1235,7 @@ TEST(DistributedIDA, BOTH_AlgebraicRampProtectionValidatesOnlyAppliedScales)
     }
 }
 
-TEST(IDATolerances, BOTH_ResidualContinuationPreservesPhysicalInitialEquation)
+TEST(DistributedIDA, BOTH_ResidualContinuationPreservesPhysicalInitialEquation)
 {
   TimeIntervalParameters time;
   time.final_time = 0.;
@@ -1273,7 +1273,7 @@ TEST(IDATolerances, BOTH_ResidualContinuationPreservesPhysicalInitialEquation)
     EXPECT_NEAR(adapter.field(residual, field.fields())[index], -2., 1.e-13);
 }
 
-TEST(IDATolerances,
+TEST(DistributedIDA,
      BOTH_ResidualContinuationRestoresAfterOriginalCallbackFailure)
 {
   TimeIntervalParameters time;
@@ -1318,7 +1318,7 @@ TEST(IDATolerances,
     EXPECT_NEAR(adapter.field(residual, field.fields())[index], -3., 1.e-13);
 }
 
-TEST(IDATolerances, BOTH_ResidualContinuationRejectsIncompatibleCorrection)
+TEST(DistributedIDA, BOTH_ResidualContinuationRejectsIncompatibleCorrection)
 {
   TimeIntervalParameters time;
   time.final_time = 0.;
@@ -1333,7 +1333,7 @@ TEST(IDATolerances, BOTH_ResidualContinuationRejectsIncompatibleCorrection)
   EXPECT_THROW(adapter.solve(state, derivative), dealii::ExceptionBase);
 }
 
-TEST(IDATolerances, BOTH_ResidualContinuationPreservesTypedPendingException)
+TEST(DistributedIDA, BOTH_ResidualContinuationPreservesTypedPendingException)
 {
   TimeIntervalParameters time;
   time.final_time = 0.;
