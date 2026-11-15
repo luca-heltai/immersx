@@ -58,6 +58,8 @@ def main():
 
     # Nonzero, time-independent forcing makes a resting flow guess non-steady.
     steady = set_entry(text, 'Inflow function', '1e-8')
+    steady = set_entry(steady, 'Absolute error tolerance', '1e-9')
+    steady = set_entry(steady, 'Relative error tolerance', '1e-7')
     if steady.count('0;(1+1000*t)*y;(1+1000*t)*z') != 1:
         raise AssertionError('The initialization fixture must contain the expected body load')
     steady = steady.replace('0;(1+1000*t)*y;(1+1000*t)*z', '0;y;z')
@@ -114,7 +116,7 @@ def main():
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             timeout=min(args.timeout, 30), text=True, check=False)
     (rejected / 'run.log').write_text(result.stdout)
-    if result.returncode == 0 or 'requires coupled IDA use_y_diff or use_y_dot' not in result.stdout:
+    if result.returncode == 0 or 'requires coupled IDA use_y_diff or use_y_dot' not in ' '.join(result.stdout.split()):
         raise AssertionError('Fresh none correction was not rejected by the application guard')
     print('Fresh steady initialization, default, and restart checks passed')
 
