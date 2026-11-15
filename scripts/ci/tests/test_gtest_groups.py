@@ -110,7 +110,9 @@ class Discovery(unittest.TestCase):
                 if "validation" in labels or "application" in labels:
                     self.assertLessEqual(len(selected), 15)
                     self.assertEqual(next(p["value"] for p in group["properties"]
-                                          if p["name"] == "TIMEOUT"), 115)
+                                          if p["name"] == "TIMEOUT"), 7200)
+                    self.assertIn("nightly", labels)
+                    self.assertIn("IMMERSX_TEST_TIMEOUT_SECONDS=3600", group["command"])
                     category = "validation" if "validation" in labels else "application"
                     mode = "MPI" if "mpi" in labels else "Serial"
                     key = category, mode

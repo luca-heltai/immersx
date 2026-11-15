@@ -4,6 +4,8 @@ on:
   push:
     branches: [master]
   pull_request:
+  schedule:
+    - cron: "17 2 * * *"
   workflow_dispatch:
     inputs:
       full_suite:
@@ -12,8 +14,8 @@ on:
         default: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 env:
   # Match the directory restored and saved by ccache-action.
@@ -44,7 +46,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.run_numeric == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.full_suite == true) && 360 || 120 }}
     container:
       image: dealii/dealii:v9.7.1-noble
       options: --user root --env OMPI_ALLOW_RUN_AS_ROOT=1 --env OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -62,11 +64,16 @@ jobs:
           verbose: 1
 
       - name: Build debug
+        env:
+          FULL_SUITE: ${{ needs.plan.outputs.full_suite }}
         run: |
+          profile=quick
+          if [ "$FULL_SUITE" = true ]; then profile=full; fi
           rm -rf build_linux_debug
           mkdir build_linux_debug
           cd build_linux_debug
           cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-fopenmp \
+            -DIMMERSX_TEST_PROFILE="$profile" \
             -DIMMERSX_BUILD_BENCHMARKS=ON \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
@@ -101,7 +108,13 @@ jobs:
 
       - name: Report slow tests
         if: always()
-        run: python3 scripts/ci/report_timings.py --build-dir build_linux_debug --output build_linux_debug/test-timings.json
+        env:
+          FULL_SUITE: ${{ needs.plan.outputs.full_suite }}
+        run: |
+          limit=120
+          if [ "$FULL_SUITE" = true ]; then limit=3600; fi
+          python3 scripts/ci/report_timings.py --build-dir build_linux_debug \
+            --output build_linux_debug/test-timings.json --max-case-seconds "$limit"
 
       - name: Preserve CTest timings and logs
         if: always()
@@ -129,7 +142,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.run_numeric == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.full_suite == true) && 360 || 120 }}
     container:
       image: dealii/dealii:v9.7.1-noble
       options: --user root --env OMPI_ALLOW_RUN_AS_ROOT=1 --env OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -147,11 +160,16 @@ jobs:
           verbose: 1
 
       - name: Build release
+        env:
+          FULL_SUITE: ${{ needs.plan.outputs.full_suite }}
         run: |
+          profile=quick
+          if [ "$FULL_SUITE" = true ]; then profile=full; fi
           rm -rf build_linux_release
           mkdir build_linux_release
           cd build_linux_release
           cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fopenmp \
+            -DIMMERSX_TEST_PROFILE="$profile" \
             -DIMMERSX_BUILD_BENCHMARKS=ON \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DIMMERSX_ENABLE_METRIC_FLOW_X_PACKAGE_TESTS=OFF \
@@ -186,7 +204,13 @@ jobs:
 
       - name: Report slow tests
         if: always()
-        run: python3 scripts/ci/report_timings.py --build-dir build_linux_release --output build_linux_release/test-timings.json
+        env:
+          FULL_SUITE: ${{ needs.plan.outputs.full_suite }}
+        run: |
+          limit=120
+          if [ "$FULL_SUITE" = true ]; then limit=3600; fi
+          python3 scripts/ci/report_timings.py --build-dir build_linux_release \
+            --output build_linux_release/test-timings.json --max-case-seconds "$limit"
 
       - name: Preserve CTest timings and logs
         if: always()

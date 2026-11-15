@@ -11,6 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #416](https://github.com/luca-heltai/immersx/pull/416) Add MUMPS BLR-preconditioned FGMRES for coupled IDA solves, with controls for low-rank truncation, per-rank memory and MUMPS diagnostics.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Expose per-rank MUMPS working-memory limits and native memory reports in IDA, native flow-block inverses, and the coupled elastodynamics and elastostatic applications.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Validate coupled elastodynamics parameters without loading meshes or release assets.
@@ -666,6 +667,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #87](https://github.com/luca-heltai/immersx/pull/87) Centralized build-tree test inputs and added the contributing guide.
 
 ### Testing and CI
+
+- [PR #425](https://github.com/luca-heltai/immersx/pull/425) Build the quick test profile on pull requests and master pushes; retain all extended validation/application tests and standalone public-header checks in a daily 02:17 UTC full run, with longer watchdog and job limits. Keep new and mixed test sources in quick and check nightly source ownership.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Check imported UCD/VTK material IDs through analytical mass, stiffness and damping forms in serial/MPI; retain liver parsing and ParaView geometry regressions in CTest/CI.
 
