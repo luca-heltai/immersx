@@ -343,6 +343,17 @@ The contract requires fixed mesh, mapping, reference geometry, support,
 finite-element space and homogeneous constraint coefficients. If these
 change, rebuild the term; this option does not automatically invalidate it.
 The nonlinear $\sqrt A$ trial-state map is evaluated dynamically.[^4]
+The fixed pairing and its materialized transpose are shared across Jacobian
+snapshots; scaling an immutable pairing retains one global scaled matrix.
+The fixed multiplier mass term on vessel portions outside the solid is also
+assembled once. This retains assembled sparse operators rather than a matrix
+for every cell. Native flow Jacobians and the nonlinear wall derivative still
+follow the current candidate state. Changing mesh, mapping, supports, FE spaces
+or homogeneous constraint coefficients requires rebuilding the terms.
+At completion, the application prints `Elastodynamics assembly counts` as
+rank minima/maxima for spatial and Robin operators, body force, constraint
+updates and standalone time matrices. Compare these counters with the Jacobian
+setup timer; sparse sums and factorization do not count as spatial assembly.
 
 This assembly retention is distinct from the Schur snapshot cache below.
 It retains a fixed linear weak term; the Schur cache is rebuilt with a new

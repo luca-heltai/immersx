@@ -180,8 +180,29 @@ namespace
     EXPECT_FALSE(
       shared.state_matrix_operator(u.id(), lambda.id(), context).has_value());
     EXPECT_EQ(residual(shared, u.id(), state, multiplier).l2_norm(), 0.);
-    const auto retained = forward->matrix();
-    (void)reverse->matrix();
+    const auto retained                = forward->matrix();
+    const auto retained_reverse        = reverse->matrix();
+    const auto scaled_reverse          = -2.5 * *reverse;
+    const auto retained_scaled_reverse = scaled_reverse.matrix();
+    for (unsigned int repeat = 0; repeat < 3; ++repeat)
+      {
+        const auto snapshot = shared.retained_linearization(context);
+        const auto snapshot_forward =
+          snapshot.state_matrix_operator(lambda.id(), u.id(), context);
+        const auto snapshot_reverse =
+          snapshot.state_matrix_operator(v.id(), lambda.id(), context);
+        ASSERT_TRUE(snapshot_forward.has_value());
+        ASSERT_TRUE(snapshot_reverse.has_value());
+        EXPECT_EQ(snapshot_forward->matrix().get(), retained.get());
+        EXPECT_EQ(snapshot_reverse->matrix().get(), retained_reverse.get());
+        EXPECT_EQ(scaled_reverse.matrix().get(), retained_scaled_reverse.get());
+      }
+    V scaled_action(u.locally_owned_dofs(), MPI_COMM_WORLD);
+    retained_scaled_reverse->vmult(scaled_action, multiplier);
+    V unscaled_action(scaled_action);
+    retained_reverse->vmult(unscaled_action, multiplier);
+    scaled_action.add(2.5, unscaled_action);
+    EXPECT_LT(scaled_action.l2_norm(), 1.e-12);
     V line_result = residual(shared, lambda.id(), state, multiplier);
     V bulk_result = residual(shared, v.id(), state, multiplier);
     EXPECT_EQ(detail::weak_term_matrix_initializations.load(), before + 1u);

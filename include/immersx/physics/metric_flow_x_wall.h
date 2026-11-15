@@ -66,6 +66,7 @@ namespace ImmersX
         .add(builder);
       weak_term(-1. * value(multiplier), test(multiplier))
         .on(supports.outside)
+        .with_cached_assembly()
         .add(builder);
 
       auto metric        = builder.matrix_operator(*multiplier_metric);

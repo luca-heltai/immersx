@@ -53,6 +53,7 @@
 #  include <stdexcept>
 #  include <string>
 #  include <type_traits>
+#  include <utility>
 #  include <vector>
 
 #  include "metric_flow_x_history.h"
@@ -1296,6 +1297,24 @@ namespace
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       std::cout << "MetricFlowX elastodynamics accepted IDA steps: "
                 << accepted_steps << std::endl;
+    const auto &counts = solid_problem.assembly_statistics();
+    const bool  root   = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0;
+    if (root)
+      std::cout << "Elastodynamics assembly counts (rank min/max):";
+    for (const auto &[name, count] :
+         {std::pair{"spatial_operators", counts.spatial_operators},
+          std::pair{"robin_operators", counts.robin_operators},
+          std::pair{"body_force", counts.body_force},
+          std::pair{"constraints", counts.constraints},
+          std::pair{"time_system_matrix", counts.time_system_matrix}})
+      {
+        const auto minimum = Utilities::MPI::min(count, MPI_COMM_WORLD);
+        const auto maximum = Utilities::MPI::max(count, MPI_COMM_WORLD);
+        if (root)
+          std::cout << ' ' << name << '=' << minimum << '/' << maximum;
+      }
+    if (root)
+      std::cout << std::endl;
   }
 } // namespace
 

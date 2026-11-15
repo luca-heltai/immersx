@@ -245,6 +245,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
+- [PR #428](https://github.com/luca-heltai/immersx/pull/428) Share fixed wall pairings and their sparse transposes across Jacobian snapshots, cache the exterior multiplier mass term, apply cached pressure transposes without copying their matrix, and initialize state-pressure derivatives from the current sparse layout without copying values that would be discarded. Native mutable and nonlinear operators retain their snapshot behavior. The coupled application reports solid assembly counters as rank minima/maxima at completion.
+
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Consolidate the ParaView tube plugin as Variable Radius Tube, reusing selected Point or Cell radius/area arrays and extracting surfaces only for non-polydata input. Honor the array chooser's default Automatic selection.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Use affine MappingP1 for simplex elastodynamics when available, retaining MappingFE on older deal.II versions.

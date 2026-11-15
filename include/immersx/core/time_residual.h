@@ -109,8 +109,9 @@ namespace ImmersX
     /** Retain a linearization at one execution-owned evaluation point.
      * Materialize each eligible contribution before another factory can change
      * a native matrix observed by its view. Shared materialized storage is
-     * cloned, and each retained view owns its matrix. Matrix-free actions
-     * remain actions.
+     * cloned unless the contributor explicitly guarantees immutable storage.
+     * Fixed cached weak terms retain their assembly across snapshots.
+     * Matrix-free actions remain actions.
      */
     SemiDiscreteModel
     retained_linearization(const Context &context) const
@@ -126,10 +127,12 @@ namespace ImmersX
                     auto op = entry.matrix_factory(context);
                     if (op.is_materializable())
                       {
-                        auto matrix = op.matrix();
-                        if (matrix.use_count() > 1)
+                        const bool immutable = op.immutable;
+                        auto       matrix    = op.matrix();
+                        if (!immutable && matrix.use_count() > 1)
                           matrix = detail::clone_matrix(*matrix);
                         op = matrix_operator<VectorType>(std::move(matrix));
+                        op.immutable = immutable;
                       }
                     entry.factory = [op](const Context &) { return op.view; };
                     entry.matrix_factory = [op](const Context &) { return op; };

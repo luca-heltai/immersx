@@ -5401,6 +5401,7 @@ namespace ImmersX
       const auto source            = observable_.source();
       const auto row               = target.source();
       auto      &op                = result.operator_with_matrix;
+      op.immutable                 = cache_assembly_;
       op.view.reinit_domain_vector = [source](VectorType &v, const bool) {
         detail::initialize_weak_vector(v,
                                        source.locally_owned_dofs(),
