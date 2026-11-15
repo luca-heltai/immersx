@@ -215,6 +215,23 @@ relative tolerance, and $s_a,s_r$ are the ramp multipliers. Weights use IDA's
 internal time. Output values can be interpolated at earlier times, so output
 time and internal time need not coincide.
 
+Set `Tolerance ramp/Protect algebraic variables = true` to keep both
+multipliers at one on algebraic DoFs while differential DoFs follow the ramp.
+The default is `false`. Classification uses the Problem's differential mask
+within each semantic Field, including mixed Fields such as native blood flow.
+An explicit `set_tolerance_ramp_enabled(field, false)` keeps the entire Field
+at its base tolerances and takes precedence over the per-DoF ramp.
+
+IDA uses the same weights in its nonlinear correction norm. For example,
+ramping an absolute pressure tolerance of `0.01 Pa` by `1e8` makes its absolute
+weight denominator `1e6 Pa`; protection retains `0.01 Pa` and the base relative
+term on algebraic pressure variables. `Ignore algebraic terms for error
+computations` excludes them only from the local time error test, not from
+nonlinear convergence. If that option is false, protecting algebraic weights
+also keeps their local time error control strict. Differential weights and
+all base tolerances remain unchanged. This option does not impose a separate
+physical residual, pressure-balance or mass-conservation acceptance test.
+
 Changing weights does not restart IDA or discard its BDF history. The adapter
 sets a stop at the ramp end, then restores the final stop time, including
 when no application output callback is installed. After a genuine application
