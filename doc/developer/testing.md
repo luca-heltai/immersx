@@ -18,6 +18,7 @@ ctest -L unit --output-on-failure
 ctest -L integration --output-on-failure
 ctest -L validation --output-on-failure
 ctest -L application --output-on-failure
+ctest -L nightly --output-on-failure      # extended GoogleTest groups
 ```
 
 Test layout:
@@ -34,7 +35,17 @@ Both `gtests/` and `tests/` use these primary categories. `quick` is an
 orthogonal label applied to all unit and integration tests, while `mpi` marks
 tests that require more than one MPI rank. GoogleTest categories are CTest
 groups over one aggregate executable, so sources are compiled once and CTest
-remains the single orchestration layer.
+remains the single orchestration layer. Validation and application GoogleTest
+groups also carry `nightly`.
+
+`IMMERSX_TEST_PROFILE=full` is the local default and builds every GoogleTest and
+all standalone public-header checks. Configure `-DIMMERSX_TEST_PROFILE=quick`
+to avoid compiling the 28 translation units containing only validation or
+application suites. Mixed files, new files, and unknown suites stay in quick.
+The source-category guard rejects adding a quick or unclassified registration
+to a file reserved for nightly builds. No numerical test or independent oracle
+is removed. Eight representative public interfaces are checked independently
+in quick; full builds check the complete public-header list.
 
 To inspect the inventory and labels:
 
@@ -54,13 +65,16 @@ GoogleTest targets are enabled only when `GTest` is available at configure time.
 
 ## Correctness-test budget
 
-Each GoogleTest case must finish within 120 seconds, including fixture setup
-and teardown. The common driver stops a case after 115 seconds on every MPI
-rank, leaving five seconds within the budget for launcher shutdown. A watchdog
+Ordinary unit and integration GoogleTest cases must finish within 120 seconds,
+including fixture setup and teardown. The common driver stops a case after
+115 seconds on every MPI rank, leaving five seconds within the budget for launcher shutdown. A watchdog
 timeout fails the test process; the timing report also rejects completed cases
 above the 120-second limit. Application launchers register a private process group
 so a timeout also stops their subprocesses and closes their output pipes.
-A CTest group can contain several
+Nightly validation/application groups set `IMMERSX_TEST_TIMEOUT_SECONDS=3600`
+for the same watchdog and allow 7,200 seconds per CTest group. Values outside
+1–3,600 seconds fail rather than disabling the watchdog. The nightly timing
+report uses the same 3,600-second case limit. A CTest group can contain several
 cases, so its aggregate duration is distinct from an individual case's budget.
 
 Use the smallest fixture that exercises the contract. Keep nonzero loads,
@@ -90,7 +104,12 @@ run the complete quick matrix. A component hint is not a transitive dependency
 proof. Compiler and link dependencies, runtime fixture ownership, and comparisons
 with complete runs are required before enabling finer exclusions.
 
-Pushes to `master` run every CTest category and both Coral configurations.
+Pull requests and pushes to `master` build the quick profile and run the quick
+CTest matrix in Debug and Release. The full numerical matrix runs once daily
+at 02:17 UTC (03:17 in Rome in winter, 04:17 in summer), with six-hour job
+deadlines. Scheduled runs use a separate concurrency group so a daytime push
+does not cancel them. Manual dispatch with `full_suite=true` also builds and
+runs full. Both Coral configurations remain unchanged.
 The independent package job executes the complete `MetricFlowXPackage` matrix
 once, including its Debug, Release, and DebugRelease scenarios. Ordinary Debug
 and Release jobs disable only that duplicate registration through
@@ -135,8 +154,8 @@ can overlap and must not be summed as build wall time. The Debug job reserves
 4 GB for ccache; compare hits, misses, and cleanup counts on equivalent runs
 when checking whether that working set is sufficient.
 The numerical jobs use two compiler workers to contain peak memory use. Their
-whole-job deadlines, 120 minutes for Debug and 90 minutes for Release, include
-cold compilation and all selected tests. The per-case watchdog is
+whole-job deadlines, 120 minutes for the ordinary matrix and 360 minutes for
+full/nightly runs, include cold compilation and all selected tests. The per-case watchdog is
 independent of those workflow deadlines.
 `Testing/Temporary/LastTest.log` includes GoogleTest case timings even for
 successful groups. Partial logs are uploaded on failure when the runner can
@@ -150,7 +169,7 @@ and fixtures still share output paths; removing it requires isolating those
 paths first.
 
 Validation and application cases use ordered batches of at most 15 cases, each
-with a 115-second CTest timeout and its own XML report. A suite can span several
+with a 7,200-second CTest timeout and its own XML report. A suite can span several
 batches. Dependencies preserve the compiled case order within each category and
 serial/MPI mode; the shared output lock remains enabled. Registry checks verify
 that batching preserves every selected case without duplication.
@@ -163,6 +182,24 @@ current configuration before rerunning a failed group.
 
 For application smoke tests and package checks, see
 [Test a documented workflow](../how-to/testing).
+
+## Current compilation cost
+
+The Release artifact from [run 43446992152](https://github.com/luca-heltai/immersx/actions/runs/43446992152)
+records 176 GoogleTest compilation outputs and 74 standalone-header outputs.
+The sum of their compiler-command durations is 6,149.986 and 755.915 seconds,
+respectively. Commands overlap; these sums are not build wall times. The longest
+quick case takes 1.976 seconds and the complete quick CTest phase takes about
+six minutes. Reducing only case runtimes would leave most cold-build cost.
+
+The quick build therefore omits compilation of the extended-only sources and
+most standalone-header probes, while the daily full build retains them. This
+is a reduction in the ordinary build's command inventory, not a measured hosted
+CI speedup. In the deal.II 9.7.1 DebugRelease configuration, full generates 704
+compiler commands and quick generates 516: 28 fewer GoogleTest sources and 66
+fewer header probes per variant. The 28 omitted Release source commands account
+for 991.773 seconds in that historical artifact; the 66 omitted header commands
+account for 666.832 seconds. Compiler caching and changed source revisions affect wall time.
 
 ## Retained cost audit
 

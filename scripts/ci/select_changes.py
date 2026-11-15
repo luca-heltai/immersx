@@ -112,12 +112,16 @@ def observed_components(paths):
 def select(repo, event, base=None, head=None, force_full=False):
     plan = {"schema_version": 1, "mode": "full-pr", "docs_only": False,
             "run_numeric": True, "run_coral": True, "run_benchmarks": True,
-            "full_suite": bool(force_full or event != "pull_request"),
+            "full_suite": bool(force_full or event not in ("pull_request", "push")),
             "component_selection": "observation-only", "observed_components": ["all"],
             "changes": [], "reasons": []}
     if plan["full_suite"]:
         plan["mode"] = "full-suite"
         plan["reasons"] = ["forced-full" if force_full else "non-pr-event"]
+        return plan
+    if event == "push":
+        plan["mode"] = "quick-push"
+        plan["reasons"] = ["full-suite-runs-nightly"]
         return plan
     try:
         merge_base, head_sha, changes = changed_files(repo, base, head)

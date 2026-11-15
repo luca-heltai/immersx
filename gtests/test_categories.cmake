@@ -5,6 +5,7 @@ set(IMMERSX_UNIT_TEST_SUITES
     FictitiousInterior
     VascularNetworkData
     TestCategoryTyped/*
+    TestWatchdog
     ContributorCore
     SecondOrderCondensation
     DimensionParameters
