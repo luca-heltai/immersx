@@ -179,6 +179,23 @@ class Fragments(unittest.TestCase):
             changelog.render(self.repo)
         self.assertEqual(target.read_text(), HISTORY)
 
+    def test_gitignore_keeps_all_changelog_markdown_as_source(self):
+        (self.repo / ".gitignore").write_text((ROOT / ".gitignore").read_text())
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        paths = [self.fragment(category=category, body="- Preserve checkpoint restart.\n")
+                 for category in changelog.DIRECTORIES]
+        paths += [self.fragment("2026_11_15_checkpoint_restart.md", category=category)
+                  for category in changelog.DIRECTORIES]
+        paths.append(self.archive(name="version_26_11_v0.5-checkpoint.md", version="0.5-checkpoint"))
+        for path in paths:
+            with self.subTest(path=path):
+                result = subprocess.run(["git", "check-ignore", "-q", "--", str(path)], cwd=self.repo)
+                self.assertEqual(result.returncode, 1)
+        unrelated = self.repo / "checkpoint-output.md"
+        unrelated.write_text("Generated output stays ignored.\n")
+        result = subprocess.run(["git", "check-ignore", "-q", "--", str(unrelated)], cwd=self.repo)
+        self.assertEqual(result.returncode, 0)
+
     def test_current_pr_applies_only_to_new_fragments_in_ci(self):
         old = self.fragment(pr=12)
         new = self.fragment(category="docs", pr=42)

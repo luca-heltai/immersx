@@ -99,9 +99,10 @@ benchmarks/**/*mp4
 
 .vscode/settings.json
 
-# Changelog category named build contains source fragments.
-!changelog/build/
-!changelog/build/*.md
-
 # Python modules imported during documentation builds.
 __pycache__/
+
+# Changelog Markdown is source data, even when names match ignored outputs.
+!changelog/
+!changelog/**/
+!changelog/**/*.md
