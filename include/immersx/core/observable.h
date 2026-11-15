@@ -378,12 +378,15 @@ namespace ImmersX
     const VectorType &
     frozen_values() const
     {
-      const auto *values = std::any_cast<VectorType>(&frozen_);
-      AssertThrow(values != nullptr,
+      if (const auto *values = std::any_cast<VectorType>(&frozen_))
+        return *values;
+      const auto *shared =
+        std::any_cast<std::shared_ptr<const VectorType>>(&frozen_);
+      AssertThrow(shared != nullptr && *shared != nullptr,
                   dealii::ExcMessage(
                     "The frozen observable does not contain the requested "
                     "vector type."));
-      return *values;
+      return **shared;
     }
 
     double
@@ -1329,6 +1332,25 @@ namespace ImmersX
   {
     return Observable<std::decay_t<FieldType>, detail::ValueOperation>(field,
                                                                        values);
+  }
+
+  /** Construct a dependency-free expression from caller-owned coefficients.
+   *
+   * The expression shares the vector instead of copying it. The owner may
+   * overwrite the coefficients between solves, for example with data read at
+   * a new time; terms evaluated afterwards see the new values. Ghost values
+   * must be current before the next evaluation. Data cached when a term or
+   * lift is built, such as a lift thickness, is not refreshed.
+   */
+  template <typename FieldType, typename VectorType>
+  auto
+  frozen(const FieldType &field, std::shared_ptr<VectorType> values)
+  {
+    AssertThrow(values != nullptr,
+                dealii::ExcMessage("Shared frozen coefficients are null."));
+    using Value = std::remove_const_t<VectorType>;
+    return Observable<std::decay_t<FieldType>, detail::ValueOperation>(
+      field, std::shared_ptr<const Value>(std::move(values)));
   }
 
   /** Re-evaluate a frozen or active FE quantity with another FE operation. */

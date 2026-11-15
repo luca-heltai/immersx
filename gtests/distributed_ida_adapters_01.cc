@@ -208,6 +208,110 @@ end
   EXPECT_DOUBLE_EQ(data.absolute_tolerance, 1.e-4);
 }
 
+#  if defined(DEAL_II_WITH_MUMPS) && !defined(IMMERSX_USE_PETSC_LA)
+TEST(DistributedIDA, BOTH_MumpsBlrFgmresSolvesCoupledDae)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.initial_time                            = 0.;
+  time.final_time                              = 0.02;
+  time.output_time_interval                    = 0.01;
+  parameters.initial_step_size                 = 0.005;
+  parameters.maximum_step_size                 = 0.01;
+  parameters.maximum_order                     = 1;
+  parameters.absolute_tolerance                = 1.e-8;
+  parameters.relative_tolerance                = 1.e-7;
+  parameters.ignore_algebraic_terms_for_errors = false;
+  parameters.nonlinear_convergence_coefficient = 1.e-4;
+
+  const auto communicator = MPI_COMM_WORLD;
+  const auto size = 2 * dealii::Utilities::MPI::n_mpi_processes(communicator);
+  const auto owned =
+    dealii::Utilities::MPI::create_evenly_distributed_partitioning(communicator,
+                                                                   size);
+  Adapter                        adapter(time, parameters, communicator);
+  dealii::DynamicSparsityPattern sparsity(size, size, owned);
+  for (const auto i : owned)
+    {
+      sparsity.add(i, i);
+      sparsity.add(i, (i + 1) % size);
+    }
+  auto identity  = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  auto stiffness = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  identity->reinit(owned, owned, sparsity, communicator);
+  stiffness->reinit(owned, owned, sparsity, communicator);
+  for (const auto i : owned)
+    {
+      identity->set(i, i, 1.);
+      stiffness->set(i, i, 2.);
+      stiffness->set(i, (i + 1) % size, -1.);
+    }
+  identity->compress(dealii::VectorOperation::insert);
+  stiffness->compress(dealii::VectorOperation::insert);
+  const auto field = adapter.add(
+    [owned, identity, stiffness](auto &builder) {
+      using Model        = typename std::decay_t<decltype(builder)>::Model;
+      const auto value   = builder.differential_field("value", owned);
+      const auto mass    = builder.matrix_operator(*identity);
+      const auto spatial = builder.matrix_operator(*stiffness);
+      builder.term(value, "coupled decay")
+        .residual([value, stiffness](const auto &context) {
+          const auto               &state     = context.state(value);
+          const auto               &state_dot = context.derivative(value);
+          typename Model::Operation result;
+          result.reinit_vector = [state](FieldVector &vector, bool) {
+            vector.reinit(state);
+          };
+          result.apply = [state, state_dot, stiffness](FieldVector &vector) {
+            stiffness->vmult(vector, state);
+            vector += state_dot;
+          };
+          result.apply_add =
+            [state, state_dot, stiffness](FieldVector &vector) {
+              FieldVector contribution;
+              contribution.reinit(state);
+              stiffness->vmult(contribution, state);
+              contribution += state_dot;
+              vector += contribution;
+            };
+          return result;
+        })
+        .state(value, spatial)
+        .derivative(value, mass);
+      return value;
+    },
+    "coupled decay");
+  adapter.set_linear_solver(Adapter::LinearSolver::mumps_blr_fgmres);
+  adapter.set_mumps_blr_parameters(1.e-5);
+  adapter.set_stop_at_output_times(true);
+  auto state = adapter.make_state();
+  auto dot   = adapter.make_state();
+  state      = 1.;
+  dot        = -1.;
+
+  EXPECT_GT(adapter.solve(state, dot), 0u);
+  const auto statistics = adapter.statistics();
+  EXPECT_GT(statistics.jacobian_setups, 0u);
+  EXPECT_GT(statistics.linear_solves, 0u);
+  const auto &solution   = adapter.field(state, field.fields());
+  const auto &derivative = adapter.field(dot, field.fields());
+  // Every matrix row sums to one, including the rows coupled across ranks.
+  // The all-ones initial state therefore decays as exp(-t).
+  const double expected = std::exp(-time.final_time);
+  for (const auto i : owned)
+    {
+      EXPECT_NEAR(solution[i], expected, 1.e-4);
+      EXPECT_NEAR(derivative[i], -expected, 1.e-4);
+    }
+  FieldVector residual;
+  residual.reinit(solution);
+  stiffness->vmult(residual, solution);
+  residual += derivative;
+  EXPECT_LT(residual.l2_norm(), 1.e-8 * std::sqrt(static_cast<double>(size)));
+}
+
+#  endif
+
 TEST(DistributedIDA, NativeSetupFailureThrows)
 {
   TimeIntervalParameters time;

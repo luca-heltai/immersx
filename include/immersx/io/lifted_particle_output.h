@@ -11,6 +11,7 @@
 #include <deal.II/base/utilities.h>
 
 #include <deal.II/dofs/dof_handler.h>
+#include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping.h>
@@ -380,6 +381,52 @@ namespace ImmersX
     return result;
   }
 
+  /** Sample an adapter Field at the representative points of the wall.
+   *
+   * `values` holds the Field in its execution layout, for example
+   * `adapter.field(state, field)`. A native state can contain more unknowns
+   * than the Field's finite element, such as flow traces or terminal
+   * pressures, so the values are mapped back to FE numbering and the Field's
+   * constraints are applied before sampling. Collective.
+   */
+  template <typename FieldType, typename VectorType, int spacedim>
+  std::vector<double>
+  sample_field_at_representative_points(
+    const FieldType                              &field,
+    const VectorType                             &values,
+    const std::vector<LiftedWallPoint<spacedim>> &points)
+  {
+    const auto communicator = field.space().mpi_communicator();
+    VectorType owned;
+    owned.reinit(values);
+    owned = values;
+    if (dealii::Utilities::MPI::sum(field.constraints().n_constraints(),
+                                    communicator) != 0)
+      field.constraints().distribute(owned);
+    VectorType execution(values.locally_owned_elements(),
+                         field.locally_relevant_dofs(),
+                         communicator);
+    execution = owned;
+    execution.update_ghost_values();
+    VectorType native(field.dof_handler().locally_owned_dofs(), communicator);
+    native = 0.;
+    for (const auto index : field.dof_handler().locally_owned_dofs())
+      if (field.has_execution_index(index))
+        native[index] = execution[field.execution_index(index)];
+    native.compress(dealii::VectorOperation::insert);
+    const auto relevant =
+      dealii::DoFTools::extract_locally_relevant_dofs(field.dof_handler());
+    VectorType ghosted(field.dof_handler().locally_owned_dofs(),
+                       relevant,
+                       communicator);
+    ghosted = native;
+    ghosted.update_ghost_values();
+    return sample_at_representative_points(field.dof_handler(),
+                                           field.mapping(),
+                                           ghosted,
+                                           points);
+  }
+
   /** Background field sampled at the wall particles. The name labels the
    * output; n_components consecutive FE components starting at
    * first_component are interpolated and written as a scalar or a vector.
@@ -533,6 +580,8 @@ namespace ImmersX
    * the background are dropped. The call is collective; every rank must call
    * it, also with no wall points.
    *
+   * @param options Select the particle properties to write.
+   * @param filename Output particle file path.
    * @param cache Optional retained locations for repeated output on a fixed mesh.
    * @param columns Columns from make_lifted_particle_columns().
    * @param points The wall points the columns were built from.

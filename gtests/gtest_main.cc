@@ -42,9 +42,26 @@ namespace
   };
 } // namespace
 
-// The category guard needs a typed registry entry to check glob matching.
-// Keep this fixture in the common driver so it needs no separate translation
-// unit.
+// The category guard exercises each registration type independently of the
+// selected physics sources. Keep these fixtures in the common driver so both
+// quick and full profiles contain the same guard inputs.
+TEST(TestCategoryOrdinary, RegistryEntry)
+{
+  SUCCEED();
+}
+
+class TestCategoryParameterized : public ::testing::TestWithParam<int>
+{};
+
+TEST_P(TestCategoryParameterized, RegistryEntry)
+{
+  SUCCEED();
+}
+
+INSTANTIATE_TEST_SUITE_P(TestCategoryParameters,
+                         TestCategoryParameterized,
+                         ::testing::Values(0, 1));
+
 template <typename T>
 class TestCategoryTyped : public ::testing::Test
 {};
