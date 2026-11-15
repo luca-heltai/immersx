@@ -146,6 +146,21 @@ The adapter therefore checks each MUMPS correction against its retained
 Jacobian and rejects a relative residual above `1e-8`. This prevents an
 unsuccessful factorization from returning an unnoticed zero correction.
 
+If the configured stationary refinement corrections do not reach this target,
+`Maximum Krylov corrections` permits up to eight FGMRES iterations using the
+same MUMPS factorization as a right preconditioner. Set it to zero to disable
+this recovery. The correction includes the existing second-order condensation
+and expansion. It does not assemble or factorize another matrix. A successful
+backsolve or stationary refinement does not enter FGMRES.
+
+The adapter always recomputes the original retained-Jacobian residual after
+recovery. A projected Krylov residual cannot certify acceptance, and an
+exhausted budget still fails unless the original residual passes the unchanged
+threshold. This relative norm combines equations with different physical units;
+it is not a physiological validation or a fieldwise error estimate. No physical
+parameters or state/IC tolerances change.
+
+
 ### Local absolute tolerances and startup ramp
 
 The default error control uses one absolute tolerance and one relative
