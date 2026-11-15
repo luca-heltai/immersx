@@ -15,7 +15,7 @@ this historical file.
 
 ### Added
 
-- [PR #TBD](https://github.com/luca-heltai/immersx/pull/TBD) Configure separate arterial, portal and venous resistance factors for archived three-arm microvascular beds in both coupled tissue applications, preserving the original archive and identity defaults.
+- [PR #438](https://github.com/luca-heltai/immersx/pull/438) Configure separate arterial, portal and venous resistance factors for archived three-arm microvascular beds in both coupled tissue applications, preserving the original archive and identity defaults.
 
 - [PR #427](https://github.com/luca-heltai/immersx/pull/427) Save native flow replay histories from coupled elastodynamics, including the physical pressure from the wall multiplier.
 
