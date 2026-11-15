@@ -171,6 +171,23 @@ TEST(WeakTermNonmatching, BOTH_CachedAssemblyRetainsAnalyticPairing)
                       1.e-12);
     }
   EXPECT_EQ(detail::weak_term_matrix_initializations.load(), before + 1u);
+
+  // Materialization must not change the retained pairing, including when its
+  // lifetime is held by a shared_ptr alias rather than the matrix owner.
+  for (const double scale : {-1., 2.5, 0., 1.})
+    for (unsigned int repeat = 0; repeat < 2; ++repeat)
+      {
+        const auto scaled   = (scale * *op).matrix();
+        const auto original = op->matrix();
+        for (const auto i : target.locally_owned_dofs())
+          for (const auto &[j, point] : source_points)
+            {
+              const double exact = mass_entry(target_points.at(i), point);
+              EXPECT_NEAR(scaled->el(i, j), scale * exact, 1.e-12);
+              EXPECT_NEAR(original->el(i, j), exact, 1.e-12);
+            }
+      }
+  EXPECT_EQ(detail::weak_term_matrix_initializations.load(), before + 1u);
 }
 
 TEST(WeakTermNonmatching, BOTH_CachedAssemblyKeepsCurrentAffineOffsets)

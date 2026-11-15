@@ -557,11 +557,13 @@ namespace ImmersX
     result.view          = factor * source.view;
     if (source.is_materializable())
       result.materialize = [factor, source]() {
-        auto matrix = source.matrix();
-        // A materializer may return a matrix explicitly retained by its caller.
-        // Replaying this action must not scale that source a second time.
-        if (matrix.use_count() > 1)
-          matrix = detail::clone_matrix(*matrix);
+        if (factor == 1.)
+          return source.matrix();
+        // Aliasing shared_ptr owners can hide a cached matrix's other users.
+        // Scale a copy even when the returned pointer has use_count() == 1.
+        const auto observed = source.source_matrix();
+        auto       matrix   = observed ? detail::clone_matrix(*observed) :
+                                         detail::clone_matrix(*source.matrix());
         *matrix *= factor;
         return matrix;
       };
