@@ -11,11 +11,28 @@
 #include <csignal>
 #include <cstdlib>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
 namespace ImmersX::TestWatchdog
 {
+  inline unsigned int
+  case_timeout_seconds()
+  {
+    const char *value = std::getenv("IMMERSX_TEST_TIMEOUT_SECONDS");
+    if (value == nullptr)
+      return 115;
+    char *end                   = nullptr;
+    errno                       = 0;
+    const unsigned long seconds = std::strtoul(value, &end, 10);
+    if (errno != 0 || end == value || *end != '\0' || seconds == 0 ||
+        seconds > 3600)
+      throw std::invalid_argument(
+        "IMMERSX_TEST_TIMEOUT_SECONDS must be an integer from 1 to 3600");
+    return static_cast<unsigned int>(seconds);
+  }
+
   // The same mutex protects deadline changes, process-group registration, and
   // reaping. The watchdog therefore never signals a recycled process ID.
   class Watchdog
@@ -39,10 +56,12 @@ namespace ImmersX::TestWatchdog
     arm(const std::string &test)
     {
       std::lock_guard<std::mutex> lock(mutex);
-      message = "GoogleTest " + test +
-                " exceeded the 115 second correctness-test budget.\n";
-      deadline = std::chrono::steady_clock::now() + std::chrono::seconds(115);
-      armed    = true;
+      const auto                  seconds = case_timeout_seconds();
+      message = "GoogleTest " + test + " exceeded the " +
+                std::to_string(seconds) + " second correctness-test budget.\n";
+      deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+      armed = true;
       ++generation;
       changed.notify_one();
     }

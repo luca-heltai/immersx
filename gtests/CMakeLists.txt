@@ -19,6 +19,13 @@ list(FILTER _test_files EXCLUDE REGEX "metric_flow_x(_elastostatic)?_01\\.cc$")
 
 include(GoogleTest)
 include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/nightly_sources.cmake)
+if(IMMERSX_TEST_PROFILE STREQUAL "quick")
+  foreach(_nightly_source IN LISTS IMMERSX_NIGHTLY_TEST_SOURCES)
+    list(REMOVE_ITEM _test_files "${CMAKE_CURRENT_SOURCE_DIR}/${_nightly_source}")
+  endforeach()
+endif()
+
 
 # Compile selected installed-facing headers independently. These translation
 # units intentionally contain no project umbrella include or namespace using
@@ -103,6 +110,12 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
   list(APPEND _public_headers immersx/physics/metric_flow_x.h
                              immersx/physics/metric_flow_x_pressure.h
                              immersx/physics/metric_flow_x_wall.h)
+endif()
+
+# Keep representative public interfaces in every build. The complete
+# self-containment matrix is built by the full/nightly profile.
+if(IMMERSX_TEST_PROFILE STREQUAL "quick")
+  list(REMOVE_ITEM _public_headers ${IMMERSX_NIGHTLY_PUBLIC_HEADERS})
 endif()
 
 set(_public_header_targets)
