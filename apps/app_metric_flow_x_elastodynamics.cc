@@ -866,11 +866,11 @@ namespace
               return -1. * (elastic.view * context.state(displacement_id) +
                             viscous.view * context.state(velocity_id));
             });
-            if (linear_solver == "iterative" ||
-                linear_solver == "mumps-blr-fgmres")
+            if (linear_solver == "iterative")
               term.state(displacement_id, -1. * elastic.view)
                 .state(velocity_id, -1. * viscous.view);
-            else if (linear_solver == "umfpack" || linear_solver == "mumps")
+            else if (linear_solver == "umfpack" || linear_solver == "mumps" ||
+                     linear_solver == "mumps-blr-fgmres")
               term.state(displacement_id, -1. * elastic)
                 .state(velocity_id, -1. * viscous);
             return velocity_id;
