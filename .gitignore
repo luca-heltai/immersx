@@ -98,3 +98,7 @@ benchmarks/**/*mp4
 .atl/
 
 .vscode/settings.json
+
+# Changelog category named build contains source fragments.
+!changelog/build/
+!changelog/build/*.md
