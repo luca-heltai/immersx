@@ -665,7 +665,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Build the quick test profile on pull requests and master pushes; retain all extended validation/application tests and standalone public-header checks in a daily 02:17 UTC full run, with longer watchdog and job limits. Keep new and mixed test sources in quick and check nightly source ownership.
+- [PR #425](https://github.com/luca-heltai/immersx/pull/425) Build the quick test profile on pull requests and master pushes; retain all extended validation/application tests and standalone public-header checks in a daily 02:17 UTC full run, with longer watchdog and job limits. Keep new and mixed test sources in quick and check nightly source ownership.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Check imported UCD/VTK material IDs through analytical mass, stiffness and damping forms in serial/MPI; retain liver parsing and ParaView geometry regressions in CTest/CI.
 
