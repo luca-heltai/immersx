@@ -18,6 +18,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report rejected CCO junction trials and candidates without feasible starts in growth statistics.
 
+- [PR #414](https://github.com/luca-heltai/immersx/pull/414) Add the `metric_flow_x_elastostatic_replay` application, which reads the flow area saved by MetricFlowX (coupling field output or a checkpoint history) and solves a static solid with a vessel wall multiplier at each saved time through one `LinearAdapter`, relative to the MetricFlowX wall reference area, reproducing the one-way `metric_flow_x_elastostatic` solid without integrating the flow again. `frozen()` expressions can now share a caller-owned coefficient vector that is reread at each solve.
+
 - [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 
 - [PR #410](https://github.com/luca-heltai/immersx/pull/410) Expose the stopping criteria of the linear solves that `IDAAdapter` runs for IDA in the `Linear solver` subsection of the IDA parameters: maximum iterations and relative tolerance of the outer Krylov solve, of the inner Schur complement solve and of the inner second-order block CG, and the MUMPS residual check. The defaults keep the previous hard-coded values. The outer solve also prints its target residual next to the tolerance IDA requested.
@@ -669,6 +671,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #425](https://github.com/luca-heltai/immersx/pull/425) Build the quick test profile on pull requests and master pushes; retain all extended validation/application tests and standalone public-header checks in a daily 02:17 UTC full run, with longer watchdog and job limits. Keep new and mixed test sources in quick and check nightly source ownership.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Check imported UCD/VTK material IDs through analytical mass, stiffness and damping forms in serial/MPI; retain liver parsing and ParaView geometry regressions in CTest/CI.
+
+- [PR #414](https://github.com/luca-heltai/immersx/pull/414) Give the Release CI job the same two-hour budget as Debug so a cold build can finish its tests and cache upload.
 
 - [PR #413](https://github.com/luca-heltai/immersx/pull/413) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
 
