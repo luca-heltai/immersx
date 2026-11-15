@@ -126,14 +126,21 @@ namespace ImmersX::Vascularization
    * Its entries may be distributed or repeated on several ranks. Such ends
    * must exist and must not belong to a bed; their boundary callback is not
    * called. Older backends accept only an empty sealed set.
+   *
+   * triplet_resistance_factors multiply saved star-arm resistances in arterial,
+   * portal, venous order. They must be finite, positive and identical on all
+   * ranks. Only the temporary native coefficients change; the generation
+   * result, two-terminal beds and boundary capacitances remain unchanged.
    */
   template <class Flow, class VesselPhysics, class BoundaryPhysics>
   MetricFlowXTransfer
-  prepare_metric_flow_x(Flow                   &flow,
-                        const GenerationResult &generation,
-                        const VesselPhysics    &vessel_physics,
-                        const BoundaryPhysics  &boundary_physics,
-                        const std::set<Id>     &sealed_terminals = {})
+  prepare_metric_flow_x(
+    Flow                        &flow,
+    const GenerationResult      &generation,
+    const VesselPhysics         &vessel_physics,
+    const BoundaryPhysics       &boundary_physics,
+    const std::set<Id>          &sealed_terminals           = {},
+    const std::array<double, 3> &triplet_resistance_factors = {{1., 1., 1.}})
   {
     using namespace dealii;
     if constexpr (!has_metric_flow_x_network_input<Flow>)
@@ -157,6 +164,23 @@ namespace ImmersX::Vascularization
             generation.discretization.validation.valid() &&
             flow.triangulation().n_global_active_cells() == 0,
           "Flow preparation requires a valid result and an empty native mesh.");
+        bool valid_factors = true;
+        for (const double factor : triplet_resistance_factors)
+          valid_factors = valid_factors && std::isfinite(factor) && factor > 0.;
+        for (const auto &other :
+             Utilities::MPI::all_gather(comm, triplet_resistance_factors))
+          valid_factors = valid_factors && other == triplet_resistance_factors;
+        for (const auto &triplet : generation.terminal_triplets)
+          for (unsigned int i = 0; i < 3; ++i)
+            {
+              const double scaled =
+                triplet.resistances[i] * triplet_resistance_factors[i];
+              valid_factors =
+                valid_factors && std::isfinite(scaled) && scaled > 0.;
+            }
+        require_all(
+          valid_factors,
+          "Triplet resistance factors and scaled arms must be finite, positive and identical across ranks.");
         const double minimum_area =
           internal::metric_flow_x_minimum_positive_area(flow, 0);
         bool matching_area = std::isfinite(minimum_area) && minimum_area > 0.;
@@ -348,8 +372,13 @@ namespace ImmersX::Vascularization
         using Triplet = std::pair<std::array<Id, 4>, std::array<double, 3>>;
         std::vector<Triplet> owned_triplets;
         for (const auto &t : generation.terminal_triplets)
-          owned_triplets.push_back(
-            {{{t.territory, t.arterial, t.portal, t.venous}}, t.resistances});
+          {
+            auto arms = t.resistances;
+            for (unsigned int i = 0; i < 3; ++i)
+              arms[i] *= triplet_resistance_factors[i];
+            owned_triplets.push_back(
+              {{{t.territory, t.arterial, t.portal, t.venous}}, arms});
+          }
         for (const auto &triplets :
              Utilities::MPI::all_gather(comm, owned_triplets))
           for (const auto &[ids, arms] : triplets)

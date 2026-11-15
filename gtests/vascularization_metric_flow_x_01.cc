@@ -7,8 +7,10 @@
 #include <gtest/gtest.h>
 #include <immersx/vascularization/metric_flow_x.h>
 
+#include <limits>
 #include <set>
 
+#include "../apps/metric_flow_x_physical_input.h"
 #include "test_paths.h"
 
 #if defined(IMMERSX_WITH_METRIC_FLOW_X) && defined(DEAL_II_WITH_SUNDIALS)
@@ -399,7 +401,176 @@ namespace
       }
   }
 
+  // Inspect the actual native coefficient input without solving a transient.
+  struct RecordedNativeFlow : MetricFlowX::BloodFlowSystem<1, 3>
+  {
+    using MetricFlowX::BloodFlowSystem<1, 3>::BloodFlowSystem;
+    NetworkPhysics physics;
+    void
+    setup(const NetworkPhysics &input)
+    {
+      physics = input;
+    }
+  };
+
+  void
+  exercise_triplet_resistance_factors()
+  {
+    using namespace ImmersX::metric_flow_x_app_detail;
+    const auto comm = MPI_COMM_WORLD;
+    const auto rank = Utilities::MPI::this_mpi_process(comm);
+    const auto last = Utilities::MPI::n_mpi_processes(comm) - 1;
+    ParameterAcceptor::clear();
+    parallel::distributed::Triangulation<3> background(comm);
+    GridGenerator::hyper_cube(background);
+    background.refine_global(1);
+    GenerationResult generation;
+    if (rank == 0)
+      {
+        for (unsigned int i = 0; i < 3; ++i)
+          {
+            const auto system               = i == 0 ? System::arterial :
+                                              i == 1 ? System::portal :
+                                                       System::venous;
+            const auto port                 = i == 0 ? Port::arterial_inlet :
+                                              i == 1 ? Port::portal_inlet :
+                                                       Port::venous_outlet;
+            generation.network.nodes[2 * i] = {Point<3>(.1, .2 + .2 * i, .5),
+                                               0,
+                                               port};
+            generation.network.nodes[2 * i + 1] = {
+              Point<3>(.9, .2 + .2 * i, .5), 0};
+            Vessel vessel;
+            vessel.nodes                    = {{2 * i, 2 * i + 1}};
+            vessel.radii                    = {{.003, .0025}};
+            vessel.viscosity                = .004;
+            vessel.system                   = system;
+            generation.network.vessels[i]   = vessel;
+            generation.network.terminals[i] = {2 * i + 1, 7, system, 0, 1.};
+          }
+        generation.terminal_triplets.push_back(
+          {7, 0, 1, 2, {{1.e9, 2.e9, 3.e9}}});
+      }
+    generation.validation =
+      validate_data(generation.network, Utilities::MPI::n_mpi_processes(comm));
+    generation.discretization = discretize(background,
+                                           MappingQ1<3>(),
+                                           generation.network,
+                                           DiscretizationParameters{},
+                                           comm);
+    ASSERT_TRUE(generation.validation.valid());
+    ASSERT_TRUE(generation.discretization.validation.valid());
+    ArchivedFlowParameters parameters;
+    parameters.young_moduli        = {4.e5, 4.e5, 4.e5};
+    parameters.thickness_ratios    = {.1, .1, .1};
+    parameters.reference_pressures = {1000., 100., 900.};
+    parameters.portal_pressure     = 900.;
+    parameters.venous_pressure     = 100.;
+    parameters.root_resistance     = 1.e8;
+    auto material                  = [](Id, const Vessel &) {
+      RecordedNativeFlow::VesselProperties p;
+      p.E      = 4.e5;
+      p.h_wall = .0003;
+      return p;
+    };
+    auto boundary = [](Id, const Node &, const Terminal *) {
+      return RecordedNativeFlow::RCRPhysics{0., 1.e8, 2.e-12, 100., "test"};
+    };
+    std::vector<RecordedNativeFlow::TerminalConnection> default_links;
+    for (const auto &factors : {std::array<double, 3>{{1., 1., 1.}},
+                                std::array<double, 3>{{2., 3., 5.}},
+                                std::array<double, 3>{{2., 3., 5.}}})
+      {
+        RecordedNativeFlow flow(comm);
+        const auto         transfer = prepare_metric_flow_x(
+          flow, generation, material, boundary, {}, factors);
+        const std::array<double, 3> pressures{{1200., 800., 100.}};
+        const std::array<double, 3> arms{
+          {1.e9 * factors[0], 2.e9 * factors[1], 3.e9 * factors[2]}};
+        const double pc = (pressures[0] / arms[0] + pressures[1] / arms[1] +
+                           pressures[2] / arms[2]) /
+                          (1. / arms[0] + 1. / arms[1] + 1. / arms[2]);
+        std::array<double, 3> native_flows{};
+        for (const auto &link : flow.physics.terminal_connections)
+          {
+            unsigned int a = 0, b = 0;
+            while (transfer.terminal_ids.at(a) != link.boundary0)
+              ++a;
+            while (transfer.terminal_ids.at(b) != link.boundary1)
+              ++b;
+            const double q = (pressures[a] - pressures[b]) / link.resistance;
+            native_flows[a] += q;
+            native_flows[b] -= q;
+          }
+        for (unsigned int i = 0; i < 3; ++i)
+          EXPECT_NEAR(native_flows[i], (pressures[i] - pc) / arms[i], 1.e-20);
+        for (const auto &[id, rcr] : flow.physics.terminals)
+          EXPECT_DOUBLE_EQ(rcr.C, 2.e-12);
+        if (factors[0] == 1.)
+          default_links = flow.physics.terminal_connections;
+        if (rank == 0)
+          {
+            EXPECT_EQ(generation.terminal_triplets[0].resistances,
+                      (std::array<double, 3>{{1.e9, 2.e9, 3.e9}}));
+          }
+      }
+    // The omitted argument is exactly the original identity transfer.
+    {
+      RecordedNativeFlow flow(comm);
+      prepare_metric_flow_x(flow, generation, material, boundary);
+      ASSERT_EQ(flow.physics.terminal_connections.size(), default_links.size());
+      for (unsigned int i = 0; i < default_links.size(); ++i)
+        EXPECT_DOUBLE_EQ(flow.physics.terminal_connections[i].resistance,
+                         default_links[i].resistance);
+    }
+    // Both applications call the same archived-input function and parameter.
+    {
+      RecordedNativeFlow flow(comm);
+      parameters.triplet_resistance_factors = {{2., 3., 5.}};
+      prepare_archived_flow(flow, generation, parameters);
+      ASSERT_EQ(flow.physics.terminal_connections.size(), 3u);
+      EXPECT_NEAR(flow.physics.terminal_connections[0].resistance,
+                  8.8e9,
+                  1.e-5);
+    }
+    for (const double bad : {0.,
+                             -1.,
+                             std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::max()})
+      {
+        RecordedNativeFlow    flow(comm);
+        std::array<double, 3> factors{{1., 1., 1.}};
+        // Invalid controls on one rank and overflow on an owning rank must
+        // fail collectively before any mesh construction.
+        if (rank == last || bad == std::numeric_limits<double>::max())
+          factors[0] = bad;
+        EXPECT_ANY_THROW(prepare_metric_flow_x(
+          flow, generation, material, boundary, {}, factors));
+        EXPECT_EQ(flow.triangulation().n_global_active_cells(), 0u);
+      }
+    if (last > 0)
+      {
+        RecordedNativeFlow          flow(comm);
+        const std::array<double, 3> factors{{rank == last ? 2. : 1., 1., 1.}};
+        EXPECT_ANY_THROW(prepare_metric_flow_x(
+          flow, generation, material, boundary, {}, factors));
+      }
+    if (rank == 0)
+      generation.terminal_triplets[0].resistances[0] =
+        std::numeric_limits<double>::denorm_min();
+    {
+      RecordedNativeFlow flow(comm);
+      EXPECT_ANY_THROW(prepare_metric_flow_x(
+        flow, generation, material, boundary, {}, {{.5, 1., 1.}}));
+    }
+  }
 } // namespace
+
+TEST(MetricFlowX, BOTH_ScalesArchivedTripletResistances)
+{
+  exercise_triplet_resistance_factors();
+}
 
 TEST(MetricFlowX, BOTH_PreparesVascularInputWithNativeBeds)
 {
