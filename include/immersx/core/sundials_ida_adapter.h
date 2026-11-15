@@ -924,11 +924,13 @@ namespace ImmersX
       auto factor =
         std::make_shared<dealii::SparseDirectMUMPS>(data, communicator);
       auto *control = factor->get_icntl();
-      control[7]    = 8; // Scale before truncating frontal matrices.
-      control[9]    = 0; // FGMRES controls the physical solve accuracy.
-      control[14]   = 0;
-      control[22]   = static_cast<int>(mumps_blr_memory_limit_);
-      control[35]   = 1;
+      if (mumps_workspace_relaxation_)
+        control[13] = *mumps_workspace_relaxation_;
+      control[7]  = 8; // Scale before truncating frontal matrices.
+      control[9]  = 0; // FGMRES controls the physical solve accuracy.
+      control[14] = 0;
+      control[22] = static_cast<int>(mumps_blr_memory_limit_);
+      control[35] = 1;
       pcout << "IDAAdapter: factorizing the MUMPS BLR FGMRES preconditioner."
             << std::endl;
       factor->initialize(*matrix);
