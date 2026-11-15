@@ -45,6 +45,15 @@ if(IMMERSX_WITH_METRIC_FLOW_X AND DEAL_II_WITH_SUNDIALS)
       set_tests_properties("${_initialization_name}" PROPERTIES LABELS "${_labels}"
         TIMEOUT 1500 PROCESSORS ${_processors} RESOURCE_LOCK ImmersX.TestOutput
         SKIP_RETURN_CODE 77)
+      set(_steady_name "ImmersX${${_build_type}_ctest_suffix}.application.MetricFlowXElastostatic.Steady.${_mode}")
+      add_test(NAME "${_steady_name}" COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_elastostatic_steady.py"
+        --executable "$<TARGET_FILE:metric_flow_x_elastostatic${${_build_type}_postfix}>"
+        --parameter "${_parameter}" --output-directory "${TEST_OUTPUT_DIR}/steady"
+        ${_restart_args})
+      set_tests_properties("${_steady_name}" PROPERTIES LABELS "${_labels}"
+        TIMEOUT 1200 PROCESSORS ${_processors} RESOURCE_LOCK ImmersX.TestOutput
+        SKIP_RETURN_CODE 77)
       set(_restart_name "ImmersX${${_build_type}_ctest_suffix}.application.MetricFlowXElastostatic.Restart.${_mode}")
       add_test(NAME "${_restart_name}" COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_elastostatic_restart.py"

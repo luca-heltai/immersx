@@ -407,6 +407,39 @@ namespace ImmersX
       return *ida_;
     }
 
+    /** Prepare a fresh steady Jacobian F_y(t,y,y') for an external Newton
+     * solve. This uses the configured materialized direct solver and does not
+     * initialize or advance IDA. Optionally fill positive function scaling
+     * 1 / sum_j |J_ij| c_j from supplied positive state characteristics c.
+     * Call with scaling outputs once, then keep them fixed during the solve.
+     * Second-order condensation and the PETSc backend are not supported here.
+     */
+    void
+    setup_steady_jacobian(const double            time,
+                          const GlobalVectorType &state,
+                          const GlobalVectorType &state_dot,
+                          const GlobalVectorType *characteristics  = nullptr,
+                          GlobalVectorType       *function_scaling = nullptr)
+    {
+      AssertThrow(
+        linear_solver_ == LinearSolver::mumps ||
+          linear_solver_ == LinearSolver::umfpack,
+        dealii::ExcMessage(
+          "Steady Newton requires a materialized MUMPS or UMFPACK solver."));
+      AssertThrow(
+        (characteristics == nullptr) == (function_scaling == nullptr),
+        dealii::ExcMessage(
+          "Steady scaling requires both characteristics and an output vector."));
+#  ifdef IMMERSX_USE_PETSC_LA
+      AssertThrow(false,
+                  dealii::ExcMessage(
+                    "Steady Newton requires the Trilinos backend."));
+#  endif
+      finalize();
+      prepare_jacobian(
+        time, state, state_dot, 0., true, characteristics, function_scaling);
+    }
+
     unsigned int
     solve(GlobalVectorType &state, GlobalVectorType &state_dot)
     {
@@ -1889,7 +1922,10 @@ namespace ImmersX
     prepare_jacobian(const double            time,
                      const GlobalVectorType &state,
                      const GlobalVectorType &state_dot,
-                     const double            alpha)
+                     const double            alpha,
+                     const bool              steady_setup     = false,
+                     const GlobalVectorType *characteristics  = nullptr,
+                     GlobalVectorType       *function_scaling = nullptr)
     {
       // With `use_y_dot`, IDACalcIC solves F(t0, y, y') = 0 for y with alpha
       // = 0. After the first correction pass it resets the error weights and
@@ -1899,7 +1935,7 @@ namespace ImmersX
       // does within a pass; the convergence test still uses the residual at
       // the current state. A request that follows a solve signals slow
       // convergence and always rebuilds the Jacobian.
-      if (alpha == 0. && !solved_since_residual_ &&
+      if (!steady_setup && alpha == 0. && !solved_since_residual_ &&
           current_jacobian_.has_value() &&
           initial_condition_jacobian_time_ == time)
         {
@@ -1967,11 +2003,19 @@ namespace ImmersX
                                       time,
                                       &snapshot->linearization);
           condensation_ = composition_.second_order_condensation(blocks);
+          AssertThrow(
+            !steady_setup || !condensation_,
+            dealii::ExcMessage(
+              "Steady Newton does not support second-order condensation."));
           std::shared_ptr<MatrixType> monolithic;
           if (!condensation_)
             {
               monolithic = std::make_shared<MatrixType>();
               composition_.monolithic_matrix(blocks, *monolithic);
+              if (function_scaling != nullptr)
+                make_steady_function_scaling(*monolithic,
+                                             *characteristics,
+                                             *function_scaling);
             }
           direct_timer.stop();
           dealii::TimerOutput::Scope factor_timer(computing_timer,
@@ -2128,6 +2172,57 @@ namespace ImmersX
         }
       if (alpha == 0.)
         initial_condition_jacobian_time_ = time;
+    }
+
+    void
+    make_steady_function_scaling(const MatrixType       &matrix,
+                                 const GlobalVectorType &characteristics,
+                                 GlobalVectorType       &scaling)
+    {
+#  ifndef IMMERSX_USE_PETSC_LA
+      auto flat = composition_.pack(characteristics);
+      flat.compress(dealii::VectorOperation::insert);
+      bool valid = true;
+      for (const auto index : flat.locally_owned_elements())
+        valid = valid && std::isfinite(flat[index]) && flat[index] > 0.;
+      AssertThrow(
+        dealii::Utilities::MPI::min(valid ? 1u : 0u,
+                                    composition_.communicator()) == 1,
+        dealii::ExcMessage(
+          "Steady state characteristics must be finite and positive."));
+      FieldVectorType columns;
+      columns.import_nonlocal_data_for_fe(matrix, flat);
+      const auto &column_values = columns;
+      for (const auto row : flat.locally_owned_elements())
+        {
+          long double sum = 0.;
+          for (auto entry = matrix.begin(row); entry != matrix.end(row);
+               ++entry)
+            sum += std::abs(static_cast<long double>(entry->value())) *
+                   column_values[entry->column()];
+          const double value = static_cast<double>(sum);
+          const double inverse =
+            std::isfinite(value) && value > 0. ? 1. / value : 0.;
+          valid = valid && std::isfinite(value) && value > 0. &&
+                  std::isfinite(inverse) && inverse > 0.;
+          flat[row] = inverse;
+        }
+      AssertThrow(
+        dealii::Utilities::MPI::min(valid ? 1u : 0u,
+                                    composition_.communicator()) == 1,
+        dealii::ExcMessage(
+          "Steady Jacobian row scales must be finite and positive; zero rows are unsupported."));
+      flat.compress(dealii::VectorOperation::insert);
+      composition_.unpack(flat, scaling);
+      scaling.compress(dealii::VectorOperation::insert);
+#  else
+      (void)matrix;
+      (void)characteristics;
+      (void)scaling;
+      AssertThrow(false,
+                  dealii::ExcMessage(
+                    "Steady scaling requires the Trilinos backend."));
+#  endif
     }
 
     std::vector<std::pair<FieldId, std::function<void(FieldVectorType &)>>>

@@ -255,6 +255,44 @@ It does not change the default `use_y_diff` selection. Fresh `none` correction
 remains unsupported. A checkpoint restart restores the saved state and rates
 and uses `none`, regardless of the original fresh-run selection.
 
+For a steady solve without BDF advancement, use the explicit fresh-run mode:
+
+```sh
+metric_flow_x_elastostatic parameters.prm --steady-only --checkpoint equilibrium
+```
+
+This mode requires the Trilinos backend and a materialized `mumps` or `umfpack`
+linear solver. Disable the temporal tolerance ramp. KINSOL uses native Newton
+iterations with a fresh Jacobian at each iteration and the existing coupled
+residual `F(t0,y,0)`. The prescribed zero rates remain fixed. This is a different
+nonlinear convergence test from IDA initialization; it is not a fallback from
+an unsuccessful IDA solve. `--restart`, `--setup-only`, and `--final-time` cannot
+be combined with `--steady-only`.
+
+The `MetricFlowX coupling/Steady solver` parameters specify positive state
+characteristics: displacement defaults to `0.001` m, velocity to `1` m/s, and
+pressure to `10000` Pa. Cell and trace area characteristics use the native
+reference area. These are normalization scales, not state error tolerances.
+At the initial guess the already materialized Jacobian defines
+`S_i = sum_j abs(J0_ij) * c_j`. KINSOL uses solution scaling `1/c_j` and function
+scaling `1/S_i`, both fixed throughout the solve. This respects the distinct
+units of native residual rows, including trace rows with different equation
+roles. It does not replace or scale the original Jacobian solve. Zero or
+nonfinite row scales are rejected before factorization.
+
+The dimensionless `Function norm tolerance` defaults to `1e-8`,
+`Scaled step tolerance` to `1e-12`, and `Maximum nonlinear iterations` to `50`.
+Returning from KINSOL alone is insufficient: the application reevaluates the
+full native residual, requires `max_i abs(F_i)/S_i` to meet the function norm
+tolerance, verifies finite state values, positive cell/trace area coefficients
+and native cell quadrature areas, and checks that all rates remain zero.
+A small-step termination that fails these checks produces no accepted-state
+output or checkpoint. After acceptance, output and the native checkpoint use
+`t0` without a dummy time step or a second IDA correction. Native checkpoint
+MPI-size requirements still apply. Independent pressure-law, KCL, and mass
+balance checks remain necessary before adopting a computed equilibrium; no
+physiological or performance result follows from this numerical gate.
+
 The algebraic wall constraint applies at accepted times. Saving at internal
 IDA step endpoints avoids showing an interpolated state that violates the
 nonlinear radius constraint. The application does not claim improved

@@ -15,9 +15,15 @@
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_values.h>
 
+#include <deal.II/hp/fe_values.h>
+
 #include <deal.II/numerics/data_out.h>
 
+#include <deal.II/sundials/kinsol.h>
+#include <deal.II/sundials/n_vector.h>
+
 #include <immersx/config.h>
+#include <kinsol/kinsol.h>
 
 #ifdef IMMERSX_WITH_METRIC_FLOW_X
 
@@ -41,6 +47,7 @@
 #  include <cstdlib>
 #  include <filesystem>
 #  include <fstream>
+#  include <iomanip>
 #  include <iostream>
 #  include <memory>
 #  include <optional>
@@ -127,7 +134,7 @@ namespace
   {
     std::string           parameter_file, restart, checkpoint;
     std::optional<double> final_time;
-    bool                  setup_only = false;
+    bool                  setup_only = false, steady_only = false;
   };
 
   template <typename Flow, typename = void>
@@ -211,6 +218,24 @@ namespace
                                            Patterns::Selection(
                                              "iterative|umfpack|mumps"));
     ParameterAcceptor coupling("/MetricFlowX coupling/");
+    ParameterAcceptor steady_parameters("/MetricFlowX coupling/Steady solver/");
+    double displacement_characteristic = 1.e-3, velocity_characteristic = 1.,
+           pressure_characteristic = 1.e4, steady_function_tolerance = 1.e-8,
+           steady_step_tolerance           = 1.e-12;
+    unsigned int steady_maximum_iterations = 50;
+    steady_parameters.add_parameter("Displacement characteristic",
+                                    displacement_characteristic);
+    steady_parameters.add_parameter("Velocity characteristic",
+                                    velocity_characteristic);
+    steady_parameters.add_parameter("Pressure characteristic",
+                                    pressure_characteristic);
+    steady_parameters.add_parameter("Function norm tolerance",
+                                    steady_function_tolerance);
+    steady_parameters.add_parameter("Scaled step tolerance",
+                                    steady_step_tolerance);
+    steady_parameters.add_parameter("Maximum nonlinear iterations",
+                                    steady_maximum_iterations);
+
 #  ifdef DEAL_II_WITH_MUMPS
     std::string flow_block_solver = "mumps";
 #  else
@@ -366,11 +391,32 @@ namespace
          solid_parameters.material_properties_by_id)
       check_static_material(*material);
     AssertThrow(
-      restarting ||
+      restarting || options.steady_only ||
         ida_parameters.correction_type_at_initial_time == "use_y_diff" ||
         ida_parameters.correction_type_at_initial_time == "use_y_dot",
       ExcMessage(
         "Fresh elastostatic coupling requires coupled IDA use_y_diff or use_y_dot initial correction."));
+    if (options.steady_only)
+      {
+        AssertThrow(linear_solver == "mumps" || linear_solver == "umfpack",
+                    ExcMessage("--steady-only requires MUMPS or UMFPACK."));
+        for (const double value : {displacement_characteristic,
+                                   velocity_characteristic,
+                                   pressure_characteristic,
+                                   steady_function_tolerance,
+                                   steady_step_tolerance})
+          AssertThrow(
+            std::isfinite(value) && value > 0.,
+            ExcMessage(
+              "Steady solver characteristics and tolerances must be finite and positive."));
+        AssertThrow(steady_maximum_iterations > 0,
+                    ExcMessage(
+                      "Steady solver iteration limit must be positive."));
+        AssertThrow(
+          !ida_parameters.tolerance_ramp.enabled,
+          ExcMessage(
+            "--steady-only requires the temporal tolerance ramp to be disabled."));
+      }
     AssertThrow(
       linear_solver != "umfpack" ||
         Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1,
@@ -839,10 +885,10 @@ namespace
         reference.collect_sizes();
         write_regression_state(reference, filename + ".reference");
       };
-    adapter.set_output_step([&](const double        time,
-                                const GlobalVector &solution,
-                                const GlobalVector &solution_dot,
-                                const unsigned int  step) {
+    const auto output_step = [&](const double        time,
+                                 const GlobalVector &solution,
+                                 const GlobalVector &solution_dot,
+                                 const unsigned int  step) {
       if (step == 0)
         if (const char *filename =
               std::getenv("IMMERSX_ELASTOSTATIC_STATE_OUTPUT"))
@@ -973,11 +1019,144 @@ namespace
             std::filesystem::path(flow_output_directory) / "pressure_jump.pvd");
           DataOutBase::write_pvd_record(multiplier_pvd, multiplier_records);
         }
-    });
+    };
+    adapter.set_output_step(output_step);
     adapter.solver().get_constraint_vector =
       [state_constraints]() -> GlobalVector & { return *state_constraints; };
-    flow_problem.open_output_files();
-    const auto accepted_steps = adapter.solve(state, state_dot);
+    unsigned int accepted_steps = 0, steady_iterations = 0;
+    if (options.steady_only)
+      {
+        state_dot            = 0.;
+        auto characteristics = adapter.make_state();
+        adapter.field(characteristics, solid_fields.fields().displacement) =
+          displacement_characteristic;
+        adapter.field(characteristics, coupling_fields.fields().multiplier) =
+          pressure_characteristic;
+        auto &flow_characteristics =
+          adapter.field(characteristics, flow_fields.fields().state);
+        flow_characteristics = pressure_characteristic;
+        auto reference       = flow_problem.make_state();
+        flow_problem.interpolate_reference_area(reference);
+        for (const auto component :
+             {FlowProblem::Component::area, FlowProblem::Component::area_trace})
+          for (const auto index : flow_problem.component_dofs(component))
+            flow_characteristics[index] = reference[index];
+        for (const auto component : {FlowProblem::Component::velocity,
+                                     FlowProblem::Component::velocity_trace})
+          for (const auto index : flow_problem.component_dofs(component))
+            flow_characteristics[index] = velocity_characteristic;
+        characteristics.compress(VectorOperation::insert);
+        auto function_scaling = adapter.make_state();
+        auto candidate        = state;
+        adapter.setup_steady_jacobian(flow_time.initial_time,
+                                      candidate,
+                                      state_dot,
+                                      &characteristics,
+                                      &function_scaling);
+        auto solution_scaling = characteristics;
+        for (const auto index : solution_scaling.locally_owned_elements())
+          solution_scaling[index] = 1. / characteristics[index];
+        solution_scaling.compress(VectorOperation::insert);
+        auto &backend         = adapter.solver();
+        auto  constraint_view = dealii::SUNDIALS::internal::make_nvector_view(
+          *state_constraints
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+          ,
+          backend.get_sun_context()
+#  endif
+        );
+        using Steady = dealii::SUNDIALS::KINSOL<GlobalVector>;
+        Steady::AdditionalData data(Steady::AdditionalData::newton,
+                                    steady_maximum_iterations,
+                                    steady_function_tolerance,
+                                    steady_step_tolerance,
+                                    true,
+                                    1);
+        Steady                 steady(data, MPI_COMM_WORLD);
+        steady.reinit_vector = backend.reinit_vector;
+        steady.residual      = [&](const GlobalVector &y, GlobalVector &F) {
+          backend.residual(flow_time.initial_time, y, state_dot, F);
+        };
+        steady.setup_jacobian = [&](const GlobalVector &y,
+                                    const GlobalVector &) {
+          adapter.setup_steady_jacobian(flow_time.initial_time, y, state_dot);
+        };
+        steady.solve_with_jacobian  = backend.solve_with_jacobian;
+        steady.get_solution_scaling = [&]() -> GlobalVector & {
+          return solution_scaling;
+        };
+        steady.get_function_scaling = [&]() -> GlobalVector & {
+          return function_scaling;
+        };
+        steady.custom_setup = [&](void *memory) {
+          const int status = KINSetConstraints(memory, constraint_view);
+          AssertThrow(status >= 0, ExcMessage("KINSetConstraints failed."));
+        };
+        steady_iterations = steady.solve(candidate);
+        auto residual     = adapter.make_state();
+        backend.residual(flow_time.initial_time,
+                         candidate,
+                         state_dot,
+                         residual);
+        bool   valid      = true;
+        double scaled_max = 0.;
+        for (const auto index : candidate.locally_owned_elements())
+          {
+            const double scaled =
+              std::abs(residual[index]) * function_scaling[index];
+            valid =
+              valid && std::isfinite(candidate[index]) &&
+              std::isfinite(scaled) && state_dot[index] == 0. &&
+              ((*state_constraints)[index] != 2. || candidate[index] > 0.);
+            if (std::isfinite(scaled))
+              scaled_max = std::max(scaled_max, scaled);
+          }
+        const auto &flow_state =
+          adapter.field(candidate, flow_fields.fields().state);
+        FieldVector relevant(flow_problem.locally_owned_dofs(),
+                             flow_problem.locally_relevant_dofs(),
+                             MPI_COMM_WORLD);
+        relevant = flow_state;
+        relevant.update_ghost_values();
+        const auto        &area_field = flow_fields.fields().area;
+        hp::FEValues<1, 3> values(
+          hp::MappingCollection<1, 3>(area_field.mapping()),
+          flow_problem.dof_handler().get_fe_collection(),
+          hp::QCollection<1>(
+            QGauss<1>(flow_problem.finite_element().degree + 1)),
+          update_values);
+        for (const auto &cell :
+             flow_problem.dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              values.reinit(cell);
+              const auto         &fe_values = values.get_present_fe_values();
+              std::vector<double> areas(fe_values.n_quadrature_points);
+              fe_values[FEValuesExtractors::Scalar(0)].get_function_values(
+                relevant, areas);
+              for (const double area : areas)
+                valid = valid && std::isfinite(area) && area > 0.;
+            }
+        valid      = Utilities::MPI::min(valid ? 1u : 0u, MPI_COMM_WORLD) == 1;
+        scaled_max = Utilities::MPI::max(scaled_max, MPI_COMM_WORLD);
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout << std::setprecision(17)
+                    << "Steady KINSOL post-gate scaled F max: " << scaled_max
+                    << "; target: " << steady_function_tolerance
+                    << "; finite/positive/zero-rate: " << valid << std::endl;
+        AssertThrow(
+          valid && scaled_max <= steady_function_tolerance,
+          ExcMessage(
+            "Steady KINSOL post-gate failed; no accepted state output or checkpoint was written."));
+        state = candidate;
+        flow_problem.open_output_files();
+        output_step(flow_time.initial_time, state, state_dot, 0);
+      }
+    else
+      {
+        flow_problem.open_output_files();
+        accepted_steps = adapter.solve(state, state_dot);
+      }
     if (const char *filename = std::getenv("IMMERSX_ELASTOSTATIC_STATE_OUTPUT"))
       write_checkpoint_diagnostics(state, state_dot, filename);
     if (!options.checkpoint.empty())
@@ -986,7 +1165,8 @@ namespace
           {
             Checkpoint::Metadata metadata;
             metadata.ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
-            metadata.time  = flow_time.final_time;
+            metadata.time  = options.steady_only ? flow_time.initial_time :
+                                                   flow_time.final_time;
             metadata.parameters   = checkpoint_parameters.str();
             metadata.reference_fe = reference_view->finite_element().get_name();
             metadata.reference_component =
@@ -1011,6 +1191,10 @@ namespace
           }
       }
 
+    if (options.steady_only &&
+        Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      std::cout << "MetricFlowX elastostatic steady KINSOL iterations: "
+                << steady_iterations << std::endl;
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       std::cout << "MetricFlowX elastostatic accepted IDA steps: "
                 << accepted_steps << "\nStatic stiffness assemblies: "
@@ -1038,6 +1222,8 @@ main(int argc, char *argv[])
             options.restart = value();
           else if (argument == "--setup-only")
             options.setup_only = true;
+          else if (argument == "--steady-only")
+            options.steady_only = true;
           else if (argument == "--checkpoint")
             options.checkpoint = value();
           else if (argument == "--final-time")
@@ -1061,7 +1247,12 @@ main(int argc, char *argv[])
       AssertThrow(
         options.restart.empty() != options.parameter_file.empty(),
         dealii::ExcMessage(
-          "usage: metric_flow_x_elastostatic PARAMETER_FILE [--setup-only] [--checkpoint DIRECTORY] [--final-time T] or --restart DIRECTORY --final-time T [--checkpoint DIRECTORY]"));
+          "usage: metric_flow_x_elastostatic PARAMETER_FILE [--setup-only | --steady-only] [--checkpoint DIRECTORY] [--final-time T] or --restart DIRECTORY --final-time T [--checkpoint DIRECTORY]"));
+      AssertThrow(
+        !options.steady_only || (options.restart.empty() &&
+                                 !options.setup_only && !options.final_time),
+        dealii::ExcMessage(
+          "--steady-only requires a fresh parameter file and cannot use --restart, --setup-only or --final-time."));
       // Keep application options out of PETSc's command-line database.
       int    runtime_argc        = 1;
       char  *runtime_arguments[] = {argv[0], nullptr};
