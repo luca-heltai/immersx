@@ -348,7 +348,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Apply the configured MUMPS workspace relaxation to BLR preconditioners as well as exact factorizations.
+- [PR #433](https://github.com/luca-heltai/immersx/pull/433) Apply the configured MUMPS workspace relaxation to BLR preconditioners as well as exact factorizations.
 
 - [PR #430](https://github.com/luca-heltai/immersx/pull/430) Preserve the assembled fictitious-interior modal corrections when the coupled application uses MUMPS BLR FGMRES.
 
