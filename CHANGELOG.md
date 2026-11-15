@@ -365,6 +365,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Parse liver tutorial profiles without the removed solid refinement parameter, allow tiny MPI iterative runs, and report explicit tolerance-ramp bounds when shortening a run.
 
+- [PR #432](https://github.com/luca-heltai/immersx/pull/432) Let IRCAD11 liver profiles parse with the current solid parameters, and check all three profiles without release assets.
+
 - [PR #412](https://github.com/luca-heltai/immersx/pull/412) Remove GCC 15 warnings about lambdas capturing structured bindings in `modal_lift.h` and `harmonic_robin_boundary.h`, and remove dangling-else and range-loop copy warnings in gtest sources.
 
 - [PR #405](https://github.com/luca-heltai/immersx/pull/405) Sample lifted wall modal fields with each cell's active finite element, including terminal RCR elements in hp collections.
