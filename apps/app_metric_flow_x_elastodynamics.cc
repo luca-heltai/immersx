@@ -56,6 +56,7 @@
 #  include <utility>
 #  include <vector>
 
+#  include "metric_flow_x_history.h"
 #  include "metric_flow_x_physical_input.h"
 
 namespace
@@ -279,15 +280,20 @@ namespace
 
     ArchivedFlowParameters      archive_parameters;
     Vascularization::Parameters generation_parameters;
-    bool                        use_native_tolerances      = false;
-    bool                        ramp_solid_tolerances      = true;
-    bool                        stop_at_output_times       = false;
-    bool                        setup_only                 = false;
-    bool                        parse_only                 = false;
-    int                         mumps_workspace_relaxation = -1;
-    unsigned int                mumps_memory_limit_mb      = 0;
-    bool                        mumps_output_details       = false;
-    double displacement_tolerance = 0., velocity_tolerance = 0.,
+    std::string                 flow_history_directory;
+    coupling.add_parameter(
+      "Flow history directory",
+      flow_history_directory,
+      "Fresh directory for a native replay layout and area, velocity and physical pressure at every output time; empty disables it. Requires Stop at output times.");
+    bool         use_native_tolerances      = false;
+    bool         ramp_solid_tolerances      = true;
+    bool         stop_at_output_times       = false;
+    bool         setup_only                 = false;
+    bool         parse_only                 = false;
+    int          mumps_workspace_relaxation = -1;
+    unsigned int mumps_memory_limit_mb      = 0;
+    bool         mumps_output_details       = false;
+    double       displacement_tolerance = 0., velocity_tolerance = 0.,
            pressure_tolerance = 0.;
     coupling.add_parameter(
       "Use native flow tolerances",
@@ -406,6 +412,9 @@ namespace
                 ExcMessage("Embedded partitioning policy = immersed applies "
                            "only to the flow mesh read from the VTK file, not "
                            "to archived or generated networks."));
+    AssertThrow(flow_history_directory.empty() || stop_at_output_times,
+                ExcMessage(
+                  "Flow history requires Stop at output times = true."));
     if (archived_network)
       {
         auto path = std::filesystem::path(archive_parameters.directory);
@@ -977,6 +986,7 @@ namespace
                          modal_correction,
                          flow_fields,
                          flow_output_name,
+                         flow_history_directory,
                          flow_output_directory](
                           const GlobalVector &solution,
                           const GlobalVector &solution_dot,
@@ -1004,6 +1014,14 @@ namespace
       const auto &flow_derivative =
         adapter.field(solution_dot, flow_fields.fields().state);
       flow_problem.write_output_step(time, flow_state, &flow_derivative);
+      if (!flow_history_directory.empty())
+        write_flow_history(flow_problem,
+                           flow_history_directory,
+                           time,
+                           flow_state,
+                           flow_derivative,
+                           step == 0,
+                           0);
       flow_problem.clear_external_pressure_provider();
       // MetricFlowX's native writer uses its runner's private clock. The
       // coupled adapter supplies the accepted times for this collection.

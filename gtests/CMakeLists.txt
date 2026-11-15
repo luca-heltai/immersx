@@ -15,7 +15,7 @@
 set(_target gtests)
 
 file(GLOB _test_files CONFIGURE_DEPENDS *cc)
-list(FILTER _test_files EXCLUDE REGEX "metric_flow_x(_elastostatic)?_01\\.cc$")
+list(FILTER _test_files EXCLUDE REGEX "metric_flow_x(_elastostatic|_history)?_01\\.cc$")
 
 include(GoogleTest)
 include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
@@ -305,6 +305,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
         ${_metric_flow_x_test_target}
         metric_flow_x_01.cc
         metric_flow_x_elastostatic_01.cc
+        metric_flow_x_history_01.cc
         vascularization_metric_flow_x_01.cc
         gtest_main.cc)
       target_include_directories(
@@ -419,6 +420,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           endif()
         endif()
         foreach(_mode IN LISTS _coupled_modes)
+          set(_mumps_workspace_check_arguments)
           if(_mode MATCHES "^MPI" AND NOT _immersx_mpiexec)
             continue()
           endif()
@@ -476,7 +478,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = mumps\n    end\n  end\nend\n")
           elseif(_mode STREQUAL "SerialMUMPSBLR" OR _mode STREQUAL "MPIMUMPSBLR")
             file(APPEND "${_coupled_input}"
-              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = mumps-blr-fgmres\n    end\n  end\nend\n")
+              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = mumps-blr-fgmres\n      subsection MUMPS BLR\n        set Output details = true\n      end\n    end\n  end\nend\nsubsection MetricFlowX coupling\n  set MUMPS workspace relaxation = 73\nend\n")
+            list(APPEND _mumps_workspace_check_arguments
+              "-DEXPECTED_MUMPS_WORKSPACE=73")
           elseif(_mode STREQUAL "SerialBlockDiagonal")
             file(APPEND "${_coupled_input}"
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Block preconditioner = block diagonal\n    end\n  end\nend\n")
@@ -514,6 +518,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "-DMPI_RANKS=${_coupled_ranks}"
               "-DREQUIRE_GENERATED_RESPONSE=$<STREQUAL:${_case},Generated>"
               ${_particle_check_arguments}
+              ${_mumps_workspace_check_arguments}
               "-DAPPLICATION_TIMEOUT=${_coupled_application_timeout}"
               -P "${CMAKE_CURRENT_SOURCE_DIR}/run_metric_flow_x_coupled.cmake")
           set_tests_properties("${_coupled_name}" PROPERTIES
