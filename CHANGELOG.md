@@ -353,6 +353,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #435](https://github.com/luca-heltai/immersx/pull/435) Own and release the linear solver and matrix borrowed by IDA, then free their SUNDIALS context after IDA memory on reset and destruction. Repeated IC-only resets retain corrected states and recover after setup failure without emitting output.
+
 - [PR #433](https://github.com/luca-heltai/immersx/pull/433) Apply the configured MUMPS workspace relaxation to BLR preconditioners as well as exact factorizations.
 
 - [PR #430](https://github.com/luca-heltai/immersx/pull/430) Preserve the assembled fictitious-interior modal corrections when the coupled application uses MUMPS BLR FGMRES.
