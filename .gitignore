@@ -98,3 +98,11 @@ benchmarks/**/*mp4
 .atl/
 
 .vscode/settings.json
+
+# Python modules imported during documentation builds.
+__pycache__/
+
+# Changelog Markdown is source data, even when names match ignored outputs.
+!changelog/
+!changelog/**/
+!changelog/**/*.md

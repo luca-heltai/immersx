@@ -52,7 +52,8 @@ class GitSelection(unittest.TestCase):
 
     def test_documentation_allowlist_excludes_expensive_jobs(self):
         for name in ("README.md", "CHANGELOG.md", "doc/conf.py", "doc/Doxyfile",
-                     "doc/requirements.txt", "doc/nested/guide.rst", "doc/assets/logo.svg"):
+                     "doc/requirements.txt", "doc/nested/guide.rst", "doc/assets/logo.svg",
+                     "changelog/2026_11_15_new_feature.md"):
             with self.subTest(name=name):
                 self.assertTrue(selector.documentation_path(name))
         self.write("doc/guide.md")

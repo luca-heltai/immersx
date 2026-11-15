@@ -207,36 +207,70 @@ commit needs a body, use short bullets with conventional prefixes such as
 `fix`, `feat`, `refactor`, `docs`, and `chore`. Do not add `Co-Authored-By` or
 generated-attribution trailers.
 
-### Changelog
+### Changelog fragments
 
 Every change to user-visible behavior, the public API, the build system, the
-test structure, or the documentation must add an entry to the repository-root
-[`CHANGELOG.md`](CHANGELOG.md) under `## [Unreleased]`.
+test structure, or the documentation must add a Markdown fragment under
+`changelog/<category>/`. Do not edit the shared root `CHANGELOG.md` for a new PR.
+That file retains legacy history and is never rewritten by the fragment or
+release tools. Do not migrate or reorder its existing entries.
 
-Use [`.github/CHANGELOG_TEMPLATE.md`](.github/CHANGELOG_TEMPLATE.md) as the
-skeleton. Pick the section that matches the change: `Added`, `Changed`,
-`Fixed`, `Removed`, `Documentation`, `Tutorial`, `Build and packaging`, or
-`Testing and CI`. Each entry must start with a link to the pull request that
-introduced it, for example:
+The directory selects the category: `added`, `changed`, `fix`, `removed`,
+`docs`, `tutorials`, `build`, or `testing`. A PR may have one fragment in each
+relevant category, with several bullets in a fragment.
 
-```markdown
-- [PR #231](https://github.com/luca-heltai/immersx/pull/231) Add primitive static elasticity boundary conditions.
+Name each fragment `YYYY_MM_DD_short_description.md`, using the date work began
+and a short lowercase description separated by underscores. For example:
+`changelog/build/2026_11_15_changelog_fragments.md`. Keep this name stable when
+opening, rebasing, or merging the PR. If another PR uses the same date and
+description in that category, choose a distinct meaningful description. The
+filename contains no commit identifier and does not depend on the PR number.
+
+Copy [`.github/CHANGELOG_TEMPLATE.md`](.github/CHANGELOG_TEMPLATE.md). Its first
+line must contain the actual PR number, for example `PR: #427`, followed by
+plain bullet descriptions. Before that number is known, a local draft may use
+`PR: pending`; update only that metadata as soon as the PR is opened. CI and
+the documentation build require a real number. Do not repeat category headings
+or a leading PR link in the file; the renderer supplies them.
+
+New entries are ordered within each category by activity start date, newest
+first, then alphabetically by filename for equal dates. PR numbers and merge
+dates do not affect fragment ordering. Existing historical text is retained.
+The documentation shows current category fragments under Development version,
+then versioned release archives, then the read-only legacy history. Old legacy
+`[Unreleased]` entries are displayed as historical changes without inventing a
+release tag or date. Documentation changes no fragment, archive, or history
+file. Do not consolidate fragments after every merge.
+
+At release preparation, preview and then explicitly apply consolidation:
+
+```bash
+python3 scripts/changelog.py check
+python3 scripts/changelog.py render
+python3 scripts/changelog.py release --version 0.5.0 --date 2026-11-15
+python3 scripts/changelog.py release --version 0.5.0 --date 2026-11-15 --write
 ```
 
-Add each new entry immediately below its category heading so the newest changes
-appear first. Keep entries within every category in reverse chronological
-merge order; use descending PR numbers when merge dates are unavailable. Apply
-the same ordering within unreleased and dated release sections.
+The release command is read-only without `--write`. An explicit write creates
+`changelog/version_YY_MM_vTAG.md`, for example
+`changelog/version_26_11_v0.5.0.md`, and removes the consolidated development
+fragments from all category directories. Its heading records the full release
+date and version. It never modifies `CHANGELOG.md` or an existing archive and
+refuses a version already recorded in any month or year. Category files exist
+only for the current development version; released notes live in archives. CI validates PR metadata only on newly added
+fragments, preserving original PR references when fixing an existing entry and
+allowing release consolidation without a new fragment.
 
-When reviewing recent merged PRs, check whether each change already has an
-entry in the current `CHANGELOG.md`; do not rely only on whether that PR's diff
-changed the changelog. Add an entry for every missing change. Use the actual PR
-number in the link. A `#N` placeholder is temporary and must be replaced before
-the PR is complete.
-
-Write the entry in plain prose. Describe the behavior change, not the internal
-refactor. When a release is tagged, move the accumulated `[Unreleased]` entries
-into a new dated version section instead of rewriting them.
+For an automatic release commit and PR, use the same command with `--commit`
+instead of `--write`. It implies writing, requires authenticated GitHub CLI and
+a clean default-branch checkout exactly matching current `origin`, and creates
+`codex/release-vTAG`. It commits only the new archive and consumed fragments,
+pushes without force, and opens the release PR. It preserves Git hooks and
+signing and checks the commit paths before publishing. Preview and `--write`
+remain offline and make no commit. No mode creates a tag or GitHub release.
+On failure, inspect the retained branch/commit and follow the reported push/PR
+recovery commands instead of repeating consolidation. See
+[`doc/developer/changelog.md`](doc/developer/changelog.md).
 
 If asked to open or update a pull request, use the repository's template at
 [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) as the
@@ -244,8 +278,8 @@ body and fill in every section:
 
 - `It closes #<issue>` — include this at the top when closing an issue; omit
   it when there is no issue to close;
-- `- [ ] Update CHANGELOG` — the checklist item that reminds the author to add
-  the `[Unreleased]` entry before merging;
+- `- [ ] Add changelog fragments` — the checklist item for dated fragments
+  in the relevant categories and their actual PR metadata;
 - `## Overview` — the goal, motivation, and reviewer context;
 - `## Summary` — concrete changes, each prefixed with a conventional commit
   type (`feat`, `fix`, `refactor`, `chore`, `docs`);

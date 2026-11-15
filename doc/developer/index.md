@@ -9,6 +9,7 @@ composition API.
 :titlesonly:
 
 contributing
+changelog
 testing
 documentation
 repository-layout
