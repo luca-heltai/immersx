@@ -15,8 +15,6 @@ this historical file.
 
 ### Added
 
-- [PR #437](https://github.com/luca-heltai/immersx/pull/437) Recover stalled MUMPS refinement with bounded FGMRES corrections using the same factorization, preserving the independent retained-Jacobian residual target.
-
 - [PR #427](https://github.com/luca-heltai/immersx/pull/427) Save native flow replay histories from coupled elastodynamics, including the physical pressure from the wall multiplier.
 
 - [PR #416](https://github.com/luca-heltai/immersx/pull/416) Add MUMPS BLR-preconditioned FGMRES for coupled IDA solves, with controls for low-rank truncation, per-rank memory and MUMPS diagnostics.
