@@ -345,7 +345,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Preserve cached weak-term matrices when materializing scaled operators, including repeated negative and zero scalings.
+- [PR #426](https://github.com/luca-heltai/immersx/pull/426) Preserve cached weak-term matrices when materializing scaled operators, including repeated negative and zero scalings.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Retain lifted-wall particle locations between accepted outputs and update their properties without repeating distributed point searches.
 
