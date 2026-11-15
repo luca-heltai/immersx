@@ -18,6 +18,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report rejected CCO junction trials and candidates without feasible starts in growth statistics.
 
+- [PR #414](https://github.com/luca-heltai/immersx/pull/414) Add the `metric_flow_x_elastostatic_replay` application, which reads the flow area saved by MetricFlowX (coupling field output or a checkpoint history) and solves a static solid with a vessel wall multiplier at each saved time through one `LinearAdapter`, relative to the MetricFlowX wall reference area, reproducing the one-way `metric_flow_x_elastostatic` solid without integrating the flow again. `frozen()` expressions can now share a caller-owned coefficient vector that is reread at each solve.
+
 - [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 
 - [PR #410](https://github.com/luca-heltai/immersx/pull/410) Expose the stopping criteria of the linear solves that `IDAAdapter` runs for IDA in the `Linear solver` subsection of the IDA parameters: maximum iterations and relative tolerance of the outer Krylov solve, of the inner Schur complement solve and of the inner second-order block CG, and the MUMPS residual check. The defaults keep the previous hard-coded values. The outer solve also prints its target residual next to the tolerance IDA requested.
@@ -348,6 +350,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
+- [PR #430](https://github.com/luca-heltai/immersx/pull/430) Preserve the assembled fictitious-interior modal corrections when the coupled application uses MUMPS BLR FGMRES.
+
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Retain lifted-wall particle locations between accepted outputs and update their properties without repeating distributed point searches.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Parse liver tutorial profiles without the removed solid refinement parameter, allow tiny MPI iterative runs, and report explicit tolerance-ramp bounds when shortening a run.
@@ -674,7 +678,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #419](https://github.com/luca-heltai/immersx/pull/419) Allow 120 minutes for Release CI, matching Debug, so cold builds leave time for tests and cache uploads.
 
-- [PR #419](https://github.com/luca-heltai/immersx/pull/419) Exercise the IDA MUMPS BLR regression on a distributed communicator with at least one owned unknown per MPI rank; check the analytic exponential state and rate and their DAE residual.
+- [PR #414](https://github.com/luca-heltai/immersx/pull/414) Give the Release CI job the same two-hour budget as Debug so a cold build can finish its tests and cache upload.
 
 - [PR #413](https://github.com/luca-heltai/immersx/pull/413) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
 

@@ -20,6 +20,64 @@
 
 namespace ImmersX
 {
+  namespace detail
+  {
+    /** Register the multiplier and the radial wall rows
+     * B^T u - P_h(A) = 0 on the overlap and lambda = 0 outside it.
+     * The area expression is either the live flow area or frozen data.
+     */
+    template <typename Builder,
+              typename Displacement,
+              typename Area,
+              typename Multiplier,
+              typename ReferenceWall,
+              typename WallLift,
+              typename Radius,
+              typename Supports,
+              typename Metric,
+              typename Reaction>
+    FieldId
+    add_metric_flow_x_wall_rows(Builder                    &builder,
+                                const Displacement         &displacement,
+                                const Area                 &area,
+                                const Multiplier           &lambda,
+                                const ReferenceWall        &reference_wall,
+                                const WallLift             &wall_lift,
+                                const Radius               &radius,
+                                const Supports             &supports,
+                                const Metric               &multiplier_metric,
+                                const Reaction             &reaction_field,
+                                const std::vector<FieldId> &primal_ids)
+    {
+      const auto id          = builder.algebraic_field(lambda.name(),
+                                              lambda.locally_owned_dofs(),
+                                              lambda.locally_relevant_dofs());
+      const auto multiplier  = lambda.with_id(id);
+      const auto lambda_wall = reference_wall.with_id(id);
+      const auto negative_wall_displacement =
+        lift(radius - sqrt(area / dealii::numbers::PI), wall_lift, radius);
+
+      weak_term(value(displacement), test(lambda_wall))
+        .on(supports.overlap)
+        .with_cached_assembly()
+        .add_constraint_terms(builder, id, 1., 0, reaction_field);
+      weak_term(negative_wall_displacement, test(multiplier))
+        .on(supports.overlap)
+        .add(builder);
+      weak_term(-1. * value(multiplier), test(multiplier))
+        .on(supports.outside)
+        .add(builder);
+
+      auto metric        = builder.matrix_operator(*multiplier_metric);
+      metric.materialize = [multiplier_metric] { return multiplier_metric; };
+      metric.materialize_into = [multiplier_metric](auto &destination) {
+        destination.copy_from(*multiplier_metric);
+      };
+      builder.saddle_point(id, primal_ids, metric);
+      return id;
+    }
+  } // namespace detail
+
   /** Couple native flow radius to lifted displacement with radial traction.
    * The reaction field selects the solid equilibrium row: displacement for
    * statics, velocity for the first-order elastodynamics formulation.
@@ -53,27 +111,19 @@ namespace ImmersX
     const auto reference_wall =
       lift(value(lambda), wall_lift, reference_radius);
     return [=, &flow_problem, &wall_lift](auto &builder) {
-      const auto id          = builder.algebraic_field(lambda.name(),
-                                              lambda.locally_owned_dofs(),
-                                              lambda.locally_relevant_dofs());
-      const auto multiplier  = lambda.with_id(id);
-      const auto radius      = reference_radius;
-      const auto lambda_wall = reference_wall.with_id(id);
-      const auto negative_wall_displacement =
-        lift(radius - sqrt(value(flow_fields.area) / numbers::PI),
-             wall_lift,
-             radius);
-
-      weak_term(value(displacement), test(lambda_wall))
-        .on(supports.overlap)
-        .with_cached_assembly()
-        .add_constraint_terms(builder, id, 1., 0, reaction_field);
-      weak_term(negative_wall_displacement, test(multiplier))
-        .on(supports.overlap)
-        .add(builder);
-      weak_term(-1. * value(multiplier), test(multiplier))
-        .on(supports.outside)
-        .add(builder);
+      const auto id =
+        detail::add_metric_flow_x_wall_rows(builder,
+                                            displacement,
+                                            value(flow_fields.area),
+                                            lambda,
+                                            reference_wall,
+                                            wall_lift,
+                                            reference_radius,
+                                            supports,
+                                            multiplier_metric,
+                                            reaction_field,
+                                            primal_ids);
+      const auto multiplier = lambda.with_id(id);
 
       if (pressure_feedback)
         {
@@ -133,14 +183,55 @@ namespace ImmersX
             }
         }
 
-
-      auto metric        = builder.matrix_operator(*multiplier_metric);
-      metric.materialize = [multiplier_metric] { return multiplier_metric; };
-      metric.materialize_into = [multiplier_metric](auto &destination) {
-        destination.copy_from(*multiplier_metric);
-      };
-      builder.saddle_point(id, primal_ids, metric);
       return ConstraintFields<std::decay_t<decltype(lambda)>>{multiplier};
+    };
+  }
+
+  /** Couple a prescribed vessel area to lifted static displacement.
+   *
+   * This is the one-way wall constraint of metric_flow_x_wall_constraint()
+   * with the area given as data rather than as a flow state field, for
+   * example a frozen() expression sharing coefficients read from MetricFlowX
+   * checkpoints. The rows are linear in displacement and multiplier; only
+   * P_h(A) changes when the shared area changes. The traction reacts on the
+   * displacement equilibrium row. Geometry and area data must outlive the
+   * adapter.
+   */
+  template <typename Displacement,
+            typename Area,
+            typename Multiplier,
+            typename WallLift,
+            typename Radius,
+            typename Supports,
+            typename Metric>
+  auto
+  metric_flow_x_prescribed_wall_constraint(Displacement    displacement,
+                                           Area            area,
+                                           Multiplier      lambda,
+                                           const WallLift &wall_lift,
+                                           Radius          reference_radius,
+                                           const Supports &supports,
+                                           Metric          multiplier_metric)
+  {
+    AssertThrow(area.is_frozen() && area.dependencies().empty(),
+                dealii::ExcMessage(
+                  "A prescribed wall area must be frozen data."));
+    const auto reference_wall =
+      lift(value(lambda), wall_lift, reference_radius);
+    return [=, &wall_lift](auto &builder) {
+      const auto id = detail::add_metric_flow_x_wall_rows(builder,
+                                                          displacement,
+                                                          area,
+                                                          lambda,
+                                                          reference_wall,
+                                                          wall_lift,
+                                                          reference_radius,
+                                                          supports,
+                                                          multiplier_metric,
+                                                          displacement,
+                                                          {displacement.id()});
+      return ConstraintFields<std::decay_t<decltype(lambda)>>{
+        lambda.with_id(id)};
     };
   }
 } // namespace ImmersX

@@ -14,7 +14,6 @@
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/sundials_ida_adapter.h>
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -220,58 +219,68 @@ TEST(DistributedIDA, BOTH_MumpsBlrFgmresSolvesCoupledDae)
   parameters.initial_step_size                 = 0.005;
   parameters.maximum_step_size                 = 0.01;
   parameters.maximum_order                     = 1;
-  parameters.absolute_tolerance                = 1.e-6;
-  parameters.relative_tolerance                = 1.e-5;
+  parameters.absolute_tolerance                = 1.e-8;
+  parameters.relative_tolerance                = 1.e-7;
   parameters.ignore_algebraic_terms_for_errors = false;
-  // Resolve Newton corrections before checking the endpoint DAE defect.
   parameters.nonlinear_convergence_coefficient = 1.e-4;
 
   const auto communicator = MPI_COMM_WORLD;
-  const auto n_ranks = dealii::Utilities::MPI::n_mpi_processes(communicator);
-  const auto size    = std::max(2u, n_ranks);
+  const auto size = 2 * dealii::Utilities::MPI::n_mpi_processes(communicator);
   const auto owned =
     dealii::Utilities::MPI::create_evenly_distributed_partitioning(communicator,
                                                                    size);
   Adapter                        adapter(time, parameters, communicator);
   dealii::DynamicSparsityPattern sparsity(size, size, owned);
-  for (const auto index : owned)
-    sparsity.add(index, index);
-  auto identity = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  for (const auto i : owned)
+    {
+      sparsity.add(i, i);
+      sparsity.add(i, (i + 1) % size);
+    }
+  auto identity  = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  auto stiffness = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
   identity->reinit(owned, owned, sparsity, communicator);
-  for (const auto index : owned)
-    identity->set(index, index, 1.);
+  stiffness->reinit(owned, owned, sparsity, communicator);
+  for (const auto i : owned)
+    {
+      identity->set(i, i, 1.);
+      stiffness->set(i, i, 2.);
+      stiffness->set(i, (i + 1) % size, -1.);
+    }
   identity->compress(dealii::VectorOperation::insert);
+  stiffness->compress(dealii::VectorOperation::insert);
   const auto field = adapter.add(
-    [owned, identity](auto &builder) {
-      using Model      = typename std::decay_t<decltype(builder)>::Model;
-      const auto value = builder.differential_field("value", owned);
-      const auto mass  = builder.matrix_operator(*identity);
-      builder.term(value, "identity")
-        .residual([value](const auto &context) {
+    [owned, identity, stiffness](auto &builder) {
+      using Model        = typename std::decay_t<decltype(builder)>::Model;
+      const auto value   = builder.differential_field("value", owned);
+      const auto mass    = builder.matrix_operator(*identity);
+      const auto spatial = builder.matrix_operator(*stiffness);
+      builder.term(value, "coupled decay")
+        .residual([value, stiffness](const auto &context) {
           const auto               &state     = context.state(value);
           const auto               &state_dot = context.derivative(value);
           typename Model::Operation result;
           result.reinit_vector = [state](FieldVector &vector, bool) {
             vector.reinit(state);
           };
-          result.apply = [state, state_dot](FieldVector &vector) {
-            vector = state_dot;
-            vector += state;
+          result.apply = [state, state_dot, stiffness](FieldVector &vector) {
+            stiffness->vmult(vector, state);
+            vector += state_dot;
           };
-          result.apply_add = [state, state_dot](FieldVector &vector) {
-            FieldVector contribution;
-            contribution.reinit(state);
-            contribution = state_dot;
-            contribution += state;
-            vector += contribution;
-          };
+          result.apply_add =
+            [state, state_dot, stiffness](FieldVector &vector) {
+              FieldVector contribution;
+              contribution.reinit(state);
+              stiffness->vmult(contribution, state);
+              contribution += state_dot;
+              vector += contribution;
+            };
           return result;
         })
-        .state(value, mass)
+        .state(value, spatial)
         .derivative(value, mass);
       return value;
     },
-    "identity");
+    "coupled decay");
   adapter.set_linear_solver(Adapter::LinearSolver::mumps_blr_fgmres);
   adapter.set_mumps_blr_parameters(1.e-5);
   adapter.set_stop_at_output_times(true);
@@ -284,25 +293,23 @@ TEST(DistributedIDA, BOTH_MumpsBlrFgmresSolvesCoupledDae)
   const auto statistics = adapter.statistics();
   EXPECT_GT(statistics.jacobian_setups, 0u);
   EXPECT_GT(statistics.linear_solves, 0u);
-  const double exact         = std::exp(-time.final_time);
-  const double tolerance     = 10. * (parameters.absolute_tolerance +
-                                  parameters.relative_tolerance * exact);
-  const double normalization = std::sqrt(static_cast<double>(size));
-  auto         state_error   = adapter.field(state, field.fields());
-  auto         rate_error    = adapter.field(dot, field.fields());
-  for (const auto index : owned)
+  const auto &solution   = adapter.field(state, field.fields());
+  const auto &derivative = adapter.field(dot, field.fields());
+  // Every matrix row sums to one, including the rows coupled across ranks.
+  // The all-ones initial state therefore decays as exp(-t).
+  const double expected = std::exp(-time.final_time);
+  for (const auto i : owned)
     {
-      state_error(index) -= exact;
-      rate_error(index) += exact;
+      EXPECT_NEAR(solution[i], expected, 1.e-4);
+      EXPECT_NEAR(derivative[i], -expected, 1.e-4);
     }
-  state_error.compress(dealii::VectorOperation::add);
-  rate_error.compress(dealii::VectorOperation::add);
-  EXPECT_LT(state_error.l2_norm() / normalization, tolerance);
-  EXPECT_LT(rate_error.l2_norm() / normalization, tolerance);
-  auto defect = adapter.field(dot, field.fields());
-  defect += adapter.field(state, field.fields());
-  EXPECT_LT(defect.l2_norm() / normalization, parameters.absolute_tolerance);
+  FieldVector residual;
+  residual.reinit(solution);
+  stiffness->vmult(residual, solution);
+  residual += derivative;
+  EXPECT_LT(residual.l2_norm(), 1.e-8 * std::sqrt(static_cast<double>(size)));
 }
+
 #  endif
 
 TEST(DistributedIDA, NativeSetupFailureThrows)
