@@ -259,7 +259,17 @@ date and version. It never modifies `CHANGELOG.md` or an existing archive and
 refuses a version already recorded in any month or year. Category files exist
 only for the current development version; released notes live in archives. CI validates PR metadata only on newly added
 fragments, preserving original PR references when fixing an existing entry and
-allowing release consolidation without a new fragment. See
+allowing release consolidation without a new fragment.
+
+For an automatic release commit and PR, use the same command with `--commit`
+instead of `--write`. It implies writing, requires authenticated GitHub CLI and
+a clean default-branch checkout exactly matching current `origin`, and creates
+`codex/release-vTAG`. It commits only the new archive and consumed fragments,
+pushes without force, and opens the release PR. It preserves Git hooks and
+signing and checks the commit paths before publishing. Preview and `--write`
+remain offline and make no commit. No mode creates a tag or GitHub release.
+On failure, inspect the retained branch/commit and follow the reported push/PR
+recovery commands instead of repeating consolidation. See
 [`doc/developer/changelog.md`](doc/developer/changelog.md).
 
 If asked to open or update a pull request, use the repository's template at

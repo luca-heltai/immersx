@@ -543,7 +543,11 @@ Development entries within each category use activity start date and filename
 ordering. `./scripts/build_doc.sh` renders this combined page without modifying
 or deleting any input. Fragments remain separate after merging; explicit
 release preparation moves their notes into `changelog/version_YY_MM_vTAG.md`
-and removes the category files. The global historical file is never rewritten. See
+and removes the category files. The global historical file is never rewritten.
+Use `--write` for local files only, or `--commit` to also create a dedicated
+release branch, commit, push, and PR from a clean current default branch.
+The latter requires authenticated GitHub CLI. Neither option creates a tag or
+GitHub release. See
 [Changelog and releases](changelog) for validation and the release command.
 
 ## Formatting and commits

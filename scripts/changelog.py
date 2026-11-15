@@ -2,6 +2,10 @@
 """Validate development fragments, render history, or archive an explicit release."""
 
 import argparse
+import json
+import shlex
+import shutil
+import tempfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -294,6 +298,99 @@ def release(repo, version, release_date, write=False):
     return result
 
 
+def commit_release(repo, version, release_date):
+    """Create a changelog-only release branch and PR; never create a tag."""
+    repo = Path(repo).resolve()
+    version = version_tag(version)
+    preview = release(repo, version, release_date)
+    if not shutil.which("gh"):
+        raise ValueError("--commit requires GitHub CLI (gh); install it and run gh auth login")
+
+    def run(*arguments):
+        return subprocess.check_output(arguments, cwd=repo, text=True).strip()
+
+    def clean():
+        if run("git", "status", "--porcelain", "--untracked-files=all"):
+            raise ValueError("--commit requires a clean checkout, including staged and untracked files")
+
+    clean()
+    run("gh", "auth", "status")
+    origin = run("git", "remote", "get-url", "origin")
+    metadata = json.loads(run("gh", "repo", "view", origin, "--json", "nameWithOwner,defaultBranchRef"))
+    repository = metadata["nameWithOwner"]
+    base = metadata["defaultBranchRef"]["name"]
+    branch = f"codex/release-v{version}"
+    run("git", "check-ref-format", "--branch", branch)
+    if run("git", "branch", "--show-current") != base:
+        raise ValueError(f"--commit must start on the default branch {base}")
+    if subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=repo).returncode == 0:
+        raise ValueError(f"Release branch {branch} already exists locally")
+    if run("git", "ls-remote", "--heads", "origin", f"refs/heads/{branch}"):
+        raise ValueError(f"Release branch {branch} already exists on origin")
+    if json.loads(run("gh", "pr", "list", "--repo", repository, "--head", branch,
+                      "--state", "all", "--json", "number")):
+        raise ValueError(f"A release PR for {branch} already exists; inspect it instead of creating another")
+    run("git", "fetch", "--no-tags", "origin", f"refs/heads/{base}:refs/remotes/origin/{base}")
+    head = run("git", "rev-parse", "HEAD")
+    if head != run("git", "rev-parse", f"refs/remotes/origin/{base}"):
+        raise ValueError(f"--commit requires HEAD to equal the fetched origin/{base}")
+    items = check(repo)
+    target = repo / "changelog" / f"version_{iso_date(release_date):%y_%m}_v{version}.md"
+    paths = [str(target.relative_to(repo))] + [str(item.path.relative_to(repo)) for item in items]
+    clean()
+    if head != run("git", "rev-parse", "HEAD") or run("git", "branch", "--show-current") != base:
+        raise ValueError("Checkout changed during release preparation")
+    if head != run("git", "ls-remote", "--heads", "origin", f"refs/heads/{base}").split("\t", 1)[0]:
+        raise ValueError("The remote default branch changed; retry from its current HEAD")
+    if preview != release(repo, version, release_date):
+        raise ValueError("Development fragments changed during release preparation")
+    run("git", "switch", "-c", branch)
+    committed = None
+    verified_commit = False
+    title = f"Prepare changelog for v{version}"
+    body = ("- [x] Consolidate existing development fragments; no additional fragment is needed.\n\n"
+            "## Overview\n\nPrepare the versioned changelog archive for this release.\n\n"
+            "## Summary\n\n- chore: archive current development notes and remove their individual fragments.\n"
+            "- chore: leave source code, existing archives, legacy history, and Git tags unchanged.\n\n"
+            "## Test plan\n\n- [x] Validate fragment and archive data before consolidation.\n"
+            "- [ ] Review the generated archive and run the release PR checks.\n")
+    create = ["gh", "pr", "create", "--repo", repository, "--base", base,
+              "--head", branch, "--title", title, "--body-file"]
+    try:
+        release(repo, version, release_date, write=True)
+        run("git", "add", "--", *paths)
+        staged = set(run("git", "diff", "--cached", "--name-only").splitlines())
+        if staged != set(paths):
+            raise ValueError("The index changed unexpectedly; refusing to commit unrelated paths")
+        run("git", "commit", "--only", "-m", title, "--", *paths)
+        committed = run("git", "rev-parse", "HEAD")
+        changed = set(run("git", "diff", "--name-only", head, committed).splitlines())
+        if changed != set(paths) or run("git", "rev-parse", "HEAD^") != head:
+            raise ValueError("Release commit contains unexpected paths or ancestry; refusing to push")
+        clean()
+        if (run("git", "branch", "--show-current") != branch or
+                run("git", "rev-parse", "HEAD") != committed or
+                run("git", "ls-remote", "--heads", "origin", f"refs/heads/{base}").split("\t", 1)[0] != head):
+            raise ValueError("The release checkout or remote base changed; refusing to push")
+        verified_commit = True
+        run("git", "push", "origin", f"{committed}:refs/heads/{branch}")
+        run("git", "branch", "--set-upstream-to", f"origin/{branch}", branch)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".md") as description:
+            description.write(body)
+            description.flush()
+            url = run(*create, description.name)
+        return f"{preview}\nRelease PR: {url}\nCommit: {committed}\n"
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        retry = (f"git push --set-upstream origin {shlex.quote(branch)}; "
+                 f"then inspect gh pr view {shlex.quote(branch)} --repo {shlex.quote(repository)}; "
+                 f"if absent, gh pr create --repo {shlex.quote(repository)} --base {shlex.quote(base)} "
+                 f"--head {shlex.quote(branch)} --title {shlex.quote(title)} --body-file <reviewed-body.md>")
+        if not verified_commit:
+            retry = "Review and repair the retained checkout/commit before any push; publication validation did not pass"
+        raise ValueError(f"Release preparation stopped on {branch}; retained commit {committed or 'not yet created'}. "
+                         f"Inspect the checkout; no rollback was attempted. Recovery after a commit: {retry}. Cause: {error}") from error
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
@@ -307,6 +404,7 @@ def main():
     consolidate.add_argument("--version", required=True)
     consolidate.add_argument("--date", required=True)
     consolidate.add_argument("--write", action="store_true")
+    consolidate.add_argument("--commit", action="store_true", help="archive, commit on a release branch, push, and open a PR; no tag")
     args = parser.parse_args()
     try:
         if args.command == "check":
@@ -325,7 +423,10 @@ def main():
         elif args.command == "render":
             print(render(args.repo), end="")
         else:
-            print(release(args.repo, args.version, args.date, args.write), end="")
+            if args.commit:
+                print(commit_release(args.repo, args.version, args.date), end="")
+            else:
+                print(release(args.repo, args.version, args.date, args.write), end="")
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"changelog: {error}\n")
 

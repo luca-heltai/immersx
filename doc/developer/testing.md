@@ -283,4 +283,9 @@ python3 scripts/changelog.py check
 python3 -B -m unittest discover -s scripts/ci/tests -v
 ```
 
+Release publication tests use temporary Git repositories, a local bare origin,
+and a fake GitHub CLI. They verify exact commit paths, clean/default-branch
+preconditions, hook failures, recovery after PR creation fails, and that no tag
+is created. They never publish a real release or release PR.
+
 See [Changelog and releases](changelog) for the development and release formats.

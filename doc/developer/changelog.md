@@ -113,6 +113,30 @@ Older archives and the global `CHANGELOG.md` remain untouched. A later PR adds
 new category files for the next development version.
 
 The command refuses malformed data, existing archive paths, and versions already
-recorded in another archive or the legacy history. Review and commit the new
-archive and removed fragments as part of release preparation. The command does
-not create a Git commit or tag.
+recorded in another archive or the legacy history. With `--write`, review and
+commit the new archive and removed fragments yourself. Preview and `--write`
+work offline and do not invoke Git or GitHub.
+
+To prepare the commit and pull request automatically instead:
+
+```bash
+python3 scripts/changelog.py release --version 0.5.0 --date 2026-11-15 --commit
+```
+
+`--commit` implies `--write`. It requires GitHub CLI (`gh`) installed and
+authenticated, a clean checkout including staged and untracked files, and the
+repository's default branch checked out at the current `origin` commit. It
+checks these prerequisites before modifying the changelog. Existing release
+branches or PRs are rejected rather than overwritten.
+
+The command creates `codex/release-v0.5.0`, archives the notes, commits only the
+new archive and removed fragments with message `Prepare changelog for v0.5.0`,
+pushes normally, and opens a PR against the default branch. It preserves user
+Git hooks and signing settings and checks the resulting commit before pushing.
+This changelog-only commit changes no C++ source and does not run a formatter
+on unrelated files. No mode creates a Git tag or a GitHub release.
+
+If pushing or opening the PR fails, the command preserves the release branch
+and commit and reports their identity with recovery commands. Inspect that
+branch and retry the push or PR creation; do not rerun release consolidation.
+Check for an existing PR before retrying `gh pr create` to avoid duplicates.

@@ -1,6 +1,8 @@
 """Exercise development fragments, release archives, and documentation in isolation."""
 
 import importlib.util
+import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -331,6 +333,147 @@ class Fragments(unittest.TestCase):
         app = mock.Mock()
         conf.setup(app)
         self.assertEqual(app.connect.call_count, 2)
+
+    def publication_fixture(self):
+        self.fragment()
+        self.remote_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.remote_temp.cleanup)
+        remote = Path(self.remote_temp.name)
+        self.origin = remote / "origin.git"
+        self.gh_log = remote / "gh.jsonl"
+        def git(*args):
+            return subprocess.check_output(["git", *args], cwd=self.repo, text=True).strip()
+        self.git = git
+        git("init", "-q", "-b", "master")
+        git("config", "user.name", "Release test")
+        git("config", "user.email", "test@example.invalid")
+        git("config", "commit.gpgsign", "false")
+        git("add", "--all")
+        git("commit", "-qm", "initial")
+        subprocess.run(["git", "init", "--bare", "-q", "-b", "master", str(self.origin)], check=True)
+        git("remote", "add", "origin", str(self.origin))
+        git("push", "-q", "origin", "master")
+        self.initial_head = git("rev-parse", "HEAD")
+        fake = remote / "gh"
+        fake.write_text("#!" + sys.executable + "\n" + """import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+with open(os.environ['GH_TEST_LOG'], 'a') as log:
+    log.write(json.dumps(args)+'\\n')
+mode = os.environ.get('GH_TEST_MODE', '')
+if args[:2] == ['auth', 'status']:
+    sys.exit(1 if mode == 'authfail' else 0)
+if args[:2] == ['repo', 'view']:
+    print(json.dumps({'nameWithOwner':'example/project', 'defaultBranchRef':{'name':'master'}}))
+elif args[:2] == ['pr', 'list']:
+    print('[{"number":99}]' if mode == 'existingpr' else '[]')
+elif args[:2] == ['pr', 'create']:
+    assert '## Overview' in Path(args[-1]).read_text()
+    sys.exit(1) if mode == 'prfail' else print('https://github.com/example/project/pull/7')
+""")
+        fake.chmod(0o755)
+        self.fake_gh = fake
+        environment = {"PATH": str(remote) + os.pathsep + os.environ["PATH"], "GH_TEST_LOG": str(self.gh_log)}
+        self.environment = mock.patch.dict(os.environ, environment)
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+
+    def test_commit_release_creates_only_archive_commit_push_and_pr_without_tag(self):
+        self.publication_fixture()
+        result = changelog.commit_release(self.repo, "v0.5", "2026-11-15")
+        self.assertIn("https://github.com/example/project/pull/7", result)
+        self.assertEqual(self.git("branch", "--show-current"), "codex/release-v0.5")
+        self.assertEqual(self.git("tag", "--list"), "")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        changed = self.git("diff", "--name-only", self.initial_head, "HEAD").splitlines()
+        self.assertEqual(set(changed), {"changelog/fix/2026_11_15_change.md", "changelog/version_26_11_v0.5.md"})
+        self.assertEqual(self.git("rev-parse", "origin/master"), self.initial_head)
+        self.assertEqual(self.git("rev-parse", "origin/codex/release-v0.5"), self.git("rev-parse", "HEAD"))
+        calls = [json.loads(line) for line in self.gh_log.read_text().splitlines()]
+        create = next(call for call in calls if call[:2] == ["pr", "create"])
+        self.assertEqual(create[create.index("--base") + 1], "master")
+        self.assertIn("--body-file", create)
+
+    def test_commit_cli_implies_write(self):
+        self.publication_fixture()
+        subprocess.run([sys.executable, "-B", str(SCRIPT), "--repo", str(self.repo), "release",
+                        "--version", "0.5", "--date", "2026-11-15", "--commit"], check=True, capture_output=True)
+        self.assertTrue((self.repo / "changelog/version_26_11_v0.5.md").exists())
+        self.assertFalse((self.repo / "changelog/fix/2026_11_15_change.md").exists())
+
+    def test_commit_rejects_dirty_untracked_and_staged_work_without_mutation(self):
+        self.publication_fixture()
+        unrelated = self.repo / "unrelated.txt"
+        for staged in (False, True):
+            unrelated.write_text("Preserve user work.")
+            if staged:
+                self.git("add", "unrelated.txt")
+            before = self.snapshot()
+            with self.assertRaisesRegex(ValueError, "clean checkout"):
+                changelog.commit_release(self.repo, "0.5", "2026-11-15")
+            self.assertEqual(self.snapshot(), before)
+            self.assertEqual(self.git("rev-parse", "HEAD"), self.initial_head)
+            if not staged:
+                unrelated.unlink()
+
+    def test_commit_missing_gh_and_failed_auth_do_not_change_checkout(self):
+        self.publication_fixture()
+        before = self.snapshot()
+        with mock.patch.object(changelog.shutil, "which", return_value=None), self.assertRaisesRegex(ValueError, "requires GitHub CLI"):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.assertEqual(self.snapshot(), before)
+        with mock.patch.dict(os.environ, {"GH_TEST_MODE": "authfail"}), self.assertRaises(subprocess.CalledProcessError):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_commit_rejects_wrong_branch_existing_branch_and_existing_pr(self):
+        self.publication_fixture()
+        self.git("switch", "-qc", "feature")
+        with self.assertRaisesRegex(ValueError, "default branch"):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.git("switch", "-q", "master")
+        self.git("branch", "codex/release-v0.5")
+        with self.assertRaisesRegex(ValueError, "already exists locally"):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.git("branch", "-D", "codex/release-v0.5")
+        self.git("push", "-q", "origin", "master:refs/heads/codex/release-v0.5")
+        with self.assertRaisesRegex(ValueError, "exists on origin"):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.git("push", "-q", "origin", ":refs/heads/codex/release-v0.5")
+        with mock.patch.dict(os.environ, {"GH_TEST_MODE": "existingpr"}), self.assertRaisesRegex(ValueError, "release PR"):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.assertFalse((self.repo / "changelog/version_26_11_v0.5.md").exists())
+
+    def test_commit_rejects_head_not_equal_to_remote_default(self):
+        self.publication_fixture()
+        self.git("commit", "--allow-empty", "-qm", "ahead")
+        with self.assertRaisesRegex(ValueError, "HEAD to equal"):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.assertFalse((self.repo / "changelog/version_26_11_v0.5.md").exists())
+        self.git("push", "-q", "origin", "master")
+        self.git("update-ref", "refs/heads/master", self.initial_head)
+        with self.assertRaisesRegex(ValueError, "HEAD to equal"):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+
+    def test_commit_hook_cannot_publish_unrelated_changes(self):
+        self.publication_fixture()
+        hook = self.repo / ".git/hooks/pre-commit"
+        hook.write_text("#!/bin/sh\nprintf 'unexpected' > unrelated.txt\ngit add unrelated.txt\n")
+        hook.chmod(0o755)
+        with self.assertRaisesRegex(ValueError, "unexpected paths"):
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.assertTrue((self.repo / "unrelated.txt").exists())
+        self.assertEqual(self.git("ls-remote", "--heads", "origin", "refs/heads/codex/release-v0.5"), "")
+        self.assertEqual(self.git("tag", "--list"), "")
+
+    def test_failed_pr_creation_keeps_published_commit_and_reports_recovery(self):
+        self.publication_fixture()
+        with mock.patch.dict(os.environ, {"GH_TEST_MODE": "prfail"}), self.assertRaisesRegex(ValueError, "gh pr create") as error:
+            changelog.commit_release(self.repo, "0.5", "2026-11-15")
+        self.assertEqual(self.git("branch", "--show-current"), "codex/release-v0.5")
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "origin/codex/release-v0.5"))
+        self.assertIn(self.git("rev-parse", "HEAD"), str(error.exception))
+        self.assertEqual(self.git("tag", "--list"), "")
 
     def test_cli_git_diff_is_read_only_and_only_checks_new_fragment_metadata(self):
         self.fragment(pr=12)
