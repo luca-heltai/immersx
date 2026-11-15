@@ -448,17 +448,17 @@ namespace ImmersX
       };
     const auto action =
       std::make_shared<const decltype(result.view)>(result.view);
-    auto cached        = std::make_shared<std::shared_ptr<Matrix>>();
-    result.materialize = [action,
-                          cached,
-                          rows,
-                          columns,
-                          communicator,
-                          &problem,
-                          pressure_view,
-                          state,
-                          time,
-                          projection]() {
+    auto       cached           = std::make_shared<std::shared_ptr<Matrix>>();
+    const auto assembled_matrix = [action,
+                                   cached,
+                                   rows,
+                                   columns,
+                                   communicator,
+                                   &problem,
+                                   pressure_view,
+                                   state,
+                                   time,
+                                   projection]() {
       if (!*cached)
         {
           dealii::DynamicSparsityPattern sparsity(rows->size(),
@@ -522,18 +522,20 @@ namespace ImmersX
             (*cached)->add(i, j, value);
           (*cached)->compress(dealii::VectorOperation::add);
         }
-      return detail::clone_matrix(**cached);
+      return *cached;
     };
-    const auto matrix =
-      std::make_shared<const decltype(result.materialize)>(result.materialize);
-    result.materialize_into = [matrix](Matrix &dst) {
-      detail::copy_matrix(dst, *(*matrix)());
+    result.materialize = [assembled_matrix]() {
+      return detail::clone_matrix(*assembled_matrix());
     };
-    result.view.Tvmult = [matrix](Vector &dst, const Vector &src) {
-      (*matrix)()->Tvmult(dst, src);
+    result.materialize_into = [assembled_matrix](Matrix &dst) {
+      detail::copy_matrix(dst, *assembled_matrix());
     };
-    result.view.Tvmult_add = [matrix](Vector &dst, const Vector &src) {
-      (*matrix)()->Tvmult_add(dst, src);
+    result.view.Tvmult = [assembled_matrix](Vector &dst, const Vector &src) {
+      assembled_matrix()->Tvmult(dst, src);
+    };
+    result.view.Tvmult_add = [assembled_matrix](Vector       &dst,
+                                                const Vector &src) {
+      assembled_matrix()->Tvmult_add(dst, src);
     };
     result.view.vmult_add = [action](Vector &dst, const Vector &src) {
       Vector image;

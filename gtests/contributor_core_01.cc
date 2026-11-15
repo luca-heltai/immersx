@@ -136,6 +136,45 @@ TEST(ContributorCore, MatrixOperatorObservesAndMaterializesLazily)
   EXPECT_EQ(materialized_action, direct);
 }
 
+TEST(ContributorCore, BOTH_RetainedObservedMatricesKeepTheirSnapshot)
+{
+  using Vector = dealii::Vector<double>;
+  using Matrix = dealii::SparseMatrix<double>;
+  using Model  = ImmersX::SemiDiscreteModel<Vector, Matrix>;
+  ImmersX::StateLayout     layout;
+  ImmersX::FieldDescriptor descriptor;
+  descriptor.name  = "mutable-native";
+  const auto field = layout.add_field(descriptor);
+  Model      model;
+  ImmersX::SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  dealii::SparsityPattern                      sparsity(2, 2);
+  sparsity.add(0, 0);
+  sparsity.add(1, 1);
+  sparsity.compress();
+  Matrix matrix;
+  matrix.reinit(sparsity);
+  matrix.set(0, 0, 2.);
+  matrix.set(1, 1, 3.);
+  builder.term(field, "native").state(field, builder.matrix_operator(matrix));
+  Vector                     state(2);
+  ImmersX::StateView<Vector> view(layout, 0.);
+  view.bind(field, state);
+  const ImmersX::EvaluationContext<Vector> context(0., view);
+  const auto first = model.retained_linearization(context);
+  matrix.set(0, 0, 11.);
+  matrix.set(1, 1, 13.);
+  const auto second       = model.retained_linearization(context);
+  const auto first_matrix = first.state_matrix_operator(field, field, context);
+  const auto second_matrix =
+    second.state_matrix_operator(field, field, context);
+  ASSERT_TRUE(first_matrix.has_value());
+  ASSERT_TRUE(second_matrix.has_value());
+  EXPECT_DOUBLE_EQ(first_matrix->matrix()->el(0, 0), 2.);
+  EXPECT_DOUBLE_EQ(first_matrix->matrix()->el(1, 1), 3.);
+  EXPECT_DOUBLE_EQ(second_matrix->matrix()->el(0, 0), 11.);
+  EXPECT_DOUBLE_EQ(second_matrix->matrix()->el(1, 1), 13.);
+}
+
 #ifndef NDEBUG
 TEST(ContributorCore, MatrixOperatorDetectsDestroyedSource)
 {

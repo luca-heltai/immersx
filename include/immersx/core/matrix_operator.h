@@ -85,6 +85,13 @@ namespace ImmersX
     bool            observes_matrix = false;
     bool            direct_matrix   = false;
 
+    /** The view and materialized values stay fixed for this operator's
+     * lifetime. Shared materializations must not be modified by consumers.
+     * Execution snapshots may retain this operator without copying it.
+     * Native matrices that can change during evaluation must leave this false.
+     */
+    bool immutable = false;
+
     bool
     is_materializable() const
     {
@@ -555,8 +562,13 @@ namespace ImmersX
     auto result          = source;
     result.direct_matrix = false;
     result.view          = factor * source.view;
+    const auto cached    = source.immutable ?
+                             std::make_shared<std::shared_ptr<MatrixType>>() :
+                             nullptr;
     if (source.is_materializable())
-      result.materialize = [factor, source]() {
+      result.materialize = [factor, source, cached]() {
+        if (cached && *cached)
+          return *cached;
         if (factor == 1.)
           return source.matrix();
         // Aliasing shared_ptr owners can hide a cached matrix's other users.
@@ -565,9 +577,16 @@ namespace ImmersX
         auto       matrix   = observed ? detail::clone_matrix(*observed) :
                                          detail::clone_matrix(*source.matrix());
         *matrix *= factor;
+        if (cached)
+          *cached = matrix;
         return matrix;
       };
-    if (source.materialize_into)
+    if (cached && result.materialize)
+      result.materialize_into =
+        [materialize = result.materialize](MatrixType &destination) {
+          detail::copy_matrix(destination, *materialize());
+        };
+    else if (source.materialize_into)
       result.materialize_into = [factor, source](MatrixType &destination) {
         source.materialize_into_matrix(destination);
         destination *= factor;
@@ -591,16 +610,26 @@ namespace ImmersX
     auto result          = source;
     result.direct_matrix = false;
     result.view          = dealii::transpose_operator(source.view);
+    const auto cached    = source.immutable ?
+                             std::make_shared<std::shared_ptr<MatrixType>>() :
+                             nullptr;
     if (source.is_materializable())
-      result.materialize = [source]() {
-        return detail::transpose_matrix(source.matrix());
+      result.materialize = [source, cached]() {
+        if (cached && *cached)
+          return *cached;
+        auto matrix = detail::transpose_matrix(source.matrix());
+        if (cached)
+          *cached = matrix;
+        return matrix;
       };
     if (source.materialize_into)
-      result.materialize_into = [source](MatrixType &destination) {
-        auto transposed = detail::transpose_matrix(source.matrix());
-        destination.reinit(*transposed);
-        destination.copy_from(*transposed);
-      };
+      result.materialize_into =
+        [materialize = result.materialize](MatrixType &destination) {
+          AssertThrow(static_cast<bool>(materialize),
+                      dealii::ExcMessage(
+                        "This operator has no matrix provenance."));
+          detail::copy_matrix(destination, *materialize());
+        };
     return result;
   }
 } // namespace ImmersX
