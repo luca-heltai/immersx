@@ -1012,7 +1012,6 @@ namespace
 #  endif
             );
             EXPECT_EQ(IDAGetErrWeights(solver.get_ida_memory(), view), 0);
-            N_VDestroy(view);
             for (unsigned int b = 0; b < actual.n_blocks(); ++b)
               for (const auto i : actual.block(b).locally_owned_elements())
                 EXPECT_DOUBLE_EQ(actual.block(b)[i], last_weights.block(b)[i]);
