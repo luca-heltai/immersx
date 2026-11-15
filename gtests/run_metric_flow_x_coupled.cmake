@@ -21,6 +21,12 @@ if(NOT _stdout MATCHES "accepted IDA steps: [1-9][0-9]*")
   message(FATAL_ERROR "MetricFlowX coupled application did not advance in time")
 endif()
 
+if(DEFINED EXPECTED_MUMPS_WORKSPACE AND
+   NOT _stdout MATCHES "ICNTL\\(14\\)[^\r\n]*=[ \t]+${EXPECTED_MUMPS_WORKSPACE}([ \t\r\n]|$)")
+  message(FATAL_ERROR
+    "Native MUMPS did not report the requested workspace relaxation ${EXPECTED_MUMPS_WORKSPACE}")
+endif()
+
 foreach(_collection flow.pvd solid.pvd pressure_jump.pvd)
   set(_pvd "${OUTPUT_DIRECTORY}/${_collection}")
   file(STRINGS "${_pvd}" _records REGEX "<DataSet ")

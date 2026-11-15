@@ -24,11 +24,13 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
         --parameters "${CMAKE_BINARY_DIR}/gtests/parameters/metric_flow_x_robin_equilibrium.prm"
         --output "${TEST_OUTPUT_DIR}/metric-flow-x-robin/${_target}/${_ranks}"
         --ranks "${_ranks}" --mpiexec "${_robin_mpiexec}")
-    foreach(_particle_variant ParticlesDisabled ParticlesAllProperties)
+    foreach(_particle_variant ParticlesDisabled ParticlesAllProperties FlowHistory)
       if(_particle_variant STREQUAL "ParticlesDisabled")
         set(_particle_flag --disable-particles)
       elseif(_particle_variant STREQUAL "ParticlesAllProperties")
         set(_particle_flag --all-particle-properties)
+      elseif(_particle_variant STREQUAL "FlowHistory")
+        set(_particle_flag --flow-history)
       endif()
       add_test(NAME "${_name}.${_particle_variant}"
         COMMAND "${IMMERSX_PYTHON_EXECUTABLE}"
@@ -42,6 +44,10 @@ foreach(_target IN LISTS IMMERSX_APPLICATION_TARGETS)
         ENVIRONMENT "${IMMERSX_NUMERICAL_TEST_ENVIRONMENT};PYTHONDONTWRITEBYTECODE=1")
       if(_ranks GREATER 1)
         set_property(TEST "${_name}.${_particle_variant}" APPEND PROPERTY LABELS "mpi")
+      endif()
+      if(_particle_variant STREQUAL "FlowHistory")
+        set_tests_properties("${_name}.${_particle_variant}" PROPERTIES
+          SKIP_REGULAR_EXPRESSION "Flow history requires MetricFlowX with save_coupling_fields")
       endif()
     endforeach()
     set_tests_properties("${_name}" PROPERTIES LABELS "application"

@@ -198,6 +198,12 @@ the Trilinos vector backend; the normal block preconditioner setting must remain
 physical solve residual. The factorization is not reused across changed
 Jacobians.
 
+`MetricFlowX coupling/MUMPS workspace relaxation` sets the extra workspace percentage
+for both the exact MUMPS solver and the BLR preconditioner. Without an explicit
+override, each retains the native MUMPS default. This is allocation headroom,
+not a memory limit; the BLR per-rank working-memory limit remains under
+`Linear solver/MUMPS BLR/Memory limit MB per rank`.
+
 The wall relation is imposed weakly. With (A) the flow area, (A_0) its
 reference area, (u) the solid displacement, (n) the radial direction and
 (lambda) the pressure-jump multiplier, the lifted kinematic row represents
