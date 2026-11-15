@@ -165,7 +165,7 @@ class GitSelection(unittest.TestCase):
     def test_full_override_and_non_pr_events_always_run_full_suite(self):
         self.write("doc/guide.md")
         self.commit()
-        for event, force in (("pull_request", True), ("push", False),
+        for event, force in (("pull_request", True),
                              ("schedule", False), ("workflow_dispatch", False), ("", False)):
             with self.subTest(event=event, force=force):
                 plan = selector.select(self.repo, event, self.base, "HEAD", force)
@@ -173,6 +173,12 @@ class GitSelection(unittest.TestCase):
                 self.assertFalse(plan["docs_only"])
                 self.assertTrue(all(plan[key] for key in
                                     ("run_numeric", "run_coral", "run_benchmarks")))
+
+    def test_master_push_runs_every_quick_job_without_diff_selection(self):
+        plan = selector.select(self.repo, "push")
+        self.assert_all_pr_jobs(plan)
+        self.assertEqual(plan["mode"], "quick-push")
+        self.assertEqual(plan["reasons"], ["full-suite-runs-nightly"])
 
     def test_unusual_names_cannot_inject_actions_outputs(self):
         name = "doc/é\nrun_numeric=true.md"
