@@ -138,16 +138,18 @@ def render(repo):
             continue
         block = "\n\n".join(additions[category]) + "\n\n"
         heading = f"### {category}\n"
-        if pending.count(heading) > 1:
+        matches = list(re.finditer(r"(?m)^" + re.escape(heading), pending))
+        if len(matches) > 1:
             raise ValueError(f"Repeated {category} category in CHANGELOG.md")
-        if heading in pending:
-            before, after = pending.split(heading, 1)
-            pending = before + heading + "\n" + block + after.lstrip("\n")
+        if matches:
+            at = matches[0].end()
+            pending = pending[:at] + "\n" + block + pending[at:].lstrip("\n")
         else:
             # Older histories can omit empty categories. Insert at their
             # canonical position without changing existing category contents.
-            later = [f"### {name}\n" for name in CATEGORIES[CATEGORIES.index(category) + 1:]]
-            positions = [pending.index(name) for name in later if name in pending]
+            later = CATEGORIES[CATEGORIES.index(category) + 1:]
+            positions = [match.start() for name in later
+                         for match in re.finditer(r"(?m)^### " + re.escape(name) + r"\n", pending)]
             at = min(positions) if positions else len(pending)
             pending = pending[:at].rstrip("\n") + "\n\n" + heading + "\n" + block + pending[at:]
     return prefix + "## [Unreleased]\n" + pending + released

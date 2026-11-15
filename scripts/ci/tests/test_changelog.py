@@ -79,6 +79,23 @@ class Fragments(unittest.TestCase):
         self.assertLess(text.index("Same-day alpha"), text.index("Same-day beta"))
         self.assertLess(text.index("Same-day beta"), text.index("Month-old change"))
 
+    def test_indented_category_example_does_not_match_a_real_heading(self):
+        history = HISTORY.replace("Existing unreleased entry.\n",
+                                  "Existing unreleased entry.\n  ### Fixed\n")
+        (self.repo / "CHANGELOG.md").write_text(history)
+        self.fragment()
+        text = changelog.render(self.repo)
+        self.assertIn("Existing unreleased entry.\n  ### Fixed\n", text)
+        self.assertLess(text.index("\n### Fixed\n"), text.index("Correct the result."))
+        self.assertEqual(text.count("\n### Fixed\n"), 1)
+        # A literal example must not prevent insertion when a real category
+        # heading is absent from the old history.
+        history = history.replace("\n### Fixed\n\n- [PR #10](https://github.com/luca-heltai/immersx/pull/10) Existing fix.\n", "")
+        (self.repo / "CHANGELOG.md").write_text(history)
+        text = changelog.render(self.repo)
+        self.assertIn("Existing unreleased entry.\n  ### Fixed\n", text)
+        self.assertLess(text.index("\n### Fixed\n"), text.index("Correct the result."))
+
     def test_metadata_is_independent_of_filename(self):
         path = self.fragment("2024_02_29_cache_assembly.md", pr=701)
         item = changelog.parse_fragment(path, "Fixed")
