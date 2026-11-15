@@ -15,7 +15,7 @@
 set(_target gtests)
 
 file(GLOB _test_files CONFIGURE_DEPENDS *cc)
-list(FILTER _test_files EXCLUDE REGEX "metric_flow_x(_elastostatic)?_01\\.cc$")
+list(FILTER _test_files EXCLUDE REGEX "metric_flow_x(_elastostatic|_history)?_01\\.cc$")
 
 include(GoogleTest)
 include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
@@ -305,6 +305,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
         ${_metric_flow_x_test_target}
         metric_flow_x_01.cc
         metric_flow_x_elastostatic_01.cc
+        metric_flow_x_history_01.cc
         vascularization_metric_flow_x_01.cc
         gtest_main.cc)
       target_include_directories(

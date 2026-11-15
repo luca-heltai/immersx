@@ -11,7 +11,10 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #427](https://github.com/luca-heltai/immersx/pull/427) Save native flow replay histories from coupled elastodynamics, including the physical pressure from the wall multiplier.
+
 - [PR #416](https://github.com/luca-heltai/immersx/pull/416) Add MUMPS BLR-preconditioned FGMRES for coupled IDA solves, with controls for low-rank truncation, per-rank memory and MUMPS diagnostics.
+
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Expose per-rank MUMPS working-memory limits and native memory reports in IDA, native flow-block inverses, and the coupled elastodynamics and elastostatic applications.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Validate coupled elastodynamics parameters without loading meshes or release assets.

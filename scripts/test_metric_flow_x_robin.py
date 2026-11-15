@@ -73,6 +73,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--ranks", type=int, choices=(1, 2), default=1)
     parser.add_argument("--mpiexec", default="mpirun")
+    parser.add_argument("--flow-history", action="store_true")
     parser.add_argument("--disable-particles", action="store_true")
     parser.add_argument("--all-particle-properties", action="store_true")
     args = parser.parse_args()
@@ -102,6 +103,8 @@ subsection MetricFlowSystem<1, 3>
   end
 end
 """
+        if args.flow_history:
+            text += f"\nsubsection MetricFlowX coupling\n  set Flow history directory = {scratch / 'history'}\n  set Stop at output times = true\nend\n"
         parameters = scratch/"case.prm"
         parameters.write_text(text)
         command = [str(args.executable.resolve()), str(parameters)]
@@ -116,6 +119,20 @@ end
         (args.output/"application.log").write_text(process.stdout)
         assert process.returncode == 0, process.stdout
         assert "MetricFlowX elastodynamics accepted IDA steps:" in process.stdout
+        if args.flow_history:
+            history = scratch / "history"
+            assert (history / "layout" / "COMPLETE").is_file()
+            with (history / "coupling_fields.csv").open() as stream:
+                frames = list(csv.DictReader(stream))
+            assert len(frames) == 3
+            for frame, expected_time in zip(frames, (0., .001, .002)):
+                assert math.isclose(float(frame["time_s"]), expected_time,
+                                    rel_tol=0., abs_tol=1.e-14)
+                saved = history / frame["directory"]
+                assert (saved / "COMPLETE").is_file()
+                for field in ("area", "velocity", "pressure"):
+                    assert len(list(saved.glob(field + "-*.bin"))) == args.ranks
+            assert len(list(history.glob("layout"))) == 1
         expected_u = struct.unpack("<f", struct.pack("<f", .01))[0]
         displacement_error = velocity_max = pressure_max = 0.
         for path in outputs(solid, "solid.pvd"):
