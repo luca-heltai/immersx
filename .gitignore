@@ -102,3 +102,6 @@ benchmarks/**/*mp4
 # Changelog category named build contains source fragments.
 !changelog/build/
 !changelog/build/*.md
+
+# Python modules imported during documentation builds.
+__pycache__/
