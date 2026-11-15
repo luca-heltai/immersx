@@ -411,6 +411,7 @@ namespace ImmersX
       accumulated_statistics_ = {};
       jacobian_setups_ = linear_solves_ = restarts_ = weight_evaluations_ = 0;
       initial_condition_jacobian_time_.reset();
+      diagnostic_residuals_ = 0;
       if (compute_consistent_initial_conditions_ &&
           additional_data().ic_type == AdditionalData::use_y_diff)
         {
@@ -425,7 +426,24 @@ namespace ImmersX
       pcout << "IDAAdapter: starting DAE solve with " << composition_.n_fields()
             << " semantic field(s)." << std::endl;
       dealii::TimerOutput::Scope timer(computing_timer, "Solve DAE");
-      ida_->solve_dae(state, state_dot);
+      try
+        {
+          ida_->solve_dae(state, state_dot);
+        }
+      catch (const std::exception &error)
+        {
+          if (ida_parameters_.print_nonlinear_diagnostics)
+            pcout << "IDA nonlinear failure original_exception=" << error.what()
+                  << std::endl;
+          print_nonlinear_summary("failure");
+          throw;
+        }
+      catch (...)
+        {
+          print_nonlinear_summary("failure");
+          throw;
+        }
+      print_nonlinear_summary("success");
       const auto n_steps = static_cast<unsigned int>(statistics().steps);
       pcout << "IDAAdapter: DAE solve finished after " << n_steps
             << " internal step(s)." << std::endl;
@@ -1057,7 +1075,25 @@ namespace ImmersX
                               GlobalVectorType       &residual) {
         dealii::TimerOutput::Scope timer(computing_timer, "Evaluate residual");
         solved_since_residual_ = false;
-        composition_.evaluate_residual(time, state, &state_dot, residual);
+        diagnostic_time_       = time;
+        if (ida_parameters_.print_nonlinear_diagnostics)
+          ++diagnostic_residuals_;
+        try
+          {
+            composition_.evaluate_residual(time, state, &state_dot, residual);
+          }
+        catch (const dealii::RecoverableUserCallbackError &error)
+          {
+            if (ida_parameters_.print_nonlinear_diagnostics)
+              std::cerr << "IDA nonlinear recoverable rank="
+                        << dealii::Utilities::MPI::this_mpi_process(
+                             composition_.communicator())
+                        << " trial=" << diagnostic_residuals_ << " t=" << time
+                        << " reason=" << error.what() << std::endl;
+            throw;
+          }
+        if (ida_parameters_.print_nonlinear_diagnostics)
+          print_nonlinear_residual(time, state, residual);
         // Let IDA reject a nonfinite trial instead of using it to construct a
         // Newton correction. All ranks must report the same callback status.
         bool finite = true;
@@ -1069,7 +1105,13 @@ namespace ImmersX
             }
         if (dealii::Utilities::MPI::min(finite ? 1 : 0,
                                         composition_.communicator()) == 0)
-          throw dealii::RecoverableUserCallbackError();
+          {
+            if (ida_parameters_.print_nonlinear_diagnostics)
+              pcout << "IDA nonlinear recoverable trial="
+                    << diagnostic_residuals_ << " t=" << time
+                    << " reason=nonfinite residual" << std::endl;
+            throw dealii::RecoverableUserCallbackError();
+          }
       };
       ida_->setup_jacobian = [this](const double            time,
                                     const GlobalVectorType &state,
@@ -1081,6 +1123,10 @@ namespace ImmersX
                                          GlobalVectorType       &dst,
                                          const double            tolerance) {
         ++linear_solves_;
+        if (ida_parameters_.print_nonlinear_diagnostics)
+          pcout << "IDA nonlinear linear begin solve=" << linear_solves_
+                << " t=" << diagnostic_time_
+                << " requested_tolerance=" << tolerance << std::endl;
         solved_since_residual_ = true;
         dealii::TimerOutput::Scope timer(computing_timer, "Linear solve");
         AssertThrow(current_jacobian_.has_value(),
@@ -1291,6 +1337,8 @@ namespace ImmersX
                       << control.last_value() << target() << "." << std::endl;
               }
           }
+        if (ida_parameters_.print_nonlinear_diagnostics)
+          print_nonlinear_correction(dst);
       };
       ida_->differential_components = [this]() {
         return current_state_ != nullptr ?
@@ -1350,6 +1398,132 @@ namespace ImmersX
       pcout << "IDAAdapter: finalized with " << composition_.n_fields()
             << " semantic field(s)." << std::endl;
       connected_ = true;
+    }
+
+    void
+    print_nonlinear_residual(const double            time,
+                             const GlobalVectorType &state,
+                             const GlobalVectorType &residual) const
+    {
+      const auto communicator = composition_.communicator();
+      for (std::size_t i = 0; i < composition_.n_fields(); ++i)
+        {
+          const FieldId id(i);
+          const auto   &values  = composition_.field(state, id);
+          const auto   &forces  = composition_.field(residual, id);
+          double        squares = 0., maximum = 0.;
+          double        lower     = std::numeric_limits<double>::infinity();
+          double        upper     = -std::numeric_limits<double>::infinity();
+          unsigned long bad_state = 0, bad_residual = 0;
+          for (const auto index : values.locally_owned_elements())
+            {
+              const double value = values[index];
+              const double force = forces[index];
+              if (std::isfinite(value))
+                {
+                  lower = std::min(lower, value);
+                  upper = std::max(upper, value);
+                }
+              else
+                ++bad_state;
+              if (std::isfinite(force))
+                {
+                  squares += force * force;
+                  maximum = std::max(maximum, std::abs(force));
+                }
+              else
+                ++bad_residual;
+            }
+          squares   = dealii::Utilities::MPI::sum(squares, communicator);
+          maximum   = dealii::Utilities::MPI::max(maximum, communicator);
+          lower     = dealii::Utilities::MPI::min(lower, communicator);
+          upper     = dealii::Utilities::MPI::max(upper, communicator);
+          bad_state = dealii::Utilities::MPI::sum(bad_state, communicator);
+          bad_residual =
+            dealii::Utilities::MPI::sum(bad_residual, communicator);
+          std::ostringstream line;
+          line << std::scientific << std::setprecision(17)
+               << "IDA nonlinear residual trial=" << diagnostic_residuals_
+               << " t=" << time << " field=" << i << " name="
+               << std::quoted(composition_.state_layout().field(id).name)
+               << " F_l2="
+               << (bad_residual ? std::numeric_limits<double>::quiet_NaN() :
+                                  std::sqrt(squares))
+               << " F_linf="
+               << (bad_residual ? std::numeric_limits<double>::quiet_NaN() :
+                                  maximum)
+               << " y_min=" << lower << " y_max=" << upper
+               << " nonfinite_y=" << bad_state
+               << " nonfinite_F=" << bad_residual;
+          pcout << line.str() << std::endl;
+        }
+    }
+
+    void
+    print_nonlinear_correction(const GlobalVectorType &correction) const
+    {
+      GlobalVectorType weights;
+      composition_.reinit(weights);
+      auto view = Compatibility::SUNDIALS::internal::make_nvector_view(
+        weights
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+        ,
+        ida_->get_sun_context()
+#  endif
+      );
+      check_ida(IDAGetErrWeights(ida_->get_ida_memory(), view));
+      const auto communicator = composition_.communicator();
+      double     total        = 0.;
+      for (std::size_t i = 0; i < composition_.n_fields(); ++i)
+        {
+          const FieldId id(i);
+          const auto   &values  = composition_.field(correction, id);
+          const auto   &errors  = composition_.field(weights, id);
+          double        squares = 0.;
+          for (const auto index : values.locally_owned_elements())
+            {
+              const double scaled = values[index] * errors[index];
+              squares += scaled * scaled;
+            }
+          squares = dealii::Utilities::MPI::sum(squares, communicator);
+          total += squares;
+          std::ostringstream line;
+          line << std::scientific << std::setprecision(17)
+               << "IDA nonlinear correction solve=" << linear_solves_
+               << " t=" << diagnostic_time_ << " field=" << i << " name="
+               << std::quoted(composition_.state_layout().field(id).name)
+               << " wrms="
+               << (values.size() ? std::sqrt(squares / values.size()) : 0.);
+          pcout << line.str() << std::endl;
+        }
+      std::ostringstream line;
+      line << std::scientific << std::setprecision(17)
+           << "IDA nonlinear correction solve=" << linear_solves_
+           << " t=" << diagnostic_time_ << " field=all wrms="
+           << (correction.size() ? std::sqrt(total / correction.size()) : 0.);
+      pcout << line.str() << std::endl;
+    }
+
+    void
+    print_nonlinear_summary(const char *outcome) const
+    {
+      if (!ida_parameters_.print_nonlinear_diagnostics || !ida_ ||
+          !ida_->get_ida_memory())
+        return;
+      // No collectives or throwing checks here: this also runs while handling
+      // an exception and must preserve the original solver failure.
+      long int backtracks = 0, residuals = 0, iterations = 0, failures = 0;
+      void    *memory = ida_->get_ida_memory();
+      if (IDAGetNumBacktrackOps(memory, &backtracks) >= 0 &&
+          IDAGetNumResEvals(memory, &residuals) >= 0 &&
+          IDAGetNumNonlinSolvIters(memory, &iterations) >= 0 &&
+          IDAGetNumNonlinSolvConvFails(memory, &failures) >= 0)
+        pcout << "IDA nonlinear summary outcome=" << outcome
+              << " backtracks=" << backtracks << " residuals=" << residuals
+              << " iterations=" << iterations << " failures=" << failures
+              << " residual_callbacks=" << diagnostic_residuals_
+              << " Jacobian_setups=" << jacobian_setups_
+              << " linear_solves=" << linear_solves_ << std::endl;
     }
 
     static void
@@ -1510,6 +1684,9 @@ namespace ImmersX
           return;
         }
       ++jacobian_setups_;
+      if (ida_parameters_.print_nonlinear_diagnostics)
+        pcout << "IDA nonlinear Jacobian setup=" << jacobian_setups_
+              << " t=" << time << " alpha=" << alpha << std::endl;
       initial_condition_jacobian_time_.reset();
       dealii::TimerOutput::Scope timer(computing_timer, "Setup Jacobian");
       const bool                 retain_matrices = !solve_;
@@ -1800,6 +1977,8 @@ namespace ImmersX
     bool                                current_solver_is_flexible_ = false;
     bool                                solved_since_residual_      = false;
     std::optional<double>               initial_condition_jacobian_time_;
+    unsigned long                       diagnostic_residuals_          = 0;
+    double                              diagnostic_time_               = 0.;
     bool                                connected_                     = false;
     bool                                include_schur_primal_coupling_ = false;
     unsigned int                        schur_materialization_limit_   = 0;

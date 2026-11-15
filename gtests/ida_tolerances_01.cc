@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cmath>
 #include <limits>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 
@@ -25,9 +26,10 @@ namespace
   // All DoFs belong to rank zero, so MPI runs also cover empty execution ranks.
   template <typename AdapterType>
   auto
-  add_forced_field(AdapterType &adapter,
-                   const bool   differential,
-                   const double scale)
+  add_forced_field(AdapterType                 &adapter,
+                   const bool                   differential,
+                   const double                 scale,
+                   const std::function<void()> &probe = {})
   {
     return adapter.add(
       [=](auto &builder) {
@@ -60,6 +62,8 @@ namespace
         auto term = builder.term(field, "forced");
         term
           .residual([=](const auto &context) {
+            if (probe)
+              probe();
             const auto  &y = context.state(field);
             const double t = context.time();
             FieldVector  value;
@@ -88,6 +92,8 @@ namespace
     double              differential, algebraic;
     Adapter::Statistics statistics;
     unsigned int        tolerance_builds;
+    std::string         diagnostic_output;
+    std::vector<double> expected_correction_norms;
   };
 
   RunResult
@@ -96,10 +102,22 @@ namespace
             const bool   output,
             const bool   restart       = false,
             const int    participation = 0,
-            const bool   check_weights = false)
+            const bool   check_weights = false,
+            const bool   diagnostics   = false)
   {
+    std::ostringstream diagnostic_log;
+    struct RestoreStream
+    {
+      std::streambuf *original;
+      ~RestoreStream()
+      {
+        std::cout.rdbuf(original);
+      }
+    } restore{std::cout.rdbuf(diagnostic_log.rdbuf())};
+    std::vector<double>    expected_correction_norms;
     TimeIntervalParameters time;
     IDAParameters          parameters;
+    parameters.print_nonlinear_diagnostics       = diagnostics;
     time.initial_time                            = .25;
     time.final_time                              = .35;
     time.output_time_interval                    = .01;
@@ -256,6 +274,36 @@ namespace
             }
         };
       }
+    if (diagnostics)
+      {
+        auto      &solver          = adapter.solver();
+        const auto solve           = solver.solve_with_jacobian;
+        solver.solve_with_jacobian = [&, solve](const auto  &rhs,
+                                                auto        &dst,
+                                                const double tolerance) {
+          solve(rhs, dst, tolerance);
+          auto weights = adapter.make_state();
+          auto weight_view =
+            Compatibility::SUNDIALS::internal::make_nvector_view(
+              weights
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+              ,
+              solver.get_sun_context()
+#  endif
+            );
+          auto correction_view =
+            Compatibility::SUNDIALS::internal::make_nvector_view(
+              dst
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+              ,
+              solver.get_sun_context()
+#  endif
+            );
+          EXPECT_EQ(IDAGetErrWeights(solver.get_ida_memory(), weight_view), 0);
+          expected_correction_norms.push_back(
+            N_VWrmsNorm(correction_view, weight_view));
+        };
+      }
     const auto steps = adapter.solve(y, yp);
     if (check_weights)
       {
@@ -305,7 +353,9 @@ namespace
     return {adapter.field(y, small.fields()).l2_norm(),
             adapter.field(y, large.fields()).l2_norm(),
             stats,
-            builds};
+            builds,
+            diagnostic_log.str(),
+            expected_correction_norms};
   }
 } // namespace
 
@@ -334,6 +384,110 @@ TEST(DistributedIDA, BOTH_FieldToleranceRampWeightsAndReset)
             enabled.statistics.jacobian_setups);
   const auto fixed = integrate(true, 100., true, true, -1, true);
   EXPECT_EQ(fixed.tolerance_builds, 2u);
+}
+
+TEST(DistributedIDA,
+     BOTH_NonlinearDiagnosticsPreserveTrajectoryAndNativeWeights)
+{
+  EXPECT_FALSE(IDAParameters{}.print_nonlinear_diagnostics);
+  for (const bool local : {false, true})
+    {
+      const auto plain = integrate(local, local ? 100. : 0., false);
+      const auto logged =
+        integrate(local, local ? 100. : 0., false, false, 0, false, true);
+      EXPECT_DOUBLE_EQ(plain.differential, logged.differential);
+      EXPECT_DOUBLE_EQ(plain.algebraic, logged.algebraic);
+      EXPECT_EQ(plain.statistics.steps, logged.statistics.steps);
+      EXPECT_EQ(plain.statistics.residual_evaluations,
+                logged.statistics.residual_evaluations);
+      EXPECT_EQ(plain.statistics.jacobian_setups,
+                logged.statistics.jacobian_setups);
+      EXPECT_EQ(plain.statistics.linear_solves,
+                logged.statistics.linear_solves);
+      EXPECT_EQ(plain.statistics.weight_evaluations,
+                logged.statistics.weight_evaluations);
+      EXPECT_EQ(plain.diagnostic_output.find("IDA nonlinear"),
+                std::string::npos);
+      if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+        {
+          const std::regex    expression("field=all wrms=([^ \n]+)");
+          std::vector<double> measured;
+          for (auto it = std::sregex_iterator(logged.diagnostic_output.begin(),
+                                              logged.diagnostic_output.end(),
+                                              expression);
+               it != std::sregex_iterator();
+               ++it)
+            measured.push_back(std::stod((*it)[1]));
+          ASSERT_EQ(measured.size(), logged.expected_correction_norms.size());
+          ASSERT_FALSE(measured.empty());
+          for (unsigned int i = 0; i < measured.size(); ++i)
+            EXPECT_NEAR(measured[i],
+                        logged.expected_correction_norms[i],
+                        1.e-13 *
+                          std::max(1., logged.expected_correction_norms[i]));
+          EXPECT_NE(logged.diagnostic_output.find(
+                      "field=0 name=\"differential.value\" F_l2="),
+                    std::string::npos);
+          EXPECT_NE(logged.diagnostic_output.find(
+                      "field=1 name=\"algebraic.value\" F_l2="),
+                    std::string::npos);
+          EXPECT_NE(logged.diagnostic_output.find(
+                      "outcome=success backtracks="),
+                    std::string::npos);
+        }
+    }
+}
+
+TEST(DistributedIDA,
+     BOTH_NonlinearDiagnosticsReportRecoverableAndNonfiniteTrials)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  parameters.print_nonlinear_diagnostics     = true;
+  parameters.correction_type_at_initial_time = "use_y_diff";
+  Adapter adapter(time, parameters, MPI_COMM_WORLD);
+  bool    fail = false;
+  add_forced_field(adapter, true, 1., [&]() {
+    if (fail)
+      throw dealii::RecoverableUserCallbackError("diagnostic trial marker");
+  });
+  auto y = adapter.make_state(), yp = adapter.make_state(),
+       residual = adapter.make_state();
+  y             = 0.;
+  // Inject an invalid entry directly: Debug scalar assignment rejects NaN
+  // before the residual callback can exercise the recoverable-error path.
+  for (const auto index : y.locally_owned_elements())
+    y[index] = std::numeric_limits<double>::quiet_NaN();
+  y.compress(dealii::VectorOperation::insert);
+  yp = 0.;
+  std::ostringstream output, errors;
+  struct RestoreStreams
+  {
+    std::streambuf *out, *err;
+    ~RestoreStreams()
+    {
+      std::cout.rdbuf(out);
+      std::cerr.rdbuf(err);
+    }
+  } restore{std::cout.rdbuf(output.rdbuf()), std::cerr.rdbuf(errors.rdbuf())};
+  EXPECT_THROW(adapter.solver().residual(0., y, yp, residual),
+               dealii::RecoverableUserCallbackError);
+  if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      EXPECT_NE(output.str().find("reason=nonfinite residual"),
+                std::string::npos);
+      EXPECT_NE(output.str().find("nonfinite_y=1 nonfinite_F=1"),
+                std::string::npos);
+    }
+  fail = true;
+  y    = 1.;
+  EXPECT_THROW(adapter.solve(y, yp), dealii::RecoverableUserCallbackError);
+  EXPECT_NE(errors.str().find("diagnostic trial marker"), std::string::npos);
+  if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      EXPECT_NE(output.str().find("outcome=failure backtracks="),
+                std::string::npos);
+    }
 }
 
 TEST(DistributedIDA, BOTH_InvalidLocalTolerancesAreCollective)

@@ -192,7 +192,8 @@ namespace ImmersX
 
     IDALinearSolverControls linear_solver_controls;
     IDAToleranceRamp        tolerance_ramp;
-    bool                    print_statistics = false;
+    bool                    print_statistics            = false;
+    bool                    print_nonlinear_diagnostics = false;
 
     std::string correction_type_at_initial_time = "none";
     std::string correction_type_after_restart   = "none";
@@ -280,6 +281,12 @@ namespace ImmersX
       declare_linear_solver_controls(prm);
       tolerance_ramp.add_parameters(prm);
       prm.add_parameter("Print current statistics", print_statistics);
+      prm.add_parameter(
+        "Print nonlinear diagnostics",
+        print_nonlinear_diagnostics,
+        "Report trial residuals, Newton corrections with actual IDA error "
+        "weights, recoverable failures and native backtrack counters. This "
+        "does not change solver tolerances or convergence tests.");
       prm.enter_subsection("Initial condition correction parameters");
       prm.add_parameter("Correction type at initial time",
                         correction_type_at_initial_time,
