@@ -346,7 +346,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Preserve the assembled fictitious-interior modal corrections when the coupled application uses MUMPS BLR FGMRES.
+- [PR #430](https://github.com/luca-heltai/immersx/pull/430) Preserve the assembled fictitious-interior modal corrections when the coupled application uses MUMPS BLR FGMRES.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Retain lifted-wall particle locations between accepted outputs and update their properties without repeating distributed point searches.
 
