@@ -3,11 +3,13 @@
 All notable changes to ImmersX are documented in this file. Each entry
 begins with a link to the pull request that introduced the change.
 
-The documentation at `doc/changes.md` combines this historical file with
-dated per-PR fragments under `changelog/<category>/`. Add new changes as
-fragments using `.github/CHANGELOG_TEMPLATE.md`; do not edit this shared
-`[Unreleased]` section for each PR. Fragments are consolidated into this file
-only during explicit release preparation.
+This file retains legacy history, including entries recorded under the former
+`[Unreleased]` workflow. New development notes live in dated per-PR fragments
+under `changelog/<category>/`; releases are stored in
+`changelog/version_YY_MM_vTAG.md`. The documentation at `doc/changes.md` combines
+all three sources. Use `.github/CHANGELOG_TEMPLATE.md` for new fragments.
+Neither documentation generation nor explicit release archiving rewrites
+this historical file.
 
 ## [Unreleased]
 

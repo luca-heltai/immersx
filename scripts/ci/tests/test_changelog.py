@@ -1,7 +1,6 @@
-"""Exercise fragments, documentation rendering, and release writes in isolation."""
+"""Exercise development fragments, release archives, and documentation in isolation."""
 
 import importlib.util
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -24,7 +23,8 @@ Historical introduction stays unchanged.
 
 ### Added
 
-- [PR #11](https://github.com/luca-heltai/immersx/pull/11) Existing unreleased entry.
+- [PR #11](https://github.com/luca-heltai/immersx/pull/11) Existing legacy entry.
+  ### Fixed
 
 ### Fixed
 
@@ -51,27 +51,40 @@ class Fragments(unittest.TestCase):
         path.write_text(f"PR: #{pr}\n\n{body}")
         return path
 
+    def archive(self, name="version_26_11_v0.2.0.md", version="0.2.0", day="2026-11-15", pr=42, body=None):
+        path = self.repo / "changelog" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        body = body or f"### Fixed\n\n- [PR #{pr}]({changelog.PR_URL}{pr}) Archived fix.\n"
+        path.write_text(f"## [v{version}] - {day}\n\n{body}")
+        return path
+
     def snapshot(self):
         return {path.relative_to(self.repo).as_posix(): path.read_bytes()
                 for path in self.repo.rglob("*") if path.is_file()}
 
-    def test_no_fragments_leave_history_identical(self):
-        self.assertEqual(changelog.render(self.repo), HISTORY)
+    def test_no_fragments_leave_legacy_visible_once_as_historical(self):
+        text = changelog.render(self.repo)
+        self.assertIn("## Development version\n\nNo development entries.", text)
+        self.assertIn("## Historical changes", text)
+        self.assertIn("### Legacy changes recorded before fragment adoption", text)
+        self.assertNotIn("\n## [Unreleased]", text)
+        self.assertEqual(text.count("Existing legacy entry."), 1)
+        self.assertEqual(text.count("Historical release text stays unchanged."), 1)
+        self.assertEqual(text.count("# Changelog\n"), 1)
+        self.assertEqual((self.repo / "CHANGELOG.md").read_text(), HISTORY)
 
-    def test_render_links_categories_and_preserves_history_without_writes(self):
+    def test_render_links_categories_and_preserves_inputs_without_writes(self):
         self.fragment(body="- Correct the result.\n  Preserve the boundary case.\n")
         self.fragment(category="tutorials", body="- Explain the workflow.\n")
         before = self.snapshot()
         text = changelog.render(self.repo)
         self.assertEqual(self.snapshot(), before)
-        self.assertEqual(text.count("### Fixed\n"), 1)
-        self.assertEqual(text.count("### Tutorial\n"), 1)
         self.assertIn("- [PR #42](https://github.com/luca-heltai/immersx/pull/42) Correct the result.\n  Preserve", text)
-        self.assertLess(text.index("Correct the result"), text.index("Existing fix"))
-        self.assertTrue(text.endswith(HISTORY.split("## [0.1.0]", 1)[1]))
-        self.assertEqual(text.count("# Changelog\n"), 1)
+        self.assertIn("### Tutorial", text)
+        self.assertLess(text.index("Correct the result"), text.index("## Historical changes"))
+        self.assertIn("  ### Fixed\n", text)
 
-    def test_date_then_filename_orders_entries_independently_of_pr_numbers(self):
+    def test_date_then_filename_orders_development_independently_of_pr_number(self):
         self.fragment("2026_10_30_old.md", pr=999, body="- Month-old change.\n")
         self.fragment("2026_11_15_beta.md", pr=1, body="- Same-day beta.\n")
         self.fragment("2026_11_15_alpha.md", pr=2, body="- Same-day alpha.\n")
@@ -79,26 +92,8 @@ class Fragments(unittest.TestCase):
         self.assertLess(text.index("Same-day alpha"), text.index("Same-day beta"))
         self.assertLess(text.index("Same-day beta"), text.index("Month-old change"))
 
-    def test_indented_category_example_does_not_match_a_real_heading(self):
-        history = HISTORY.replace("Existing unreleased entry.\n",
-                                  "Existing unreleased entry.\n  ### Fixed\n")
-        (self.repo / "CHANGELOG.md").write_text(history)
-        self.fragment()
-        text = changelog.render(self.repo)
-        self.assertIn("Existing unreleased entry.\n  ### Fixed\n", text)
-        self.assertLess(text.index("\n### Fixed\n"), text.index("Correct the result."))
-        self.assertEqual(text.count("\n### Fixed\n"), 1)
-        # A literal example must not prevent insertion when a real category
-        # heading is absent from the old history.
-        history = history.replace("\n### Fixed\n\n- [PR #10](https://github.com/luca-heltai/immersx/pull/10) Existing fix.\n", "")
-        (self.repo / "CHANGELOG.md").write_text(history)
-        text = changelog.render(self.repo)
-        self.assertIn("Existing unreleased entry.\n  ### Fixed\n", text)
-        self.assertLess(text.index("\n### Fixed\n"), text.index("Correct the result."))
-
     def test_metadata_is_independent_of_filename(self):
-        path = self.fragment("2024_02_29_cache_assembly.md", pr=701)
-        item = changelog.parse_fragment(path, "Fixed")
+        item = changelog.parse_fragment(self.fragment("2024_02_29_cache_assembly.md", pr=701), "Fixed")
         self.assertEqual(item.pr, 701)
         self.assertEqual(item.started.isoformat(), "2024-02-29")
 
@@ -111,25 +106,25 @@ class Fragments(unittest.TestCase):
                     changelog.fragments(self.repo)
                 path.unlink()
 
-    def test_unknown_category_or_nested_directory_is_rejected(self):
+    def test_unknown_category_nested_directory_and_root_file_are_rejected(self):
         for category in ("typo", "fix/nested"):
             with self.subTest(category=category):
-                directory = self.repo / "changelog"
                 path = self.fragment(category=category)
                 with self.assertRaises(ValueError):
                     changelog.fragments(self.repo)
                 path.unlink()
-                for child in sorted(directory.rglob("*"), reverse=True):
+                for child in sorted((self.repo / "changelog").rglob("*"), reverse=True):
                     if child.is_dir():
                         child.rmdir()
+        (self.repo / "changelog/notes.md").write_text("Do not delete user work")
+        with self.assertRaises(ValueError):
+            changelog.check(self.repo)
 
     def test_malformed_metadata_and_entries_are_rejected(self):
         path = self.fragment()
-        for text in ("PR: pending\n\n- Change.\n", "PR: #0\n\n- Change.\n",
-                     "PR: #42\n", "PR: #42\n\n## Fixed\n\n- Change.\n",
-                     "PR: #42\n\n- [PR #99](url) Wrong prefix.\n",
-                     "PR: #42\n\n- Repeated.\n\n- Repeated.\n",
-                     "PR: #42\n\nUnstructured prose.\n", "PR: #42\n\n- \n"):
+        for text in ("PR: pending\n\n- Change.\n", "PR: #0\n\n- Change.\n", "PR: #42\n",
+                     "PR: #42\n\n## Fixed\n\n- Change.\n", "PR: #42\n\n- [PR #99](url) Wrong prefix.\n",
+                     "PR: #42\n\n- Repeated.\n\n- Repeated.\n", "PR: #42\n\nUnstructured prose.\n", "PR: #42\n\n- \n"):
             with self.subTest(text=text):
                 path.write_text(text)
                 with self.assertRaises(ValueError):
@@ -146,12 +141,17 @@ class Fragments(unittest.TestCase):
         self.fragment(category="docs")
         self.assertEqual(len(changelog.check(self.repo)), 2)
 
-    def test_pr_already_recorded_in_history_is_rejected(self):
-        self.fragment(pr=11)
+    def test_pr_already_historical_or_released_cannot_be_development_again(self):
+        path = self.fragment(pr=11)
         with self.assertRaisesRegex(ValueError, "already has an entry"):
-            changelog.render(self.repo)
+            changelog.check(self.repo)
+        path.unlink()
+        self.archive(pr=42)
+        self.fragment(pr=42)
+        with self.assertRaisesRegex(ValueError, "already has an entry"):
+            changelog.check(self.repo)
 
-    def test_symlink_is_not_read_or_removed(self):
+    def test_symlink_paths_are_not_read_or_removed(self):
         external = self.repo / "external.md"
         external.write_text("PR: #42\n\n- External.\n")
         target = self.repo / "changelog/fix/2026_11_15_link.md"
@@ -160,9 +160,10 @@ class Fragments(unittest.TestCase):
         with self.assertRaises(ValueError):
             changelog.release(self.repo, "0.2.0", "2026-11-15", write=True)
         self.assertTrue(target.is_symlink())
+        self.assertEqual(external.read_text(), "PR: #42\n\n- External.\n")
         self.assertEqual((self.repo / "CHANGELOG.md").read_text(), HISTORY)
 
-    def test_fragment_root_and_history_symlinks_are_rejected(self):
+    def test_fragment_root_and_legacy_symlinks_are_rejected(self):
         external = self.repo / "external"
         external.mkdir()
         (self.repo / "changelog").symlink_to(external, target_is_directory=True)
@@ -175,15 +176,10 @@ class Fragments(unittest.TestCase):
         target.write_text(HISTORY)
         history.symlink_to(target)
         with self.assertRaises(ValueError):
-            changelog.release(self.repo, "0.2.0", "2026-11-15", write=True)
+            changelog.render(self.repo)
         self.assertEqual(target.read_text(), HISTORY)
 
-    def test_empty_release_is_not_created(self):
-        (self.repo / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n\n### Added\n")
-        with self.assertRaisesRegex(ValueError, "No unreleased entries"):
-            changelog.release(self.repo, "0.2.0", "2026-11-15", write=True)
-
-    def test_current_pr_applies_only_to_newly_added_fragments_in_ci(self):
+    def test_current_pr_applies_only_to_new_fragments_in_ci(self):
         old = self.fragment(pr=12)
         new = self.fragment(category="docs", pr=42)
         added = {new.relative_to(self.repo).as_posix()}
@@ -193,51 +189,116 @@ class Fragments(unittest.TestCase):
         self.assertEqual(len(changelog.check(self.repo, 43, set())), 2)
         self.assertTrue(old.exists())
 
-    def test_release_preview_is_read_only_and_write_preserves_old_releases(self):
-        path = self.fragment()
+    def test_release_preview_is_read_only_write_creates_archive_and_consumes_all_categories(self):
+        fix = self.fragment()
+        docs = self.fragment(category="docs", body="- Explain the correction.\n")
         before = self.snapshot()
-        preview = changelog.release(self.repo, "0.2.0", "2026-11-15")
+        preview = changelog.release(self.repo, "v0.2.0", "2026-11-15")
         self.assertEqual(self.snapshot(), before)
-        self.assertIn("## [0.2.0] - 2026-11-15\n", preview)
-        self.assertIn("Existing unreleased entry.", preview)
-        self.assertTrue(preview.endswith(HISTORY.split("## [0.1.0]", 1)[1]))
-        written = changelog.release(self.repo, "0.2.0", "2026-11-15", write=True)
-        self.assertEqual(written, preview)
-        self.assertEqual((self.repo / "CHANGELOG.md").read_text(), preview)
-        self.assertFalse(path.exists())
-        self.assertEqual(changelog.render(self.repo), preview)
-        self.assertFalse(list(self.repo.rglob("*.tmp")))
-        # A release PR need not add another fragment for its own consolidation.
+        self.assertTrue(preview.startswith("## [v0.2.0] - 2026-11-15\n"))
+        self.assertNotIn("Existing legacy entry.", preview)
+        self.assertIn("### Documentation", preview)
+        changelog.release(self.repo, "0.2.0", "2026-11-15", write=True)
+        archive = self.repo / "changelog/version_26_11_v0.2.0.md"
+        self.assertEqual(archive.read_text(), preview)
+        self.assertFalse(fix.exists())
+        self.assertFalse(docs.exists())
+        self.assertEqual((self.repo / "CHANGELOG.md").read_text(), HISTORY)
+        self.assertEqual(changelog.fragments(self.repo), [])
         self.assertEqual(changelog.check(self.repo, 500, set()), [])
+        rendered = changelog.render(self.repo)
+        self.assertIn("No development entries.", rendered)
+        self.assertEqual(rendered.count("Existing legacy entry."), 1)
 
-    def test_indented_heading_example_is_not_a_release_section(self):
-        self.fragment(body="- Explain the heading:\n  ## [Unreleased]\n")
-        result = changelog.release(self.repo, "0.2.0", "2026-11-15", write=True)
-        self.assertEqual(changelog.render(self.repo), result)
+    def test_accepted_whitespace_and_continuations_round_trip_through_release(self):
+        for body in ("-  Correct the result.\n", "- \n  Correct the result.\n"):
+            with self.subTest(body=body):
+                path = self.fragment(body=body)
+                changelog.check(self.repo)
+                changelog.release(self.repo, "0.5", "2026-11-15", write=True)
+                self.assertFalse(path.exists())
+                self.assertEqual(changelog.check(self.repo), [])
+                self.assertIn("Correct the result.", changelog.render(self.repo))
+                (self.repo / "changelog/version_26_11_v0.5.md").unlink()
 
-    def test_release_refuses_existing_versions_without_changing_files(self):
+    def test_two_same_month_archives_and_new_development_are_all_visible_in_order(self):
+        self.fragment(pr=42, body="- First release correction.\n")
+        changelog.release(self.repo, "0.2", "2026-11-15", write=True)
+        self.fragment(pr=43, body="- Second release correction.\n")
+        changelog.release(self.repo, "0.3", "2026-11-20", write=True)
+        self.fragment(pr=44, body="- Current development correction.\n")
+        text = changelog.render(self.repo)
+        self.assertLess(text.index("Current development correction"), text.index("## [v0.3]"))
+        self.assertLess(text.index("## [v0.3]"), text.index("## [v0.2]"))
+        self.assertLess(text.index("## [v0.2]"), text.index("## Historical changes"))
+        for entry in ("First release correction.", "Second release correction.", "Existing legacy entry."):
+            self.assertEqual(text.count(entry), 1)
+        self.assertTrue((self.repo / "changelog/version_26_11_v0.2.md").exists())
+        self.assertTrue((self.repo / "changelog/version_26_11_v0.3.md").exists())
+
+    def test_version_alias_and_duplicate_archive_version_never_overwrite(self):
+        self.fragment()
+        changelog.release(self.repo, "v0.5", "2026-11-15", write=True)
+        self.fragment(pr=43)
+        before = self.snapshot()
+        for version in ("0.5", "v0.5"):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "already exists"):
+                changelog.release(self.repo, version, "2027-01-02", write=True)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_archive_duplicate_version_in_another_month_is_rejected(self):
+        self.archive(version="0.5", name="version_26_11_v0.5.md")
+        self.archive(version="0.5", name="version_27_01_v0.5.md", day="2027-01-02", pr=43)
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            changelog.check(self.repo)
+
+    def test_archive_header_date_filename_categories_and_links_are_validated(self):
+        path = self.archive()
+        valid = path.read_text()
+        malformed = (valid.replace("2026-11-15", "2026-12-15"), valid.replace("2026-11-15", "2026-02-30"),
+                     valid.replace("[v0.2.0]", "[vv0.2.0]"), valid.replace("### Fixed", "### Unknown"),
+                     valid + "\n### Fixed\n\n- [PR #43](https://github.com/luca-heltai/immersx/pull/43) Repeat.\n",
+                     valid.replace("### Fixed\n\n- [PR #42](https://github.com/luca-heltai/immersx/pull/42) Archived fix.", "### Fixed"),
+                     valid.replace("pull/42", "pull/43"), valid.replace("- [PR #42](https://github.com/luca-heltai/immersx/pull/42) ", "- "))
+        for text in malformed:
+            with self.subTest(text=text):
+                path.write_text(text)
+                with self.assertRaises(ValueError):
+                    changelog.check(self.repo)
+
+    def test_archived_pr_and_legacy_version_cannot_be_repeated(self):
+        first = self.archive()
+        second = self.archive(name="version_26_12_v0.3.md", version="0.3", day="2026-12-01")
+        with self.assertRaisesRegex(ValueError, "already recorded"):
+            changelog.check(self.repo)
+        second.unlink()
+        first.unlink()
+        self.archive(name="version_26_11_v0.1.0.md", version="0.1.0")
+        with self.assertRaisesRegex(ValueError, "already exists in legacy"):
+            changelog.check(self.repo)
+
+    def test_release_refuses_legacy_versions_empty_development_and_bad_tags(self):
         self.fragment()
         before = self.snapshot()
         for version in ("0.1.0", "v0.1.0"):
             with self.subTest(version=version), self.assertRaisesRegex(ValueError, "already exists"):
                 changelog.release(self.repo, version, "2026-11-15", write=True)
+        for version in ("../../other", "0..5", "0.5/other", "0.5\\other", "vv0.5", "0.5\n"):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                changelog.release(self.repo, version, "2026-11-15", write=True)
         self.assertEqual(self.snapshot(), before)
-
-    def test_release_refuses_bad_version_date_and_existing_temporary_file(self):
-        self.fragment()
-        for version, day in (("0.2.0]", "2026-11-15"), ("0.2.0", "2026-02-30")):
-            before = self.snapshot()
-            with self.assertRaises(ValueError):
-                changelog.release(self.repo, version, day, write=True)
-            self.assertEqual(self.snapshot(), before)
-        temporary = self.repo / "CHANGELOG.md.tmp"
-        temporary.write_text("Preserve user work")
-        before = self.snapshot()
-        with self.assertRaises(FileExistsError):
+        self.fragment().unlink()
+        with self.assertRaisesRegex(ValueError, "No development fragments"):
             changelog.release(self.repo, "0.2.0", "2026-11-15", write=True)
-        self.assertEqual(self.snapshot(), before)
 
-    def test_sphinx_hook_uses_repo_path_and_refreshes_incremental_changes(self):
+    def test_indented_heading_examples_stay_inside_their_entries(self):
+        self.fragment(body="- Explain headings:\n  ## [Unreleased]\n  ### Fixed\n")
+        changelog.release(self.repo, "0.2.0", "2026-11-15", write=True)
+        text = changelog.render(self.repo)
+        self.assertIn("  ## [Unreleased]\n  ### Fixed\n", text)
+        self.assertIn("Existing legacy entry.\n  ### Fixed", text)
+
+    def test_sphinx_hook_refreshes_incremental_changes_and_uses_explicit_repo(self):
         self.fragment()
         spec = importlib.util.spec_from_file_location("fragment_documentation", ROOT / "doc/conf.py")
         conf = importlib.util.module_from_spec(spec)
@@ -254,25 +315,26 @@ class Fragments(unittest.TestCase):
         conf.setup(app)
         self.assertEqual(app.connect.call_count, 2)
 
-    def test_cli_compares_new_fragments_but_not_existing_edits(self):
+    def test_cli_git_diff_is_read_only_and_only_checks_new_fragment_metadata(self):
         self.fragment(pr=12)
         subprocess.run(["git", "init", "-q", "-b", "master"], cwd=self.repo, check=True)
         def commit():
             subprocess.run(["git", "add", "--all"], cwd=self.repo, check=True)
             subprocess.run(["git", "-c", "user.name=Fragment test", "-c", "user.email=test@example.invalid",
-                            "commit", "-qm", "fixture"], cwd=self.repo, check=True)
+                            "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"], cwd=self.repo, check=True)
             return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         base = commit()
         self.fragment(category="docs", pr=42)
         self.fragment(pr=12, body="- Correct an old description.\n")
         commit()
-        command = [sys.executable, str(SCRIPT), "--repo", str(self.repo), "check", "--pr", "42",
+        command = [sys.executable, "-B", str(SCRIPT), "--repo", str(self.repo), "check", "--pr", "42",
                    "--base", base, "--head", "HEAD"]
         subprocess.run(command, cwd="/tmp", check=True, capture_output=True)
-        wrong = subprocess.run(command[:command.index("42")] + ["43"] + command[command.index("42") + 1:],
-                               cwd="/tmp", capture_output=True, text=True)
-        self.assertNotEqual(wrong.returncode, 0)
-        self.assertIn("new fragments must reference PR: #43", wrong.stderr)
+        before = self.snapshot()
+        command[command.index(base)] = "--output=" + str(self.repo / "unexpected_output")
+        bad = subprocess.run(command, cwd="/tmp", capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertEqual(self.snapshot(), before)
 
 
 if __name__ == "__main__":

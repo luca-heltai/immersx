@@ -1,4 +1,4 @@
 # Changelog
 
-The documentation build combines the historical changelog and pending
-[pull request fragments](developer/changelog.md).
+The documentation build combines current development fragments, versioned
+release archives, and legacy history. See [Changelog and releases](developer/changelog.md).

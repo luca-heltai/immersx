@@ -1,11 +1,11 @@
 # Changelog and releases
 
-Each pull request records its changes in dated files under `changelog/`.
-Concurrent PRs therefore add separate files rather than editing the same
-`[Unreleased]` section. The root `CHANGELOG.md` retains existing entries and
-historical releases.
+Development notes live in dated files under `changelog/<category>/`. When
+preparing a release, an explicit command collects them into one versioned
+archive and removes those individual files. The documentation publishes current
+development notes, release archives, and older legacy history together.
 
-## Add fragments
+## Add development fragments
 
 The directory selects the category:
 
@@ -45,6 +45,10 @@ headings or a leading PR link: the containing directory supplies the category,
 and the renderer supplies the link from `PR: #N`. Indent continuation lines by
 two spaces.
 
+Individual category files belong only to the current development version.
+There is no extra bot commit that incorporates or deletes them after every PR
+merge; they remain separate until explicit release preparation.
+
 ## Validate and preview
 
 Run these commands from the repository root:
@@ -54,25 +58,26 @@ python3 scripts/changelog.py check
 python3 scripts/changelog.py render
 ```
 
-`check` validates the whole collection. CI additionally checks that newly
-added fragments refer to the current PR; editing an existing entry retains
-its original PR reference. A release PR does not need an extra fragment solely
-to consolidate the existing ones. `render` prints combined Markdown and changes
-no file.
+`check` validates all development fragments and release archives. CI additionally
+checks that newly added development fragments refer to the current PR; editing
+an existing entry retains its original PR reference. Release preparation needs
+no extra fragment solely to archive the existing ones. `render` prints combined
+Markdown and changes no file.
 
-Within each category, fragments appear newest activity date first, then
-alphabetically by filename for equal dates. PR numbers do not affect ordering.
-Existing historical text and its ordering remain unchanged.
+Within each development category, fragments appear newest activity date first,
+then alphabetically by filename for equal dates. PR numbers do not affect
+ordering. Release archives follow, newest full release date first, then filename
+for equal dates. The old `CHANGELOG.md` appears last under Historical changes.
+Its old `[Unreleased]` section is presented as legacy notes recorded before
+fragment adoption, without inventing a version or release date for those notes.
+Existing entries and their historical ordering remain unchanged.
 
-`./scripts/build_doc.sh` builds the combined changelog page using the same
-renderer. The Sphinx source-read hook renders the page in memory, including
-on incremental builds. Documentation generation neither rewrites the global
-changelog nor modifies or deletes fragments.
+`./scripts/build_doc.sh` builds this combined page using the same renderer.
+The Sphinx source-read hook renders it in memory, including on incremental
+builds. Documentation generation neither rewrites history or archives nor
+modifies or deletes development fragments.
 
-## Prepare a release
-
-Fragments remain separate after their PRs merge. There is no extra bot commit
-that incorporates and deletes them after every merge.
+## Archive an explicit release
 
 Preview a release without changing the checkout:
 
@@ -80,15 +85,34 @@ Preview a release without changing the checkout:
 python3 scripts/changelog.py release --version 0.5.0 --date 2026-11-15
 ```
 
-Review the resulting Markdown, then explicitly apply it:
+Review the Markdown, then explicitly write the archive:
 
 ```bash
 python3 scripts/changelog.py release --version 0.5.0 --date 2026-11-15 --write
 ```
 
-The write moves the combined pending entries into the dated release, leaves
-an empty `[Unreleased]` category skeleton, and removes the consolidated
-fragment files. Older release sections are retained. The command refuses an
-already recorded version, malformed fragments, or PR metadata already present
-in the historical changelog. Review and commit the result as part of the normal
-release preparation; the command does not create a commit or tag.
+This creates `changelog/version_26_11_v0.5.0.md` with a heading containing the
+full date and tag:
+
+```markdown
+## [v0.5.0] - 2026-11-15
+
+### Fixed
+
+- [PR #427](https://github.com/luca-heltai/immersx/pull/427) Rebuild the cached matrix when coefficients change.
+```
+
+`0.5.0` and `v0.5.0` mean the same version; two-component tags such as `v0.5`
+are also accepted. Tag names must be portable filename components, without path
+separators or `..`. The `YY_MM` filename prefix comes from the explicit release
+date. The full ISO date in the header controls ordering across years.
+
+Only after writing the archive does the command remove all validated current
+fragments from the category directories. Empty directories may remain locally.
+Older archives and the global `CHANGELOG.md` remain untouched. A later PR adds
+new category files for the next development version.
+
+The command refuses malformed data, existing archive paths, and versions already
+recorded in another archive or the legacy history. Review and commit the new
+archive and removed fragments as part of release preparation. The command does
+not create a Git commit or tag.

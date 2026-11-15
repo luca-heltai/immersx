@@ -270,8 +270,10 @@ dates, unknown category directories, empty entries, and multiple files for the
 same PR in one category. A PR may have fragments in different categories.
 When checking a PR diff, only newly added fragments must carry that PR's number;
 existing fragments retain their original reference when edited. Release
-consolidation needs no extra fragment. Fragment-only changes use the
-documentation-only plan.
+archiving needs no extra fragment. Versioned archives are checked for matching
+filename/date/tag metadata, category structure, valid PR links, and unique
+versions. Fragment- or archive-only Markdown changes use the documentation-only
+plan.
 
 The renderer and release command are tested against isolated temporary
 histories through the ordinary CI-tooling test suite:
@@ -281,4 +283,4 @@ python3 scripts/changelog.py check
 python3 -B -m unittest discover -s scripts/ci/tests -v
 ```
 
-See [Changelog and releases](changelog) for the format and release consolidation.
+See [Changelog and releases](changelog) for the development and release formats.

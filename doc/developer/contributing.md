@@ -538,10 +538,12 @@ documentation require the actual number. The directory supplies the category,
 and the renderer supplies the PR link.
 
 Do not edit the root `CHANGELOG.md` for each PR. Documentation combines the
-fragments with that historical file, ordering new entries within each category
-by activity start date and then filename. `./scripts/build_doc.sh` renders this
-combined page without modifying or deleting fragments. Fragments remain
-separate after merging and are consolidated only at release time. See
+development fragments, versioned release archives, and that legacy history.
+Development entries within each category use activity start date and filename
+ordering. `./scripts/build_doc.sh` renders this combined page without modifying
+or deleting any input. Fragments remain separate after merging; explicit
+release preparation moves their notes into `changelog/version_YY_MM_vTAG.md`
+and removes the category files. The global historical file is never rewritten. See
 [Changelog and releases](changelog) for validation and the release command.
 
 ## Formatting and commits

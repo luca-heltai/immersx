@@ -212,8 +212,8 @@ generated-attribution trailers.
 Every change to user-visible behavior, the public API, the build system, the
 test structure, or the documentation must add a Markdown fragment under
 `changelog/<category>/`. Do not edit the shared root `CHANGELOG.md` for a new PR.
-That file contains historical entries and is updated only during release
-consolidation. Do not migrate or reorder existing historical entries.
+That file retains legacy history and is never rewritten by the fragment or
+release tools. Do not migrate or reorder its existing entries.
 
 The directory selects the category: `added`, `changed`, `fix`, `removed`,
 `docs`, `tutorials`, `build`, or `testing`. A PR may have one fragment in each
@@ -236,9 +236,11 @@ or a leading PR link in the file; the renderer supplies them.
 New entries are ordered within each category by activity start date, newest
 first, then alphabetically by filename for equal dates. PR numbers and merge
 dates do not affect fragment ordering. Existing historical text is retained.
-The documentation combines fragments with the legacy `[Unreleased]` entries
-and older releases without modifying or deleting any source file. Do not
-consolidate fragments after every merge.
+The documentation shows current category fragments under Development version,
+then versioned release archives, then the read-only legacy history. Old legacy
+`[Unreleased]` entries are displayed as historical changes without inventing a
+release tag or date. Documentation changes no fragment, archive, or history
+file. Do not consolidate fragments after every merge.
 
 At release preparation, preview and then explicitly apply consolidation:
 
@@ -249,9 +251,13 @@ python3 scripts/changelog.py release --version 0.5.0 --date 2026-11-15
 python3 scripts/changelog.py release --version 0.5.0 --date 2026-11-15 --write
 ```
 
-The release command is read-only without `--write`; the explicit write updates
-the global history and removes the consolidated fragments. It refuses an
-already recorded version. CI validates PR metadata only on newly added
+The release command is read-only without `--write`. An explicit write creates
+`changelog/version_YY_MM_vTAG.md`, for example
+`changelog/version_26_11_v0.5.0.md`, and removes the consolidated development
+fragments from all category directories. Its heading records the full release
+date and version. It never modifies `CHANGELOG.md` or an existing archive and
+refuses a version already recorded in any month or year. Category files exist
+only for the current development version; released notes live in archives. CI validates PR metadata only on newly added
 fragments, preserving original PR references when fixing an existing entry and
 allowing release consolidation without a new fragment. See
 [`doc/developer/changelog.md`](doc/developer/changelog.md).
