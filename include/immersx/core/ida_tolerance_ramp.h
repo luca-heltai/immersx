@@ -31,12 +31,21 @@ namespace ImmersX
     double initial_absolute_factor = 100.;
     double hold_duration           = 0.;
     double end_time                = 0.;
+    /** Keep algebraic DoFs at base relative and absolute tolerances. */
+    bool protect_algebraic_variables = false;
 
     void
     add_parameters(dealii::ParameterHandler &prm)
     {
       prm.enter_subsection("Tolerance ramp");
       prm.add_parameter("Enabled", enabled);
+      prm.add_parameter(
+        "Protect algebraic variables",
+        protect_algebraic_variables,
+        "Retain base relative and absolute error weights for algebraic DoFs "
+        "during the ramp. These weights also enter nonlinear convergence; "
+        "Ignore algebraic terms for error computations controls only the "
+        "local time error test.");
       prm.add_parameter("Initial relative factor", initial_relative_factor);
       prm.add_parameter("Initial absolute factor", initial_absolute_factor);
       prm.add_parameter("Hold duration", hold_duration);

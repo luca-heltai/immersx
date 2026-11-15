@@ -7,6 +7,7 @@
 #include <immersx/core/sundials_ida_adapter.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <limits>
@@ -803,4 +804,436 @@ TEST(DistributedIDA, RampParameterValidation)
   ramp.initial_relative_factor = std::numeric_limits<double>::infinity();
   EXPECT_THROW(ramp.validate(.25, .35, .01), dealii::ExceptionBase);
 }
+namespace
+{
+  auto
+  add_mixed_forced_field(Adapter &adapter, const bool split_ownership)
+  {
+    return adapter.add(
+      [=](auto &builder) {
+        using Model = typename std::decay_t<decltype(builder)>::Model;
+        dealii::IndexSet owned(4), differential(4);
+        const auto       rank =
+          dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+        const auto size =
+          dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+        for (unsigned int i = 0; i < 4; ++i)
+          if (rank == (split_ownership && size > 1 ? i % 2 : 0))
+            {
+              owned.add_index(i);
+              if (i == 0 || i == 2)
+                differential.add_index(i);
+            }
+        owned.compress();
+        differential.compress();
+        const auto field    = builder.field("mixed", owned, {}, differential);
+        const auto diagonal = [field](const bool mass) {
+          return [field, mass](const auto &context) {
+            const auto              &prototype = context.state(field);
+            typename Model::Operator op;
+            op.reinit_range_vector = [prototype](FieldVector &v, bool) {
+              v.reinit(prototype);
+            };
+            op.reinit_domain_vector = op.reinit_range_vector;
+            op.vmult = [mass](FieldVector &dst, const FieldVector &src) {
+              for (const auto i : dst.locally_owned_elements())
+                dst[i] = (!mass || i == 0 || i == 2) ? src[i] : 0.;
+              dst.compress(dealii::VectorOperation::insert);
+            };
+            op.vmult_add = [mass](FieldVector &dst, const FieldVector &src) {
+              for (const auto i : dst.locally_owned_elements())
+                dst[i] = dst[i] + ((!mass || i == 0 || i == 2) ? src[i] : 0.);
+              dst.compress(dealii::VectorOperation::insert);
+            };
+            op.Tvmult     = op.vmult;
+            op.Tvmult_add = op.vmult_add;
+            return op;
+          };
+        };
+        builder.term(field, "forced")
+          .residual([field](const auto &context) {
+            const auto &y  = context.state(field);
+            const auto &yp = context.derivative(field);
+            FieldVector value;
+            value.reinit(y);
+            for (const auto i : y.locally_owned_elements())
+              value[i] =
+                y[i] - (2. + i + std::sin(context.time())) +
+                ((i == 0 || i == 2) ? yp[i] - std::cos(context.time()) : 0.);
+            value.compress(dealii::VectorOperation::insert);
+            typename Model::Operation op;
+            op.reinit_vector = [y](FieldVector &v, bool) { v.reinit(y); };
+            op.apply         = [value](FieldVector &v) { v = value; };
+            op.apply_add     = [value](FieldVector &v) { v += value; };
+            return op;
+          })
+          .state(field, typename Model::OperatorFactory(diagonal(false)))
+          .derivative(field, typename Model::OperatorFactory(diagonal(true)));
+        return field;
+      },
+      "mixed");
+  }
+
+  void
+  check_algebraic_ramp_weights(const bool protect,
+                               const bool mixed_opt_out,
+                               const bool split_ownership)
+  {
+    TimeIntervalParameters time;
+    IDAParameters          parameters;
+    time.final_time                                       = .04;
+    time.output_time_interval                             = .01;
+    parameters.initial_step_size                          = .001;
+    parameters.maximum_step_size                          = .005;
+    parameters.relative_tolerance                         = 1.e-6;
+    parameters.absolute_tolerance                         = 1.e-7;
+    parameters.correction_type_at_initial_time            = "none";
+    parameters.correction_type_after_restart              = "none";
+    parameters.tolerance_ramp.enabled                     = true;
+    parameters.tolerance_ramp.protect_algebraic_variables = protect;
+    parameters.tolerance_ramp.initial_relative_factor     = 100.;
+    parameters.tolerance_ramp.initial_absolute_factor     = 10000.;
+    parameters.tolerance_ramp.hold_duration               = .01;
+    parameters.tolerance_ramp.end_time                    = .03;
+    const auto solve_diagonal = [](const Adapter::Operator &op,
+                                   const GlobalVector      &rhs,
+                                   GlobalVector            &dst,
+                                   double) {
+      GlobalVector ones(rhs), diagonal(rhs);
+      ones = 1.;
+      op.vmult(diagonal, ones);
+      for (unsigned int b = 0; b < dst.n_blocks(); ++b)
+        for (const auto i : dst.block(b).locally_owned_elements())
+          dst.block(b)[i] = rhs.block(b)[i] / diagonal.block(b)[i];
+      dst.compress(dealii::VectorOperation::insert);
+    };
+    Adapter adapter(time, parameters, MPI_COMM_WORLD, solve_diagonal);
+    // Mixed field follows a different-size field: flat global offsets are not
+    // the numbering of the contributor's differential mask.
+    const auto algebraic    = add_forced_field(adapter, false, 1.e3);
+    const auto mixed        = add_mixed_forced_field(adapter, split_ownership);
+    const auto differential = add_forced_field(adapter, true, 1.e-3);
+    adapter.set_absolute_tolerance(algebraic.fields(), 1.e-4);
+    adapter.set_absolute_tolerance(differential.fields(), 1.e-12);
+    adapter.set_local_tolerances(mixed.fields(), [](FieldVector &v) {
+      for (const auto i : v.locally_owned_elements())
+        v[i] = (i + 1) * 1.e-7;
+    });
+    adapter.set_tolerance_ramp_enabled(mixed.fields(), !mixed_opt_out);
+    adapter.set_tolerance_ramp_enabled(differential.fields(), false);
+    adapter.set_stop_at_output_times(true);
+    auto y = adapter.make_state(), yp = adapter.make_state();
+    y  = 0.;
+    yp = 0.;
+    for (const auto i :
+         adapter.field(y, algebraic.fields()).locally_owned_elements())
+      adapter.field(y, algebraic.fields())[i] = 2000.;
+    for (const auto i :
+         adapter.field(y, mixed.fields()).locally_owned_elements())
+      {
+        adapter.field(y, mixed.fields())[i]  = 2. + i;
+        adapter.field(yp, mixed.fields())[i] = (i == 0 || i == 2) ? 1. : 0.;
+      }
+    for (const auto i :
+         adapter.field(y, differential.fields()).locally_owned_elements())
+      {
+        adapter.field(y, differential.fields())[i]  = .002;
+        adapter.field(yp, differential.fields())[i] = .001;
+      }
+    y.compress(dealii::VectorOperation::insert);
+    yp.compress(dealii::VectorOperation::insert);
+    std::array<bool, 3> phases{{false, false, false}};
+    const auto          check = [&](const auto  &state,
+                           const auto  &weights,
+                           const double t) {
+      double rel = 100., abs = 10000.;
+      if (t >= .03 - 1.e-14)
+        {
+          rel = abs = 1.;
+          phases[2] = true;
+        }
+      else if (t > .01)
+        {
+          const double f = (.03 - t) / .02;
+          rel            = std::pow(100., f);
+          abs            = std::pow(10000., f);
+          phases[1]      = true;
+        }
+      else
+        phases[0] = true;
+      const auto entry = [&](const auto   field,
+                             const auto   i,
+                             const double atol,
+                             const bool   ramp) {
+        const double denominator =
+          1.e-6 * (ramp ? rel : 1.) * std::abs(adapter.field(state, field)[i]) +
+          atol * (ramp ? abs : 1.);
+        EXPECT_NEAR(adapter.field(weights, field)[i] * denominator, 1., 2.e-12);
+      };
+      for (const auto i :
+           adapter.field(state, algebraic.fields()).locally_owned_elements())
+        entry(algebraic.fields(), i, 1.e-4, !protect);
+      for (const auto i :
+           adapter.field(state, mixed.fields()).locally_owned_elements())
+        entry(mixed.fields(),
+              i,
+              (i + 1) * 1.e-7,
+              !mixed_opt_out && (!protect || i == 0 || i == 2));
+      for (const auto i :
+           adapter.field(state, differential.fields()).locally_owned_elements())
+        entry(differential.fields(), i, 1.e-12, false);
+    };
+    auto         last_weights  = adapter.make_state();
+    bool         valid_weights = false;
+    unsigned int native_checks = 0, restarts = 0;
+    std::function<void(const GlobalVector &, GlobalVector &)> native_weights;
+    adapter.set_solver_should_restart([&](const double t, auto &, auto &) {
+      if (restarts == 0 && t >= .02 - 1.e-14)
+        {
+          ++restarts;
+          valid_weights = false;
+          return true;
+        }
+      return false;
+    });
+    adapter.set_output_step(
+      [&](const double, const auto &state, const auto &, unsigned int) {
+        auto &solver = adapter.solver();
+        // IDA may retain weights from the start of the step, rather than from
+        // this output's state. Compare its native vector to the last callback.
+        if (valid_weights)
+          {
+            auto actual = adapter.make_state();
+            auto view   = Compatibility::SUNDIALS::internal::make_nvector_view(
+              actual
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+              ,
+              solver.get_sun_context()
+#  endif
+            );
+            EXPECT_EQ(IDAGetErrWeights(solver.get_ida_memory(), view), 0);
+            N_VDestroy(view);
+            for (unsigned int b = 0; b < actual.n_blocks(); ++b)
+              for (const auto i : actual.block(b).locally_owned_elements())
+                EXPECT_DOUBLE_EQ(actual.block(b)[i], last_weights.block(b)[i]);
+            ++native_checks;
+          }
+        // A nonzero arbitrary probe separates both terms of the weight formula.
+        GlobalVector probe(state), weights(state);
+        probe = 3.25;
+        native_weights(probe, weights);
+        double t;
+        EXPECT_EQ(IDAGetCurrentTime(solver.get_ida_memory(), &t), 0);
+        check(probe, weights, t);
+      });
+    auto &solver                 = adapter.solver();
+    native_weights               = solver.compute_error_weights;
+    solver.compute_error_weights = [&](const auto &state, auto &weights) {
+      native_weights(state, weights);
+      double t;
+      EXPECT_EQ(IDAGetCurrentTime(solver.get_ida_memory(), &t), 0);
+      check(state, weights, t);
+      last_weights  = weights;
+      valid_weights = true;
+    };
+    adapter.solve(y, yp);
+    EXPECT_GT(native_checks, 0u);
+    EXPECT_EQ(restarts, 1u);
+    for (const auto reached : phases)
+      EXPECT_TRUE(reached);
+  }
+
+  double
+  nonlinear_algebraic_warmup(const bool protect)
+  {
+    TimeIntervalParameters time;
+    IDAParameters          parameters;
+    time.final_time                                       = .1;
+    time.output_time_interval                             = .1;
+    parameters.initial_step_size                          = .1;
+    parameters.maximum_step_size                          = .1;
+    parameters.maximum_order                              = 1;
+    parameters.nonlinear_convergence_coefficient          = .33;
+    parameters.relative_tolerance                         = 1.e-8;
+    parameters.absolute_tolerance                         = 1.e-9;
+    parameters.ignore_algebraic_terms_for_errors          = true;
+    parameters.correction_type_at_initial_time            = "none";
+    parameters.tolerance_ramp.enabled                     = true;
+    parameters.tolerance_ramp.protect_algebraic_variables = protect;
+    parameters.tolerance_ramp.initial_relative_factor     = 1.e8;
+    parameters.tolerance_ramp.initial_absolute_factor     = 1.e12;
+    parameters.tolerance_ramp.hold_duration               = .05;
+    parameters.tolerance_ramp.end_time                    = .1;
+    const auto solve = [](const Adapter::Operator &op,
+                          const GlobalVector      &rhs,
+                          GlobalVector            &dst,
+                          double) {
+      GlobalVector ones(rhs), values(rhs);
+      ones = 1.;
+      op.vmult(values, ones);
+      for (unsigned int b = 0; b < dst.n_blocks(); ++b)
+        if (dst.block(b).locally_owned_elements().is_element(0))
+          {
+            const double dx = rhs.block(b)[0] / values.block(b)[0];
+            dst.block(b)[0] = dx;
+            dst.block(b)[1] = rhs.block(b)[1] + (1. - values.block(b)[1]) * dx;
+          }
+      dst.compress(dealii::VectorOperation::insert);
+    };
+    Adapter    adapter(time, parameters, MPI_COMM_WORLD, solve);
+    const auto mixed = adapter.add(
+      [](auto &builder) {
+        using Model = typename std::decay_t<decltype(builder)>::Model;
+        dealii::IndexSet owned(2), differential(2);
+        if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          {
+            owned.add_range(0, 2);
+            differential.add_index(0);
+          }
+        owned.compress();
+        differential.compress();
+        const auto field   = builder.field("state", owned, {}, differential);
+        const auto factory = [field](const bool mass) {
+          return [field, mass](const auto &context) {
+            const auto  &y = context.state(field);
+            const double x =
+              y.locally_owned_elements().is_element(0) ? y[0] : 0.;
+            typename Model::Operator op;
+            op.reinit_range_vector = [y](FieldVector &v, bool) { v.reinit(y); };
+            op.reinit_domain_vector = op.reinit_range_vector;
+            const auto action       = [mass, x](FieldVector       &dst,
+                                          const FieldVector &src,
+                                          bool               transpose,
+                                          bool               add) {
+              if (dst.locally_owned_elements().is_element(0))
+                {
+                  const double a =
+                    mass ? src[0] :
+                                 (transpose ? src[0] - 2. * x * src[1] : src[0]);
+                  const double b =
+                    mass ? 0. : (transpose ? src[1] : src[1] - 2. * x * src[0]);
+                  dst[0] = (add ? dst[0] : 0.) + a;
+                  dst[1] = (add ? dst[1] : 0.) + b;
+                }
+              dst.compress(dealii::VectorOperation::insert);
+            };
+            op.vmult = [action](auto &dst, const auto &src) {
+              action(dst, src, false, false);
+            };
+            op.vmult_add = [action](auto &dst, const auto &src) {
+              action(dst, src, false, true);
+            };
+            op.Tvmult = [action](auto &dst, const auto &src) {
+              action(dst, src, true, false);
+            };
+            op.Tvmult_add = [action](auto &dst, const auto &src) {
+              action(dst, src, true, true);
+            };
+            return op;
+          };
+        };
+        builder.term(field, "nonlinear-constraint")
+          .residual([field](const auto &context) {
+            const auto &y  = context.state(field);
+            const auto &yp = context.derivative(field);
+            FieldVector r;
+            r.reinit(y);
+            if (y.locally_owned_elements().is_element(0))
+              {
+                r[0] = yp[0] + y[0];
+                r[1] = y[1] - y[0] * y[0];
+              }
+            r.compress(dealii::VectorOperation::insert);
+            typename Model::Operation op;
+            op.reinit_vector = [y](FieldVector &v, bool) { v.reinit(y); };
+            op.apply         = [r](FieldVector &v) { v = r; };
+            op.apply_add     = [r](FieldVector &v) { v += r; };
+            return op;
+          })
+          .state(field, typename Model::OperatorFactory(factory(false)))
+          .derivative(field, typename Model::OperatorFactory(factory(true)));
+        return field;
+      },
+      "nonlinear");
+    auto y = adapter.make_state(), yp = adapter.make_state();
+    y  = 1.;
+    yp = 0.;
+    if (adapter.field(yp, mixed.fields())
+          .locally_owned_elements()
+          .is_element(0))
+      adapter.field(yp, mixed.fields())[0] = -1.;
+    yp.compress(dealii::VectorOperation::insert);
+    double       defect           = 0.;
+    unsigned int positive_outputs = 0;
+    adapter.set_stop_at_output_times(true);
+    adapter.set_output_step(
+      [&](const double t, const auto &state, const auto &, unsigned int) {
+        if (t > 0.)
+          {
+            ++positive_outputs;
+            const auto &v = adapter.field(state, mixed.fields());
+            if (v.locally_owned_elements().is_element(0))
+              {
+                EXPECT_NEAR(v[0], 1. / 1.1, 1.e-12);
+                defect = std::abs(v[1] - v[0] * v[0]);
+              }
+          }
+      });
+    adapter.solve(y, yp);
+    EXPECT_EQ(positive_outputs, 1u);
+    return dealii::Utilities::MPI::max(defect, MPI_COMM_WORLD);
+  }
+} // namespace
+
+TEST(DistributedIDA, BOTH_AlgebraicRampProtectionUsesOwnedMixedMasks)
+{
+  for (const bool protect : {false, true})
+    for (const bool mixed_opt_out : {false, true})
+      for (const bool split_ownership : {false, true})
+        check_algebraic_ramp_weights(protect, mixed_opt_out, split_ownership);
+}
+
+TEST(DistributedIDA, BOTH_AlgebraicRampProtectionEnforcesNonlinearConstraint)
+{
+  const double unprotected     = nonlinear_algebraic_warmup(false);
+  const double protected_value = nonlinear_algebraic_warmup(true);
+  // The first BE predictor is x_p=1-h=.9. One Newton correction
+  // reaches x=10/11 but leaves z below x*x by (10/11-.9)^2=1/12100.
+  EXPECT_NEAR(unprotected, 1. / 12100., 1.e-12);
+  EXPECT_LT(protected_value, 1.e-10);
+}
+
+TEST(DistributedIDA, BOTH_AlgebraicRampProtectionValidatesOnlyAppliedScales)
+{
+  for (const bool differential : {false, true})
+    {
+      TimeIntervalParameters time;
+      IDAParameters          parameters;
+      time.final_time                                       = .01;
+      time.output_time_interval                             = .01;
+      parameters.initial_step_size                          = .001;
+      parameters.maximum_step_size                          = .005;
+      parameters.absolute_tolerance                         = 1.e307;
+      parameters.ignore_algebraic_terms_for_errors          = false;
+      parameters.correction_type_at_initial_time            = "none";
+      parameters.tolerance_ramp.enabled                     = true;
+      parameters.tolerance_ramp.protect_algebraic_variables = true;
+      parameters.tolerance_ramp.initial_absolute_factor     = 1000.;
+      parameters.tolerance_ramp.end_time                    = .01;
+      Adapter adapter(time, parameters, MPI_COMM_WORLD);
+      add_forced_field(adapter, differential, 1.);
+      auto y = adapter.make_state(), yp = adapter.make_state();
+      y  = 2.;
+      yp = 0.;
+      if (differential)
+        {
+          EXPECT_THROW(adapter.solve(y, yp), dealii::ExceptionBase);
+        }
+      else
+        {
+          EXPECT_NO_THROW(adapter.solve(y, yp));
+        }
+    }
+}
+
 #endif

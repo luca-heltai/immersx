@@ -1645,14 +1645,20 @@ namespace ImmersX
           const bool    ramp = std::find(unramped_fields_.begin(),
                                       unramped_fields_.end(),
                                       field) == unramped_fields_.end();
-          valid = valid && std::isfinite(additional_data().relative_tolerance *
-                                         (ramp ? scales.first : 1.));
+          const auto   &differential =
+            composition_.state_layout().field(field).differential_components;
           const auto &values = composition_.field(absolute_tolerances_, field);
           for (const auto index : values.locally_owned_elements())
             {
+              const bool ramp_index =
+                ramp && (!tolerance_ramp_.protect_algebraic_variables ||
+                         differential.is_element(index));
               const double value = values[index];
-              valid = valid && std::isfinite(value) && value > 0. &&
-                      std::isfinite(value * (ramp ? scales.second : 1.));
+              valid              = valid &&
+                      std::isfinite(additional_data().relative_tolerance *
+                                    (ramp_index ? scales.first : 1.)) &&
+                      std::isfinite(value) && value > 0. &&
+                      std::isfinite(value * (ramp_index ? scales.second : 1.));
             }
         }
       AssertThrow(
@@ -1683,14 +1689,19 @@ namespace ImmersX
           const auto   &values = composition_.field(state, field);
           const auto   &absolute =
             composition_.field(absolute_tolerances_, field);
-          auto &field_weights = composition_.field(weights, field);
+          auto       &field_weights = composition_.field(weights, field);
+          const auto &differential =
+            composition_.state_layout().field(field).differential_components;
           for (const auto index : field_weights.locally_owned_elements())
             {
+              const bool ramp_index =
+                ramp && (!tolerance_ramp_.protect_algebraic_variables ||
+                         differential.is_element(index));
               const double value = values[index];
               const double denominator =
                 additional_data().relative_tolerance *
-                  (ramp ? scales.first : 1.) * std::abs(value) +
-                (ramp ? scales.second : 1.) * absolute[index];
+                  (ramp_index ? scales.first : 1.) * std::abs(value) +
+                (ramp_index ? scales.second : 1.) * absolute[index];
               field_weights[index] = 1. / denominator;
               valid                = valid && std::isfinite(value) &&
                       std::isfinite(field_weights[index]) &&
