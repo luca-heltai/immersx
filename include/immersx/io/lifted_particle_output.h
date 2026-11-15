@@ -413,6 +413,119 @@ namespace ImmersX
     };
   } // namespace detail
 
+  /** Retained particle locations and source-to-owner communication for a fixed
+   * wall and background mesh. Recreate this object after moving, refining or
+   * repartitioning either mesh, or changing the local wall-point ordering.
+   * All calls to update() are collective, including ranks with no points.
+   */
+  template <int spacedim>
+  class LiftedParticleOutputCache
+  {
+  public:
+    LiftedParticleOutputCache()
+      : parameters("/Lifted particle search/")
+      , search(parameters)
+    {}
+
+    dealii::Particles::ParticleHandler<spacedim> &
+    update(const dealii::Triangulation<spacedim>        &tria,
+           const dealii::Mapping<spacedim>              &mapping,
+           const std::vector<LiftedWallPoint<spacedim>> &points,
+           const std::vector<LiftedParticleColumn>      &columns,
+           const unsigned int                            n_properties)
+    {
+      const auto communicator = tria.get_mpi_communicator();
+      bool columns_valid = columns.size() <= n_properties && n_properties > 0;
+      for (const auto &column : columns)
+        columns_valid = columns_valid && column.values.size() == points.size();
+      AssertThrow(
+        dealii::Utilities::MPI::min(static_cast<unsigned int>(columns_valid),
+                                    communicator) != 0,
+        dealii::ExcMessage(
+          "Each particle column needs one value per wall point and enough particle properties."));
+      if (!initialized)
+        {
+          positions.reserve(points.size());
+          // Fresh handlers assign contiguous ids by source rank, including
+          // points outside the background. Reuse that numbering for updates.
+          const auto sizes = dealii::Utilities::MPI::all_gather(
+            communicator,
+            static_cast<dealii::types::particle_index>(points.size()));
+          dealii::types::particle_index offset = 0;
+          for (unsigned int rank = 0;
+               rank < dealii::Utilities::MPI::this_mpi_process(communicator);
+               ++rank)
+            offset += sizes[rank];
+          for (const auto &point : points)
+            positions.push_back(point.point);
+          first_id           = offset;
+          triangulation      = &tria;
+          background_mapping = &mapping;
+          search.initialize_particle_handler(tria, mapping, n_properties);
+          const auto receiving =
+            search.insert_points(positions,
+                                 std::vector<std::vector<double>>(
+                                   points.size(),
+                                   std::vector<double>(n_properties, 0.)));
+          indices_by_target =
+            dealii::Utilities::MPI::some_to_some(communicator, receiving);
+          property_count = n_properties;
+          initialized    = true;
+        }
+      bool valid = triangulation == &tria && background_mapping == &mapping &&
+                   points.size() == positions.size() &&
+                   n_properties == property_count;
+      if (valid)
+        for (std::size_t q = 0; q < points.size(); ++q)
+          valid = valid && positions[q] == points[q].point;
+      AssertThrow(
+        dealii::Utilities::MPI::min(static_cast<unsigned int>(valid),
+                                    communicator) != 0,
+        dealii::ExcMessage(
+          "Recreate the lifted particle output cache after changing wall points or properties."));
+
+      using Row = std::pair<dealii::types::particle_index, std::vector<double>>;
+      std::map<unsigned int, std::vector<Row>> outgoing;
+      for (const auto &[rank, indices] : indices_by_target)
+        for (const auto q : indices)
+          {
+            std::vector<double> row(n_properties, 0.);
+            for (unsigned int c = 0; c < columns.size(); ++c)
+              row[c] = columns[c].values[q];
+            outgoing[rank].emplace_back(first_id + q, std::move(row));
+          }
+      const auto received =
+        dealii::Utilities::MPI::some_to_some(communicator, outgoing);
+      std::map<dealii::types::particle_index, std::vector<double>> values;
+      for (const auto &[rank, rows] : received)
+        {
+          (void)rank;
+          for (const auto &row : rows)
+            values.emplace(row);
+        }
+      auto &handler = search.handler();
+      for (auto particle = handler.begin(); particle != handler.end();
+           ++particle)
+        {
+          const auto &row        = values.at(particle->get_id());
+          auto        properties = particle->get_properties();
+          std::copy(row.begin(), row.end(), properties.begin());
+        }
+      return handler;
+    }
+
+  private:
+    ParticleCouplingParameters<spacedim>     parameters;
+    detail::LiftedParticleSearch<spacedim>   search;
+    std::map<unsigned int, dealii::IndexSet> indices_by_target;
+    std::vector<dealii::Point<spacedim>>     positions;
+    dealii::types::particle_index            first_id           = 0;
+    unsigned int                             property_count     = 0;
+    bool                                     initialized        = false;
+    const dealii::Triangulation<spacedim>   *triangulation      = nullptr;
+    const dealii::Mapping<spacedim>         *background_mapping = nullptr;
+  };
+
   /** Write the lifted wall as a particle file.
    *
    * The wall points are located in the background mesh, so each particle is
@@ -420,6 +533,7 @@ namespace ImmersX
    * the background are dropped. The call is collective; every rank must call
    * it, also with no wall points.
    *
+   * @param cache Optional retained locations for repeated output on a fixed mesh.
    * @param columns Columns from make_lifted_particle_columns().
    * @param points The wall points the columns were built from.
    * @param bulk The background mesh and, if the bulk_field property is
@@ -431,7 +545,8 @@ namespace ImmersX
                          const std::vector<LiftedParticleColumn>      &columns,
                          const std::vector<LiftedWallPoint<spacedim>> &points,
                          const LiftedBulkField<spacedim, VectorType>  &bulk,
-                         const std::string                            &filename)
+                         const std::string                            &filename,
+                         LiftedParticleOutputCache<spacedim> *cache = nullptr)
   {
     options.validate();
     const bool sample_bulk = options.selected("bulk_field");
@@ -456,26 +571,9 @@ namespace ImmersX
                 dealii::ExcMessage(
                   "No particle property is selected for the lifted wall."));
 
-    std::vector<dealii::Point<spacedim>> positions;
-    std::vector<std::vector<double>>     properties;
-    positions.reserve(points.size());
-    properties.reserve(points.size());
-    for (std::size_t q = 0; q < points.size(); ++q)
-      {
-        positions.push_back(points[q].point);
-        std::vector<double> row(n_total, 0.);
-        for (unsigned int c = 0; c < n_source; ++c)
-          row[c] = columns[c].values[q];
-        properties.push_back(std::move(row));
-      }
-
-    ParticleCouplingParameters<spacedim> search_parameters(
-      "/Lifted particle search/");
-    detail::LiftedParticleSearch<spacedim> search(search_parameters);
-    search.initialize_particle_handler(tria, bulk.mapping, n_total);
-    search.insert_points(positions, properties);
-
-    auto &handler = search.handler();
+    LiftedParticleOutputCache<spacedim> temporary_cache;
+    auto &handler = (cache ? *cache : temporary_cache)
+                      .update(tria, bulk.mapping, points, columns, n_total);
     if (sample_bulk)
       {
         const auto &fe       = bulk.dof_handler.get_fe();

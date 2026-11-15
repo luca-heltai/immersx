@@ -954,6 +954,19 @@ TEST(VascularForest,
           }
         return true;
       };
+      GrowthWork   rejection_work;
+      unsigned int geometry_calls  = 0;
+      const auto   reject_geometry = [&](const std::vector<Edge> &) {
+        ++geometry_calls;
+        return false;
+      };
+      EXPECT_FALSE(
+        optimize_growth(x, p, terminal, 2., reject_geometry, &rejection_work));
+      EXPECT_GT(geometry_calls, 0u);
+      EXPECT_EQ(rejection_work[GrowthOperation::candidate_geometry_rejections],
+                geometry_calls);
+      EXPECT_EQ(rejection_work[GrowthOperation::candidate_no_feasible_start],
+                1u);
       candidate = optimize_growth(x, p, terminal, 2., cheap_geometry);
       EXPECT_TRUE(candidate.has_value());
       if (candidate)

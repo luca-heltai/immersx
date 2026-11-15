@@ -14,4 +14,5 @@ metric-flow-x-elastostatic-ircad11-small
 metric-flow-x-elastodynamics
 metric-flow-x-elastodynamics-mms
 IRCAD12 solver pilot <liver-icar-coupled>
+IRCAD11 coupled simulation <liver-icar-case11>
 ```

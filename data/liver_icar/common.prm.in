@@ -1,7 +1,6 @@
 # SI units. This composite example is not calibrated to the IRCAD subject.
 subsection Elastodynamics
   set FE degree = 2
-  set Number of refinement cycles = 1
   set Dirichlet boundary ids =
   set Neumann boundary ids =
   set Robin boundary ids = 0

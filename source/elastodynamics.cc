@@ -15,7 +15,11 @@
 
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
-#include <deal.II/fe/mapping_fe.h>
+#if __has_include(<deal.II/fe/mapping_p1.h>)
+#  include <deal.II/fe/mapping_p1.h>
+#else
+#  include <deal.II/fe/mapping_fe.h>
+#endif
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_in.h>
@@ -449,8 +453,12 @@ namespace ImmersX
         quadrature = std::make_unique<QGaussSimplex<dim>>(par.fe_degree + 1);
         face_quadrature =
           std::make_unique<QGaussSimplex<dim - 1>>(par.fe_degree + 1);
+#if __has_include(<deal.II/fe/mapping_p1.h>)
+        mapping_storage = std::make_unique<MappingP1<dim, spacedim>>();
+#else
         mapping_storage = std::make_unique<MappingFE<dim, spacedim>>(
           FE_SimplexP<dim, spacedim>(1));
+#endif
       }
   }
 

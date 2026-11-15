@@ -871,7 +871,7 @@ vessel-ID transfer, checked against all 541 cell identities and per-vessel
 cell counts; no geometric matching was used. Native material IDs and physical
 vessel IDs are distinct. Added role, time and source-index metadata identify
 the extraction. The original native patch sampling and precision are retained.
-For radius-aware display, see [Area Tube](../how-to/paraview-area-tube.md).
+For radius-aware display, see [Variable Radius Tube](../how-to/paraview-area-tube.md).
 
 The last-valid, last-converged and last-attempted static snapshots coincide in
 this successful run. Each retains conservative unaccepted labels and a
@@ -920,6 +920,13 @@ Its README links the existing family archives, original waveform dependency,
 public source revisions and coupled build instructions. It contains parameters,
 a path-rendering helper and aggregate verification metadata; it does not
 redistribute anatomical inputs, raw field tables or the waveform.
+
+For current ImmersX, remove `set Number of refinement cycles = 1` from
+only the `Elastodynamics` subsection in `profiles/small-common.prm.in` and
+`profiles/medium-common.prm.in` before running the helper. This solid parameter
+was removed in PR #406. Keep the identically named entry under
+`MetricFlowSystem<1, 3>`, which remains valid. The archive and checksum above
+refer to the original, unmodified download.
 
 After verifying and extracting it, prepare paths without starting a solver:
 
@@ -1849,3 +1856,16 @@ For an archived liver case, `Stop at output times = true` under
 default remains dense output. Internal stops retain the BDF history and avoid
 interpolation defects in nonlinear hydraulic constraints. Control Newton
 convergence separately through the IDA `Nonlinear solver` subsection.
+
+## Diagnosing rejected growth candidates
+
+The growth statistics CSV includes `candidate_length_rejections`,
+`candidate_geometry_rejections`, `candidate_boundary_rejections`, and
+`candidate_no_feasible_start`. Length and geometry counters count rejected
+junction trials, including optimization trials; they are not rejected terminal
+counts. Boundary failures are a subset of geometry failures in the candidate
+search. A candidate with no feasible midpoint or centroid start increments
+`candidate_no_feasible_start` once. Counters accumulate local work and are
+reduced with the other growth statistics; they do not change acceptance gates.
+They do not yet distinguish own-system and cross-system collisions or provide
+a spatial rejection map.
