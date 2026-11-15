@@ -1441,6 +1441,11 @@ namespace ImmersX::Compatibility
       void
       set_functions_to_trigger_an_assert();
 
+      /** Release IDA and the linear algebra handles retained by its interface.
+       */
+      void
+      free_solver_memory();
+
       /**
        * IDA configuration data.
        */
@@ -1450,6 +1455,11 @@ namespace ImmersX::Compatibility
        * IDA memory object.
        */
       void *ida_mem;
+
+      // IDASetLinearSolver borrows these handles; IDAFree does not release
+      // them.
+      SUNLinearSolver linear_solver = nullptr;
+      SUNMatrix       system_matrix = nullptr;
 
 #  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
       /**
