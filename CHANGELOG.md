@@ -11,7 +11,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
-- [PR #pending](https://github.com/luca-heltai/immersx/pull/pending) Add optional IDA nonlinear diagnostics with named-field residual and state ranges, Newton-correction WRMS from the actual IDA weights, recoverable callback reasons and native backtrack counters, preserving solver criteria.
+- [PR #434](https://github.com/luca-heltai/immersx/pull/434) Add optional IDA nonlinear diagnostics with named-field residual and state ranges, Newton-correction WRMS from the actual IDA weights, recoverable callback reasons and native backtrack counters, preserving solver criteria.
 
 - [PR #416](https://github.com/luca-heltai/immersx/pull/416) Add MUMPS BLR-preconditioned FGMRES for coupled IDA solves, with controls for low-rank truncation, per-rank memory and MUMPS diagnostics.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Expose per-rank MUMPS working-memory limits and native memory reports in IDA, native flow-block inverses, and the coupled elastodynamics and elastostatic applications.
