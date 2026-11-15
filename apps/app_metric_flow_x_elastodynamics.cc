@@ -492,8 +492,11 @@ namespace
                                       generated->network,
                                       generation_parameters.discretization,
                                       MPI_COMM_WORLD);
-        transfer =
-          prepare_archived_flow(flow_problem, *generated, archive_parameters);
+        transfer = prepare_archived_flow(flow_problem,
+                                         *generated,
+                                         archive_parameters,
+                                         flow_time.initial_time,
+                                         flow_time.final_time);
       }
     else if (generate_network)
       {

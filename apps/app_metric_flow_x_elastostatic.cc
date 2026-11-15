@@ -496,7 +496,9 @@ namespace
                                       MPI_COMM_WORLD);
         archive_transfer = prepare_archived_flow(flow_problem,
                                                  *archived_data,
-                                                 archive_parameters);
+                                                 archive_parameters,
+                                                 flow_time.initial_time,
+                                                 flow_time.final_time);
       }
     else if (!restarting)
       {

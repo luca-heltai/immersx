@@ -68,6 +68,10 @@ namespace ImmersX::metric_flow_x_app_detail
                     venous_pressure,
                     "Prescribed venous root reservoir pressure in Pa.");
       add_parameter(
+        "Venous pressure CSV file",
+        venous_pressure_csv,
+        "Optional nonperiodic time_s,pressure_Pa reservoir history. Empty keeps Venous pressure. No extrapolation.");
+      add_parameter(
         "Root resistance",
         root_resistance,
         "Positive root reservoir resistance in Pa s/m^3; saved tissue compartments supply their own resistances.");
@@ -82,7 +86,7 @@ namespace ImmersX::metric_flow_x_app_detail
 
     std::array<double, 3>            triplet_resistance_factors{{1., 1., 1.}};
     std::vector<Vascularization::Id> sealed_input_terminals;
-    std::string                      directory;
+    std::string                      directory, venous_pressure_csv;
     std::vector<double>              young_moduli{0., 0., 0.};
     std::vector<double>              thickness_ratios{0., 0., 0.};
     std::vector<double>              reference_pressures{0., 0., 0.};
@@ -90,11 +94,47 @@ namespace ImmersX::metric_flow_x_app_detail
            halo = 0.;
   };
 
+  // Keep constant archived inputs usable with older MetricFlowX packages.
+  // Requesting a series needs the native serializable reservoir API.
+  template <class RCR>
+  auto
+  set_venous_pressure_series(RCR               &outlet,
+                             const std::string &filename,
+                             const double       initial_time,
+                             const double       final_time,
+                             int)
+    -> decltype(outlet.outlet_pressure_series.read(filename, std::string{}),
+                void())
+  {
+    if (!filename.empty())
+      {
+        outlet.outlet_pressure_series.read(filename, "pressure_Pa");
+        outlet.outlet_pressure(initial_time);
+        outlet.outlet_pressure(final_time);
+      }
+  }
+
+  template <class RCR>
+  void
+  set_venous_pressure_series(RCR &,
+                             const std::string &filename,
+                             double,
+                             double,
+                             long)
+  {
+    AssertThrow(
+      filename.empty(),
+      ExcMessage(
+        "Venous pressure CSV requires MetricFlowX native reservoir pressure series."));
+  }
+
   template <class Flow>
   Vascularization::MetricFlowXTransfer
   prepare_archived_flow(Flow                                    &flow,
                         const Vascularization::GenerationResult &generation,
-                        const ArchivedFlowParameters            &parameters)
+                        const ArchivedFlowParameters            &parameters,
+                        const double initial_time = 0.,
+                        const double final_time   = 0.)
   {
     namespace V = Vascularization;
     AssertThrow(
@@ -120,6 +160,32 @@ namespace ImmersX::metric_flow_x_app_detail
       ExcMessage(
         "Archived root pressures must be finite and reservoir resistance positive."));
 
+    const auto                comm = flow.mpi_communicator();
+    typename Flow::RCRPhysics venous_outlet;
+    venous_outlet.R2    = parameters.root_resistance;
+    venous_outlet.P_out = parameters.venous_pressure;
+    venous_outlet.label = "venous-root";
+    std::string error;
+    if (Utilities::MPI::this_mpi_process(comm) == 0)
+      try
+        {
+          AssertThrow(std::isfinite(initial_time) &&
+                        std::isfinite(final_time) && final_time >= initial_time,
+                      ExcMessage("Invalid reservoir forcing time interval."));
+          set_venous_pressure_series(venous_outlet,
+                                     parameters.venous_pressure_csv,
+                                     initial_time,
+                                     final_time,
+                                     0);
+        }
+      catch (const std::exception &exception)
+        {
+          error = exception.what();
+        }
+    error = Utilities::MPI::broadcast(comm, error, 0);
+    AssertThrow(error.empty(), ExcMessage(error));
+    venous_outlet = Utilities::MPI::broadcast(comm, venous_outlet, 0);
+
     // Unselected anatomical ends need an explicit zero-flow declaration.
     // Independent outlet resistances would add drains beside the saved beds.
     const std::set<V::Id> sealed(parameters.sealed_input_terminals.begin(),
@@ -127,7 +193,6 @@ namespace ImmersX::metric_flow_x_app_detail
     AssertThrow(sealed.size() == parameters.sealed_input_terminals.size(),
                 ExcMessage("A sealed input terminal id is repeated."));
     std::set<V::Id>    linked;
-    const auto         comm = flow.mpi_communicator();
     std::vector<V::Id> owned_linked;
     for (const auto &pair : generation.terminal_pairs)
       owned_linked.insert(owned_linked.end(), {pair.arterial, pair.venous});
@@ -180,8 +245,7 @@ namespace ImmersX::metric_flow_x_app_detail
             }
           else if (node.port == V::Port::venous_outlet)
             {
-              result.P_out = parameters.venous_pressure;
-              result.label = "venous-root";
+              result = venous_outlet;
             }
           else
             AssertThrow(

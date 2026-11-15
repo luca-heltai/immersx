@@ -1763,6 +1763,8 @@ subsection MetricFlowX coupling
     set Reference pressures = 10064.5,629.6,1066.6
     set Portal pressure = 1066.6
     set Venous pressure = 629.6
+    # Optional complete ADAVN IVC port-1508 waveform in Pa:
+    set Venous pressure CSV file =
     set Root resistance = 100000
   end
 end
@@ -1786,6 +1788,31 @@ sealed. This needs the native sealed-endpoint API from
 [MetricFlowX #88](https://github.com/luca-heltai/metric-flow-x/pull/88) and a
 matching rebuild. A sealed end has exactly zero flow and adds no reservoir;
 it is an explicit model assumption and must not count as a perfused terminal.
+
+
+`Venous pressure CSV file` is optional. Empty preserves the constant `Venous
+pressure` value. A nonempty file must contain finite `time_s,pressure_Pa`
+columns, strictly increasing times and at least two samples. Both coupled
+applications validate coverage of the complete configured time interval before
+flow setup. They use native MetricFlowX linear interpolation with period zero,
+without phase shifts, wrapping, extrapolation or clipping. A compatible
+MetricFlowX package with native reservoir pressure series is required only when
+a CSV is requested.
+
+For the complete MOX/ADAVN v3 cases, use the calculated ADAVN port-1508 pressure
+series, not a different right-atrial waveform or its last-cycle mean. The normal
+input covers 0--8 s and the hypertensive input covers 0--11.636 s. Keep the
+normal constitutive reference pressures in both cases; boundary forcing does
+not change prestress, vessel radii, resistance factors or portal pressure.
+The CSV acts solely on the venous-root reservoir. The elastostatic application's
+normal transient flow also consumes the full waveform; a steady preprocessing
+solve evaluates the same native datum at its fixed solve time.
+
+Native flow checkpoints and history layouts embed the pressure samples, so a
+compatible reader can restore that forcing after the source CSV has moved or
+been removed. The original parameter path remains provenance. Mechanical history
+replay continues to consume its documented saved flow fields; this is not a
+coupled BDF restart and does not reconstruct the original dynamic solid motion.
 
 Set `Setup only = true` under `MetricFlowX coupling` to construct the
 coupled spaces and report their block DoFs, then stop before state

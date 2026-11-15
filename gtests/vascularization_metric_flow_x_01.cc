@@ -7,6 +7,8 @@
 #include <gtest/gtest.h>
 #include <immersx/vascularization/metric_flow_x.h>
 
+#include <chrono>
+#include <fstream>
 #include <limits>
 #include <set>
 
@@ -413,6 +415,89 @@ namespace
     }
   };
 
+  template <class RCR, class = void>
+  struct HasReservoirSeries : std::false_type
+  {};
+  template <class RCR>
+  struct HasReservoirSeries<
+    RCR,
+    std::void_t<decltype(std::declval<RCR>().outlet_pressure(0.))>>
+    : std::true_type
+  {};
+
+  template <class Flow>
+  void
+  check_archived_venous_series(
+    const GenerationResult                                    &generation,
+    ImmersX::metric_flow_x_app_detail::ArchivedFlowParameters &parameters)
+  {
+    using namespace ImmersX::metric_flow_x_app_detail;
+    const auto  comm = MPI_COMM_WORLD;
+    const auto  rank = Utilities::MPI::this_mpi_process(comm);
+    std::string filename;
+    if (rank == 0)
+      {
+        filename =
+          (std::filesystem::temp_directory_path() /
+           ("immersx-reservoir-" +
+            std::to_string(
+              std::chrono::steady_clock::now().time_since_epoch().count()) +
+            ".csv"))
+            .string();
+        std::ofstream csv(filename);
+        csv << "time_s,pressure_Pa\n0,600\n1,800\n";
+      }
+    filename = Utilities::MPI::broadcast(comm, filename, 0);
+    parameters.venous_pressure_csv = filename;
+    if constexpr (HasReservoirSeries<typename Flow::RCRPhysics>::value)
+      {
+        Flow flow(comm);
+        prepare_archived_flow(flow, generation, parameters, .25, .75);
+        unsigned int venous = 0, portal = 0;
+        for (const auto &[id, rcr] : flow.physics.terminals)
+          if (rcr.label == "venous-root")
+            {
+              ++venous;
+              EXPECT_DOUBLE_EQ(rcr.P_out, 100.);
+              EXPECT_DOUBLE_EQ(rcr.outlet_pressure(.25), 650.);
+              EXPECT_DOUBLE_EQ(rcr.outlet_pressure(.75), 750.);
+            }
+          else if (rcr.label == "portal-root")
+            {
+              ++portal;
+              EXPECT_TRUE(rcr.outlet_pressure_series.empty());
+              EXPECT_DOUBLE_EQ(rcr.outlet_pressure(.25), 900.);
+            }
+        EXPECT_EQ(venous, 1u);
+        EXPECT_EQ(portal, 1u);
+        for (const double bad_final : {1.01, -1.})
+          {
+            Flow invalid(comm);
+            EXPECT_ANY_THROW(prepare_archived_flow(
+              invalid, generation, parameters, 0., bad_final));
+            EXPECT_EQ(invalid.triangulation().n_global_active_cells(), 0u);
+          }
+      }
+    else
+      {
+        Flow incompatible(comm);
+        EXPECT_ANY_THROW(prepare_archived_flow(
+          incompatible, generation, parameters, .25, .75));
+        EXPECT_EQ(incompatible.triangulation().n_global_active_cells(), 0u);
+      }
+    if (rank == 0)
+      std::filesystem::remove(filename);
+    MPI_Barrier(comm);
+    parameters.venous_pressure_csv.clear();
+    Flow constant(comm);
+    prepare_archived_flow(constant, generation, parameters, 0., 8.);
+    for (const auto &[id, rcr] : constant.physics.terminals)
+      if (rcr.label == "venous-root")
+        {
+          EXPECT_DOUBLE_EQ(rcr.P_out, 100.);
+        }
+  }
+
   void
   exercise_triplet_resistance_factors()
   {
@@ -533,6 +618,7 @@ namespace
                   8.8e9,
                   1.e-5);
     }
+    check_archived_venous_series<RecordedNativeFlow>(generation, parameters);
     for (const double bad : {0.,
                              -1.,
                              std::numeric_limits<double>::infinity(),
