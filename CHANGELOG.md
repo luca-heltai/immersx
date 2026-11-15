@@ -674,6 +674,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #419](https://github.com/luca-heltai/immersx/pull/419) Allow 120 minutes for Release CI, matching Debug, so cold builds leave time for tests and cache uploads.
 
+- [PR #419](https://github.com/luca-heltai/immersx/pull/419) Exercise the IDA MUMPS BLR regression on a distributed communicator with at least one owned unknown per MPI rank; check the analytic exponential state and rate and their DAE residual.
+
 - [PR #413](https://github.com/luca-heltai/immersx/pull/413) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
 
 - [PR #405](https://github.com/luca-heltai/immersx/pull/405) Check lifted wall particle collections, selected quantities, geometry, and traction using a reusable standard-library Python checker.

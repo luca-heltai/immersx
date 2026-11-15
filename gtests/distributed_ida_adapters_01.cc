@@ -14,6 +14,7 @@
 #include <immersx/algebra/local_preconditioner.h>
 #include <immersx/core/sundials_ida_adapter.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -222,18 +223,23 @@ TEST(DistributedIDA, BOTH_MumpsBlrFgmresSolvesCoupledDae)
   parameters.absolute_tolerance                = 1.e-6;
   parameters.relative_tolerance                = 1.e-5;
   parameters.ignore_algebraic_terms_for_errors = false;
+  // Resolve Newton corrections before checking the endpoint DAE defect.
+  parameters.nonlinear_convergence_coefficient = 1.e-4;
 
-  Adapter          adapter(time, parameters, MPI_COMM_SELF);
-  dealii::IndexSet owned(2);
-  owned.add_range(0, 2);
-  owned.compress();
-  dealii::DynamicSparsityPattern sparsity(2, 2, owned);
-  sparsity.add(0, 0);
-  sparsity.add(1, 1);
+  const auto communicator = MPI_COMM_WORLD;
+  const auto n_ranks = dealii::Utilities::MPI::n_mpi_processes(communicator);
+  const auto size    = std::max(2u, n_ranks);
+  const auto owned =
+    dealii::Utilities::MPI::create_evenly_distributed_partitioning(communicator,
+                                                                   size);
+  Adapter                        adapter(time, parameters, communicator);
+  dealii::DynamicSparsityPattern sparsity(size, size, owned);
+  for (const auto index : owned)
+    sparsity.add(index, index);
   auto identity = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
-  identity->reinit(owned, owned, sparsity, MPI_COMM_SELF);
-  identity->set(0, 0, 1.);
-  identity->set(1, 1, 1.);
+  identity->reinit(owned, owned, sparsity, communicator);
+  for (const auto index : owned)
+    identity->set(index, index, 1.);
   identity->compress(dealii::VectorOperation::insert);
   const auto field = adapter.add(
     [owned, identity](auto &builder) {
@@ -268,6 +274,7 @@ TEST(DistributedIDA, BOTH_MumpsBlrFgmresSolvesCoupledDae)
     "identity");
   adapter.set_linear_solver(Adapter::LinearSolver::mumps_blr_fgmres);
   adapter.set_mumps_blr_parameters(1.e-5);
+  adapter.set_stop_at_output_times(true);
   auto state = adapter.make_state();
   auto dot   = adapter.make_state();
   state      = 1.;
@@ -277,7 +284,24 @@ TEST(DistributedIDA, BOTH_MumpsBlrFgmresSolvesCoupledDae)
   const auto statistics = adapter.statistics();
   EXPECT_GT(statistics.jacobian_setups, 0u);
   EXPECT_GT(statistics.linear_solves, 0u);
-  EXPECT_TRUE(std::isfinite(adapter.field(state, field.fields()).l2_norm()));
+  const double exact         = std::exp(-time.final_time);
+  const double tolerance     = 10. * (parameters.absolute_tolerance +
+                                  parameters.relative_tolerance * exact);
+  const double normalization = std::sqrt(static_cast<double>(size));
+  auto         state_error   = adapter.field(state, field.fields());
+  auto         rate_error    = adapter.field(dot, field.fields());
+  for (const auto index : owned)
+    {
+      state_error(index) -= exact;
+      rate_error(index) += exact;
+    }
+  state_error.compress(dealii::VectorOperation::add);
+  rate_error.compress(dealii::VectorOperation::add);
+  EXPECT_LT(state_error.l2_norm() / normalization, tolerance);
+  EXPECT_LT(rate_error.l2_norm() / normalization, tolerance);
+  auto defect = adapter.field(dot, field.fields());
+  defect += adapter.field(state, field.fields());
+  EXPECT_LT(defect.l2_norm() / normalization, parameters.absolute_tolerance);
 }
 #  endif
 
