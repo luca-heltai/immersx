@@ -245,6 +245,16 @@ and junction data, positive areas, and wall compatibility must admit a
 solution. Initialization failures must be diagnosed from that coupled
 system.
 
+For a fresh run, explicitly selecting `use_y_dot` instead requests a full
+steady initial state. The application supplies zero rates for every field;
+native SUNDIALS `IDA_Y_INIT` adjusts the state to solve `F(t0, y, 0) = 0`.
+Flow areas and velocities, solid displacement, and wall multipliers may all
+change from their initial guesses. This option requires a steady solution
+compatible with the initial loads, boundary data, and positive-area constraints.
+It does not change the default `use_y_diff` selection. Fresh `none` correction
+remains unsupported. A checkpoint restart restores the saved state and rates
+and uses `none`, regardless of the original fresh-run selection.
+
 The algebraic wall constraint applies at accepted times. Saving at internal
 IDA step endpoints avoids showing an interpolated state that violates the
 nonlinear radius constraint. The application does not claim improved

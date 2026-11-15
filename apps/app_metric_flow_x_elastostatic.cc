@@ -367,9 +367,10 @@ namespace
       check_static_material(*material);
     AssertThrow(
       restarting ||
-        ida_parameters.correction_type_at_initial_time == "use_y_diff",
+        ida_parameters.correction_type_at_initial_time == "use_y_diff" ||
+        ida_parameters.correction_type_at_initial_time == "use_y_dot",
       ExcMessage(
-        "Elastostatic coupling requires coupled IDA use_y_diff initial correction."));
+        "Fresh elastostatic coupling requires coupled IDA use_y_diff or use_y_dot initial correction."));
     AssertThrow(
       linear_solver != "umfpack" ||
         Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1,
@@ -795,6 +796,9 @@ namespace
         flow_problem.initialize_state_derivative(
           adapter.field(state_dot, flow_fields.fields().state),
           flow_time.initial_time);
+        // IDA_Y_INIT adjusts all state values with these prescribed zero rates.
+        if (ida_parameters.correction_type_at_initial_time == "use_y_dot")
+          state_dot = 0.;
       }
     auto state_constraints =
       std::make_shared<GlobalVector>(adapter.make_state());
@@ -842,9 +846,13 @@ namespace
       if (step == 0)
         if (const char *filename =
               std::getenv("IMMERSX_ELASTOSTATIC_STATE_OUTPUT"))
-          write_checkpoint_diagnostics(solution,
-                                       solution_dot,
-                                       std::string(filename) + ".initial");
+          {
+            const std::string initial = std::string(filename) + ".initial";
+            write_checkpoint_diagnostics(solution, solution_dot, initial);
+            auto residual = adapter.make_state();
+            adapter.solver().residual(time, solution, solution_dot, residual);
+            write_regression_state(residual, initial + ".residual");
+          }
       const auto &flow_state =
         adapter.field(solution, flow_fields.fields().state);
       const auto &flow_derivative =
