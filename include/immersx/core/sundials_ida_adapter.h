@@ -15,6 +15,7 @@
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/base/mpi.h>
+#include <deal.II/base/scope_exit.h>
 #include <deal.II/base/timer.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
@@ -530,6 +531,8 @@ namespace ImmersX
       dealii::TimerOutput::Scope timer(computing_timer, "Solve DAE");
       try
         {
+          if (ida_parameters_.initial_residual_continuation)
+            continue_initial_residual(state, state_dot);
           ida_->solve_dae(state, state_dot);
         }
       catch (const std::exception &error)
@@ -1250,6 +1253,120 @@ namespace ImmersX
         dst += *temporary;
       };
       return result;
+    }
+
+    /** Follow roots of F(t0,y,0) - (1-eta) F(t0,y_rest,0), then return
+     * to the original callback before the ordinary physical integration. */
+    void
+    continue_initial_residual(GlobalVectorType &state,
+                              GlobalVectorType &state_dot)
+    {
+      dealii::TimerOutput::Scope timer(computing_timer,
+                                       "Initial residual continuation");
+      const auto                 data       = additional_data();
+      const auto                &parameters = ida_parameters_;
+      AssertThrow(
+        data.ic_type == AdditionalData::use_y_dot &&
+          !compute_consistent_initial_conditions_,
+        dealii::ExcMessage(
+          "Residual continuation requires native use_y_dot initial correction."));
+      AssertThrow(parameters.initial_continuation_step > 0. &&
+                    parameters.initial_continuation_step <= 1. &&
+                    parameters.minimum_continuation_step > 0. &&
+                    parameters.minimum_continuation_step <=
+                      parameters.initial_continuation_step &&
+                    parameters.maximum_continuation_attempts > 0,
+                  dealii::ExcMessage(
+                    "Invalid residual continuation step or attempt budget."));
+      AssertThrow(
+        state_dot.linfty_norm() == 0.,
+        dealii::ExcMessage(
+          "Residual continuation requires zero initial state derivative."));
+
+      GlobalVectorType candidate(state), checkpoint(state),
+        derivative(state_dot);
+      auto offset            = make_state();
+      auto original_residual = ida_->residual;
+      original_residual(data.initial_time, state, derivative, offset);
+      double                  eta    = 0.;
+      double                  target = 0.;
+      double                  step   = parameters.initial_continuation_step;
+      const dealii::ScopeExit restore([&]() {
+        ida_->residual = std::move(original_residual);
+        current_state_ = &state;
+        current_jacobian_.reset();
+        current_preconditioner_.reset();
+        initial_condition_jacobian_time_.reset();
+        solved_since_residual_ = false;
+      });
+      current_state_ = &candidate;
+      ida_->residual = [&](const double            time,
+                           const GlobalVectorType &y,
+                           const GlobalVectorType &yp,
+                           GlobalVectorType       &residual) {
+        original_residual(time, y, yp, residual);
+        if (target < 1.)
+          residual.add(-(1. - target), offset);
+      };
+      std::exception_ptr last_failure;
+      unsigned int       attempts = 0;
+      while (eta < 1.)
+        {
+          if (++attempts > parameters.maximum_continuation_attempts)
+            {
+              if (last_failure)
+                std::rethrow_exception(last_failure);
+              AssertThrow(
+                false,
+                dealii::ExcMessage(
+                  "Residual continuation exhausted its attempt budget at accepted eta=" +
+                  std::to_string(eta)));
+            }
+          target     = std::min(1., eta + step);
+          candidate  = checkpoint;
+          derivative = 0.;
+          current_jacobian_.reset();
+          current_preconditioner_.reset();
+          initial_condition_jacobian_time_.reset();
+          solved_since_residual_ = false;
+          pcout << "IDA residual continuation attempt=" << attempts
+                << " eta=" << target
+                << " (residual diagnostics report physical F)" << std::endl;
+          bool retry = false;
+          try
+            {
+              ida_->reset(data.initial_time,
+                          data.initial_step_size,
+                          candidate,
+                          derivative);
+            }
+          catch (const Compatibility::SUNDIALS::ExcIDAError &)
+            {
+              const auto status = ida_->last_initial_condition_status();
+              if (!status ||
+                  (*status != IDA_CONV_FAIL && *status != IDA_LINESEARCH_FAIL))
+                throw;
+              last_failure = std::current_exception();
+              retry        = true;
+            }
+          if (retry)
+            {
+              step *= .5;
+              if (step < parameters.minimum_continuation_step)
+                std::rethrow_exception(last_failure);
+              pcout << "IDA residual continuation rejected eta=" << target
+                    << " retry_step=" << step << std::endl;
+              continue;
+            }
+          checkpoint   = candidate;
+          eta          = target;
+          last_failure = nullptr;
+          pcout << "IDA residual continuation accepted eta=" << eta
+                << std::endl;
+          step = std::min(1., 1.5 * step);
+        }
+      state     = candidate;
+      state_dot = derivative;
     }
 
     void

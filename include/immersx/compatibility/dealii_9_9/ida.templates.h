@@ -227,6 +227,7 @@ namespace ImmersX::Compatibility
                            VectorType  &solution,
                            VectorType  &solution_dot)
     {
+      last_initial_condition_status_.reset();
       bool first_step = (current_time == data.initial_time);
 
       int status;
@@ -620,6 +621,7 @@ namespace ImmersX::Compatibility
               auto exception = std::exchange(pending_exception, nullptr);
               std::rethrow_exception(exception);
             }
+          last_initial_condition_status_ = status;
           AssertThrow(status >= 0, ExcIDAError(status));
 
           status = IDAGetConsistentIC(ida_mem, yy, yp);
@@ -635,6 +637,7 @@ namespace ImmersX::Compatibility
               auto exception = std::exchange(pending_exception, nullptr);
               std::rethrow_exception(exception);
             }
+          last_initial_condition_status_ = status;
           AssertThrow(status >= 0, ExcIDAError(status));
 
           status = IDAGetConsistentIC(ida_mem, yy, yp);

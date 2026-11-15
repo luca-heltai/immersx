@@ -15,6 +15,8 @@ this historical file.
 
 ### Added
 
+- [PR pending](https://github.com/luca-heltai/immersx/pulls) Add optional bounded residual continuation for native IDA initial correction, restoring the unchanged physical equations before output and integration.
+
 - [PR #427](https://github.com/luca-heltai/immersx/pull/427) Save native flow replay histories from coupled elastodynamics, including the physical pressure from the wall multiplier.
 
 - [PR #416](https://github.com/luca-heltai/immersx/pull/416) Add MUMPS BLR-preconditioned FGMRES for coupled IDA solves, with controls for low-rank truncation, per-rank memory and MUMPS diagnostics.
