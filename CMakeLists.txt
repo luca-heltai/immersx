@@ -49,6 +49,13 @@ option(ENABLE_DEAL_II_APP_TESTING
   "Enable deal.II style tests in this application." ON)
 option(ENABLE_GOOGLE_TESTING
   "Enable googletest style tests in this application." ON)
+set(IMMERSX_TEST_PROFILE "full" CACHE STRING
+  "GoogleTest build profile: quick or full (includes nightly validation).")
+set_property(CACHE IMMERSX_TEST_PROFILE PROPERTY STRINGS quick full)
+if(NOT IMMERSX_TEST_PROFILE MATCHES "^(quick|full)$")
+  message(FATAL_ERROR "IMMERSX_TEST_PROFILE must be quick or full")
+endif()
+
 option(IMMERSX_BUILD_STATIC
   "Build the ImmersX library as a static archive." OFF)
 option(IMMERSX_PORTABLE
@@ -352,7 +359,7 @@ configure_file(
 
 if(NOT IMMERSX_WITH_METRIC_FLOW_X OR NOT DEAL_II_WITH_SUNDIALS)
   list(FILTER _main_files EXCLUDE REGEX
-       "app_metric_flow_x(_elastodynamics|_elastostatic)?\\.cc$")
+       "app_metric_flow_x(_elastodynamics|_elastostatic|_elastostatic_replay)?\\.cc$")
 endif()
 
 IF(${ENABLE_COUPLED_PROBLEMS})

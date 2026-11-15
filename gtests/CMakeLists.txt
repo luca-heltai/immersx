@@ -19,6 +19,13 @@ list(FILTER _test_files EXCLUDE REGEX "metric_flow_x(_elastostatic)?_01\\.cc$")
 
 include(GoogleTest)
 include(${CMAKE_CURRENT_SOURCE_DIR}/test_categories.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/nightly_sources.cmake)
+if(IMMERSX_TEST_PROFILE STREQUAL "quick")
+  foreach(_nightly_source IN LISTS IMMERSX_NIGHTLY_TEST_SOURCES)
+    list(REMOVE_ITEM _test_files "${CMAKE_CURRENT_SOURCE_DIR}/${_nightly_source}")
+  endforeach()
+endif()
+
 
 # Compile selected installed-facing headers independently. These translation
 # units intentionally contain no project umbrella include or namespace using
@@ -103,6 +110,12 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
   list(APPEND _public_headers immersx/physics/metric_flow_x.h
                              immersx/physics/metric_flow_x_pressure.h
                              immersx/physics/metric_flow_x_wall.h)
+endif()
+
+# Keep representative public interfaces in every build. The complete
+# self-containment matrix is built by the full/nightly profile.
+if(IMMERSX_TEST_PROFILE STREQUAL "quick")
+  list(REMOVE_ITEM _public_headers ${IMMERSX_NIGHTLY_PUBLIC_HEADERS})
 endif()
 
 set(_public_header_targets)
@@ -398,6 +411,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
         endif()
         if(DEAL_II_WITH_MUMPS)
           list(APPEND _coupled_modes SerialMUMPS MPIMUMPS)
+          if(_case STREQUAL "MMS" AND DEAL_II_WITH_TRILINOS)
+            list(APPEND _coupled_modes SerialMUMPSBLR MPIMUMPSBLR)
+          endif()
           if(_case MATCHES "^RCR" OR _case STREQUAL "Generated")
             list(APPEND _coupled_modes MPI4MUMPS)
           endif()
@@ -458,6 +474,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           elseif(_mode STREQUAL "SerialMUMPS" OR _mode STREQUAL "MPIMUMPS" OR _mode STREQUAL "MPI4MUMPS")
             file(APPEND "${_coupled_input}"
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = mumps\n    end\n  end\nend\n")
+          elseif(_mode STREQUAL "SerialMUMPSBLR" OR _mode STREQUAL "MPIMUMPSBLR")
+            file(APPEND "${_coupled_input}"
+              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = mumps-blr-fgmres\n    end\n  end\nend\n")
           elseif(_mode STREQUAL "SerialBlockDiagonal")
             file(APPEND "${_coupled_input}"
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Block preconditioner = block diagonal\n    end\n  end\nend\n")

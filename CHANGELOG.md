@@ -11,11 +11,14 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Added
 
+- [PR #416](https://github.com/luca-heltai/immersx/pull/416) Add MUMPS BLR-preconditioned FGMRES for coupled IDA solves, with controls for low-rank truncation, per-rank memory and MUMPS diagnostics.
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Expose per-rank MUMPS working-memory limits and native memory reports in IDA, native flow-block inverses, and the coupled elastodynamics and elastostatic applications.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Validate coupled elastodynamics parameters without loading meshes or release assets.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Report rejected CCO junction trials and candidates without feasible starts in growth statistics.
+
+- [PR #414](https://github.com/luca-heltai/immersx/pull/414) Add the `metric_flow_x_elastostatic_replay` application, which reads the flow area saved by MetricFlowX (coupling field output or a checkpoint history) and solves a static solid with a vessel wall multiplier at each saved time through one `LinearAdapter`, relative to the MetricFlowX wall reference area, reproducing the one-way `metric_flow_x_elastostatic` solid without integrating the flow again. `frozen()` expressions can now share a caller-owned coefficient vector that is reread at each solve.
 
 - [PR #409](https://github.com/luca-heltai/immersx/pull/409) Let coupled IDA applications select the Schur, block-diagonal, or block-triangular iterative preconditioner; block diagonals reuse each field's configured inverse and the multiplier metric.
 
@@ -237,7 +240,7 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Changed
 
-- [PR #428](https://github.com/luca-heltai/immersx/pull/428) Share fixed wall pairings and their sparse transposes across Jacobian snapshots, cache the exterior multiplier mass term, and apply cached pressure transposes without copying their matrix. Native mutable and nonlinear operators retain their snapshot behavior. The coupled application reports solid assembly counters as rank minima/maxima at completion.
+- [PR #428](https://github.com/luca-heltai/immersx/pull/428) Share fixed wall pairings and their sparse transposes across Jacobian snapshots, cache the exterior multiplier mass term, apply cached pressure transposes without copying their matrix, and initialize state-pressure derivatives from the current sparse layout without copying values that would be discarded. Native mutable and nonlinear operators retain their snapshot behavior. The coupled application reports solid assembly counters as rank minima/maxima at completion.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Consolidate the ParaView tube plugin as Variable Radius Tube, reusing selected Point or Cell radius/area arrays and extracting surfaces only for non-polydata input. Honor the array chooser's default Automatic selection.
 
@@ -348,6 +351,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 ### Fixed
 
 - [PR #426](https://github.com/luca-heltai/immersx/pull/426) Preserve cached weak-term matrices when materializing scaled operators, including repeated negative and zero scalings.
+
+- [PR #430](https://github.com/luca-heltai/immersx/pull/430) Preserve the assembled fictitious-interior modal corrections when the coupled application uses MUMPS BLR FGMRES.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Retain lifted-wall particle locations between accepted outputs and update their properties without repeating distributed point searches.
 
@@ -669,7 +674,11 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 ### Testing and CI
 
+- [PR #425](https://github.com/luca-heltai/immersx/pull/425) Build the quick test profile on pull requests and master pushes; retain all extended validation/application tests and standalone public-header checks in a daily 02:17 UTC full run, with longer watchdog and job limits. Keep new and mixed test sources in quick and check nightly source ownership.
+
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Check imported UCD/VTK material IDs through analytical mass, stiffness and damping forms in serial/MPI; retain liver parsing and ParaView geometry regressions in CTest/CI.
+
+- [PR #414](https://github.com/luca-heltai/immersx/pull/414) Give the Release CI job the same two-hour budget as Debug so a cold build can finish its tests and cache upload.
 
 - [PR #413](https://github.com/luca-heltai/immersx/pull/413) Verify coupled elastostatic checkpoints with unmodified deal.II and the native MetricFlowX compatibility serializer. Check exact restored fields, native rates and frozen reference area after relocation and removal of PRM, VTK and CSV inputs, with retained solid stiffness and AMG, unequal MPI ownership and empty ranks.
 

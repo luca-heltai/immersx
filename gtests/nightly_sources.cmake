@@ -1,0 +1,103 @@
+# These translation units contain only validation/application suites. Keep mixed
+# files and unknown/new sources in the quick build. test_test_profiles.py checks
+# every registration here against the primary category catalog.
+set(IMMERSX_NIGHTLY_TEST_SOURCES
+    app_executables_test.cc
+    coupled_tissue_simplex_01.cc
+    elasticity_01.cc
+    elasticity_02.cc
+    elasticity_04.cc
+    elasticity_explicit_simplex_01.cc
+    elasticity_simplex_01.cc
+    elasticity_tensor_product_coupling_3d_parameter_file_01.cc
+    elasticity_tensor_product_coupling_point_cases_01.cc
+    elastodynamics_adapter_mms_01.cc
+    elastodynamics_adapter_simplex_01.cc
+    elastodynamics_dimension_execution_01.cc
+    elastodynamics_simplex_transient_01.cc
+    fiber_reinforced_simplex_01.cc
+    laplacian_simplex_01.cc
+    legacy_scalar_robin_01.cc
+    lifted_poisson_application_01.cc
+    lifted_poisson_simplex_01.cc
+    navier_stokes_01.cc
+    navier_stokes_robin_01.cc
+    navier_stokes_simplex_01.cc
+    poisson_01.cc
+    poisson_elastic_static_execution_01.cc
+    poisson_execution_01.cc
+    poisson_simplex_01.cc
+    prescribed_poisson_01.cc
+    pseudo_tissue_simplex_01.cc
+    reduced_poisson_simplex_01.cc
+)
+
+# Explicit exclusions also keep newly added public headers in quick.
+set(IMMERSX_NIGHTLY_PUBLIC_HEADERS
+    immersx/vascularization/metric_flow_x.h
+    immersx/vascularization/application.h
+    immersx/vascularization/io.h
+    immersx/vascularization/distribution.h
+    immersx/vascularization/reference_flow.h
+    immersx/vascularization/mesh_scale.h
+    immersx/vascularization/metrics.h
+    immersx/vascularization/discretization.h
+    immersx/vascularization/growth_work.h
+    immersx/vascularization/network.h
+    immersx/compatibility/reference_cell.h
+    immersx/core/boundary_conditions.h
+    immersx/core/contributor.h
+    immersx/core/domain.h
+    immersx/grid/local_co_refinement.h
+    immersx/grid/lift_co_refinement.h
+    immersx/grid/overlap_classification.h
+    immersx/grid/local_co_refinement_parameters.h
+    immersx/core/field_contributor.h
+    immersx/core/overlap_integration_support.h
+    immersx/core/integration_support.h
+    immersx/core/lifted_integration_support.h
+    immersx/core/input_field_selector.h
+    immersx/core/known_term.h
+    immersx/core/reduced_field_catalog.h
+    immersx/core/reduced_field_utils.h
+    immersx/core/reduced_field_values.h
+    immersx/core/semidiscrete_pde_models.h
+    immersx/core/second_order_preconditioner.h
+    immersx/core/state.h
+    immersx/core/state_history.h
+    immersx/compatibility/dealii_9_9/ida.h
+    immersx/compatibility/dealii_9_9/n_vector.h
+    immersx/compatibility/dealii_9_9/n_vector.templates.h
+    immersx/compatibility/dealii_9_9/utilities.h
+    immersx/core/time_parameters.h
+    immersx/core/ida_tolerance_ramp.h
+    immersx/core/matrix_operator.h
+    immersx/core/observable.h
+    immersx/core/observable_lift.h
+    immersx/core/robin_boundary.h
+    immersx/core/robin_term.h
+    immersx/core/weak_term.h
+    immersx/core/problem_handle.h
+    immersx/core/symbolic_field_evaluator.h
+    immersx/core/time_residual.h
+    immersx/coupling/tensor_product_lift.h
+    immersx/physics/elastic_static_semidiscrete.h
+    immersx/physics/coupled_elasticity.h
+    immersx/algebra/lagrange_multiplier_schur_solver.h
+    immersx/algebra/linear_algebra.h
+    immersx/algebra/local_preconditioner.h
+    immersx/algebra/mumps_preconditioner.h
+    immersx/coupling/particle_coupling.h
+    immersx/io/imported_finite_element_fields.h
+    immersx/io/lifted_particle_output.h
+    immersx/io/output_handler.h
+    immersx/physics/elasticity_freq.h
+    immersx/physics/elasticity_freq_contributor.h
+    immersx/physics/elastodynamics.h
+    immersx/physics/elastodynamics_semidiscrete.h
+    immersx/physics/fiber_reinforced_elasticity_freq.h
+    immersx/physics/fiber_reinforced_elastodynamics.h
+    immersx/physics/navier_stokes.h
+    immersx/physics/navier_stokes_semidiscrete.h
+    immersx/physics/poisson_residual.h
+)

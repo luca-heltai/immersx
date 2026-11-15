@@ -216,15 +216,26 @@ namespace
     coupled_solver.add_parameter(
       "Type",
       linear_solver,
-      "Coupled IDA linear solver. Direct solvers materialize each Jacobian. UMFPACK requires one rank; MUMPS supports MPI.",
+      "Coupled IDA linear solver. Direct solvers materialize each Jacobian. UMFPACK requires one rank; MUMPS supports MPI. MUMPS BLR FGMRES uses a low-rank MUMPS factorization as an iterative preconditioner.",
       ParameterAcceptor::prm,
-      Patterns::Selection("iterative|umfpack|mumps"));
+      Patterns::Selection("iterative|umfpack|mumps|mumps-blr-fgmres"));
     coupled_solver.add_parameter(
       "Block preconditioner",
       block_preconditioner,
       "Iterative preconditioner for coupled IDA systems.",
       ParameterAcceptor::prm,
       Patterns::Selection("automatic|schur|block diagonal|block triangular"));
+
+    ParameterAcceptor mumps_blr_parameters(
+      "/MetricFlowSystem<1, 3>/IDA parameters/Linear solver/MUMPS BLR/");
+    double       mumps_blr_tolerance      = 1.e-5;
+    unsigned int mumps_blr_memory_limit   = 0;
+    bool         mumps_blr_output_details = false;
+    mumps_blr_parameters.add_parameter("Tolerance", mumps_blr_tolerance);
+    mumps_blr_parameters.add_parameter("Memory limit MB per rank",
+                                       mumps_blr_memory_limit);
+    mumps_blr_parameters.add_parameter("Output details",
+                                       mumps_blr_output_details);
 
     unsigned int flow_direct_inverse_limit   = 0;
     unsigned int schur_materialization_limit = 0;
@@ -415,6 +426,11 @@ namespace
                   Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1,
                 ExcMessage(
                   "The coupled UMFPACK solver requires one MPI rank."));
+    AssertThrow(linear_solver != "mumps-blr-fgmres" ||
+                  block_preconditioner == "automatic",
+                ExcMessage("MUMPS BLR FGMRES selects its own full-system "
+                           "preconditioner; leave Block preconditioner at "
+                           "automatic."));
 #  ifndef DEAL_II_WITH_UMFPACK
     AssertThrow(
       linear_solver != "umfpack",
@@ -423,9 +439,14 @@ namespace
 #  endif
 #  ifndef DEAL_II_WITH_MUMPS
     AssertThrow(
-      linear_solver != "mumps",
+      linear_solver != "mumps" && linear_solver != "mumps-blr-fgmres",
       ExcMessage(
-        "The coupled MUMPS solver requires deal.II configured with MUMPS."));
+        "The coupled MUMPS solvers require deal.II configured with MUMPS."));
+#  endif
+#  ifdef IMMERSX_USE_PETSC_LA
+    AssertThrow(linear_solver != "mumps-blr-fgmres",
+                ExcMessage(
+                  "MUMPS BLR FGMRES requires the Trilinos vector backend."));
 #  endif
     SolidProblem solid_problem(solid_parameters);
     if (!enable_co_refinement)
@@ -715,6 +736,10 @@ namespace
         static_cast<unsigned int>(mumps_workspace_relaxation));
     adapter.set_schur_primal_coupling();
     adapter.set_schur_materialization_limit(schur_materialization_limit);
+    if (linear_solver == "mumps-blr-fgmres")
+      adapter.set_mumps_blr_parameters(mumps_blr_tolerance,
+                                       mumps_blr_memory_limit,
+                                       mumps_blr_output_details);
     if (block_preconditioner == "schur")
       adapter.set_block_preconditioner(Adapter::BlockPreconditioner::schur);
     else if (block_preconditioner == "block diagonal")
@@ -730,6 +755,8 @@ namespace
       adapter.set_linear_solver(Adapter::LinearSolver::umfpack);
     else if (linear_solver == "mumps")
       adapter.set_linear_solver(Adapter::LinearSolver::mumps);
+    else if (linear_solver == "mumps-blr-fgmres")
+      adapter.set_linear_solver(Adapter::LinearSolver::mumps_blr_fgmres);
     const auto solid_fields = adapter.add(solid_problem, "elastodynamics");
     AssertThrow(
       Utilities::MPI::min(flow_direct_inverse_limit, MPI_COMM_WORLD) ==
@@ -843,7 +870,8 @@ namespace
             if (linear_solver == "iterative")
               term.state(displacement_id, -1. * elastic.view)
                 .state(velocity_id, -1. * viscous.view);
-            else if (linear_solver == "umfpack" || linear_solver == "mumps")
+            else if (linear_solver == "umfpack" || linear_solver == "mumps" ||
+                     linear_solver == "mumps-blr-fgmres")
               term.state(displacement_id, -1. * elastic)
                 .state(velocity_id, -1. * viscous);
             return velocity_id;

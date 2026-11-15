@@ -358,8 +358,8 @@ namespace ImmersX
   {
     using Vector      = MetricFlowX::VectorType;
     using Matrix      = MetricFlowX::MatrixType;
-    const auto matrix = detail::clone_matrix(problem.state_jacobian_matrix());
-    *matrix           = 0.;
+    const auto matrix = std::make_shared<Matrix>();
+    matrix->reinit(problem.state_jacobian_matrix());
     if constexpr (detail::has_external_pressure_state_jacobian<Flow>::value)
       problem.add_external_pressure_state_jacobian(
         time,
