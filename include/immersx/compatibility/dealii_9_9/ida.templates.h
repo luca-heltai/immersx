@@ -106,7 +106,7 @@ namespace ImmersX::Compatibility
     template <typename VectorType>
     IDA<VectorType>::~IDA()
     {
-      IDAFree(&ida_mem);
+      free_solver_memory();
 #  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
       const int status = SUNContext_Free(&ida_ctx);
       (void)status;
@@ -114,6 +114,25 @@ namespace ImmersX::Compatibility
 #  endif
 
       Assert(pending_exception == nullptr, ExcInternalError());
+    }
+
+
+
+    template <typename VectorType>
+    void
+    IDA<VectorType>::free_solver_memory()
+    {
+      IDAFree(&ida_mem);
+      if (system_matrix)
+        {
+          SUNMatDestroy(system_matrix);
+          system_matrix = nullptr;
+        }
+      if (linear_solver)
+        {
+          SUNLinSolFree(linear_solver);
+          linear_solver = nullptr;
+        }
     }
 
 
@@ -213,6 +232,9 @@ namespace ImmersX::Compatibility
       int status;
       (void)status;
 
+      // IDA and its linear algebra handles retain the context until destroyed.
+      free_solver_memory();
+
 #  if DEAL_II_SUNDIALS_VERSION_GTE(7, 0, 0)
       status = SUNContext_Free(&ida_ctx);
       AssertThrow(status >= 0, ExcIDAError(status));
@@ -235,17 +257,14 @@ namespace ImmersX::Compatibility
       AssertThrow(status >= 0, ExcIDAError(status));
 #  endif
 
-      if (ida_mem)
-        {
-          IDAFree(&ida_mem);
-          // Initialization is version-dependent: do that in a moment
-        }
-
 #  if DEAL_II_SUNDIALS_VERSION_LT(6, 0, 0)
       ida_mem = IDACreate();
 #  else
       ida_mem = IDACreate(ida_ctx);
 #  endif
+
+      AssertThrow(ida_mem != nullptr,
+                  ExcMessage("Could not allocate the SUNDIALS IDA memory."));
 
       auto yy = internal::make_nvector_view(solution
 #  if !DEAL_II_SUNDIALS_VERSION_LT(6, 0, 0)
@@ -372,9 +391,9 @@ namespace ImmersX::Compatibility
         IDASetMaxNonlinIters(ida_mem, data.maximum_non_linear_iterations);
       AssertThrow(status >= 0, ExcIDAError(status));
 
-      // Initialize solver
-      SUNMatrix       J  = nullptr;
-      SUNLinearSolver LS = nullptr;
+      // Attach the linear algebra handles owned by this wrapper.
+      SUNMatrix       &J  = system_matrix;
+      SUNLinearSolver &LS = linear_solver;
 
       // and attach it to the SUNLinSol object. The functions that will get
       // called do not actually receive the IDAMEM object, just the LS
@@ -386,6 +405,8 @@ namespace ImmersX::Compatibility
       LS      = SUNLinSolNewEmpty(ida_ctx);
 #  endif
 
+      AssertThrow(LS != nullptr,
+                  ExcMessage("Could not allocate the SUNDIALS linear solver."));
       LS->content = this;
 
       LS->ops->gettype =
@@ -451,6 +472,8 @@ namespace ImmersX::Compatibility
 #  else
       J       = SUNMatNewEmpty(ida_ctx);
 #  endif
+      AssertThrow(J != nullptr,
+                  ExcMessage("Could not allocate the SUNDIALS matrix."));
       J->content = this;
 
       J->ops->getid = [](SUNMatrix /*ignored*/) -> SUNMatrix_ID {

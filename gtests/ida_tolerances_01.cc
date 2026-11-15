@@ -309,6 +309,94 @@ namespace
   }
 } // namespace
 
+TEST(DistributedIDA, BOTH_RepeatedNativeResetSynchronizesStateAndOutput)
+{
+  using NativeIDA = Compatibility::SUNDIALS::IDA<FieldVector>;
+  NativeIDA::AdditionalData data;
+  data.initial_time                      = .25;
+  data.final_time                        = .27;
+  data.output_period                     = .01;
+  data.initial_step_size                 = .001;
+  data.absolute_tolerance                = 1.e-12;
+  data.relative_tolerance                = 1.e-12;
+  data.ic_type                           = NativeIDA::AdditionalData::use_y_dot;
+  data.ignore_algebraic_terms_for_errors = false;
+  NativeIDA        ida(data, MPI_COMM_WORLD);
+  dealii::IndexSet owned(3);
+  if (dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    owned.add_range(0, 3);
+  owned.compress();
+  FieldVector state(owned, MPI_COMM_WORLD), derivative(owned, MPI_COMM_WORLD);
+  state               = 0.;
+  derivative          = 0.;
+  double       target = 0.;
+  unsigned int setups = 0, outputs = 0;
+  bool         fail_setup = true;
+  ida.reinit_vector = [&](FieldVector &v) { v.reinit(owned, MPI_COMM_WORLD); };
+  ida.residual      = [&](const double,
+                     const FieldVector &y,
+                     const FieldVector &,
+                     FieldVector &residual) {
+    for (const auto i : owned)
+      residual[i] = y[i] - (target + i);
+    residual.compress(dealii::VectorOperation::insert);
+  };
+  ida.setup_jacobian = [](const double,
+                          const FieldVector &,
+                          const FieldVector &,
+                          const double alpha) { EXPECT_GE(alpha, 0.); };
+  ida.solve_with_jacobian =
+    [](const FieldVector &rhs, FieldVector &dst, const double) { dst = rhs; };
+  ida.custom_setup = [&](void *memory) {
+    ++setups;
+    EXPECT_EQ(memory, ida.get_ida_memory());
+    if (fail_setup)
+      throw std::runtime_error(
+        "Expected setup failure after linear algebra allocation");
+  };
+  const auto check_state = [&](const FieldVector &y, const FieldVector &ydot) {
+    for (const auto i : owned)
+      {
+        EXPECT_NEAR(y[i], target + i, 1.e-11);
+        EXPECT_DOUBLE_EQ(ydot[i], 0.);
+      }
+  };
+  ida.output_step = [&](const double       time,
+                        const FieldVector &y,
+                        const FieldVector &ydot,
+                        const unsigned int step) {
+    EXPECT_EQ(step, outputs);
+    EXPECT_NEAR(time, data.initial_time + outputs * data.output_period, 1.e-14);
+    ++outputs;
+    check_state(y, ydot);
+  };
+  EXPECT_THROW(
+    ida.reset(data.initial_time, data.initial_step_size, state, derivative),
+    std::runtime_error);
+  fail_setup = false;
+  EXPECT_EQ(outputs, 0u);
+  for (const double value : {2., 4., 1.})
+    {
+      target = value;
+      ida.reset(data.initial_time, data.initial_step_size, state, derivative);
+      check_state(state, derivative);
+      double   time  = 0.;
+      long int steps = -1;
+      EXPECT_EQ(IDAGetCurrentTime(ida.get_ida_memory(), &time), IDA_SUCCESS);
+      EXPECT_EQ(IDAGetNumSteps(ida.get_ida_memory(), &steps), IDA_SUCCESS);
+      EXPECT_DOUBLE_EQ(time, data.initial_time);
+      EXPECT_EQ(steps, 0);
+      EXPECT_EQ(outputs, 0u);
+    }
+  EXPECT_EQ(setups, 4u);
+  // Integration resets once more, then emits the corrected initial state
+  // and the two requested physical output times.
+  EXPECT_GT(ida.solve_dae(state, derivative), 0u);
+  EXPECT_EQ(setups, 5u);
+  EXPECT_EQ(outputs, 3u);
+  check_state(state, derivative);
+}
+
 TEST(DistributedIDA, BOTH_LocalTolerancesAndHistoryPreservingRamp)
 {
   const auto baseline   = integrate(false, 0., true);
