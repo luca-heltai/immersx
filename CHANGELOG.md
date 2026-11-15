@@ -247,6 +247,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Use affine MappingP1 for simplex elastodynamics when available, retaining MappingFE on older deal.II versions.
 
+- [PR #419](https://github.com/luca-heltai/immersx/pull/419) `IDAAdapter`, `LinearAdapter` and `KINSOLAdapter` report more of their run time in the `TimerOutput` summary. `IDAAdapter` adds "Finalize adapter", "Consistent initial conditions", "Initialize tolerances", "Error weights", "Restart check", "Output callback" and "MUMPS iterative refinement". `LinearAdapter` and `KINSOLAdapter` now own a timer and print a summary when destroyed, with scopes for the residual, Jacobian setup, preconditioner build, linear solve and direct factorization.
+
 - [PR #406](https://github.com/luca-heltai/immersx/pull/406) `metric_flow_x_elastodynamics` and `metric_flow_x_elastostatic` no longer accept the solid `Number of refinement cycles` entry. The coupled solve uses one solid mesh, refined by `Domain/Initial refinement`; `metric_flow_x_elastodynamics` previously ignored the entry and `metric_flow_x_elastostatic` rejected values other than 1. The standalone `elastodynamics` and `elastic_static` solvers keep it.
 
 - [PR #404](https://github.com/luca-heltai/immersx/pull/404) Use diagonal kinematic rows in the standalone fixed-step elastodynamics solver, including moving boundary data and hanging nodes, while retaining the consistent mass in the momentum equation. Expose iterative, UMFPACK, and MUMPS selection in `elastodynamics_adapter` through `Elastodynamics/IDA/Linear solver/Type`; direct solvers condense the kinematic rows before factorization. Align the fiber residual and Jacobian regression checks with the same diagonal kinematic weighting.
@@ -676,6 +678,8 @@ skeleton in `.github/CHANGELOG_TEMPLATE.md`.
 - [PR #425](https://github.com/luca-heltai/immersx/pull/425) Build the quick test profile on pull requests and master pushes; retain all extended validation/application tests and standalone public-header checks in a daily 02:17 UTC full run, with longer watchdog and job limits. Keep new and mixed test sources in quick and check nightly source ownership.
 
 - [PR #424](https://github.com/luca-heltai/immersx/pull/424) Check imported UCD/VTK material IDs through analytical mass, stiffness and damping forms in serial/MPI; retain liver parsing and ParaView geometry regressions in CTest/CI.
+
+- [PR #419](https://github.com/luca-heltai/immersx/pull/419) Allow 120 minutes for Release CI, matching Debug, so cold builds leave time for tests and cache uploads.
 
 - [PR #414](https://github.com/luca-heltai/immersx/pull/414) Give the Release CI job the same two-hour budget as Debug so a cold build can finish its tests and cache upload.
 
