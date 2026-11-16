@@ -292,25 +292,29 @@ TEST(SecondOrderCondensation, BOTH_RepeatedCyclicOwnershipPreservesRemoteFlags)
             // either the assembled Jacobian or its condensed representation.
             for (const auto i : layout[0])
               {
-                rhs.block(0)[i] = i == constrained ? 2.5 * exact(0, i) : 0.;
-                rhs.block(1)[i] = i == constrained ? exact(1, i) : 0.;
+                double first  = i == constrained ? 2.5 * exact(0, i) : 0.;
+                double second = i == constrained ? exact(1, i) : 0.;
                 for (unsigned int j = 0; j < n; ++j)
                   {
-                    rhs.block(0)[i] +=
-                      mass(i, j) * (alpha * exact(0, j) - exact(1, j));
-                    rhs.block(1)[i] +=
+                    first += mass(i, j) * (alpha * exact(0, j) - exact(1, j));
+                    second +=
                       stiffness_factor * stiffness(i, j) * exact(0, j) +
                       (alpha * mass(i, j) + damping(i, j)) * exact(1, j);
                   }
                 if (i != constrained)
                   for (unsigned int j = 0; j < m; ++j)
-                    rhs.block(1)[i] += coupling(j, i) * exact(2, j);
+                    second += coupling(j, i) * exact(2, j);
+                // Only insertion writes: switching insert/add modes can
+                // trigger collectives on ranks with different row counts.
+                rhs.block(0)[i] = first;
+                rhs.block(1)[i] = second;
               }
             for (const auto i : layout[2])
               {
-                rhs.block(2)[i] = -.01 * exact(2, i);
+                double value = -.01 * exact(2, i);
                 for (unsigned int j = 0; j < n; ++j)
-                  rhs.block(2)[i] += coupling(i, j) * exact(0, j);
+                  value += coupling(i, j) * exact(0, j);
+                rhs.block(2)[i] = value;
               }
             rhs.compress(VectorOperation::insert);
             const auto mass_matrix = reduced->kinematic_mass(0).make_matrix(
@@ -406,11 +410,13 @@ namespace
 
 TEST(SecondOrderCondensation, BOTH_DirectSolveHandlesDisjointRowsAndStoredZeros)
 {
-  using Adapter   = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
-  const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  using Adapter    = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
+  const auto rank  = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
   IndexSet   owned(2);
-  if (rank < 2)
-    owned.add_index(rank);
+  for (unsigned int i = 0; i < 2; ++i)
+    if (i % ranks == rank)
+      owned.add_index(i);
   owned.compress();
   for (const bool diagonal : {false, true})
     {
