@@ -158,6 +158,10 @@ TEST(KINSOLAdapter, MPI_NonlinearScalarSolve) // NOLINT
 
 TEST(KINSOLAdapter, BOTH_NativeSolveWithoutConstraints)
 {
+  // deal.II 9.8's native KINSOL clone assigns a pooled block vector without
+  // reinitializing its layout. Keep this native-wrapper availability fixture
+  // independent of previous tests using a different number of blocks.
+  dealii::GrowingVectorMemory<GlobalVector>::release_unused_memory();
   ImmersX::KINSOLAdapterParameters parameters;
   parameters.strategy           = "newton";
   parameters.function_tolerance = 1.e-12;
