@@ -23,60 +23,8 @@ namespace ImmersX::Vascularization
   {
     using namespace dealii;
 
-    struct VertexKey
-    {
-      Id     entity    = invalid_id;
-      double parameter = 0.;
-      bool   interior  = false;
-
-      bool
-      operator<(const VertexKey &other) const
-      {
-        return std::tie(interior, entity, parameter) <
-               std::tie(other.interior, other.entity, other.parameter);
-      }
-      bool
-      operator==(const VertexKey &other) const
-      {
-        return interior == other.interior && entity == other.entity &&
-               parameter == other.parameter;
-      }
-      template <class Archive>
-      void
-      serialize(Archive &ar, unsigned int)
-      {
-        ar &entity &parameter &interior;
-      }
-    };
-
-    struct MeshCell
-    {
-      types::coarse_cell_id             id;
-      types::subdomain_id               owner;
-      VesselCell                        reference;
-      std::array<VertexKey, 2>          vertices;
-      std::array<Point<3>, 2>           positions;
-      std::array<types::boundary_id, 2> boundary_ids{{0, 0}};
-
-      bool
-      operator==(const MeshCell &other) const
-      {
-        return id == other.id && owner == other.owner &&
-               reference.vessel == other.reference.vessel &&
-               reference.begin == other.reference.begin &&
-               reference.end == other.reference.end &&
-               vertices == other.vertices && positions == other.positions &&
-               boundary_ids == other.boundary_ids;
-      }
-      template <class Archive>
-      void
-      serialize(Archive &ar, unsigned int)
-      {
-        ar &id &owner;
-        ar &reference.vessel &reference.begin &reference.end;
-        ar &vertices &positions               &boundary_ids;
-      }
-    };
+    using VertexKey = MeshVertexKey;
+    using MeshCell  = MeshCellGraph;
 
     unsigned int
     vertex_directory(const VertexKey &key, unsigned int size)
@@ -101,7 +49,8 @@ namespace ImmersX::Vascularization
       const std::set<Id>                              &reversed_vessels,
       const std::function<std::array<types::boundary_id, 2>(const VesselCell &,
                                                             const Vessel &)>
-        &boundary_ids)
+                &boundary_ids,
+      MeshGraph *initial_graph)
     {
       const auto comm        = triangulation.get_mpi_communicator();
       const auto rank        = Utilities::MPI::this_mpi_process(comm);
@@ -111,7 +60,8 @@ namespace ImmersX::Vascularization
                                         comm) == 1,
                     ExcMessage(message));
       };
-      bool valid = triangulation.n_active_cells() == 0 &&
+      bool valid = (!initial_graph || initial_graph->empty()) &&
+                   triangulation.n_active_cells() == 0 &&
                    discretization.validation.valid() &&
                    validate_data(network, size).valid();
       for (const auto &cell : discretization.cells)
@@ -179,6 +129,8 @@ namespace ImmersX::Vascularization
                                   t == 1. ? b :
                                             (1. - t) * a + t * b;
             }
+          if (initial_graph)
+            initial_graph->push_back(cell);
           const double length = cell.positions[0].distance(cell.positions[1]);
           valid               = std::isfinite(length) && length > 0. && valid;
           for (const auto &key : cell.vertices)
@@ -287,12 +239,38 @@ namespace ImmersX::Vascularization
       std::array<dealii::types::boundary_id, 2>(const VesselCell &,
                                                 const Vessel &)> &boundary_ids)
   {
+    return create_triangulation(network,
+                                discretization,
+                                triangulation,
+                                reversed_vessels,
+                                boundary_ids,
+                                nullptr);
+  }
+
+  CellVessels
+  create_triangulation(
+    const NetworkData           &network,
+    const DiscretizationResult  &discretization,
+    dealii::Triangulation<1, 3> &triangulation,
+    const std::set<Id>          &reversed_vessels,
+    const std::function<
+      std::array<dealii::types::boundary_id, 2>(const VesselCell &,
+                                                const Vessel &)> &boundary_ids,
+    MeshGraph                                                    *initial_graph)
+  {
     using namespace dealii;
     if (auto *distributed =
           dynamic_cast<parallel::fullydistributed::Triangulation<1, 3> *>(
             &triangulation))
-      return create_distributed(
-        network, discretization, *distributed, reversed_vessels, boundary_ids);
+      return create_distributed(network,
+                                discretization,
+                                *distributed,
+                                reversed_vessels,
+                                boundary_ids,
+                                initial_graph);
+    AssertThrow(!initial_graph || initial_graph->empty(),
+                ExcMessage(
+                  "Vascular initial graph destination must be empty."));
     AssertThrow(triangulation.n_active_cells() == 0,
                 ExcMessage("Vascular mesh destination must be empty."));
     AssertThrow(discretization.validation.valid(),
@@ -334,6 +312,25 @@ namespace ImmersX::Vascularization
                                                 1. - cell.reference.end,
                                                 1. - cell.reference.begin} :
                                      cell.reference;
+        if (initial_graph)
+          {
+            MeshCellGraph graph_cell;
+            graph_cell.id        = cells.size();
+            graph_cell.owner     = cell.owner;
+            graph_cell.reference = references.at(graph_cell.id);
+            const auto &vessel   = network.vessels.at(cell.reference.vessel);
+            for (unsigned int v = 0; v < 2; ++v)
+              {
+                const double t = (v == 0) != reversed ? cell.reference.begin :
+                                                        cell.reference.end;
+                graph_cell.vertices[v] =
+                  t == 0. ? MeshVertexKey{vessel.nodes[0], 0., false} :
+                  t == 1. ? MeshVertexKey{vessel.nodes[1], 0., false} :
+                            MeshVertexKey{cell.reference.vessel, t, true};
+                graph_cell.positions[v] = vertices[data.vertices[v]];
+              }
+            initial_graph->push_back(graph_cell);
+          }
         cells.push_back(data);
       }
     if (!cells.empty())
@@ -348,6 +345,9 @@ namespace ImmersX::Vascularization
             network.vessels.at(reference.vessel));
           if (reversed_vessels.count(reference.vessel))
             std::swap(ids[0], ids[1]);
+          if (initial_graph)
+            initial_graph->at(cell->id().get_coarse_cell_id()).boundary_ids =
+              ids;
           for (const auto face : cell->face_indices())
             if (cell->face(face)->at_boundary())
               cell->face(face)->set_boundary_id(ids[face]);

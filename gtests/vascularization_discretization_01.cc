@@ -1153,3 +1153,82 @@ TEST(VascularDiscretization, SerialReversedMeshUsesPhysicalEndpointCallbacks)
   EXPECT_EQ(partial.begin_active()->face(0)->boundary_id(), 255u);
   EXPECT_EQ(partial.begin_active()->face(1)->boundary_id(), 255u);
 }
+
+TEST(VascularDiscretization, BOTH_OptionalInitialGraphPreservesExecutionMesh)
+{
+  const auto           comm = MPI_COMM_WORLD;
+  const auto           rank = Utilities::MPI::this_mpi_process(comm);
+  const auto           last = Utilities::MPI::n_mpi_processes(comm) - 1;
+  NetworkData          network;
+  DiscretizationResult intervals;
+  if (rank == last)
+    {
+      network = line(Point<3>(0., .4, .3), Point<3>(1., .4, .3));
+      for (auto &[id, node] : network.nodes)
+        node.owner = last;
+      network.vessels.at(100).owner = last;
+      DiscretizationCell first, second;
+      first.reference  = {100, 0., .25};
+      first.owner      = 0;
+      second.reference = {100, .25, 1.};
+      second.owner     = last;
+      intervals.cells  = {first, second};
+    }
+  const auto boundary = [](const VesselCell &cell, const Vessel &) {
+    return std::array<types::boundary_id, 2>{
+      {types::boundary_id(cell.begin == 0. ? 13 : 255),
+       types::boundary_id(cell.end == 1. ? 29 : 255)}};
+  };
+  parallel::fullydistributed::Triangulation<1, 3> ordinary(comm),
+    captured(comm);
+  const auto plain =
+    create_triangulation(network, intervals, ordinary, {100}, boundary);
+  MeshGraph  sidecar;
+  const auto graph_refs = create_triangulation(
+    network, intervals, captured, {100}, boundary, &sidecar);
+  EXPECT_EQ(sidecar.size(), rank == last ? 2u : 0u);
+  EXPECT_EQ(Utilities::MPI::sum(sidecar.size(), comm), 2u);
+  EXPECT_EQ(plain.size(), graph_refs.size());
+  auto a = ordinary.begin_active();
+  auto b = captured.begin_active();
+  for (; a != ordinary.end(); ++a, ++b)
+    {
+      ASSERT_NE(b, captured.end());
+      EXPECT_EQ(a->subdomain_id(), b->subdomain_id());
+      EXPECT_EQ(a->is_artificial(), b->is_artificial());
+      if (!a->is_artificial())
+        {
+          // Empty ranks contain a native dummy cell with no valid CellId.
+          EXPECT_EQ(a->id(), b->id());
+          const auto id = a->id().get_coarse_cell_id();
+          EXPECT_EQ(plain.at(id).vessel, graph_refs.at(id).vessel);
+          EXPECT_DOUBLE_EQ(plain.at(id).begin, graph_refs.at(id).begin);
+          EXPECT_DOUBLE_EQ(plain.at(id).end, graph_refs.at(id).end);
+          for (unsigned int v = 0; v < 2; ++v)
+            {
+              EXPECT_EQ(a->vertex(v), b->vertex(v));
+              EXPECT_EQ(a->face(v)->boundary_id(), b->face(v)->boundary_id());
+            }
+        }
+    }
+  EXPECT_EQ(b, captured.end());
+  if (rank == last)
+    {
+      ASSERT_EQ(sidecar.size(), 2u);
+      EXPECT_EQ(sidecar[0].id, 0u);
+      EXPECT_EQ(sidecar[1].id, 1u);
+      EXPECT_EQ(sidecar[0].owner, 0u);
+      EXPECT_EQ(sidecar[1].owner, last);
+      EXPECT_EQ(sidecar[0].vertices[0], (MeshVertexKey{100, .25, true}));
+      EXPECT_EQ(sidecar[0].vertices[1], (MeshVertexKey{10, 0., false}));
+      EXPECT_EQ(sidecar[1].vertices[0], (MeshVertexKey{20, 0., false}));
+      EXPECT_EQ(sidecar[1].vertices[1], sidecar[0].vertices[0]);
+      EXPECT_EQ(sidecar[0].positions[0], Point<3>(.25, .4, .3));
+      EXPECT_EQ(sidecar[0].boundary_ids,
+                (std::array<types::boundary_id, 2>{{255, 13}}));
+      EXPECT_EQ(sidecar[1].boundary_ids,
+                (std::array<types::boundary_id, 2>{{29, 255}}));
+      EXPECT_EQ(network.vessels.at(100).nodes, (std::array<Id, 2>{{10, 20}}));
+      EXPECT_DOUBLE_EQ(intervals.cells[0].reference.end, .25);
+    }
+}

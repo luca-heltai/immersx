@@ -11,6 +11,7 @@
 #include <fstream>
 #include <limits>
 #include <set>
+#include <sstream>
 
 #include "../apps/metric_flow_x_physical_input.h"
 #include "test_paths.h"
@@ -651,6 +652,246 @@ namespace
         flow, generation, material, boundary, {}, {{.5, 1., 1.}}));
     }
   }
+
+  template <class Flow>
+  void
+  exercise_archived_native_steady_graph()
+  {
+    if constexpr (!ImmersX::Vascularization::internal::HasInitialGraph<
+                    Flow>::value)
+      GTEST_SKIP() << "Installed MetricFlowX has no native initial graph API.";
+    else
+      {
+        struct RecordedFlow : Flow
+        {
+          using Flow::Flow;
+          using Flow::setup;
+          typename Flow::NetworkPhysics physics;
+          typename Flow::InitialGraph   initial_graph;
+          void
+          setup(const typename Flow::NetworkPhysics &input,
+                const typename Flow::InitialGraph   &graph)
+          {
+            physics       = input;
+            initial_graph = graph;
+            Flow::setup(input, graph);
+          }
+        };
+        using namespace ImmersX::metric_flow_x_app_detail;
+        const auto comm = MPI_COMM_WORLD;
+        const auto rank = Utilities::MPI::this_mpi_process(comm);
+        ParameterAcceptor::clear();
+        parallel::distributed::Triangulation<3> background(comm);
+        GridGenerator::hyper_cube(background);
+        background.refine_global(1);
+        GenerationResult generation;
+        if (rank == 0)
+          {
+            for (unsigned int role = 0; role < 3; ++role)
+              {
+                const auto system = role == 0 ? System::arterial :
+                                    role == 1 ? System::portal :
+                                                System::venous;
+                const auto port   = role == 0 ? Port::arterial_inlet :
+                                    role == 1 ? Port::portal_inlet :
+                                                Port::venous_outlet;
+                generation.network.nodes[2 * role] = {
+                  Point<3>(.1, .2 + .2 * role, .5), 0, port};
+                generation.network.nodes[2 * role + 1] = {
+                  Point<3>(.9, .2 + .2 * role, .5), 0};
+                Vessel vessel;
+                vessel.nodes                       = {{2 * role, 2 * role + 1}};
+                vessel.radii                       = {{.003, .003}};
+                vessel.viscosity                   = .004;
+                vessel.system                      = system;
+                generation.network.vessels[role]   = vessel;
+                generation.network.terminals[role] = {
+                  2 * role + 1, 10, system, 0, 1.};
+              }
+            generation.network.nodes[6]            = {Point<3>(.5, .2, .5), 0};
+            generation.network.nodes[7]            = {Point<3>(.5, .05, .5), 0};
+            generation.network.vessels[0].nodes[1] = 6;
+            Vessel distal                   = generation.network.vessels.at(0);
+            distal.nodes                    = {{6, 1}};
+            generation.network.vessels[3]   = distal;
+            distal.nodes                    = {{6, 7}};
+            generation.network.vessels[4]   = distal;
+            generation.network.terminals[3] = {
+              7, invalid_id, System::arterial, 0, 1.};
+            generation.terminal_triplets.push_back(
+              {10, 0, 1, 2, {{1.e9, 2.e9, 3.e9}}});
+          }
+        generation.validation =
+          validate_data(generation.network,
+                        Utilities::MPI::n_mpi_processes(comm));
+        generation.discretization =
+          discretize(background, MappingQ1<3>(), generation.network, {}, comm);
+        ASSERT_TRUE(generation.validation.valid());
+        ASSERT_TRUE(generation.discretization.validation.valid());
+        const auto original_nodes   = generation.network.nodes;
+        const auto original_vessels = generation.network.vessels;
+        const auto csv              = ImmersX::TestPaths::output_path(
+          "vascular-metric-flow-x/initial-graph-ivc.csv");
+        const auto prm = ImmersX::TestPaths::output_path(
+          "vascular-metric-flow-x/initial-graph.prm");
+        std::string input_error;
+        if (rank == 0)
+          try
+            {
+              std::filesystem::create_directories(csv.parent_path());
+              std::ofstream pressure(csv);
+              pressure << "time_s,pressure_Pa\n0,100\n1,120\n";
+              AssertThrow(pressure.good(),
+                          ExcMessage(
+                            "Cannot write initial graph pressure fixture."));
+              std::ifstream input(ImmersX::TestPaths::parameter_path(
+                "gtests/parameters/vascularization_metric_flow_x.prm"));
+              std::string   text((std::istreambuf_iterator<char>(input)), {});
+              const std::string old    = "Initial state source = rest";
+              const auto        offset = text.find(old);
+              AssertThrow(offset != std::string::npos,
+                          ExcMessage(
+                            "Missing native initialization fixture setting."));
+              text.replace(offset,
+                           old.size(),
+                           "Initial state source = steady network");
+              std::ofstream output(prm);
+              output << text;
+              AssertThrow(output.good(),
+                          ExcMessage(
+                            "Cannot write initial graph parameter fixture."));
+            }
+          catch (const std::exception &error)
+            {
+              input_error = error.what();
+            }
+        input_error = Utilities::MPI::broadcast(comm, input_error, 0);
+        ASSERT_TRUE(input_error.empty()) << input_error;
+        const auto configure_parameters =
+          [&](ArchivedFlowParameters &parameters) {
+            parameters.young_moduli        = {4.e5, 4.e5, 4.e5};
+            parameters.thickness_ratios    = {.1, .1, .1};
+            parameters.reference_pressures = {1000., 100., 900.};
+            parameters.portal_pressure     = 900.;
+            parameters.venous_pressure =
+              999.; // Distinct fallback; CSV is authoritative.
+            parameters.root_resistance        = 1.e8;
+            parameters.sealed_input_terminals = {3};
+            parameters.venous_pressure_csv    = csv.string();
+          };
+        const auto fingerprint = [](const Flow &flow) {
+          std::ostringstream out;
+          out << std::hexfloat;
+          for (const auto &cell : flow.triangulation().active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                out << cell->id().to_string() << ' ' << cell->subdomain_id()
+                    << ' ' << cell->material_id();
+                for (unsigned int v = 0; v < 2; ++v)
+                  out << ' ' << cell->vertex(v) << ' '
+                      << cell->face(v)->boundary_id();
+                out << '\n';
+              }
+          return out.str();
+        };
+        std::string rest_mesh;
+        {
+          Flow resting(comm);
+          resting.initialize_params(
+            ImmersX::TestPaths::parameter_path(
+              "gtests/parameters/vascularization_metric_flow_x.prm"),
+            ImmersX::TestPaths::output_path(
+              "vascular-metric-flow-x/initial-graph-rest-last.prm")
+              .string());
+          ArchivedFlowParameters rest_parameters;
+          configure_parameters(rest_parameters);
+          prepare_archived_flow(resting, generation, rest_parameters, 0., 1.);
+          rest_mesh = fingerprint(resting);
+        }
+        ParameterAcceptor::clear();
+        RecordedFlow flow(comm);
+        flow.initialize_params(
+          prm.string(),
+          ImmersX::TestPaths::output_path(
+            "vascular-metric-flow-x/initial-graph-steady-last.prm")
+            .string());
+        ArchivedFlowParameters parameters;
+        configure_parameters(parameters);
+        ASSERT_TRUE(flow.requests_steady_network_initialization());
+        const auto transfer =
+          prepare_archived_flow(flow, generation, parameters, 0., 1.);
+        EXPECT_EQ(fingerprint(flow), rest_mesh);
+        EXPECT_EQ(flow.initial_graph.cells.size(),
+                  flow.triangulation().n_global_active_cells());
+        EXPECT_EQ(flow.initial_graph.boundaries.size(), 7u);
+        EXPECT_EQ(flow.physics.sealed_terminals.size(), 1u);
+        EXPECT_EQ(
+          flow.physics.sealed_terminals.count(transfer.terminal_ids.at(3)), 1u);
+        for (const auto &[id, rcr] : flow.physics.terminals)
+          if (rcr.label == "venous-root")
+            {
+              EXPECT_DOUBLE_EQ(rcr.P_out, 999.);
+              EXPECT_DOUBLE_EQ(rcr.outlet_pressure(0.), 100.);
+              EXPECT_DOUBLE_EQ(rcr.outlet_pressure(1.), 120.);
+            }
+        for (const auto &cell : flow.triangulation().active_cell_iterators())
+          if (!cell->is_artificial())
+            {
+              const auto  id    = cell->id().get_coarse_cell_id();
+              const auto &graph = flow.initial_graph.cells.at(id);
+              EXPECT_EQ(flow.initial_graph.points.at(graph.node0),
+                        cell->vertex(0));
+              EXPECT_EQ(flow.initial_graph.points.at(graph.node1),
+                        cell->vertex(1));
+              EXPECT_EQ(graph.vessel_id, cell->material_id());
+            }
+        auto state = flow.make_state(), rate = flow.make_state(),
+             residual = flow.make_state();
+        flow.initialize_state(state, 0.);
+        rate               = 0.;
+        unsigned int areas = 0;
+        for (const auto &cell : flow.dof_handler().active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              std::vector<types::global_dof_index> indices(
+                cell->get_fe().n_dofs_per_cell());
+              cell->get_dof_indices(indices);
+              const auto physical = transfer.reference(cell->id());
+              for (unsigned int i = 0; i < indices.size(); ++i)
+                {
+                  const double value = state(indices[i]);
+                  const auto   component =
+                    cell->get_fe().system_to_component_index(i).first;
+                  EXPECT_TRUE(std::isfinite(value));
+                  if (component == 0 || component == 2)
+                    {
+                      EXPECT_GT(value, 0.);
+                      ++areas;
+                    }
+                  if (physical.vessel == 4 &&
+                      (component == 1 || component == 3))
+                    {
+                      EXPECT_NEAR(value, 0., 1.e-12);
+                    }
+                }
+            }
+        EXPECT_GT(Utilities::MPI::sum(areas, comm), 0u);
+        flow.assemble_residual(0., state, rate, residual);
+        EXPECT_TRUE(std::isfinite(residual.l2_norm()));
+        // This is an uncoupled warm start, not an accepted coupled equilibrium.
+        for (const auto &[id, node] : original_nodes)
+          {
+            EXPECT_EQ(generation.network.nodes.at(id).position, node.position);
+            EXPECT_EQ(generation.network.nodes.at(id).port, node.port);
+          }
+        for (const auto &[id, vessel] : original_vessels)
+          {
+            EXPECT_EQ(generation.network.vessels.at(id).nodes, vessel.nodes);
+            EXPECT_EQ(generation.network.vessels.at(id).radii, vessel.radii);
+            EXPECT_EQ(generation.network.vessels.at(id).system, vessel.system);
+          }
+      }
+  }
 } // namespace
 
 TEST(MetricFlowX, BOTH_ScalesArchivedTripletResistances)
@@ -670,5 +911,9 @@ TEST(MetricFlowX,
 TEST(MetricFlowX, BOTH_PreparesExplicitSealedInputTerminals)
 {
   exercise_sealed_transfer<MetricFlowX::BloodFlowSystem<1, 3>>();
+}
+TEST(MetricFlowX, BOTH_InitializesArchivedNativeGraphWithoutChangingMesh)
+{
+  exercise_archived_native_steady_graph<MetricFlowX::BloodFlowSystem<1, 3>>();
 }
 #endif

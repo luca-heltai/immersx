@@ -18,7 +18,9 @@
 #  include <array>
 #  include <cmath>
 #  include <exception>
+#  include <limits>
 #  include <map>
+#  include <optional>
 #  include <set>
 #  include <string>
 #  include <type_traits>
@@ -51,6 +53,23 @@ namespace ImmersX::Vascularization
 
     template <class Flow>
     struct HasNetworkPhysics<Flow, std::void_t<typename Flow::NetworkPhysics>>
+      : std::true_type
+    {};
+
+    template <class Flow, class = void>
+    struct HasInitialGraph : std::false_type
+    {};
+
+    template <class Flow>
+    struct HasInitialGraph<
+      Flow,
+      std::void_t<typename Flow::InitialGraph,
+                  typename Flow::InitialGraphCell,
+                  decltype(std::declval<const Flow &>()
+                             .requests_steady_network_initialization()),
+                  decltype(std::declval<Flow &>().setup(
+                    std::declval<const typename Flow::NetworkPhysics &>(),
+                    std::declval<const typename Flow::InitialGraph &>()))>>
       : std::true_type
     {};
 
@@ -414,6 +433,18 @@ namespace ImmersX::Vascularization
                   }
             }
 
+        std::optional<MeshGraph> initial_graph;
+        if constexpr (internal::HasInitialGraph<Flow>::value)
+          {
+            const unsigned int requested =
+              flow.requests_steady_network_initialization();
+            require_all(
+              Utilities::MPI::min(requested, comm) ==
+                Utilities::MPI::max(requested, comm),
+              "All ranks must select the same native initial graph mode.");
+            if (requested)
+              initial_graph.emplace();
+          }
         transfer.flow_cells = create_triangulation(
           network,
           generation.discretization,
@@ -430,7 +461,8 @@ namespace ImmersX::Vascularization
                     found == transfer.boundary_ids.end() ? 255 : found->second;
                 }
             return ids;
-          });
+          },
+          initial_graph ? &*initial_graph : nullptr);
         for (const auto &cell : flow.triangulation().active_cell_iterators())
           if (!cell->is_artificial())
             {
@@ -438,7 +470,68 @@ namespace ImmersX::Vascularization
                 physical_reference(cell->id(), transfer.flow_cells);
               cell->set_material_id(transfer.vessel_ids.at(reference.vessel));
             }
-        flow.setup(input);
+        if constexpr (internal::HasInitialGraph<Flow>::value)
+          {
+            if (initial_graph)
+              {
+                typename Flow::InitialGraph                graph;
+                std::map<MeshVertexKey, unsigned int>      vertices;
+                std::map<unsigned int, unsigned int>       degree;
+                std::map<unsigned int, types::boundary_id> endpoint_boundaries;
+                // This is the existing cell graph, not a second mesh. Gather
+                // only when explicitly requesting the native steady guess.
+                for (const auto &cells :
+                     Utilities::MPI::all_gather(comm, *initial_graph))
+                  for (const auto &cell : cells)
+                    {
+                      std::array<unsigned int, 2> nodes;
+                      for (unsigned int v = 0; v < 2; ++v)
+                        {
+                          AssertThrow(
+                            vertices.size() <
+                              std::numeric_limits<unsigned int>::max(),
+                            ExcMessage(
+                              "Too many native initial graph vertices."));
+                          const auto [it, inserted] =
+                            vertices.emplace(cell.vertices[v], vertices.size());
+                          nodes[v] = it->second;
+                          if (inserted)
+                            graph.points.push_back(cell.positions[v]);
+                          ++degree[nodes[v]];
+                          endpoint_boundaries[nodes[v]] = cell.boundary_ids[v];
+                        }
+                      const bool inserted =
+                        graph.cells
+                          .emplace(cell.id,
+                                   typename Flow::InitialGraphCell{
+                                     nodes[0],
+                                     nodes[1],
+                                     transfer.vessel_ids.at(
+                                       cell.reference.vessel)})
+                          .second;
+                      AssertThrow(
+                        inserted,
+                        ExcMessage(
+                          "Duplicate native initial graph coarse cell id."));
+                    }
+                for (const auto &[node, count] : degree)
+                  if (count == 1)
+                    {
+                      const auto id = endpoint_boundaries.at(node);
+                      AssertThrow(
+                        id != 255,
+                        ExcMessage(
+                          "A native initial graph leaf has no physical boundary id."));
+                      graph.boundaries.emplace(node, id);
+                    }
+                flow.setup(input, graph);
+              }
+            else
+              flow.setup(input);
+          }
+        else
+          // Legacy MetricFlowX setup explicitly rejects non-rest input.
+          flow.setup(input);
         return transfer;
       }
   }
