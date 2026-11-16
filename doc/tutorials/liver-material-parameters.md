@@ -34,7 +34,7 @@ $$
 
 ## Recommended values
 
-```prm
+```ini
 subsection Material properties
   subsection default
     # Bulk liver tissue density — soft-tissue value [1,5]
@@ -69,7 +69,7 @@ end
 
 ### Density — 1050 kg m⁻³
 
-Bulk density of liver parenchyma as a homogenised solid continuum, we call ρ the the density of the
+Bulk density of liver parenchyma as a homogenised solid continuum, we call ρ the density of the
 material filling the domain.  Soft biological tissues are
 approximately 70% water by mass, which places their bulk density close to that
 of water (1000 kg m⁻³); liver parenchyma is consistently reported at
@@ -103,24 +103,7 @@ using |G*| = 1.0 kPa, G′ = 0.6 kPa, G″ = 0.8 kPa [5].
 ### First Lamé parameter `Lame lambda` — ≈ 59 000 Pa (ν ≈ 0.49)
 
 Liver is nearly incompressible.  Measured Poisson's ratios span 0.43–0.499
-depending on method [6,10]:
-
-| Source | ν | Context |
-|---|---|---|
-| Raghunathan et al. 2010 [6] | 0.49 | Porcine PVE, unconfined compression |
-| Bonfiglio et al. 2010 [10] | 0.43–0.47 | Pig liver, direct measurement |
-| Moran et al. 2012 [11] | 0.35 | Porcine avascular parenchyma |
-| IOP FEM torso sim. 2022 [5] | 0.499 | Near-incompressible assumption |
-
-The relation λ = 2μν/(1 − 2ν) gives:
-
-| ν | λ (at μ = 1200 Pa) |
-|---|---|
-| 0.35 | 1800 Pa |
-| 0.45 | 9900 Pa |
-| 0.49 | 58 800 Pa |
-| 0.499 | 598 800 Pa |
-
+depending on method [5]. The relation λ = 2μν/(1 − 2ν) gives: λ: 9900-598 800 Pa.
 ν = 0.49 (λ ≈ 59 000 Pa) is the standard near-incompressible default for
 in vivo liver modelling.  If volumetric locking is an issue on coarse meshes,
 reduce to ν = 0.45–0.47.  Avoid ν = 0.499 unless a stabilised mixed formulation
