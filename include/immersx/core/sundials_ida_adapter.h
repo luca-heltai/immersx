@@ -892,17 +892,21 @@ namespace ImmersX
         bool diagonal = true;
         for (const auto row : matrix.locally_owned_range_indices())
           {
-            bool has_diagonal = false;
-            if (matrix.row_length(row) != 0)
+            bool       has_diagonal = false;
+            const auto n_entries    = matrix.row_length(row);
+            if (n_entries != 0)
               {
-                for (auto entry = matrix.begin(row), end = matrix.end(row);
-                     entry != end;
-                     ++entry)
+                auto entry = matrix.begin(row);
+                for (dealii::types::global_dof_index i = 0; i < n_entries; ++i)
                   {
                     if (entry->column() == row)
                       has_diagonal = entry->value() != 0.;
                     else if (entry->value() != 0.)
                       diagonal = false;
+                    // Global ownership can have gaps between semantic fields.
+                    // Never construct an accessor past this owned row.
+                    if (i + 1 < n_entries)
+                      ++entry;
                   }
               }
             if (!has_diagonal || !diagonal)
