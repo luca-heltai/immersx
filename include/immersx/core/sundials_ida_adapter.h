@@ -2196,14 +2196,28 @@ namespace ImmersX
       flat.compress(dealii::VectorOperation::insert);
       FieldVectorType columns;
       columns.import_nonlocal_data_for_fe(matrix, flat);
-      const auto &column_values = columns;
-      for (const auto row : flat.locally_owned_elements())
+      const auto &native        = matrix.trilinos_matrix();
+      const auto *column_values = columns.trilinos_vector()[0];
+      // Borrow native local rows: constructing a deal.II end(row) accessor
+      // inside the coefficient loop repeatedly copies the following row.
+      // Imported characteristics use exactly the matrix's local column map.
+      for (int local_row = 0; local_row < native.NumMyRows(); ++local_row)
         {
+          int     n_entries      = 0;
+          double *values         = nullptr;
+          int    *column_indices = nullptr;
+          if (native.ExtractMyRowView(
+                local_row, n_entries, values, column_indices) != 0)
+            {
+              valid = false;
+              continue;
+            }
           long double sum = 0.;
-          for (auto entry = matrix.begin(row); entry != matrix.end(row);
-               ++entry)
-            sum += std::abs(static_cast<long double>(entry->value())) *
-                   column_values[entry->column()];
+          for (int entry = 0; entry < n_entries; ++entry)
+            sum += std::abs(static_cast<long double>(values[entry])) *
+                   column_values[column_indices[entry]];
+          const auto row = static_cast<dealii::types::global_dof_index>(
+            native.GRID64(local_row));
           const double value = static_cast<double>(sum);
           const double inverse =
             std::isfinite(value) && value > 0. ? 1. / value : 0.;

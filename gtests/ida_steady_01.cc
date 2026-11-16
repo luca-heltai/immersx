@@ -150,6 +150,29 @@ TEST(DistributedIDA, BOTH_SteadyAbsoluteRowScalingAndFreshSetup)
   });
 }
 
+TEST(DistributedIDA, BOTH_SteadyRowViewsUseImportedColumnCharacteristics)
+{
+  with_pair([](auto       &adapter,
+               const auto &field,
+               auto       &state,
+               auto       &dot,
+               auto       &characteristic,
+               auto       &scaling) {
+    adapter.field(state, field) = .75;
+    auto &values                = adapter.field(characteristic, field);
+    for (const auto index : values.locally_owned_elements())
+      values[index] = index == 0 ? 2. : 5.;
+    characteristic.compress(dealii::VectorOperation::insert);
+    adapter.setup_steady_jacobian(0., state, dot, &characteristic, &scaling);
+    // Independent dense oracle: |[[1.5,-1],[1,1]]| * [2,5] = [8,7].
+    // MPI2 assigns the two columns to different ranks, requiring both ghosts.
+    for (const auto index :
+         adapter.field(scaling, field).locally_owned_elements())
+      EXPECT_DOUBLE_EQ(adapter.field(scaling, field)[index],
+                       index == 0 ? 1. / 8. : 1. / 7.);
+  });
+}
+
 TEST(DistributedIDA, BOTH_SteadyScalingRejectsZeroRows)
 {
   with_pair(
