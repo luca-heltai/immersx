@@ -7,5 +7,8 @@ PR: pending
   Newmark operator and Newmark value constraints.
 - `BOTH_ForcingTermsNeumannLoadMatchesStaticAssembly` fails until issue #454
   is fixed: static and time-dependent runs apply different Neumann loads.
-- Added tests of `make_vessel_index_of_a_cell()` for tensor-product coupling
-  to `gtests/coupled_elasticity_03.cc`.
+- Added tests of `make_vessel_index_of_a_cell()`, `run_timestep0()` and
+  `run_timestep()` for tensor-product coupling to
+  `gtests/coupled_elasticity_03.cc`: vessel ids of reduced cells, the
+  multiplier block size, the pressure file, repeated steps with unchanged
+  data, and the `inclusions` refinement strategy.

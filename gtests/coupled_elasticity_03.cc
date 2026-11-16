@@ -1400,7 +1400,120 @@ namespace
     problem.setup_fe();
     problem.setup_dofs();
   }
+
+  // Reduced grid of three_cell_grid() with vessel ids 0, 1, 0.
+  std::string
+  tensor_parameters(const std::string &fields    = "displacement, vessel_id",
+                    const Overrides   &overrides = {})
+  {
+    return parameters(false, three_cell_grid({0, 1, 0}), fields, overrides);
+  }
+
+  // Serial runs write the pressure as text, parallel runs as HDF5.
+  std::string
+  pressure_file(const VesselElasticityProblem<3> &problem)
+  {
+    const bool serial = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1;
+    return problem.par.output_directory + "/" + problem.par.output_name +
+           (serial ? "_externalPressure.txt" : "_externalPressure.h5");
+  }
+
+  // Lines of the serial pressure file that start with `prefix`.
+  unsigned int
+  count_lines_starting_with(const std::string &filename,
+                            const std::string &prefix)
+  {
+    std::ifstream file(filename);
+    std::string   line;
+    unsigned int  n = 0;
+    while (std::getline(file, line))
+      if (line.rfind(prefix, 0) == 0)
+        ++n;
+    return n;
+  }
 } // namespace
+
+// -----------------------------------------------------------------------------
+// run_timestep0() and run_timestep() with tensor-product coupling
+// -----------------------------------------------------------------------------
+
+// The tensor-product coupling is created, the multiplier block is indexed by
+// the reduced dofs, and every reduced cell has an entry in the vessel index.
+TEST(CoupledElasticity, BOTH_RunTimestep0TensorProduct)
+{
+  with_problem(tensor_parameters(), [](auto &problem) {
+    ASSERT_NO_THROW(problem.run_timestep0());
+    ASSERT_TRUE(problem.tensor_product_coupling);
+    const auto &reduced_dh = problem.tensor_product_coupling->get_dof_handler();
+    EXPECT_EQ(problem.locally_relevant_solution.block(1).size(),
+              reduced_dh.n_dofs());
+    EXPECT_EQ(problem.get_vessel_index_of_a_cell().size(),
+              reduced_dh.get_triangulation().n_active_cells());
+  });
+}
+
+// The pressure file is created at cycle 0 and appended to at later cycles.
+TEST(CoupledElasticity, BOTH_RunTimestepOutputsPressureTensorProduct)
+{
+  with_problem(tensor_parameters("displacement, vessel_id",
+                                 {{"Output name", "output_pressure_tensor"}}),
+               [](auto &problem) {
+                 const auto filename = pressure_file(problem);
+                 std::filesystem::remove(filename);
+                 setup_tensor_product(problem);
+                 problem.make_vessel_index_of_a_cell();
+                 ASSERT_NO_THROW(problem.run_timestep());
+                 ASSERT_NO_THROW(problem.run_timestep());
+                 ASSERT_TRUE(std::filesystem::exists(filename)) << filename;
+                 if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) == 1)
+                   {
+                     EXPECT_EQ(count_lines_starting_with(
+                                 filename, "cycle vessel0 vessel1 "),
+                               1u);
+                     EXPECT_EQ(count_lines_starting_with(filename, "0 "), 1u);
+                     EXPECT_EQ(count_lines_starting_with(filename, "1 "), 1u);
+                   }
+               });
+}
+
+// From cycle 1 on, run_timestep() reassembles the coupling and solves again
+// without the refinement cycles of cycle 0. With unchanged data it must give
+// the same pressure as cycle 0.
+TEST(CoupledElasticity, BOTH_RunTimestepReassemblesCouplingRhsTensorProduct)
+{
+  with_problem(tensor_parameters(), [](auto &problem) {
+    setup_tensor_product(problem);
+    problem.make_vessel_index_of_a_cell();
+    ASSERT_NO_THROW(problem.run_timestep());
+    const auto first = gather(problem.pressure_at_immersed_surface);
+    ASSERT_NO_THROW(problem.run_timestep());
+    const auto second = gather(problem.pressure_at_immersed_surface);
+
+    ASSERT_EQ(first.size(), 2u);
+    ASSERT_EQ(second.size(), 2u);
+    for (unsigned int v = 0; v < 2; ++v)
+      {
+        ASSERT_NE(first[v], 0.0);
+        EXPECT_NEAR(second[v], first[v], 1e-6 * std::abs(first[v]))
+          << "vessel " << v;
+      }
+  });
+}
+
+// Refinement around inclusions only exists for point coupling, so the mesh is
+// left unchanged.
+TEST(CoupledElasticity, BOTH_RunTimestepInclusionsStrategyTensorProduct)
+{
+  with_problem(tensor_parameters("displacement, vessel_id",
+                                 {{"Strategy", "inclusions"}}),
+               [](auto &problem) {
+                 setup_tensor_product(problem);
+                 problem.make_vessel_index_of_a_cell();
+                 const auto n_cells = problem.tria->n_global_active_cells();
+                 ASSERT_NO_THROW(problem.run_timestep());
+                 EXPECT_EQ(problem.tria->n_global_active_cells(), n_cells);
+               });
+}
 
 // -----------------------------------------------------------------------------
 // make_vessel_index_of_a_cell(), get_vessel_index_of_a_cell(), n_vessels()
