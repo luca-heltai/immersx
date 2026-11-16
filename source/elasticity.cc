@@ -1668,68 +1668,12 @@ namespace ImmersX
                     << " iterations." << std::endl;
             }
 #endif
-            {
-              const auto M = linear_operator<LA::MPI::Vector>(inclusion_matrix);
-              const auto amgM = linear_operator(M, prec_M);
-              CumulativeReductionControl mass_control(
-                par.reduced_mass_solver_control);
-              SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(mass_control);
-              auto invM = inverse_operator(M, solver_CG_M, amgM);
-              auto invW = invM * invM;
-
-              // Try augmented lagrangian preconditioner
-              const double gamma = 10;
-              auto         Aug   = A + gamma * Bt * invW * B;
-
-
-              const auto outside =
-                linear_operator<LA::MPI::Vector>(outside_mass_matrix);
-              const auto reaction         = Bt - gamma * Bt * invW * outside;
-              const auto negative_outside = -1. * outside;
-              auto       AA = block_operator<2, 2, LA::MPI::BlockVector>(
-                {{{{Aug, reaction}}, {{B, negative_outside}}}});
-
-              LA::MPI::BlockVector solution_block;
-              LA::MPI::BlockVector system_rhs_block;
-              AA.reinit_domain_vector(solution_block, false);
-              AA.reinit_range_vector(system_rhs_block, false);
-
-
-              // lagrangian term
-              LA::MPI::Vector tmp;
-              tmp.reinit(system_rhs.block(0));
-              tmp = gamma * Bt * invW * system_rhs.block(1);
-              system_rhs_block.block(0) = system_rhs.block(0);
-              system_rhs_block.block(0).add(1., tmp); // ! augmented
-              system_rhs_block.block(1) = system_rhs.block(1);
-
-              CumulativeReductionControl augmented_control(
-                par.displacement_solver_control);
-              SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
-
-              auto Aug_inv =
-                inverse_operator(Aug, solver_lagrangian); //! augmented
-
-              SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(
-                par.augmented_lagrange_solver_control);
-
-              BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
-                augmented_lagrangian_preconditioner{
-                  Aug_inv, B, reaction, invW, gamma};
-
-              solver_fgmres.solve(AA,
-                                  solution_block,
-                                  system_rhs_block,
-                                  augmented_lagrangian_preconditioner);
-
-              solution.block(0) = solution_block.block(0);
-              solution.block(1) = solution_block.block(1);
-              output_augmented_lagrangian_iteration_summary(
-                pcout,
-                par.augmented_lagrange_solver_control,
-                augmented_control,
-                mass_control);
-            }
+            solve_wall_constrained_system(stiffness_matrix,
+                                          1.,
+                                          system_rhs.block(0),
+                                          system_rhs.block(1),
+                                          u,
+                                          lambda);
           }
         else
           {
@@ -1766,6 +1710,77 @@ namespace ImmersX
     distribute_multiplier_solution(lambda);
     locally_relevant_solution = solution;
   }
+
+  template <int dim, int spacedim>
+  void
+  ElasticityProblem<dim, spacedim>::solve_wall_constrained_system(
+    const LA::MPI::SparseMatrix &matrix,
+    const double                 scale,
+    const LA::MPI::Vector       &f,
+    const LA::MPI::Vector       &g,
+    LA::MPI::Vector             &u,
+    LA::MPI::Vector             &lambda)
+  {
+    const auto K  = scale * linear_operator<LA::MPI::Vector>(matrix);
+    const auto Bt = linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
+    const auto B  = transpose_operator(Bt);
+    const auto M  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
+    const auto amgM = linear_operator(M, prec_M);
+    CumulativeReductionControl mass_control(par.reduced_mass_solver_control);
+    SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(mass_control);
+    auto invM = inverse_operator(M, solver_CG_M, amgM);
+    auto invW = invM * invM;
+
+    // Augmented Lagrangian preconditioner.
+    const double gamma = 10;
+    auto         Aug   = K + gamma * Bt * invW * B;
+
+    const auto outside  = linear_operator<LA::MPI::Vector>(outside_mass_matrix);
+    const auto reaction = Bt - gamma * Bt * invW * outside;
+    const auto negative_outside = -1. * outside;
+    auto       AA               = block_operator<2, 2, LA::MPI::BlockVector>(
+      {{{{Aug, reaction}}, {{B, negative_outside}}}});
+
+    LA::MPI::BlockVector solution_block;
+    LA::MPI::BlockVector system_rhs_block;
+    AA.reinit_domain_vector(solution_block, false);
+    AA.reinit_range_vector(system_rhs_block, false);
+
+    // Augmentation of the first row.
+    LA::MPI::Vector tmp;
+    tmp.reinit(f);
+    tmp                       = gamma * Bt * invW * g;
+    system_rhs_block.block(0) = f;
+    system_rhs_block.block(0).add(1., tmp);
+    system_rhs_block.block(1) = g;
+
+    CumulativeReductionControl augmented_control(
+      par.displacement_solver_control);
+    SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
+
+    auto Aug_inv = inverse_operator(Aug, solver_lagrangian);
+
+    SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(
+      par.augmented_lagrange_solver_control);
+
+    BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
+      augmented_lagrangian_preconditioner{Aug_inv, B, reaction, invW, gamma};
+
+    solver_fgmres.solve(AA,
+                        solution_block,
+                        system_rhs_block,
+                        augmented_lagrangian_preconditioner);
+
+    u      = solution_block.block(0);
+    lambda = solution_block.block(1);
+    output_augmented_lagrangian_iteration_summary(
+      pcout,
+      par.augmented_lagrange_solver_control,
+      augmented_control,
+      mass_control);
+  }
+
+
 
   template <int dim, int spacedim>
   void
