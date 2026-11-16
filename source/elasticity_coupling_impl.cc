@@ -257,12 +257,18 @@ namespace ImmersX
         Vector<double> local(indices.size());
         const double   weight =
           inclusions.get_JxW(id) / inclusions.get_section_measure(inclusion);
+        const auto rotation = inclusions.get_rotation(inclusion);
         for (unsigned int i = 0; i < indices.size(); ++i)
           {
             double     data      = 0.;
             const auto component = inclusions.get_component(i);
             if (!inclusions.inclusions_data[inclusion].empty())
               {
+                // The data line holds coefficients in the vessel frame. In
+                // time-dependent runs, component `component` of the boundary
+                // function scales the coefficients of that vessel-frame
+                // component: it is a factor, not a vector, so it is not
+                // rotated.
                 for (unsigned int j = 0; j < indices.size(); ++j)
                   if (inclusions.get_component(j) == component &&
                       inclusions.get_fourier_component(j) <
@@ -274,7 +280,15 @@ namespace ImmersX
                   data *= inclusions.inclusions_rhs.value(point, component);
               }
             else
-              data = inclusions.inclusions_rhs.value(point, component);
+              {
+                // The boundary function is a displacement in the global
+                // frame. The dofs of `component` test the displacement along
+                // the vessel-frame direction R e_component, so the data is
+                // the projection (R e_component) . g.
+                for (unsigned int d = 0; d < spacedim; ++d)
+                  data += rotation[d][component] *
+                          inclusions.inclusions_rhs.value(point, d);
+              }
             local[i] = basis[i] * data * weight;
           }
         inclusion_constraints.distribute_local_to_global(local, indices, rhs);
