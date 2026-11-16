@@ -503,6 +503,41 @@ namespace ImmersX
         time, state, state_dot, 0., true, characteristics, function_scaling);
     }
 
+    /** Compute positive function scaling from the full steady Jacobian without
+     * preparing a linear solver: scaling_i = 1 / sum_j |F_y(t,y,ydot)_ij| c_j.
+     * The state characteristics c must be finite and positive, and every
+     * weighted row sum must be finite and strictly positive.
+     *
+     * This assembles the original alpha=0 blocks, including kinematic rows,
+     * independently of the selected linear solver. It does not factor a matrix,
+     * prepare a preconditioner, or replace the current Jacobian. State and rate
+     * inputs are unchanged. For a fixed acceptance metric, evaluate once at the
+     * reference initial state and retain the resulting scales for candidates.
+     * Only the Trilinos backend is supported, as for setup_steady_jacobian().
+     */
+    void
+    steady_function_scaling(const double            time,
+                            const GlobalVectorType &state,
+                            const GlobalVectorType &state_dot,
+                            const GlobalVectorType &characteristics,
+                            GlobalVectorType       &scaling)
+    {
+#  ifdef IMMERSX_USE_PETSC_LA
+      AssertThrow(false,
+                  dealii::ExcMessage("Steady scaling requires Trilinos."));
+#  endif
+      finalize();
+      const auto snapshot =
+        composition_.make_snapshot(time, state, state_dot, true);
+      const auto blocks =
+        composition_.block_matrix(snapshot->state_storage,
+                                  &snapshot->derivative_storage,
+                                  0.,
+                                  time,
+                                  &snapshot->linearization);
+      make_steady_function_scaling(blocks, characteristics, scaling);
+    }
+
     unsigned int
     solve(GlobalVectorType &state, GlobalVectorType &state_dot)
     {
