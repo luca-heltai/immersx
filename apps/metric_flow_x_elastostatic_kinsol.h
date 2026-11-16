@@ -52,7 +52,8 @@ namespace ImmersX::metric_flow_x_app_detail
       double              time;
       const GlobalVector &zero;
       std::exception_ptr  pending;
-    } callbacks{adapter, time, zero, nullptr};
+      bool                initial_factor_available;
+    } callbacks{adapter, time, zero, nullptr, true};
     SUNMatrix       matrix = nullptr;
     SUNLinearSolver linear = nullptr;
 #if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
@@ -119,7 +120,8 @@ namespace ImmersX::metric_flow_x_app_detail
                             N_Vector x,
                             N_Vector b,
                             realtype tolerance) -> int {
-      auto &c = *static_cast<Callbacks *>(handle->content);
+      auto &c                    = *static_cast<Callbacks *>(handle->content);
+      c.initial_factor_available = false;
       return Native::Utilities::call_and_possibly_capture_exception(
         c.adapter.solver().solve_with_jacobian,
         c.pending,
@@ -134,7 +136,11 @@ namespace ImmersX::metric_flow_x_app_detail
       memory,
       [](N_Vector state, N_Vector, SUNMatrix, void *user, N_Vector, N_Vector)
         -> int {
-        auto      &c     = *static_cast<Callbacks *>(user);
+        auto &c = *static_cast<Callbacks *>(user);
+        // With maxSetupCalls=1, native KINSOL may request setup before its
+        // first solve despite noInitSetup. J0 was already prepared for scales.
+        if (c.initial_factor_available)
+          return 0;
         const auto setup = [&](const auto &src) {
           c.adapter.setup_steady_jacobian(c.time, src, c.zero);
         };

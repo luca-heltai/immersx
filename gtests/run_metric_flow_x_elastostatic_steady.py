@@ -79,7 +79,7 @@ end
         raise AssertionError('Missing successful native post-gate')
     iterations = re.search(r'steady KINSOL iterations: (\d+)', output)
     setups = re.findall(r'IDA nonlinear Jacobian setup=(\d+) t=0 alpha=0', output)
-    if iterations is None or int(iterations[1]) < 2 or len(setups) < int(iterations[1]):
+    if iterations is None or int(iterations[1]) < 2 or len(setups) != int(iterations[1]):
         raise AssertionError('Nonlinear fixture did not exercise repeated fresh Jacobian setups')
     rates = read_state(Path(str(state) + '.rate'), RATE_NAMES)
     if any(value != 0 for block in rates for value in block):
