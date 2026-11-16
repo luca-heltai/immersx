@@ -198,8 +198,6 @@
   },
   "harness_sha": "fa6f40eb87c2ed4b3e28b26cc4ec279b820edc9d",
   "schema_version": 1,
-  "selected": [
-    "fa6f40eb87c2ed4b3e28b26cc4ec279b820edc9d"
-  ],
+  "selected": [],
   "source_sha": "fa6f40eb87c2ed4b3e28b26cc4ec279b820edc9d"
 }
