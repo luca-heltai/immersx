@@ -24,7 +24,19 @@ namespace ImmersX
     run_timestep();
 
     /** Solve at the supplied physical time, refreshing mechanical boundary
-     * data and affine lifting when that time changes. */
+     * data and affine lifting when that time changes.
+     *
+     * In a dynamic run (initial and final time differ and every material has
+     * a positive density) the tissue is advanced with Newmark steps instead.
+     * The first call refines the mesh as in the static case and starts at the
+     * static equilibrium of the current loads and wall data at
+     * physical_time, at rest. Every later call takes one Newmark step and
+     * must pass the previous time plus `Time step`. The multiplier imposes
+     * the current wall data at the new time, so the run needs
+     * `Pressure coupling = false`. As in static runs, point-coupling data are
+     * not modulated in time by the inclusion `Boundary data`. Damping comes
+     * from the Rayleigh coefficients and the viscosity of the materials.
+     */
     void
     run_timestep(const double physical_time);
 
@@ -163,6 +175,15 @@ namespace ImmersX
     TrilinosWrappers::MPI::Vector pressure_at_immersed_surface_by_inclusion;
 
   private:
+    /** Solve the static problem at physical_time, see run_timestep(). */
+    void
+    solve_static_timestep(const double physical_time);
+
+    /** Start or advance a Newmark run to physical_time, see run_timestep().
+     */
+    void
+    advance_newmark(const double physical_time);
+
     void
     refine_and_transfer_around_inclusions();
 
