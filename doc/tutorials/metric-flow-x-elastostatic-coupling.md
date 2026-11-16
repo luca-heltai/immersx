@@ -370,3 +370,59 @@ not replace a valid checkpoint with a new initial-condition solve.
 Continuation writes to a new sibling output directory beside the
 checkpoint, preserving earlier output. Add `--checkpoint NEW_DIRECTORY`
 to write a later checkpoint.
+
+### Initialize equilibrium before dynamic integration
+
+`metric_flow_x_elastodynamics` can optionally compute an initial equilibrium
+in its existing displacement, solid velocity, flow and multiplier fields.
+This uses native KINSOL line search for `F(t0,y,0)=0`, with strict cell/trace
+area constraints, a fresh Jacobian after each Newton step, and the existing
+MUMPS/UMFPACK factorization and hard linear residual check. The native linear
+solver bridge describes this exact factorization as `DIRECT`; its matrix
+view supports zeroing, refilling and multiplication without owning another
+matrix. This option defaults to false:
+
+```text
+subsection MetricFlowX coupling
+  subsection Steady solver
+    set Initialize equilibrium = true
+    set Displacement characteristic = 0.001
+    set Solid velocity characteristic = 0.001
+    set Velocity characteristic = 1
+    set Pressure characteristic = 10000
+    set Function norm tolerance = 1e-8
+    set Scaled step tolerance = 1e-12
+    set Maximum nonlinear iterations = 50
+  end
+end
+```
+
+Characteristics have units m, m/s for the solid, m/s for the fluid, and Pa,
+respectively. Native reference areas set the area characteristics. Scaling
+uses the weighted absolute row sums of the full original Jacobian, assembled
+from its existing global blocks before condensation; it does not scale a
+reduced residual or allocate an additional full monolithic matrix. These
+scales are frozen throughout initialization. The tolerances are dimensionless
+and are not equivalent to IDA tolerances or physiological pressure/flow bounds.
+
+Select `Linear solver/Type = mumps` (or serial `umfpack`) and
+`Initial condition correction parameters/Correction type at initial time = none` in the existing IDA
+parameters. The explicit steady initializer supplies the initial state; this
+avoids a second implicit IDACalcIC correction. All prescribed initial rates
+are zero during initialization, including the solid velocity derivative;
+the kinematic equation also determines the solid velocity itself.
+
+The final full-residual, finite-state, zero-rate and positive-area gate must
+pass before adopting the candidate. Small-step termination alone cannot pass.
+Cell quadrature and trace area minima are reported as diagnostics; comparing
+them with the native numerical area floor does not change the strict-positive
+acceptance condition. These samples do not prove positivity of the entire
+higher-order polynomial. Independent physical pressure, KCL and mass checks
+remain necessary for a physiological configuration.
+
+The subsequent IDA integration uses the same adapter and the original time
+interval, output schedule and temporal tolerance ramp. The ramp never relaxes
+the initial steady gate, and need not be disabled for this dynamic option.
+No initial candidate output, artificial time step or checkpoint import is
+performed. `Print nonlinear diagnostics` in the existing IDA parameter section
+also enables native KINSOL iteration/function-norm diagnostics on rank zero.

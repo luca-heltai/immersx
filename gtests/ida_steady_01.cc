@@ -11,6 +11,8 @@
 
 #if defined(DEAL_II_WITH_SUNDIALS) && defined(DEAL_II_WITH_MUMPS) && \
   !defined(IMMERSX_USE_PETSC_LA)
+#  include "../apps/metric_flow_x_kinsol.h"
+
 namespace
 {
   using namespace ImmersX;
@@ -355,5 +357,198 @@ TEST(DistributedIDA, BOTH_SteadyScalingHandlesAnEmptyRank)
     false,
     false,
     true);
+}
+
+TEST(DistributedIDA, BOTH_FourFieldSteadyUsesCondensationAndFullResidualScales)
+{
+  using namespace ImmersX;
+  dealii::ParameterAcceptor::clear();
+  TimeIntervalParameters time("/", false);
+  IDAParameters          parameters("/", &time);
+  Adapter                adapter(time, parameters, MPI_COMM_WORLD);
+  adapter.set_linear_solver(Adapter::LinearSolver::mumps);
+  const auto  registration = adapter.add([](auto &builder) {
+    using Model = typename std::decay_t<decltype(builder)>::Model;
+    dealii::IndexSet owned(4);
+    const auto rank = dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    const auto size = dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+    for (unsigned int i = 0; i < 4; ++i)
+      if (i % size == rank)
+        owned.add_index(i);
+    owned.compress();
+    const std::array<FieldId, 4> fields{
+       {builder.differential_field("displacement", owned),
+       builder.differential_field("solid velocity", owned),
+       builder.differential_field("flow", owned),
+       builder.algebraic_field("multiplier", owned)}};
+    const auto diagonal =
+      [owned](const std::function<double(unsigned int)> &value) {
+        dealii::DynamicSparsityPattern pattern(4, 4, owned);
+        for (const auto i : owned)
+          pattern.add(i, i);
+        auto result = std::make_shared<Matrix>();
+        result->reinit(owned, owned, pattern, MPI_COMM_WORLD);
+        for (const auto i : owned)
+          result->set(i, i, value(i));
+        result->compress(dealii::VectorOperation::insert);
+        return result;
+      };
+    const std::shared_ptr<Matrix> mass    = diagonal([](auto) { return 2.; });
+    const std::shared_ptr<Matrix> inertia = diagonal([](auto) { return 4.; });
+    for (unsigned int row = 0; row < 4; ++row)
+      {
+        auto term =
+          builder.term(fields[row], "full steady row" + std::to_string(row));
+        typename Model::ResidualFactory residual = [=](const auto &context) {
+          auto values = std::make_shared<ImmersX::ImmersXLA::MPI::Vector>();
+          values->reinit(owned, MPI_COMM_WORLD);
+          for (const auto i : owned)
+            {
+              const double u = context.state(fields[0])[i],
+                           v = context.state(fields[1])[i],
+                           f = context.state(fields[2])[i],
+                           l = context.state(fields[3])[i];
+              (*values)[i]   = row == 0 ?
+                                  2. * (context.derivative(fields[0])[i] - v) :
+                                row == 1 ? 4. * context.derivative(fields[1])[i] +
+                                          u * u + 3. * v + f + l - 8. :
+                                row == 2 ? f * f - u - l - 6. :
+                                           u + f - l - 4.;
+            }
+          values->compress(dealii::VectorOperation::insert);
+          typename Model::Operation result;
+          result.reinit_vector = [owned](ImmersX::ImmersXLA::MPI::Vector &dst,
+                                         const bool omit) {
+            dst.reinit(owned, MPI_COMM_WORLD, omit);
+          };
+          result.apply = [values](ImmersX::ImmersXLA::MPI::Vector &dst) {
+            dst = *values;
+          };
+          result.apply_add = [values](ImmersX::ImmersXLA::MPI::Vector &dst) {
+            dst += *values;
+          };
+          return result;
+        };
+        term.residual(residual);
+        for (unsigned int col = 0; col < 4; ++col)
+          if ((row == 0 && col == 1) || row == 1 || (row >= 2 && col != 1))
+            {
+              typename Model::MatrixOperatorFactory jacobian =
+                [=](const auto &context) {
+                  auto entries = diagonal([&](const auto i) {
+                    if (row == 0)
+                      return -2.;
+                    if (row == 1)
+                      return col == 0 ? 2. * context.state(fields[0])[i] :
+                              col == 1 ? 3. :
+                                         1.;
+                    if (row == 2)
+                      return col == 2 ? 2. * context.state(fields[2])[i] : -1.;
+                    return col == 3 ? -1. : 1.;
+                  });
+                  return matrix_operator<ImmersX::ImmersXLA::MPI::Vector>(
+                    entries);
+                };
+              term.state(fields[col], jacobian);
+            }
+        if (row == 0 || row == 1)
+          {
+            const auto derivative_matrix = row == 0 ? mass : inertia;
+            typename Model::MatrixOperatorFactory derivative =
+              [derivative_matrix](const auto &) {
+                return matrix_operator<ImmersX::ImmersXLA::MPI::Vector>(
+                  derivative_matrix);
+              };
+            term.derivative(fields[row], derivative);
+          }
+      }
+    builder.second_order_pair(
+      fields[0],
+      fields[1],
+      [] { return 0ul; },
+      [] {
+        SecondOrderPreconditionerData data;
+        data.constrained = dealii::IndexSet(4);
+        return data;
+      });
+    return fields;
+  });
+  const auto &fields       = registration.fields();
+  auto        state = adapter.make_state(), zero = adapter.make_state(),
+       c = adapter.make_state(), scaling = adapter.make_state();
+  const std::array<double, 4> initial{{1., .25, 2., .5}},
+    characteristic{{2., .5, 3., 5.}}, row_sums{{1., 13.5, 19., 10.}},
+    expected_delta{{.2, -.1, .3, -.4}}, rhs_values{{.2, 0., 1.4, .9}};
+  zero = 0.;
+  for (unsigned int i = 0; i < 4; ++i)
+    {
+      adapter.field(state, fields[i]) = initial[i];
+      adapter.field(c, fields[i])     = characteristic[i];
+    }
+  state.compress(dealii::VectorOperation::insert);
+  c.compress(dealii::VectorOperation::insert);
+  adapter.setup_steady_jacobian(0., state, zero, &c, &scaling);
+  for (unsigned int i = 0; i < 4; ++i)
+    for (const auto index :
+         adapter.field(scaling, fields[i]).locally_owned_elements())
+      EXPECT_NEAR(adapter.field(scaling, fields[i])[index],
+                  1. / row_sums[i],
+                  1e-15);
+  // Nonzero kinematic RHS and a zero momentum RHS still require every block
+  // of the original correction. These values are independent of J.vmult.
+  auto rhs = adapter.make_state(), delta = adapter.make_state();
+  for (unsigned int i = 0; i < 4; ++i)
+    adapter.field(rhs, fields[i]) = rhs_values[i];
+  rhs.compress(dealii::VectorOperation::insert);
+  adapter.solver().solve_with_jacobian(rhs, delta, 0.);
+  for (unsigned int i = 0; i < 4; ++i)
+    for (const auto index :
+         adapter.field(delta, fields[i]).locally_owned_elements())
+      EXPECT_NEAR(adapter.field(delta, fields[i])[index],
+                  expected_delta[i],
+                  1e-12);
+  auto action = adapter.make_state();
+  adapter.current_jacobian().vmult(action, delta);
+  action -= rhs;
+  EXPECT_LT(action.l2_norm(), 1e-12);
+  EXPECT_GT(adapter.statistics().kinematic_factorizations, 0u);
+  auto u_scale = c, constraints = adapter.make_state();
+  constraints                           = 0.;
+  adapter.field(constraints, fields[2]) = 2.;
+  constraints.compress(dealii::VectorOperation::insert);
+  for (const auto index : u_scale.locally_owned_elements())
+    u_scale[index] = 1. / c[index];
+  u_scale.compress(dealii::VectorOperation::insert);
+  const auto result =
+    metric_flow_x_app_detail::solve_coupled_kinsol(adapter,
+                                                   0.,
+                                                   state,
+                                                   zero,
+                                                   u_scale,
+                                                   scaling,
+                                                   constraints,
+                                                   50,
+                                                   1e-10,
+                                                   1e-14,
+                                                   KIN_LINESEARCH);
+  EXPECT_GE(result.first, 2u);
+  EXPECT_GE(result.second, 0);
+  const std::array<double, 4> solution{{2., 0., 3., 1.}};
+  for (unsigned int i = 0; i < 4; ++i)
+    for (const auto index :
+         adapter.field(state, fields[i]).locally_owned_elements())
+      EXPECT_NEAR(adapter.field(state, fields[i])[index], solution[i], 1e-8);
+  auto residual = adapter.make_state();
+  adapter.solver().residual(0., state, zero, residual);
+  EXPECT_LT(residual.linfty_norm(), 1e-8);
+  EXPECT_DOUBLE_EQ(zero.l2_norm(), 0.);
+  EXPECT_GE(adapter.statistics().jacobian_setups, result.first);
+  for (unsigned int i = 0; i < 4; ++i)
+    for (const auto index :
+         adapter.field(scaling, fields[i]).locally_owned_elements())
+      EXPECT_NEAR(adapter.field(scaling, fields[i])[index],
+                  1. / row_sums[i],
+                  1e-15);
+  dealii::ParameterAcceptor::clear();
 }
 #endif

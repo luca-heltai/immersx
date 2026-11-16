@@ -55,7 +55,7 @@
 #  include <vector>
 
 #  include "metric_flow_x_elastostatic_checkpoint.h"
-#  include "metric_flow_x_elastostatic_kinsol.h"
+#  include "metric_flow_x_kinsol.h"
 #  include "metric_flow_x_physical_input.h"
 
 namespace
@@ -1033,17 +1033,10 @@ namespace
           pressure_characteristic;
         auto &flow_characteristics =
           adapter.field(characteristics, flow_fields.fields().state);
-        flow_characteristics = pressure_characteristic;
-        auto reference       = flow_problem.make_state();
-        flow_problem.interpolate_reference_area(reference);
-        for (const auto component :
-             {FlowProblem::Component::area, FlowProblem::Component::area_trace})
-          for (const auto index : flow_problem.component_dofs(component))
-            flow_characteristics[index] = reference[index];
-        for (const auto component : {FlowProblem::Component::velocity,
-                                     FlowProblem::Component::velocity_trace})
-          for (const auto index : flow_problem.component_dofs(component))
-            flow_characteristics[index] = velocity_characteristic;
+        fill_flow_steady_characteristics(flow_problem,
+                                         flow_characteristics,
+                                         velocity_characteristic,
+                                         pressure_characteristic);
         characteristics.compress(VectorOperation::insert);
         auto function_scaling = adapter.make_state();
         auto candidate        = state;
@@ -1056,78 +1049,31 @@ namespace
         for (const auto index : solution_scaling.locally_owned_elements())
           solution_scaling[index] = 1. / characteristics[index];
         solution_scaling.compress(VectorOperation::insert);
-        const auto result = solve_elastostatic_kinsol(adapter,
-                                                      flow_time.initial_time,
-                                                      candidate,
-                                                      state_dot,
-                                                      solution_scaling,
-                                                      function_scaling,
-                                                      *state_constraints,
-                                                      steady_maximum_iterations,
-                                                      steady_function_tolerance,
-                                                      steady_step_tolerance);
+        const auto result = solve_coupled_kinsol(adapter,
+                                                 flow_time.initial_time,
+                                                 candidate,
+                                                 state_dot,
+                                                 solution_scaling,
+                                                 function_scaling,
+                                                 *state_constraints,
+                                                 steady_maximum_iterations,
+                                                 steady_function_tolerance,
+                                                 steady_step_tolerance);
         steady_iterations = result.first;
         if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
           std::cout << "Steady KINSOL native status: " << result.second
                     << std::endl;
-        auto &backend  = adapter.solver();
-        auto  residual = adapter.make_state();
-        backend.residual(flow_time.initial_time,
-                         candidate,
-                         state_dot,
-                         residual);
-        bool   valid      = true;
-        double scaled_max = 0.;
-        for (const auto index : candidate.locally_owned_elements())
-          {
-            const double scaled =
-              std::abs(residual[index]) * function_scaling[index];
-            valid =
-              valid && std::isfinite(candidate[index]) &&
-              std::isfinite(scaled) && state_dot[index] == 0. &&
-              ((*state_constraints)[index] != 2. || candidate[index] > 0.);
-            if (std::isfinite(scaled))
-              scaled_max = std::max(scaled_max, scaled);
-          }
-        const auto &flow_state =
-          adapter.field(candidate, flow_fields.fields().state);
-        FieldVector relevant(flow_problem.locally_owned_dofs(),
-                             flow_problem.locally_relevant_dofs(),
-                             MPI_COMM_WORLD);
-        relevant = flow_state;
-        relevant.update_ghost_values();
-        const auto &area_field = flow_fields.fields().area;
-        const hp::MappingCollection<1, 3> mappings(area_field.mapping());
-        const hp::QCollection<1>          quadratures(
-          QGauss<1>(flow_problem.finite_element().degree + 1));
-        hp::FEValues<1, 3> values(
-          mappings,
-          flow_problem.dof_handler().get_fe_collection(),
-          quadratures,
-          update_values);
-        for (const auto &cell :
-             flow_problem.dof_handler().active_cell_iterators())
-          if (cell->is_locally_owned())
-            {
-              values.reinit(cell);
-              const auto         &fe_values = values.get_present_fe_values();
-              std::vector<double> areas(fe_values.n_quadrature_points);
-              fe_values[FEValuesExtractors::Scalar(0)].get_function_values(
-                relevant, areas);
-              for (const double area : areas)
-                valid = valid && std::isfinite(area) && area > 0.;
-            }
-        valid      = Utilities::MPI::min(valid ? 1u : 0u, MPI_COMM_WORLD) == 1;
-        scaled_max = Utilities::MPI::max(scaled_max, MPI_COMM_WORLD);
-        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-          std::cout << std::setprecision(17)
-                    << "Steady KINSOL post-gate scaled F max: " << scaled_max
-                    << "; target: " << steady_function_tolerance
-                    << "; finite/positive/zero-rate: " << valid << std::endl;
-        AssertThrow(
-          valid && scaled_max <= steady_function_tolerance,
-          ExcMessage(
-            "Steady KINSOL post-gate failed; no accepted state output or checkpoint was written."));
+        check_coupled_steady_state(adapter,
+                                   flow_time.initial_time,
+                                   candidate,
+                                   state_dot,
+                                   function_scaling,
+                                   *state_constraints,
+                                   steady_function_tolerance,
+                                   flow_problem,
+                                   adapter.field(candidate,
+                                                 flow_fields.fields().state),
+                                   flow_fields.fields().area);
         state = candidate;
         flow_problem.open_output_files();
         output_step(flow_time.initial_time, state, state_dot, 0);

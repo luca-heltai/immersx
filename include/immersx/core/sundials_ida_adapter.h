@@ -412,7 +412,8 @@ namespace ImmersX
      * initialize or advance IDA. Optionally fill positive function scaling
      * 1 / sum_j |J_ij| c_j from supplied positive state characteristics c.
      * Call with scaling outputs once, then keep them fixed during the solve.
-     * Second-order condensation and the PETSc backend are not supported here.
+     * Uses the existing second-order condensation when available. The PETSc
+     * backend is not supported here.
      */
     void
     setup_steady_jacobian(const double            time,
@@ -2003,19 +2004,15 @@ namespace ImmersX
                                       time,
                                       &snapshot->linearization);
           condensation_ = composition_.second_order_condensation(blocks);
-          AssertThrow(
-            !steady_setup || !condensation_,
-            dealii::ExcMessage(
-              "Steady Newton does not support second-order condensation."));
+          if (function_scaling != nullptr)
+            make_steady_function_scaling(blocks,
+                                         *characteristics,
+                                         *function_scaling);
           std::shared_ptr<MatrixType> monolithic;
           if (!condensation_)
             {
               monolithic = std::make_shared<MatrixType>();
               composition_.monolithic_matrix(blocks, *monolithic);
-              if (function_scaling != nullptr)
-                make_steady_function_scaling(*monolithic,
-                                             *characteristics,
-                                             *function_scaling);
             }
           direct_timer.stop();
           dealii::TimerOutput::Scope factor_timer(computing_timer,
@@ -2175,9 +2172,10 @@ namespace ImmersX
     }
 
     void
-    make_steady_function_scaling(const MatrixType       &matrix,
-                                 const GlobalVectorType &characteristics,
-                                 GlobalVectorType       &scaling)
+    make_steady_function_scaling(
+      const typename Composition::BlockMatrixType &blocks,
+      const GlobalVectorType                      &characteristics,
+      GlobalVectorType                            &scaling)
     {
 #  ifndef IMMERSX_USE_PETSC_LA
       bool valid = true;
@@ -2192,49 +2190,66 @@ namespace ImmersX
                                     composition_.communicator()) == 1,
         dealii::ExcMessage(
           "Steady state characteristics and their reciprocals must be finite and positive."));
-      auto flat = composition_.pack(characteristics);
-      flat.compress(dealii::VectorOperation::insert);
-      FieldVectorType columns;
-      columns.import_nonlocal_data_for_fe(matrix, flat);
-      const auto &native        = matrix.trilinos_matrix();
-      const auto *column_values = columns.trilinos_vector()[0];
-      // Concatenated fields can have noncontiguous global ownership. Borrow
-      // native local rows, avoiding end(row) or advancing into ownership gaps.
-      // Imported characteristics use exactly the matrix's local column map.
-      for (int local_row = 0; local_row < native.NumMyRows(); ++local_row)
+      // Scale the original residual, including kinematic rows, even when its
+      // linear solve uses condensation. Blocks have already summed all terms
+      // in each entry; taking absolute values here preserves cancellations.
+      // Only owned row sums and one column import exist at a time.
+      for (unsigned int i = 0; i < blocks.n_block_rows(); ++i)
         {
-          int     n_entries      = 0;
-          double *values         = nullptr;
-          int    *column_indices = nullptr;
-          if (native.ExtractMyRowView(
-                local_row, n_entries, values, column_indices) != 0)
+          auto                    &output = scaling.block(i);
+          const auto              &owned  = output.locally_owned_elements();
+          std::vector<long double> sums(owned.n_elements(), 0.);
+          for (unsigned int j = 0; j < blocks.n_block_cols(); ++j)
             {
-              valid = false;
-              continue;
+              const auto     &matrix = blocks.block(i, j);
+              FieldVectorType columns;
+              columns.import_nonlocal_data_for_fe(matrix,
+                                                  characteristics.block(j));
+              const auto &native        = matrix.trilinos_matrix();
+              const auto *column_values = columns.trilinos_vector()[0];
+              valid                     = valid && native.NumMyRows() ==
+                                 static_cast<int>(owned.n_elements());
+              // Native local views never advance into holes between fields.
+              for (int local_row = 0; local_row < native.NumMyRows();
+                   ++local_row)
+                {
+                  int        n_entries      = 0;
+                  double    *values         = nullptr;
+                  int       *column_indices = nullptr;
+                  const auto row = static_cast<dealii::types::global_dof_index>(
+                    native.GRID64(local_row));
+                  if (!owned.is_element(row) ||
+                      native.ExtractMyRowView(
+                        local_row, n_entries, values, column_indices) != 0)
+                    {
+                      valid = false;
+                      continue;
+                    }
+                  auto &sum = sums[owned.index_within_set(row)];
+                  for (int entry = 0; entry < n_entries; ++entry)
+                    sum += std::abs(static_cast<long double>(values[entry])) *
+                           column_values[column_indices[entry]];
+                }
             }
-          long double sum = 0.;
-          for (int entry = 0; entry < n_entries; ++entry)
-            sum += std::abs(static_cast<long double>(values[entry])) *
-                   column_values[column_indices[entry]];
-          const auto row = static_cast<dealii::types::global_dof_index>(
-            native.GRID64(local_row));
-          const double value = static_cast<double>(sum);
-          const double inverse =
-            std::isfinite(value) && value > 0. ? 1. / value : 0.;
-          valid = valid && std::isfinite(value) && value > 0. &&
-                  std::isfinite(inverse) && inverse > 0.;
-          flat[row] = inverse;
+          for (const auto row : owned)
+            {
+              const double value =
+                static_cast<double>(sums[owned.index_within_set(row)]);
+              const double inverse =
+                std::isfinite(value) && value > 0. ? 1. / value : 0.;
+              valid = valid && std::isfinite(value) && value > 0. &&
+                      std::isfinite(inverse) && inverse > 0.;
+              output[row] = inverse;
+            }
         }
       AssertThrow(
         dealii::Utilities::MPI::min(valid ? 1u : 0u,
                                     composition_.communicator()) == 1,
         dealii::ExcMessage(
           "Steady Jacobian row scales must be finite and positive; zero rows are unsupported."));
-      flat.compress(dealii::VectorOperation::insert);
-      composition_.unpack(flat, scaling);
       scaling.compress(dealii::VectorOperation::insert);
 #  else
-      (void)matrix;
+      (void)blocks;
       (void)characteristics;
       (void)scaling;
       AssertThrow(false,

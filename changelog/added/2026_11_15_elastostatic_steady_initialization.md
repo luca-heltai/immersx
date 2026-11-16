@@ -7,3 +7,8 @@ PR: #441
   Jacobians, frozen scaling from the first materialized Jacobian, strict area
   constraints, and a final residual gate. Accepted output and checkpoints are
   written at the initial time without advancing IDA.
+- Dynamic MetricFlowX elastodynamics can explicitly initialize a steady
+  equilibrium with native KINSOL line search in the same four-field adapter,
+  retaining second-order condensation and the subsequent time-tolerance ramp.
+  Full-residual scaling is computed from the existing global blocks, and the
+  original linear and nonlinear post-gates precede adoption of the initial state.
