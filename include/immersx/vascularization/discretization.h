@@ -10,11 +10,14 @@
 #include <deal.II/grid/cell_id.h>
 #include <deal.II/grid/tria.h>
 
+#include <boost/serialization/array.hpp>
+
 #include <immersx/vascularization/growth_work.h>
 #include <immersx/vascularization/network.h>
 
 #include <functional>
 #include <set>
+#include <tuple>
 
 namespace ImmersX::Vascularization
 {
@@ -74,6 +77,69 @@ namespace ImmersX::Vascularization
              const DiscretizationParameters &parameters,
              MPI_Comm                        communicator);
 
+  /** Endpoint identities and execution-cell metadata already used by the mesh
+   * builder. Equal coordinates do not imply equal vertices: physical Node ids
+   * and interior (Vessel id, parameter) keys occupy separate namespaces.
+   * An optional sidecar retains these records before partitioning for native
+   * graph initialization; it contains no second triangulation or FE matrices.
+   */
+  struct MeshVertexKey
+  {
+    Id     entity    = invalid_id;
+    double parameter = 0.;
+    bool   interior  = false;
+
+    bool
+    operator<(const MeshVertexKey &other) const
+    {
+      return std::tie(interior, entity, parameter) <
+             std::tie(other.interior, other.entity, other.parameter);
+    }
+    bool
+    operator==(const MeshVertexKey &other) const
+    {
+      return interior == other.interior && entity == other.entity &&
+             parameter == other.parameter;
+    }
+    template <class Archive>
+    void
+    serialize(Archive &ar, unsigned int)
+    {
+      ar &entity &parameter &interior;
+    }
+  };
+
+  struct MeshCellGraph
+  {
+    dealii::types::coarse_cell_id             id;
+    dealii::types::subdomain_id               owner;
+    VesselCell                                reference;
+    std::array<MeshVertexKey, 2>              vertices;
+    std::array<dealii::Point<3>, 2>           positions;
+    std::array<dealii::types::boundary_id, 2> boundary_ids{{0, 0}};
+
+    bool
+    operator==(const MeshCellGraph &other) const
+    {
+      return id == other.id && owner == other.owner &&
+             reference.vessel == other.reference.vessel &&
+             reference.begin == other.reference.begin &&
+             reference.end == other.reference.end &&
+             vertices == other.vertices && positions == other.positions &&
+             boundary_ids == other.boundary_ids;
+    }
+    template <class Archive>
+    void
+    serialize(Archive &ar, unsigned int)
+    {
+      ar &id &owner;
+      ar &reference.vessel &reference.begin &reference.end;
+      ar &vertices &positions               &boundary_ids;
+    }
+  };
+
+  using MeshGraph = std::vector<MeshCellGraph>;
+
   using CellVessels = std::map<dealii::types::coarse_cell_id, VesselCell>;
 
   /**
@@ -103,7 +169,10 @@ namespace ImmersX::Vascularization
    * callback on every rank; in distributed builds it runs only at physical
    * vessel owners. These ids travel with cells
    * to execution owners and ghosts; no global endpoint table is needed.
-   * Reversal also reverses the endpoint ids.
+   * Reversal also reverses the endpoint ids. When supplied, initial_graph
+   * must be empty and receives each original execution cell once at its
+   * physical vessel owner, preserving exact coarse ids and vertex identities.
+   * The default path retains no sidecar.
    */
   CellVessels
   create_triangulation(
@@ -114,6 +183,18 @@ namespace ImmersX::Vascularization
     const std::function<std::array<dealii::types::boundary_id, 2>(
       const VesselCell &,
       const Vessel &)>          &boundary_ids = {});
+
+  /** Retain the existing execution-cell graph in an empty optional sidecar. */
+  CellVessels
+  create_triangulation(
+    const NetworkData           &network,
+    const DiscretizationResult  &discretization,
+    dealii::Triangulation<1, 3> &triangulation,
+    const std::set<Id>          &reversed_vessels,
+    const std::function<
+      std::array<dealii::types::boundary_id, 2>(const VesselCell &,
+                                                const Vessel &)> &boundary_ids,
+    MeshGraph *initial_graph);
 
   /** Recover the physical interval after any native binary 1D refinements. */
   VesselCell

@@ -1367,6 +1367,42 @@ vessel, local coordinate zero corresponds to the interval's end. Supplied
 arteriovenous terminal pairs become native terminal resistive connections;
 there is no second 0D model or extra line-cell volume.
 
+### Request the native steady network initial guess
+
+A MetricFlowX package exposing `InitialGraph`,
+`setup(const NetworkPhysics &, const InitialGraph &)` and
+`requests_steady_network_initialization()` also supports the existing setting:
+
+```text
+subsection MetricFlowSystem<1, 3>
+  set Initial state source = steady network
+end
+```
+
+This applies to generated results and to saved generation archives prepared
+through the same helper. The mesh builder retains an optional metadata sidecar
+from the execution cells it already creates. It preserves their exact coarse
+cell IDs, endpoint identities, orientations, positions, execution owners and
+boundary flags. Physical node IDs and interior vessel/parameter identities
+remain separate; equal coordinates do not merge vertices. The helper translates
+the existing compact material and boundary maps into the native initializer's
+graph, including venous reversal, saved microvascular links and sealed ends.
+It neither rebuilds nor duplicates the finite element grid.
+
+Only this explicitly selected mode gathers the graph metadata. The default
+`rest` path keeps no sidecar and uses the existing native setup overload.
+Older packages keep that path; their native setup rejects a selected steady
+network mode instead of silently falling back to rest. Rebuild against matching
+headers and libraries to enable the new overload.
+
+The native graph solve provides an initial guess for the flow variables at the
+requested initial time. Reservoir waveforms retain all samples and supply their
+value at that time; the helper does not replace them with constants. Reference
+areas and wall parameters remain those of the archived physical network.
+This guess does not certify solid equilibrium, multiplier consistency or an
+accepted coupled solution. Keep the coupled solver's residual and physical
+acceptance checks.
+
 The helper rejects a reference area at or below the native numerical floor
 `1e-10 m^2`; it does not clip a physical radius. Native setup validates the
 material law, terminal records and prepared mesh before distributing flow DoFs.
