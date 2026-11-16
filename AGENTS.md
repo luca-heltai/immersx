@@ -207,6 +207,27 @@ commit needs a body, use short bullets with conventional prefixes such as
 `fix`, `feat`, `refactor`, `docs`, and `chore`. Do not add `Co-Authored-By` or
 generated-attribution trailers.
 
+### Update open pull requests with rebase
+
+Update an open PR branch by rebasing it onto the freshly fetched target branch.
+Do not merge the target branch into a PR branch or create an update merge commit.
+Resolve conflicts during the rebase, preserving both the PR changes and current
+target-branch behavior. Use an isolated checkout if the existing worktree has
+local changes or is being used by another worker.
+
+When an authorized PR update rewrites published commits, first record and verify
+the remote head, then push with an explicit lease:
+
+```bash
+git push --force-with-lease=refs/heads/<pr-branch>:<expected-remote-sha> \
+  origin HEAD:refs/heads/<pr-branch>
+```
+
+Never use plain `--force`. If the remote head changes, stop, inspect the new
+commits, and preserve them before retrying. A rebase update does not authorize
+merging the PR. Run the relevant validation on the rebased result and report
+pending CI accurately.
+
 ### Changelog fragments
 
 Every change to user-visible behavior, the public API, the build system, the

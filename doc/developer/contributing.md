@@ -9,6 +9,19 @@ Coding agents must also read the repository-root
 agent-behavior rules; this page focuses on the human-facing development
 workflow and detailed commands.
 
+## Update an open pull request
+
+Fetch the current target branch and rebase the PR branch onto it; do not merge
+`master` (or another target branch) into the PR branch. Resolve conflicts while
+preserving the intended changes from both sides, then validate the rebased
+result. Use a separate checkout when another worker is using the existing one.
+
+If an authorized update rewrites a published branch, record its remote SHA
+before starting and use `git push --force-with-lease=refs/heads/<pr-branch>:<expected-remote-sha>`
+with the explicit `HEAD:refs/heads/<pr-branch>` refspec. A lease failure means
+someone else changed the branch: inspect and preserve those commits before
+retrying. Never replace the lease with plain `--force`.
+
 ## Repository layout
 
 The main source-tree areas are:
