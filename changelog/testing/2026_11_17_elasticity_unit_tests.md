@@ -1,4 +1,4 @@
-PR: pending
+PR: #455
 
 - Added unit tests of `ElasticityProblem` to `gtests/elasticity_03.cc`: body
   force and Neumann loads against exact integrals, time modulation of the
