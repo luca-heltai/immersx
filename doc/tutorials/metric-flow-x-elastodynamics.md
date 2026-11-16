@@ -186,8 +186,16 @@ This option adds vector reductions and a temporary weight vector; it does not
 assemble extra residuals or matrices, change tolerances, or alter convergence
 tests. Disable it for performance measurements.
 
-Set `Linear solver/Type = mumps-blr-fgmres` to run outer FGMRES with a full
-coupled Jacobian factored by MUMPS in block-low-rank mode as its preconditioner.
+Set `Linear solver/Type = mumps-blr-fgmres` to run outer FGMRES on the full
+coupled Jacobian. For compatible second-order pairs, the preconditioner uses
+the same kinematic condensation as the direct solver: the global kinematic
+mass is solved exactly, MUMPS BLR factors only the reduced sparse matrix, and
+the displacement/velocity pair is reconstructed. Its immutable mass factors
+are reused while the global matrix entries remain identical. If no compatible
+pair exists, BLR factors the full matrix as before. No dense Schur complement
+or cache of cell-local matrices is created. The condensed preconditioner is
+forward-only; a transpose request is explicitly unsupported, rather than
+applying an incorrect transpose of the elimination maps.
 IDA reuses that factorization for the linear solves associated with the current
 Jacobian and rebuilds it when IDA requests a new Jacobian. Configure
 `Linear solver/MUMPS BLR/Tolerance` for the BLR truncation threshold,

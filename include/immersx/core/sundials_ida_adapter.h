@@ -190,8 +190,9 @@ namespace ImmersX
       long int steps = 0, residual_evaluations = 0, nonlinear_iterations = 0,
                error_test_failures = 0, convergence_failures = 0;
       unsigned long jacobian_setups = 0, linear_solves = 0, restarts = 0,
-                    weight_evaluations       = 0;
-      int                       order        = 0;
+                    weight_evaluations = 0, kinematic_factorizations = 0,
+                    kinematic_factorization_reuses = 0;
+      int                       order              = 0;
       double                    current_time = 0., last_step = 0.;
       std::pair<double, double> tolerance_scales = {1., 1.};
     };
@@ -218,10 +219,12 @@ namespace ImmersX
           check_ida(IDAGetCurrentTime(memory, &result.current_time));
           check_ida(IDAGetLastStep(memory, &result.last_step));
         }
-      result.jacobian_setups    = jacobian_setups_;
-      result.linear_solves      = linear_solves_;
-      result.restarts           = restarts_;
-      result.weight_evaluations = weight_evaluations_;
+      result.jacobian_setups                = jacobian_setups_;
+      result.linear_solves                  = linear_solves_;
+      result.restarts                       = restarts_;
+      result.weight_evaluations             = weight_evaluations_;
+      result.kinematic_factorizations       = kinematic_factorizations_;
+      result.kinematic_factorization_reuses = kinematic_factorization_reuses_;
       result.tolerance_scales =
         tolerance_ramp_.scales(additional_data().initial_time,
                                result.current_time);
@@ -411,7 +414,8 @@ namespace ImmersX
       accumulated_statistics_ = {};
       jacobian_setups_ = linear_solves_ = restarts_ = weight_evaluations_ = 0;
       initial_condition_jacobian_time_.reset();
-      diagnostic_residuals_ = 0;
+      kinematic_factorizations_ = kinematic_factorization_reuses_ = 0;
+      diagnostic_residuals_                                       = 0;
       if (compute_consistent_initial_conditions_ &&
           additional_data().ic_type == AdditionalData::use_y_diff)
         {
@@ -844,7 +848,7 @@ namespace ImmersX
 
       /** Solve with a distributed right-hand side of the factored size. */
       void
-      solve(FieldVectorType &destination, const FieldVectorType &source)
+      solve(FieldVectorType &destination, const FieldVectorType &source) const
       {
         destination.reinit(source, true);
         if (diagonal_)
@@ -916,21 +920,68 @@ namespace ImmersX
       std::unique_ptr<dealii::SparseDirectUMFPACK> umfpack_;
 #  ifdef DEAL_II_WITH_MUMPS
       std::unique_ptr<dealii::SparseDirectMUMPS> mumps_;
-      FieldVectorType                            solution_;
+      mutable FieldVectorType                    solution_;
 #  endif
       std::size_t n_entries_ = 0;
     };
-    template <typename BlockMatrixType>
-    Operator
-    make_mumps_blr_preconditioner(const Operator        &operator_view,
-                                  const BlockMatrixType &blocks) const
+    using KinematicCondensation = typename Composition::SecondOrderCondensation;
+
+    // Factors captured by an older preconditioner remain immutable when the
+    // next Jacobian has a different mass. The cache retains only the current
+    // global sparse kinematic mass, never cell-local assembly matrices.
+    void
+    prepare_kinematic_solvers(
+      const std::shared_ptr<const KinematicCondensation> &condensation,
+      const LinearSolver                                  mass_solver)
+    {
+      kinematic_solvers_.resize(condensation->n_pairs());
+      kinematic_masses_.resize(condensation->n_pairs());
+      for (std::size_t p = 0; p < condensation->n_pairs(); ++p)
+        {
+          const auto &mass = condensation->kinematic_mass(p);
+          if (kinematic_solvers_[p] &&
+              dealii::Utilities::MPI::min(kinematic_masses_[p] == mass ? 1 : 0,
+                                          composition_.communicator()) == 1)
+            {
+              ++kinematic_factorization_reuses_;
+              continue;
+            }
+          const auto matrix =
+            mass.make_matrix(condensation->kinematic_partition(p),
+                             composition_.communicator());
+          auto factor = std::make_shared<DirectFactorization>();
+          factor->factorize(mass_solver,
+                            *matrix,
+                            composition_.communicator(),
+                            mumps_workspace_relaxation_,
+                            mumps_memory_limit_mb_,
+                            mumps_output_details_);
+          ++kinematic_factorizations_;
+          kinematic_masses_[p]  = mass;
+          kinematic_solvers_[p] = std::move(factor);
+          if (kinematic_solvers_[p]->diagonal())
+            pcout << "IDAAdapter: inverted a diagonal second-order mass with "
+                  << matrix->m() << " rows." << std::endl;
+          else
+            pcout << "IDAAdapter: "
+                  << (mass_solver == LinearSolver::umfpack ? "UMFPACK" :
+                                                             "MUMPS")
+                  << " factorized a second-order mass with " << matrix->m()
+                  << " rows, " << kinematic_solvers_[p]->n_entries()
+                  << " matrix entries." << std::endl;
+        }
+    }
+
+    using BlrAction =
+      std::function<void(FieldVectorType &, const FieldVectorType &, bool)>;
+
+    BlrAction
+    make_mumps_blr_action(const MatrixType &matrix) const
     {
 #  if defined(DEAL_II_WITH_MUMPS) && !defined(IMMERSX_USE_PETSC_LA)
-      auto matrix = std::make_shared<MatrixType>();
-      composition_.monolithic_matrix(blocks, *matrix);
       const auto communicator = composition_.communicator();
       AssertThrow(
-        matrix->m() >= dealii::Utilities::MPI::n_mpi_processes(communicator),
+        matrix.m() >= dealii::Utilities::MPI::n_mpi_processes(communicator),
         dealii::ExcMessage(
           "MUMPS BLR requires at least one coupled unknown per MPI rank."));
 
@@ -953,25 +1004,18 @@ namespace ImmersX
       control[35] = 1;
       pcout << "IDAAdapter: factorizing the MUMPS BLR FGMRES preconditioner."
             << std::endl;
-      factor->initialize(*matrix);
+      factor->initialize(matrix);
       auto balanced = std::make_shared<FieldVectorType>();
       balanced->reinit(
         dealii::Utilities::MPI::create_evenly_distributed_partitioning(
-          communicator, matrix->m()),
+          communicator, matrix.m()),
         communicator);
-      auto solution = std::make_shared<FieldVectorType>(
-        composition_.pack(composition_.make_state()));
-      // MUMPS owns its coefficient arrays after initialize().
-      matrix.reset();
 
-      const auto apply = [this,
-                          factor,
-                          balanced,
-                          solution](GlobalVectorType       &dst,
-                                    const GlobalVectorType &src,
-                                    const bool              transpose) {
-        const auto   rhs      = composition_.pack(src);
-        const double rhs_norm = rhs.l2_norm();
+      return [factor, balanced](FieldVectorType       &dst,
+                                const FieldVectorType &src,
+                                const bool             transpose) {
+        dst.reinit(src, true);
+        const double rhs_norm = src.l2_norm();
         AssertThrow(std::isfinite(rhs_norm),
                     dealii::ExcMessage(
                       "Non-finite MUMPS BLR right-hand side."));
@@ -981,16 +1025,86 @@ namespace ImmersX
             return;
           }
         if (transpose)
-          factor->Tvmult(*balanced, rhs);
+          factor->Tvmult(*balanced, src);
         else
-          factor->vmult(*balanced, rhs);
-        *solution                  = *balanced;
-        const double solution_norm = solution->l2_norm();
-        AssertThrow(std::isfinite(solution_norm) && solution_norm > 0.,
+          factor->vmult(*balanced, src);
+        dealii::LinearAlgebra::ReadWriteVector<double> imported(
+          src.locally_owned_elements());
+        imported.import_elements(*balanced, dealii::VectorOperation::insert);
+        for (const auto index : src.locally_owned_elements())
+          dst[index] = imported[index];
+        dst.compress(dealii::VectorOperation::insert);
+        const double norm = dst.l2_norm();
+        AssertThrow(std::isfinite(norm) && norm > 0.,
                     dealii::ExcMessage(
                       "MUMPS BLR returned an invalid preconditioner action."));
-        composition_.unpack(*solution, dst);
       };
+#  else
+      (void)matrix;
+      AssertThrow(
+        false,
+        dealii::ExcMessage(
+          "MUMPS BLR FGMRES requires MUMPS and the Trilinos vector backend."));
+      return {};
+#  endif
+    }
+
+    template <typename BlockMatrixType>
+    Operator
+    make_mumps_blr_preconditioner(const Operator        &operator_view,
+                                  const BlockMatrixType &blocks)
+    {
+      std::function<void(GlobalVectorType &, const GlobalVectorType &, bool)>
+                 apply;
+      const auto condensed = composition_.second_order_condensation(blocks);
+      if (condensed)
+        {
+          prepare_kinematic_solvers(condensed, LinearSolver::mumps);
+          const auto reduced_action =
+            make_mumps_blr_action(condensed->reduced_matrix());
+          // Capture the exact immutable factors, not the mutable cache slots.
+          const auto masses = kinematic_solvers_;
+          pcout << "IDAAdapter: MUMPS BLR preconditioner has "
+                << condensed->reduced_matrix().m()
+                << " rows after second-order condensation (" << blocks.m()
+                << " coupled), "
+                << condensed->reduced_matrix().n_nonzero_elements()
+                << " matrix entries." << std::endl;
+          apply =
+            [condensed, masses, reduced_action](GlobalVectorType       &dst,
+                                                const GlobalVectorType &src,
+                                                const bool transpose) {
+              // FGMRES only uses the forward action. The adjoint would require
+              // the transposes of both elimination maps, not just S^-T.
+              AssertThrow(!transpose, dealii::ExcNotImplemented());
+              std::vector<FieldVectorType> kinematic(condensed->n_pairs());
+              FieldVectorType              rhs;
+              for (std::size_t p = 0; p < kinematic.size(); ++p)
+                {
+                  condensed->kinematic_rhs(src, p, rhs);
+                  masses[p]->solve(kinematic[p], rhs);
+                  condensed->finish_kinematic_solution(src, p, kinematic[p]);
+                }
+              FieldVectorType reduced_rhs, solution;
+              condensed->reduced_rhs(src, kinematic, reduced_rhs);
+              reduced_action(solution, reduced_rhs, false);
+              condensed->expand(solution, kinematic, dst);
+            };
+        }
+      else
+        {
+          MatrixType matrix;
+          composition_.monolithic_matrix(blocks, matrix);
+          const auto inverse = make_mumps_blr_action(matrix);
+          apply              = [this, inverse](GlobalVectorType       &dst,
+                                  const GlobalVectorType &src,
+                                  const bool              transpose) {
+            const auto      rhs = composition_.pack(src);
+            FieldVectorType solution;
+            inverse(solution, rhs, transpose);
+            composition_.unpack(solution, dst);
+          };
+        }
 
       Operator result;
       result.reinit_range_vector  = operator_view.reinit_range_vector;
@@ -1022,14 +1136,6 @@ namespace ImmersX
         dst += *temporary;
       };
       return result;
-#  else
-      (void)blocks;
-      AssertThrow(
-        false,
-        dealii::ExcMessage(
-          "MUMPS BLR FGMRES requires MUMPS and the Trilinos vector backend."));
-      return dealii::identity_operator(operator_view);
-#  endif
     }
 
     void
@@ -1158,7 +1264,7 @@ namespace ImmersX
                   for (std::size_t p = 0; p < kinematic.size(); ++p)
                     {
                       condensation_->kinematic_rhs(input, p, kinematic_rhs);
-                      kinematic_solvers_[p].solve(kinematic[p], kinematic_rhs);
+                      kinematic_solvers_[p]->solve(kinematic[p], kinematic_rhs);
                       condensation_->finish_kinematic_solution(input,
                                                                p,
                                                                kinematic[p]);
@@ -1856,39 +1962,7 @@ namespace ImmersX
             linear_solver_ == LinearSolver::umfpack ? "UMFPACK" : "MUMPS";
           if (condensation_)
             {
-              // The kinematic mass does not depend on alpha; refactor it only
-              // when its entries change.
-              kinematic_solvers_.resize(condensation_->n_pairs());
-              kinematic_masses_.resize(condensation_->n_pairs());
-              for (std::size_t p = 0; p < condensation_->n_pairs(); ++p)
-                {
-                  const auto &mass = condensation_->kinematic_mass(p);
-                  if (kinematic_solvers_[p].initialized() &&
-                      dealii::Utilities::MPI::min(
-                        kinematic_masses_[p] == mass ? 1 : 0,
-                        composition_.communicator()) == 1)
-                    continue;
-                  const auto matrix =
-                    mass.make_matrix(condensation_->kinematic_partition(p),
-                                     composition_.communicator());
-                  kinematic_solvers_[p].factorize(linear_solver_,
-                                                  *matrix,
-                                                  composition_.communicator(),
-                                                  mumps_workspace_relaxation_,
-                                                  mumps_memory_limit_mb_,
-                                                  mumps_output_details_);
-                  kinematic_masses_[p] = mass;
-                  if (kinematic_solvers_[p].diagonal())
-                    pcout << "IDAAdapter: inverted a diagonal second-order "
-                             "mass with "
-                          << matrix->m() << " rows." << std::endl;
-                  else
-                    pcout << "IDAAdapter: " << solver_name
-                          << " factorized a second-order mass with "
-                          << matrix->m() << " rows, "
-                          << kinematic_solvers_[p].n_entries()
-                          << " matrix entries." << std::endl;
-                }
+              prepare_kinematic_solvers(condensation_, linear_solver_);
               const auto &reduced = condensation_->reduced_matrix();
               direct_solver_.factorize(linear_solver_,
                                        reduced,
@@ -2058,8 +2132,10 @@ namespace ImmersX
     BlockPreconditioner block_preconditioner_ = BlockPreconditioner::automatic;
     DirectFactorization direct_solver_;
     std::shared_ptr<const typename Composition::SecondOrderCondensation>
-                                     condensation_;
-    std::vector<DirectFactorization> kinematic_solvers_;
+                                                            condensation_;
+    std::vector<std::shared_ptr<const DirectFactorization>> kinematic_solvers_;
+    unsigned long kinematic_factorizations_       = 0,
+                  kinematic_factorization_reuses_ = 0;
     std::vector<typename Composition::SecondOrderCondensation::CompressedRows>
                                           kinematic_masses_;
     Composition                           composition_;
