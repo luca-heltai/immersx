@@ -1,4 +1,4 @@
-PR: pending
+PR: #457
 
 - Point coupling in 3D: inclusions without a data line now impose the
   `Immersed inclusions/Boundary data` function in the vessel frame. Before,

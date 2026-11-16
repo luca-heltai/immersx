@@ -1,4 +1,4 @@
-PR: pending
+PR: #457
 
 - Added `gtests/elasticity_point_coupling_frame_01.cc`: for a rigid
   translation, the point-coupling constraint with boundary data and no data
