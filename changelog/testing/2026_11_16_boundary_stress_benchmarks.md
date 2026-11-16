@@ -1,4 +1,4 @@
-PR: pending
+PR: #453
 
 - Added `gtests/elasticity_boundary_stress_01.cc`, which checks the boundary
   tractions and normal displacement fluxes of `ElasticityProblem` against
