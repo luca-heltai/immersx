@@ -75,3 +75,11 @@ if(REQUIRE_GENERATED_RESPONSE)
     endif()
   endforeach()
 endif()
+
+if(REQUIRE_STEADY_INITIALIZATION)
+  if(NOT _stdout MATCHES "Steady KINSOL post-gate scaled F max: [^;]+; target: [^;]+; finite/positive/zero-rate: 1" OR
+     NOT _stdout MATCHES "Steady initialization KINSOL status: [0-9]+; iterations: [1-9][0-9]*" OR
+     NOT _stdout MATCHES "rows after second-order condensation")
+    message(FATAL_ERROR "Missing accepted nontrivial four-field condensed steady initialization")
+  endif()
+endif()

@@ -11,7 +11,13 @@
 
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
+#include <immersx/compatibility/dealii_9_9/ida.h>
 #include <immersx/core/sundials_kinsol_adapter.h>
+#ifdef DEAL_II_WITH_SUNDIALS
+#  include <deal.II/sundials/n_vector.h>
+
+#  include <kinsol/kinsol.h>
+#endif
 
 #include <cmath>
 #include <type_traits>
@@ -110,6 +116,7 @@ namespace
 
 TEST(KINSOLAdapter, MPI_NonlinearScalarSolve) // NOLINT
 {
+  dealii::GrowingVectorMemory<GlobalVector>::release_unused_memory();
   ImmersX::KINSOLAdapterParameters parameters;
   parameters.strategy                      = "newton";
   parameters.maximum_non_linear_iterations = 20;
@@ -148,6 +155,73 @@ TEST(KINSOLAdapter, MPI_NonlinearScalarSolve) // NOLINT
     EXPECT_NEAR(adapter.field(state, field.fields())(index),
                 std::sqrt(2.),
                 1.e-10);
+}
+
+TEST(KINSOLAdapter, BOTH_NativeSolveWithoutConstraints)
+{
+  // deal.II 9.8's native KINSOL clone assigns a pooled block vector without
+  // reinitializing its layout. Keep this native-wrapper availability fixture
+  // independent of previous tests using a different number of blocks.
+  dealii::GrowingVectorMemory<GlobalVector>::release_unused_memory();
+  ImmersX::KINSOLAdapterParameters parameters;
+  parameters.strategy           = "newton";
+  parameters.function_tolerance = 1.e-12;
+  Adapter    adapter(parameters, MPI_COMM_WORLD);
+  const auto field = add_quadratic_field(adapter);
+  auto       state = adapter.make_state();
+  state            = 1.;
+  EXPECT_GT(adapter.solve(state), 0u);
+  for (const auto index :
+       adapter.field(state, field.fields()).locally_owned_elements())
+    EXPECT_NEAR(adapter.field(state, field.fields())[index],
+                std::sqrt(2.),
+                1.e-10);
+}
+
+TEST(KINSOLAdapter, BOTH_NativeConstraintOperationsAvailability)
+{
+  dealii::GrowingVectorMemory<GlobalVector>::release_unused_memory();
+  ImmersX::KINSOLAdapterParameters parameters;
+  parameters.strategy           = "newton";
+  parameters.function_tolerance = 1.e-12;
+  using ContextOwner = ImmersX::Compatibility::SUNDIALS::IDA<GlobalVector>;
+  ContextOwner context_owner(typename ContextOwner::AdditionalData{},
+                             MPI_COMM_WORLD);
+  Adapter      adapter(parameters, MPI_COMM_WORLD);
+  const auto   field = add_quadratic_field(adapter);
+  auto         state = adapter.make_state();
+  state              = 1.;
+  auto bounds        = adapter.make_state();
+  bounds             = 2.;
+  auto view          = dealii::SUNDIALS::internal::make_nvector_view(
+    bounds
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+    ,
+    context_owner.get_sun_context()
+#  endif
+  );
+  const bool unavailable = view->ops->nvcompare == nullptr ||
+                           view->ops->nvconstrmask == nullptr ||
+                           view->ops->nvminquotient == nullptr;
+  adapter.solver().custom_setup = [&](void *memory) {
+    AssertThrow(KINSetConstraints(memory, view) >= 0,
+                dealii::ExcMessage("Could not configure native constraints."));
+  };
+  if (unavailable)
+    {
+      EXPECT_THROW(adapter.solve(state), dealii::ExceptionBase);
+      EXPECT_DOUBLE_EQ(state.l2_norm(),
+                       std::sqrt(static_cast<double>(state.size())));
+    }
+  else
+    {
+      EXPECT_GT(adapter.solve(state), 0u);
+      for (const auto index :
+           adapter.field(state, field.fields()).locally_owned_elements())
+        EXPECT_NEAR(adapter.field(state, field.fields())[index],
+                    std::sqrt(2.),
+                    1.e-10);
+    }
 }
 
 #endif

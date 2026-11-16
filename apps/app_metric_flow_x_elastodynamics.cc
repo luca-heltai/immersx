@@ -57,6 +57,7 @@
 #  include <vector>
 
 #  include "metric_flow_x_history.h"
+#  include "metric_flow_x_kinsol.h"
 #  include "metric_flow_x_physical_input.h"
 
 namespace
@@ -265,7 +266,33 @@ namespace
     std::optional<LiftCoRefinementReport> co_refinement_report;
 
     ParameterAcceptor coupling("/MetricFlowX coupling/");
-    bool              remove_fictitious_modes = false;
+    ParameterAcceptor steady_parameters("/MetricFlowX coupling/Steady solver/");
+    bool              initialize_steady           = false;
+    double            displacement_characteristic = 1.e-3,
+           solid_velocity_characteristic = 1.e-3, velocity_characteristic = 1.,
+           pressure_characteristic = 1.e4, steady_function_tolerance = 1.e-8,
+           steady_step_tolerance           = 1.e-12;
+    unsigned int steady_maximum_iterations = 50;
+    steady_parameters.add_parameter("Initialize equilibrium",
+                                    initialize_steady);
+    steady_parameters.add_parameter("Displacement characteristic",
+                                    displacement_characteristic);
+    steady_parameters.add_parameter(
+      "Solid velocity characteristic",
+      solid_velocity_characteristic,
+      "Physical solid velocity scale in m/s, independent of fluid velocity.");
+    steady_parameters.add_parameter("Velocity characteristic",
+                                    velocity_characteristic);
+    steady_parameters.add_parameter("Pressure characteristic",
+                                    pressure_characteristic);
+    steady_parameters.add_parameter("Function norm tolerance",
+                                    steady_function_tolerance);
+    steady_parameters.add_parameter("Scaled step tolerance",
+                                    steady_step_tolerance);
+    steady_parameters.add_parameter("Maximum nonlinear iterations",
+                                    steady_maximum_iterations);
+
+    bool remove_fictitious_modes = false;
     coupling.add_parameter(
       "Remove fictitious modal response",
       remove_fictitious_modes,
@@ -1282,6 +1309,81 @@ namespace
     adapter.solver().get_constraint_vector =
       [state_constraints]() -> GlobalVector & { return *state_constraints; };
 
+    if (initialize_steady)
+      {
+        AssertThrow(linear_solver == "mumps" || linear_solver == "umfpack",
+                    ExcMessage(
+                      "Steady initialization requires MUMPS or UMFPACK."));
+        AssertThrow(
+          ida_parameters.correction_type_at_initial_time == "none",
+          ExcMessage(
+            "Steady initialization requires Correction type = none; it supplies the initial equilibrium itself."));
+        for (const double value : {displacement_characteristic,
+                                   solid_velocity_characteristic,
+                                   velocity_characteristic,
+                                   pressure_characteristic,
+                                   steady_function_tolerance,
+                                   steady_step_tolerance})
+          AssertThrow(
+            std::isfinite(value) && value > 0.,
+            ExcMessage(
+              "Steady characteristics and tolerances must be finite and positive."));
+        AssertThrow(steady_maximum_iterations > 0,
+                    ExcMessage("Steady iteration limit must be positive."));
+        state_dot            = 0.;
+        auto candidate       = state;
+        auto characteristics = adapter.make_state();
+        adapter.field(characteristics, solid_fields.fields().displacement) =
+          displacement_characteristic;
+        adapter.field(characteristics, solid_fields.fields().velocity) =
+          solid_velocity_characteristic;
+        adapter.field(characteristics, coupling_fields.fields().multiplier) =
+          pressure_characteristic;
+        fill_flow_steady_characteristics(
+          flow_problem,
+          adapter.field(characteristics, flow_fields.fields().state),
+          velocity_characteristic,
+          pressure_characteristic);
+        characteristics.compress(VectorOperation::insert);
+        auto function_scaling = adapter.make_state();
+        adapter.setup_steady_jacobian(flow_time.initial_time,
+                                      candidate,
+                                      state_dot,
+                                      &characteristics,
+                                      &function_scaling);
+        auto solution_scaling = characteristics;
+        for (const auto index : solution_scaling.locally_owned_elements())
+          solution_scaling[index] = 1. / characteristics[index];
+        solution_scaling.compress(VectorOperation::insert);
+        const auto result =
+          solve_coupled_kinsol(adapter,
+                               flow_time.initial_time,
+                               candidate,
+                               state_dot,
+                               solution_scaling,
+                               function_scaling,
+                               *state_constraints,
+                               steady_maximum_iterations,
+                               steady_function_tolerance,
+                               steady_step_tolerance,
+                               KIN_LINESEARCH,
+                               ida_parameters.print_nonlinear_diagnostics);
+        check_coupled_steady_state(adapter,
+                                   flow_time.initial_time,
+                                   candidate,
+                                   state_dot,
+                                   function_scaling,
+                                   *state_constraints,
+                                   steady_function_tolerance,
+                                   flow_problem,
+                                   adapter.field(candidate,
+                                                 flow_fields.fields().state),
+                                   flow_fields.fields().area);
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout << "Steady initialization KINSOL status: " << result.second
+                    << "; iterations: " << result.first << std::endl;
+        state = candidate;
+      }
     flow_problem.open_output_files();
     const auto accepted_steps = adapter.solve(state, state_dot);
     if (physical_network)
