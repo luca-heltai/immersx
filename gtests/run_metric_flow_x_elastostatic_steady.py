@@ -122,6 +122,8 @@ end
     failed_state, failed_log = execute('small-step', rejected,
                                        ['--steady-only', '--checkpoint', str(rejected_checkpoint)],
                                        success=False)
+    if 'Steady KINSOL native status: 2' not in failed_log:
+        raise AssertionError('The controlled rejection did not exercise native small-step termination')
     if 'Steady KINSOL post-gate failed' not in ' '.join(failed_log.split()):
         raise AssertionError('The controlled small-step result did not reach the final residual gate')
     if failed_state.exists() or rejected_checkpoint.exists() or list(failed_state.parent.glob('*.pvtu')):

@@ -2180,16 +2180,20 @@ namespace ImmersX
                                  GlobalVectorType       &scaling)
     {
 #  ifndef IMMERSX_USE_PETSC_LA
-      auto flat = composition_.pack(characteristics);
-      flat.compress(dealii::VectorOperation::insert);
       bool valid = true;
-      for (const auto index : flat.locally_owned_elements())
-        valid = valid && std::isfinite(flat[index]) && flat[index] > 0.;
+      for (const auto index : characteristics.locally_owned_elements())
+        {
+          const double value = characteristics[index];
+          valid              = valid && std::isfinite(value) && value > 0. &&
+                  std::isfinite(1. / value);
+        }
       AssertThrow(
         dealii::Utilities::MPI::min(valid ? 1u : 0u,
                                     composition_.communicator()) == 1,
         dealii::ExcMessage(
-          "Steady state characteristics must be finite and positive."));
+          "Steady state characteristics and their reciprocals must be finite and positive."));
+      auto flat = composition_.pack(characteristics);
+      flat.compress(dealii::VectorOperation::insert);
       FieldVectorType columns;
       columns.import_nonlocal_data_for_fe(matrix, flat);
       const auto &column_values = columns;

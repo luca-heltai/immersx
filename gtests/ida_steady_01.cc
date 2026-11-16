@@ -78,11 +78,10 @@ namespace
           {
             entries->set(row,
                          0,
-                         row == 0 ?
-                           (nonfinite_row ?
-                              std::numeric_limits<double>::quiet_NaN() :
-                              2. * y[0]) :
-                           (zero_row ? 0. : 1.));
+                         row == 0 ? (nonfinite_row ?
+                                       std::numeric_limits<double>::max() / 2. :
+                                       2. * y[0]) :
+                                    (zero_row ? 0. : 1.));
             entries->set(row, 1, row == 0 ? -1. : (zero_row ? 0. : 1.));
           }
         entries->compress(dealii::VectorOperation::insert);
@@ -167,7 +166,7 @@ TEST(DistributedIDA, BOTH_SteadyScalingRejectsZeroRows)
     true);
 }
 
-TEST(DistributedIDA, BOTH_SteadyScalingRejectsNonfiniteRows)
+TEST(DistributedIDA, BOTH_SteadyScalingRejectsOverflowingRowScale)
 {
   with_pair(
     [](auto &adapter,
@@ -176,6 +175,7 @@ TEST(DistributedIDA, BOTH_SteadyScalingRejectsNonfiniteRows)
        auto &dot,
        auto &characteristic,
        auto &scaling) {
+      characteristic = 4.;
       EXPECT_THROW(adapter.setup_steady_jacobian(
                      0., state, dot, &characteristic, &scaling),
                    dealii::ExceptionBase);
@@ -196,7 +196,8 @@ TEST(DistributedIDA, BOTH_SteadyScalingRejectsNonpositiveCharacteristics)
     EXPECT_THROW(
       adapter.setup_steady_jacobian(0., state, dot, &characteristic, &scaling),
       dealii::ExceptionBase);
-    characteristic = std::numeric_limits<double>::quiet_NaN();
+    characteristic = std::numeric_limits<double>::max();
+    characteristic *= 2.;
     EXPECT_THROW(
       adapter.setup_steady_jacobian(0., state, dot, &characteristic, &scaling),
       dealii::ExceptionBase);
