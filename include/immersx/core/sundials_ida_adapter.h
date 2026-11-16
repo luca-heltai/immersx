@@ -50,6 +50,68 @@
 #ifdef DEAL_II_WITH_SUNDIALS
 namespace ImmersX
 {
+  namespace detail
+  {
+    /** Minimize a stalled direct-solve defect using the existing backsolve.
+     * The caller must independently check the original Jacobian residual:
+     * FGMRES's projected residual is not an acceptance criterion.
+     */
+    template <typename VectorType>
+    unsigned int
+    mumps_krylov_refinement(
+      const dealii::LinearOperator<VectorType>                    &jacobian,
+      const std::function<void(const VectorType &, VectorType &)> &backsolve,
+      const VectorType                                            &rhs,
+      VectorType                                                  &solution,
+      const unsigned int maximum_iterations,
+      const double       absolute_target)
+    {
+      if (maximum_iterations == 0)
+        return 0;
+      VectorType residual, correction;
+      jacobian.reinit_range_vector(residual, false);
+      jacobian.reinit_domain_vector(correction, false);
+      jacobian.vmult(residual, solution);
+      residual.sadd(-1., 1., rhs);
+      correction = 0.;
+      dealii::LinearOperator<VectorType> inverse;
+      bool                               backsolve_failed = false;
+      inverse.vmult                                       = [&backsolve,
+                       &backsolve_failed](VectorType       &destination,
+                                          const VectorType &source) {
+        try
+          {
+            backsolve(source, destination);
+          }
+        catch (const dealii::SolverControl::NoConvergence &)
+          {
+            backsolve_failed = true;
+            throw;
+          }
+      };
+      dealii::SolverControl control(maximum_iterations, absolute_target);
+      typename dealii::SolverFGMRES<VectorType>::AdditionalData data(
+        maximum_iterations);
+      data.orthogonalization_strategy =
+        dealii::LinearAlgebra::OrthogonalizationStrategy::modified_gram_schmidt;
+      dealii::SolverFGMRES<VectorType> solver(control, data);
+      try
+        {
+          solver.solve(jacobian, correction, residual, inverse);
+        }
+      catch (const dealii::SolverControl::NoConvergence &)
+        {
+          if (backsolve_failed)
+            throw;
+          // An exhausted budget may leave a useful correction. The caller's
+          // unchanged true-residual check still rejects an inaccurate solve.
+        }
+      solution += correction;
+      solution.compress(dealii::VectorOperation::insert);
+      return control.last_step();
+    }
+  } // namespace detail
+
   /** Public transient DAE adapter backed by the private composition engine. */
   template <typename FieldVectorType, typename GlobalVectorType>
   class IDAAdapter
@@ -1372,6 +1434,30 @@ namespace ImmersX
                     dst -= correction;
                     dst.compress(dealii::VectorOperation::insert);
                   }
+                unsigned int krylov_corrections = 0;
+                if (std::isfinite(defect_norm) &&
+                    defect_norm > relative_target * rhs_norm &&
+                    controls.mumps_maximum_krylov_corrections > 0)
+                  {
+                    krylov_corrections =
+                      detail::mumps_krylov_refinement<GlobalVectorType>(
+                        *current_jacobian_,
+                        backsolve,
+                        original_rhs,
+                        dst,
+                        controls.mumps_maximum_krylov_corrections,
+                        relative_target * rhs_norm);
+                    current_jacobian_->vmult(defect, dst);
+                    defect -= original_rhs;
+                    defect_norm = defect.l2_norm();
+                    std::ostringstream recovery_message;
+                    recovery_message
+                      << "IDAAdapter: MUMPS Krylov recovery used "
+                      << krylov_corrections << " iteration(s), true residual "
+                      << std::scientific << std::setprecision(17) << defect_norm
+                      << ", target " << relative_target * rhs_norm;
+                    pcout << recovery_message.str() << std::endl;
+                  }
                 if (ida_parameters_.print_nonlinear_diagnostics)
                   {
                     print_nonlinear_linear_defect(original_rhs, defect);
@@ -1396,7 +1482,8 @@ namespace ImmersX
                     else
                       message << "undefined";
                     message << ", correction solves = " << refinement
-                            << ", defect L2 history = [";
+                            << ", Krylov correction iterations = "
+                            << krylov_corrections << ", defect L2 history = [";
                     for (unsigned int i = 0; i <= refinement; ++i)
                       {
                         if (i != 0)

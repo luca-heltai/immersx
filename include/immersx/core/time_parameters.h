@@ -142,6 +142,10 @@ namespace ImmersX
      */
     double       mumps_relative_tolerance  = 1.e-8;
     unsigned int mumps_maximum_corrections = 3;
+    /** Bounded FGMRES recovery after stationary refinement fails. Zero disables
+     * recovery. The original retained-Jacobian acceptance check is unchanged.
+     */
+    unsigned int mumps_maximum_krylov_corrections = 8;
   };
 
   /** IDA-specific adaptive integration and nonlinear-solver controls. */
@@ -363,6 +367,13 @@ namespace ImmersX
         c.mumps_maximum_corrections,
         "Correction backsolves with the same factorization to reach the "
         "tolerance.",
+        dealii::Patterns::Integer(0));
+      prm.add_parameter(
+        "Maximum Krylov corrections",
+        c.mumps_maximum_krylov_corrections,
+        "FGMRES iterations using the existing MUMPS backsolve after stationary "
+        "refinement fails; zero disables recovery. The true-residual target "
+        "is unchanged.",
         dealii::Patterns::Integer(0));
       prm.leave_subsection();
       prm.leave_subsection();

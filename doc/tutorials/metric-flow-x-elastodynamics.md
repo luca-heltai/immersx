@@ -146,6 +146,7 @@ subsection MetricFlowSystem<1, 3>
       end
       subsection MUMPS
         set Maximum corrections = 3
+        set Maximum Krylov corrections = 8
         set Relative tolerance = 1e-8
       end
     end
