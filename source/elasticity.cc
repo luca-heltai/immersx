@@ -1485,8 +1485,7 @@ namespace ImmersX
     if (n_multiplier_dofs() == 0)
       return;
     TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
-    const bool constraint_coupling = par.time_mode == TimeMode::Static &&
-                                     !par.uses_prescribed_vessel_pressure();
+    const bool         constraint_coupling = imposes_wall_displacement();
     if (rebuild_matrices)
       multiplier_load_matrix() = 0.;
     LA::MPI::Vector affine_rhs(owned_dofs[1], mpi_communicator);
@@ -1847,6 +1846,61 @@ namespace ImmersX
 
 
   template <int dim, int spacedim>
+  bool
+  ElasticityProblem<dim, spacedim>::imposes_wall_displacement() const
+  {
+    if (par.uses_prescribed_vessel_pressure())
+      return false;
+    if (par.time_mode == TimeMode::Static)
+      return true;
+    else if (par.time_mode == TimeMode::Dynamic)
+      return newmark_wall_constraint;
+    else if (par.time_mode == TimeMode::QuasiStatic)
+      return false;
+    AssertThrow(false, ExcInternalError());
+    return false;
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  ElasticityProblem<dim, spacedim>::initialize_newmark_at_equilibrium()
+  {
+    TimerOutput::Scope t(computing_timer, "Solve (newmark equilibrium)");
+    AssertThrow(par.time_mode == TimeMode::Dynamic &&
+                  imposes_wall_displacement() && n_multiplier_dofs() > 0,
+                ExcMessage("The equilibrium start of a Newmark run needs a "
+                           "dynamic run with a wall displacement constraint."));
+
+    par.set_boundary_condition_times(current_time);
+    setup_constraints();
+    // Loads, springs and wall data with its affine part at current_time.
+    compute_system_rhs(current_time);
+
+    // In dynamic runs the stiffness matrix has homogeneous essential columns:
+    // add the affine contribution of the boundary data at current_time.
+    LA::MPI::Vector rhs;
+    rhs.reinit(system_rhs.block(0));
+    rhs = system_rhs.block(0);
+    AffineConstraints<double> homogeneous;
+    homogeneous.close();
+    add_dynamic_constraint_rhs(constraints, homogeneous, homogeneous, rhs);
+
+    auto &u      = solution.block(0);
+    auto &lambda = solution.block(1);
+    solve_wall_constrained_system(
+      stiffness_matrix, 1., rhs, system_rhs.block(1), u, lambda);
+    constraints.distribute(u);
+    distribute_multiplier_solution(lambda);
+    velocity                  = 0.;
+    acceleration              = 0.;
+    locally_relevant_solution = solution;
+  }
+
+
+
+  template <int dim, int spacedim>
   void
   ElasticityProblem<dim, spacedim>::solve_quasistatic()
   {
@@ -1901,8 +1955,11 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Solve (newmark)");
 
+    const bool wall_constraint =
+      n_multiplier_dofs() > 0 && imposes_wall_displacement();
     AssertThrow(par.uses_prescribed_vessel_pressure() == true ||
-                  uses_tensor_product_coupling() || n_multiplier_dofs() == 0,
+                  wall_constraint || uses_tensor_product_coupling() ||
+                  n_multiplier_dofs() == 0,
                 ExcNotImplemented(
                   "Dynamic solve without prescribed vessel pressure "
                   "is not implemented for point coupling."));
@@ -1976,7 +2033,7 @@ namespace ImmersX
     if (par.elasticity_model == ElasticityModel::LinearElasticity ||
         par.elasticity_model == ElasticityModel::KelvinVoigt)
       {
-        if (n_multiplier_dofs() == 0)
+        if (n_multiplier_dofs() == 0 || wall_constraint)
           {
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
@@ -2018,11 +2075,41 @@ namespace ImmersX
     // Start from a vector satisfying the same time-dependent constraints as
     // the acceleration right-hand side.
     acceleration_constraints.distribute(a);
-    solver_control.set_tolerance(
-      std::max(par.displacement_solver_control.tolerance(),
-               par.displacement_solver_control.reduction() *
-                 acceleration_rhs.l2_norm()));
-    solver_stiffness.solve(newmark_matrix, a, acceleration_rhs, prec_newmark);
+    if (wall_constraint)
+      {
+        // Solve for the displacement increment du = beta dt^2 a, which has the
+        // scaling of the static saddle point problem. The constraint row is
+        // B u^{n+1} - O lambda = g with u^{n+1} = u_pred + du. B has no
+        // columns for constrained dofs, and g holds their affine part.
+        const double factor =
+          beta * par.time_parameters.time_step * par.time_parameters.time_step;
+        const auto Bt =
+          linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
+        LA::MPI::Vector constraint_rhs;
+        constraint_rhs.reinit(g);
+        constraint_rhs = g;
+        constraint_rhs -= transpose_operator(Bt) * u_pred;
+        LA::MPI::Vector increment;
+        increment.reinit(a);
+        solve_wall_constrained_system(newmark_matrix,
+                                      1. / factor,
+                                      acceleration_rhs,
+                                      constraint_rhs,
+                                      increment,
+                                      lambda);
+        a.equ(1. / factor, increment);
+      }
+    else
+      {
+        solver_control.set_tolerance(
+          std::max(par.displacement_solver_control.tolerance(),
+                   par.displacement_solver_control.reduction() *
+                     acceleration_rhs.l2_norm()));
+        solver_stiffness.solve(newmark_matrix,
+                               a,
+                               acceleration_rhs,
+                               prec_newmark);
+      }
     acceleration_constraints.distribute(a);
 
     // corrector step
@@ -3122,8 +3209,14 @@ namespace ImmersX
                                    system_rhs.block(0));
       }
 
-    system_rhs.block(1) = force_rhs.block(1);
-    system_rhs.block(1) *= inclusion_scale;
+    // Wall displacement data keep the affine part of the essential boundary
+    // data that assemble_coupling() added, without modulation, as in static
+    // runs.
+    if (!imposes_wall_displacement())
+      {
+        system_rhs.block(1) = force_rhs.block(1);
+        system_rhs.block(1) *= inclusion_scale;
+      }
   }
 
 

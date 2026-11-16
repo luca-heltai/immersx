@@ -721,6 +721,8 @@ namespace ImmersX
 
     this->cycle        = 0;
     this->current_time = this->par.time_parameters.initial_time;
+    // Dynamic runs impose the wall data from the flow model at each step.
+    this->newmark_wall_constraint = this->par.time_mode == TimeMode::Dynamic;
     this->setup_dofs();
     if (this->uses_tensor_product_coupling())
       {
@@ -746,6 +748,78 @@ namespace ImmersX
   {
     AssertThrow(std::isfinite(physical_time),
                 ExcMessage("The coupled mechanical time must be finite."));
+    if (this->par.time_mode == TimeMode::Dynamic)
+      advance_newmark(physical_time);
+    else
+      solve_static_timestep(physical_time);
+
+    // `cycle` counts the coupled steps taken so far.
+    if (this->cycle % this->par.output_every_n_steps == 0)
+      this->output_results();
+
+    pressure_at_immersed_surface.clear();
+    pressure_at_immersed_surface_by_inclusion.clear();
+    compute_pressure_at_immersed_surface();
+    output_pressure_at_immersed_surface(this->cycle == 0 ? true : false);
+
+    this->compute_internal_and_boundary_stress(this->cycle == 0 ? true : false);
+    this->cycle++;
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::advance_newmark(
+    const double physical_time)
+  {
+    AssertThrow(this->imposes_wall_displacement(),
+                ExcMessage("Coupled Newmark steps impose the wall "
+                           "displacement: set Pressure coupling = false."));
+    if (this->cycle == 0)
+      {
+        this->current_time = physical_time;
+        if (this->par.refinement_strategy == "inclusions")
+          this->refine_and_transfer_around_inclusions();
+        else
+          for (unsigned int ref_cycle = 0;
+               ref_cycle + 1 < this->par.n_refinement_cycles;
+               ++ref_cycle)
+            {
+              this->assemble_elasticity_system();
+              this->initialize_newmark_at_equilibrium();
+              this->refine_and_transfer();
+                      }
+        // Mass, damping and Newmark matrices use the current `Time step`.
+        this->assemble_elasticity_system();
+        this->initialize_newmark_at_equilibrium();
+        return;
+      }
+
+    const double time_step = this->par.time_parameters.time_step;
+    AssertThrow(std::abs(physical_time - this->current_time - time_step) <=
+                  1.e-8 * time_step,
+                ExcMessage("A coupled Newmark step must advance the tissue by "
+                           "the Time step " +
+                           std::to_string(time_step) + ", from " +
+                           std::to_string(this->current_time) + " to " +
+                           std::to_string(physical_time) + "."));
+    // Wall data and the affine part of the essential boundary data at the new
+    // time; solve_newmark() sets up the constraints at both ends of the step.
+    this->par.set_boundary_condition_times(physical_time);
+    this->setup_constraints();
+    this->compute_system_rhs(physical_time);
+    this->solve_newmark();
+    this->current_time = physical_time;
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::solve_static_timestep(
+    const double physical_time)
+  {
     const bool time_changed = physical_time != this->current_time;
     this->current_time      = physical_time;
     if (time_changed)
@@ -788,21 +862,6 @@ namespace ImmersX
         this->assemble_coupling();
         this->solve();
       }
-
-
-    // `cycle` counts the coupled steps taken so far.
-    if (this->cycle % this->par.output_every_n_steps == 0)
-      this->output_results();
-
-    pressure_at_immersed_surface.clear();
-    pressure_at_immersed_surface_by_inclusion.clear();
-    // vessel_wall_pressure =
-    // output_pressure(cycle == 0 ? true : false);
-    compute_pressure_at_immersed_surface();
-    output_pressure_at_immersed_surface(this->cycle == 0 ? true : false);
-
-    this->compute_internal_and_boundary_stress(this->cycle == 0 ? true : false);
-    this->cycle++;
   }
 
   template <int dim, int spacedim>
