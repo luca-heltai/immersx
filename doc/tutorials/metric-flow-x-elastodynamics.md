@@ -203,7 +203,7 @@ Jacobian and rebuilds it when IDA requests a new Jacobian. Configure
 and `Output details` to enable MUMPS diagnostics. This mode requires MUMPS and
 the Trilinos vector backend; the normal block preconditioner setting must remain
 `automatic`. It provides an approximate inverse, so FGMRES still controls the
-physical solve residual. The factorization is not reused across changed
+physical solve residual. The reduced or full BLR factorization is not reused across changed
 Jacobians.
 
 `MetricFlowX coupling/MUMPS workspace relaxation` sets the extra workspace percentage

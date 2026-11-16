@@ -1,4 +1,4 @@
-PR: pending
+PR: #443
 
 - MUMPS BLR FGMRES now condenses compatible second-order kinematic pairs before
   approximate factorization, reusing exact global mass factors and retaining
