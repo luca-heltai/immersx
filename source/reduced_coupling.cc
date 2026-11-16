@@ -362,8 +362,9 @@ background_tria.get_mpi_communicator()
       {
         for (const auto entity : this->locally_owned_representative_entities())
           result[entity].push_back(
-            evaluate(this->get_entity_position(entity),
-                     this->get_entity_property_values(entity)));
+            modal_data ? modal_data(entity, this->get_entity_position(entity)) :
+                         evaluate(this->get_entity_position(entity),
+                                  this->get_entity_property_values(entity)));
       }
     else
       {
@@ -387,13 +388,21 @@ background_tria.get_mpi_communicator()
                   cell->as_dof_handler_iterator(this->properties_dh), bound);
               auto &cell_values = result[cell->global_active_cell_index()];
               for (unsigned int q = 0; q < this->get_quadrature().size(); ++q)
-                {
-                  std::copy_n(bound.begin() + q * inputs.size(),
-                              inputs.size(),
-                              inputs.begin());
-                  cell_values.push_back(
-                    evaluate(values.quadrature_point(q), inputs));
-                }
+                if (modal_data)
+                  {
+                    cell_values.push_back(
+                      modal_data(cell->global_active_cell_index(),
+                                 values.quadrature_point(q)));
+                    AssertDimension(cell_values.back().size(), n_modes);
+                  }
+                else
+                  {
+                    std::copy_n(bound.begin() + q * inputs.size(),
+                                inputs.size(),
+                                inputs.begin());
+                    cell_values.push_back(
+                      evaluate(values.quadrature_point(q), inputs));
+                  }
             }
       }
     return result;
