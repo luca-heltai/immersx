@@ -173,6 +173,118 @@ TEST(DistributedIDA, BOTH_SteadyRowViewsUseImportedColumnCharacteristics)
   });
 }
 
+TEST(DistributedIDA, MPI_SemanticFieldsUseDisjointOwnedRows)
+{
+  using namespace dealii;
+  const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  ASSERT_GE(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  IndexSet owned(2);
+  if (rank < 2)
+    owned.add_index(rank);
+  owned.compress();
+  for (const bool diagonal : {false, true})
+    {
+      ParameterAcceptor::clear();
+      const std::array<std::array<double, 4>, 4> coefficients =
+        diagonal ? std::array<std::array<double, 4>, 4>{{{{2., 0., 0., 0.}},
+                                                         {{0., -3., 0., 0.}},
+                                                         {{0., 0., 4., 0.}},
+                                                         {{0., 0., 0., -5.}}}} :
+                   std::array<std::array<double, 4>, 4>{{{{2., -1., 1., 0.}},
+                                                         {{-1., 3., 0., -1.}},
+                                                         {{1., 0., 4., -2.}},
+                                                         {{0., 1., -2., 5.}}}};
+      TimeIntervalParameters time("/", false);
+      IDAParameters          parameters("/", &time);
+      Adapter                adapter(time, parameters, MPI_COMM_WORLD);
+      adapter.set_linear_solver(Adapter::LinearSolver::mumps);
+      const auto fields = adapter.add([&](auto &builder) {
+        using Model = typename std::decay_t<decltype(builder)>::Model;
+        const std::array<ImmersX::FieldId, 2> ids{
+          {builder.algebraic_field("first", owned),
+           builder.algebraic_field("second", owned)}};
+        for (unsigned int row = 0; row < 2; ++row)
+          for (unsigned int column = 0; column < 2; ++column)
+            {
+              typename Model::MatrixOperatorFactory factory =
+                [owned, coefficients, row, column](const auto &) {
+                  DynamicSparsityPattern sparsity(2, 2);
+                  for (const auto i : owned)
+                    for (unsigned int j = 0; j < 2; ++j)
+                      sparsity.add(i, j);
+                  auto matrix = std::make_shared<Matrix>();
+                  matrix->reinit(owned, owned, sparsity, MPI_COMM_WORLD);
+                  for (const auto i : owned)
+                    for (unsigned int j = 0; j < 2; ++j)
+                      matrix->set(i,
+                                  j,
+                                  coefficients[2 * row + i][2 * column + j]);
+                  matrix->compress(VectorOperation::insert);
+                  return ImmersX::matrix_operator<
+                    ImmersX::ImmersXLA::MPI::Vector>(matrix);
+                };
+              builder
+                .term(ids[row],
+                      "block-" + std::to_string(row) + "-" +
+                        std::to_string(column))
+                .state(ids[column], factory);
+            }
+        return ids;
+      });
+      auto       state = adapter.make_state(), dot = adapter.make_state();
+      auto       characteristic = adapter.make_state(),
+           scaling              = adapter.make_state();
+      state                     = 0.;
+      dot                       = 0.;
+      const std::array<double, 4> weights{{2., 3., 5., 7.}};
+      const std::array<double, 4> sums =
+        diagonal ? std::array<double, 4>{{4., 9., 20., 35.}} :
+                   std::array<double, 4>{{12., 18., 36., 48.}};
+      for (unsigned int block = 0; block < 2; ++block)
+        for (const auto i : owned)
+          adapter.field(characteristic, fields.fields()[block])[i] =
+            weights[2 * block + i];
+      characteristic.compress(VectorOperation::insert);
+      IndexSet expected_owned(4);
+      if (rank < 2)
+        {
+          expected_owned.add_index(rank);
+          expected_owned.add_index(rank + 2);
+        }
+      expected_owned.compress();
+      EXPECT_EQ(characteristic.locally_owned_elements(), expected_owned);
+      adapter.setup_steady_jacobian(0., state, dot, &characteristic, &scaling);
+      // Independent dense absolute-row oracle; each rank needs ghost weights
+      // from both fields. Stored off-diagonal zeros also test diagonal
+      // detection.
+      for (unsigned int block = 0; block < 2; ++block)
+        for (const auto i : owned)
+          EXPECT_DOUBLE_EQ(adapter.field(scaling, fields.fields()[block])[i],
+                           1. / sums[2 * block + i]);
+      const std::array<double, 4> exact{{1., -2., 3., -4.}};
+      const std::array<double, 4> forcing =
+        diagonal ? std::array<double, 4>{{2., 6., 12., 20.}} :
+                   std::array<double, 4>{{7., -3., 21., -28.}};
+      auto rhs = adapter.make_state(), solution = adapter.make_state();
+      for (unsigned int block = 0; block < 2; ++block)
+        for (const auto i : owned)
+          adapter.field(rhs, fields.fields()[block])[i] =
+            forcing[2 * block + i];
+      rhs.compress(VectorOperation::insert);
+      adapter.solver().solve_with_jacobian(rhs, solution, 1.e-12);
+      for (unsigned int block = 0; block < 2; ++block)
+        for (const auto i : owned)
+          EXPECT_NEAR(adapter.field(solution, fields.fields()[block])[i],
+                      exact[2 * block + i],
+                      1.e-12);
+      auto defect = adapter.make_state();
+      adapter.current_jacobian().vmult(defect, solution);
+      defect -= rhs;
+      EXPECT_LE(defect.l2_norm(), 1.e-12 * rhs.l2_norm());
+      ParameterAcceptor::clear();
+    }
+}
+
 TEST(DistributedIDA, BOTH_SteadyScalingRejectsZeroRows)
 {
   with_pair(

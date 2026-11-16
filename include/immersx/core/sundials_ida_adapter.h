@@ -2198,8 +2198,8 @@ namespace ImmersX
       columns.import_nonlocal_data_for_fe(matrix, flat);
       const auto &native        = matrix.trilinos_matrix();
       const auto *column_values = columns.trilinos_vector()[0];
-      // Borrow native local rows: constructing a deal.II end(row) accessor
-      // inside the coefficient loop repeatedly copies the following row.
+      // Concatenated fields can have noncontiguous global ownership. Borrow
+      // native local rows, avoiding end(row) or advancing into ownership gaps.
       // Imported characteristics use exactly the matrix's local column map.
       for (int local_row = 0; local_row < native.NumMyRows(); ++local_row)
         {
