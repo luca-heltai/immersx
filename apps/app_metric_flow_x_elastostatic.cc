@@ -1094,12 +1094,14 @@ namespace
                              MPI_COMM_WORLD);
         relevant = flow_state;
         relevant.update_ghost_values();
-        const auto        &area_field = flow_fields.fields().area;
+        const auto &area_field = flow_fields.fields().area;
+        const hp::MappingCollection<1, 3> mappings(area_field.mapping());
+        const hp::QCollection<1>          quadratures(
+          QGauss<1>(flow_problem.finite_element().degree + 1));
         hp::FEValues<1, 3> values(
-          hp::MappingCollection<1, 3>(area_field.mapping()),
+          mappings,
           flow_problem.dof_handler().get_fe_collection(),
-          hp::QCollection<1>(
-            QGauss<1>(flow_problem.finite_element().degree + 1)),
+          quadratures,
           update_values);
         for (const auto &cell :
              flow_problem.dof_handler().active_cell_iterators())

@@ -36,6 +36,10 @@ def main():
     text += '''
 subsection MetricFlowX coupling
  set Pressure feedback = true
+ subsection Steady solver
+  # Tighten this tiny-case solve to retain its independent raw-F oracle.
+  set Function norm tolerance = 1e-12
+ end
 end
 subsection MetricFlowSystem<1, 3>
  subsection IDA parameters
