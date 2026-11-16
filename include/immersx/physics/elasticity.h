@@ -609,6 +609,20 @@ namespace ImmersX
     solve_newmark();
 
     /**
+     * Solve the saddle point problem
+     * @f$K u + B^T\lambda = f@f$, @f$B u - O\lambda = g@f$ with
+     * @f$K@f$ = `scale` `matrix`, using the augmented Lagrangian
+     * preconditioner of the static solve. The initial guess is zero.
+     */
+    void
+    solve_wall_constrained_system(const LA::MPI::SparseMatrix &matrix,
+                                  const double                 scale,
+                                  const LA::MPI::Vector       &f,
+                                  const LA::MPI::Vector       &g,
+                                  LA::MPI::Vector             &u,
+                                  LA::MPI::Vector             &lambda);
+
+    /**
      * Mark cells for refinement according to deal.ii routines fixed_number,
      * fixed_fraction or global.
      */
