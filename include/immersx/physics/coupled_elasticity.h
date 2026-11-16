@@ -119,8 +119,30 @@ namespace ImmersX
     void
     compute_pressure_at_immersed_surface();
 
+    /**
+     * Impose the radial wall displacement of each vessel, for example the one
+     * computed by a 1D flow model.
+     *
+     * With point coupling, `new_data` has one value per vessel or one per
+     * inclusion. With tensor-product coupling, it has one value per vessel;
+     * the data then replace the `Reduced right hand side` expression in the
+     * selected radial modes (indices spacedim and 2 spacedim + 1), as the
+     * point-coupling data do. Empty data change nothing.
+     */
     void
     update_vessel_radius_data(std::vector<double> new_data);
+
+    /**
+     * Impose radial wall displacements sampled along each vessel.
+     *
+     * `new_data` holds cells_per_vessel[v] samples for vessel v, one vessel
+     * after the other. The samples are equally spaced from the beginning to
+     * the end of the vessel and interpolated linearly in between. With point
+     * coupling the vessel runs from its first to its last inclusion in the
+     * inclusions file. With tensor-product coupling it runs along the reduced
+     * grid, in arc length, from the end that lies in the first cell of the
+     * reduced grid file (see make_vessel_index_of_a_cell()).
+     */
     void
     update_vessel_radius_data(std::vector<double> new_data,
                               std::vector<int>    cells_per_vessel);
@@ -137,6 +159,12 @@ namespace ImmersX
     /**
      * Fill vessel_index_of_a_cell from the "vessel_id" input file field and
      * set n_vessels(). Throws if the ids are not 0, 1, ..., n_vessels() - 1.
+     *
+     * Also parametrize each vessel by its normalized arc length along the
+     * reduced grid, from 0 to 1. The cells of a vessel must form a single
+     * chain. The vessel starts at the end that lies in the reduced cell with
+     * the smallest CellId, i.e., in the first cell of the reduced grid file;
+     * if both ends lie in one cell, at its first vertex.
      */
     void
     make_vessel_index_of_a_cell();
@@ -190,7 +218,33 @@ namespace ImmersX
     void
     output_pressure_at_immersed_surface(bool) const;
 
+    /** Pass the stored wall displacement samples to the tensor-product
+     * coupling, which is rebuilt after mesh refinement. Collective. */
+    void
+    install_tensor_wall_data();
+
     std::vector<unsigned int> vessel_index_of_a_cell;
+
+    /** Normalized arc length of the two vertices of a reduced cell. */
+    struct ReducedCellArc
+    {
+      unsigned int    vessel;
+      Point<spacedim> first_vertex;
+      Point<spacedim> second_vertex;
+      double          first_arc_length;
+      double          second_arc_length;
+    };
+
+    /** Locally owned reduced cells, by global active cell index. */
+    std::map<types::global_cell_index, ReducedCellArc> reduced_cell_arcs;
+
+    /** The coupling for which reduced_cell_arcs was computed. */
+    const void *parametrized_coupling = nullptr;
+
+    /** Wall displacement samples of each vessel for tensor-product coupling,
+     * empty until update_vessel_radius_data() is called. */
+    std::vector<std::vector<double>> wall_displacement_samples;
+
 
     unsigned int n_vessels_from_input = 0;
     // unsigned int n_vessels;
