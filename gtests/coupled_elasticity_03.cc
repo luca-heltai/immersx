@@ -1378,4 +1378,90 @@ end
     }
 }
 
+namespace
+{
+  // Cells [-0.9,-0.3], [-0.3,0.3], [0.3,0.9] with the given vessel ids.
+  std::string
+  three_cell_grid(const std::vector<unsigned int> &vessel_ids)
+  {
+    std::string name = "three_cells";
+    for (const auto id : vessel_ids)
+      name += "_" + std::to_string(id);
+    return reduced_grid(name, {-0.9, -0.3, 0.3, 0.9}, vessel_ids);
+  }
+
+  // The steps of run_timestep0() for tensor-product coupling, without
+  // make_vessel_index_of_a_cell(): the coupling object only exists after
+  // setup_dofs().
+  void
+  setup_tensor_product(VesselElasticityProblem<3> &problem)
+  {
+    problem.make_grid();
+    problem.setup_fe();
+    problem.setup_dofs();
+  }
+} // namespace
+
+// -----------------------------------------------------------------------------
+// make_vessel_index_of_a_cell(), get_vessel_index_of_a_cell(), n_vessels()
+// -----------------------------------------------------------------------------
+
+// "vessel_id" is not listed in the input file fields, and the error says so.
+TEST(CoupledElasticity, BOTH_MakeVesselIndexOfACellRequiresVesselIdField)
+{
+  with_problem(parameters(false, three_cell_grid({0, 1, 0}), "displacement"),
+               [](auto &problem) {
+                 setup_tensor_product(problem);
+                 try
+                   {
+                     problem.make_vessel_index_of_a_cell();
+                     FAIL() << "make_vessel_index_of_a_cell() did not throw";
+                   }
+                 catch (const ExceptionBase &exc)
+                   {
+                     EXPECT_NE(std::string(exc.what()).find("vessel_id"),
+                               std::string::npos);
+                   }
+               });
+}
+
+// Cells have vessel ids 0, 1, 0, so vessel 1 holds one third of the cells,
+// also after uniform refinement of the reduced grid.
+TEST(CoupledElasticity, BOTH_VesselIndexOfACellTwoVessels)
+{
+  with_problem(parameters(false,
+                          three_cell_grid({0, 1, 0}),
+                          "displacement, vessel_id"),
+               [](auto &problem) {
+                 setup_tensor_product(problem);
+                 problem.make_vessel_index_of_a_cell();
+                 ASSERT_EQ(problem.n_vessels(), 2u);
+
+                 std::vector<unsigned int> local_count(2, 0);
+                 for (const auto id : problem.get_vessel_index_of_a_cell())
+                   if (id != numbers::invalid_unsigned_int)
+                     {
+                       ASSERT_LT(id, 2u);
+                       ++local_count[id];
+                     }
+                 std::vector<unsigned int> n_cells(2, 0);
+                 Utilities::MPI::sum(local_count, MPI_COMM_WORLD, n_cells);
+                 ASSERT_GT(n_cells[1], 0u);
+                 EXPECT_EQ(n_cells[0], 2 * n_cells[1]);
+               });
+}
+
+// Cells have vessel ids 0, 2, 0: id 1 is missing.
+TEST(CoupledElasticity, BOTH_VesselIndexOfACellRejectsGap)
+{
+  with_problem(parameters(false,
+                          three_cell_grid({0, 2, 0}),
+                          "displacement, vessel_id"),
+               [](auto &problem) {
+                 setup_tensor_product(problem);
+                 EXPECT_ANY_THROW(problem.make_vessel_index_of_a_cell());
+               });
+}
+
+
 #endif
