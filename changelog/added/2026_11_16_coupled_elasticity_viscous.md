@@ -1,4 +1,4 @@
-PR: pending
+PR: #449
 
 - `coupled_elasticity` advances a damped elastodynamic tissue with one Newmark
   step per exchange when the parameter file describes a dynamic run, and
