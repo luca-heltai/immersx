@@ -433,10 +433,17 @@ namespace
   // and u_r = di r / ri inside. It vanishes on the hull, where the Dirichlet
   // data is zero.
   //
+  // With point coupling the wall data are either the data line 0.1 in the
+  // modes 3 and 7, or, with `boundary_function`, no data line and the
+  // boundary function g = di e_r = (0, di y / ri, di z / ri), whose
+  // vessel-frame projection on the wall is di (cos(theta), sin(theta), 0),
+  // the same expansion.
+  //
   // Compare the coupling formulations on one small fixed mesh. Dedicated
   // refinement tests above cover rebuilding the coupling after adaptation.
   InflatedVesselResult
-  solve_inflated_vessel(const bool point_coupling)
+  solve_inflated_vessel(const bool point_coupling,
+                        const bool boundary_function = false)
   {
     constexpr unsigned int n_cycles         = 1;
     constexpr unsigned int n_inclusions     = 32;
@@ -449,7 +456,8 @@ namespace
                     ", 0, 0, 0.2, 0";
     const std::string name =
       std::string(point_coupling ? "point" : "tensor_product") +
-      "_inflated_vessel_" + std::to_string(n_cycles);
+      (boundary_function ? "_boundary_function" : "") + "_inflated_vessel_" +
+      std::to_string(n_cycles);
 
     ParameterAcceptor::clear();
     ElasticityProblemParameters<3> par;
@@ -491,7 +499,13 @@ namespace
         R"(
         set Inclusions refinement             = 100
         set Selection of Fourier coefficients = 3,7
-        set Reference inclusion data          = 0,0,0,0.1,0,0,0,0.1,0
+        set Reference inclusion data          = )" +
+        std::string(boundary_function ? "" : "0,0,0,0.1,0,0,0,0.1,0") +
+        R"(
+        subsection Boundary data
+          set Function constants  = ri=0.2, di=0.1
+          set Function expression = 0; di*y/ri; di*z/ri
+        end
       end
       subsection Material properties
         subsection default
@@ -620,6 +634,29 @@ TEST(ElasticityTensorProductCouplingValidation,
   EXPECT_NEAR(tensor.l2, point.l2, 0.1 * point.l2);
   EXPECT_NEAR(tensor.linfty, point.linfty, 0.1 * point.linfty);
   EXPECT_NEAR(tensor.h1, point.h1, 0.1 * point.h1);
+}
+
+// The same expansion, imposed with point coupling through the boundary
+// function instead of a data line. The vessel lies along x, so the boundary
+// function has to be projected on the vessel frame (issue #456). The data at
+// every wall point are then those of the data line, and the solution is the
+// same as with the data line, up to the solver tolerance. It matches the
+// tensor-product solution as in the comparison above.
+TEST(ElasticityTensorProductCouplingValidation,
+     PointBoundaryFunctionMatchesDataLineAndTensorProduct)
+{
+  const auto function  = solve_inflated_vessel(true, true);
+  const auto data_line = solve_inflated_vessel(true);
+  const auto tensor    = solve_inflated_vessel(false);
+
+  EXPECT_NEAR(function.wall_displacement, data_line.wall_displacement, 1e-8);
+  EXPECT_NEAR(function.l2, data_line.l2, 1e-6 * data_line.l2);
+  EXPECT_NEAR(function.h1, data_line.h1, 1e-6 * data_line.h1);
+
+  EXPECT_NEAR(function.wall_displacement, 0.1, 1e-3);
+  EXPECT_NEAR(function.l2, tensor.l2, 0.1 * tensor.l2);
+  EXPECT_NEAR(function.linfty, tensor.linfty, 0.1 * tensor.linfty);
+  EXPECT_NEAR(function.h1, tensor.h1, 0.1 * tensor.h1);
 }
 
 INSTANTIATE_TEST_SUITE_P(TriangulationBackendsValidation,
