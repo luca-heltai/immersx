@@ -586,9 +586,43 @@ namespace ImmersX
 
     /**
      * Solve one dynamic Newmark step.
+     *
+     * With imposes_wall_displacement() and multiplier dofs, the step imposes
+     * the wall data at the new time with the multiplier. With the predictor
+     * \f$u^{pred}\f$ and \f$\delta u = \beta_N\Delta t^2 a^{n+1}\f$, it
+     * solves
+     * \f[
+     * \frac{1}{\beta_N\Delta t^2}A_n\,\delta u + B^T\lambda = r,
+     * \qquad
+     * B\,\delta u - O\lambda = g - B\,u^{pred},
+     * \f]
+     * where \f$A_n\f$ is the Newmark matrix, \f$r\f$ the acceleration
+     * right-hand side and \f$O\f$ the multiplier mass outside the bulk mesh.
+     * The second row is the constraint \f$Bu^{n+1} - O\lambda = g\f$ of the
+     * static solve.
      */
     void
     solve_newmark();
+
+    /**
+     * Whether the multiplier imposes the wall displacement data.
+     *
+     * This holds in static runs without `Pressure coupling`, and in dynamic
+     * runs when newmark_wall_constraint is also set. Otherwise the data are
+     * applied as a vessel pressure, @f$\lambda = M^{-1}g@f$.
+     */
+    bool
+    imposes_wall_displacement() const;
+
+    /**
+     * Impose the wall displacement with the multiplier in dynamic runs too.
+     *
+     * By default a dynamic run applies the wall data as a vessel pressure.
+     * VesselElasticityProblem sets this flag when it advances the tissue with
+     * Newmark steps between exchanges with a 1D flow model. Without effect
+     * with `Pressure coupling = true`.
+     */
+    bool newmark_wall_constraint = false;
 
     /**
      * Solve the saddle point problem
@@ -603,6 +637,18 @@ namespace ImmersX
                                   const LA::MPI::Vector       &g,
                                   LA::MPI::Vector             &u,
                                   LA::MPI::Vector             &lambda);
+
+    /**
+     * Start a wall-constrained Newmark run at the static equilibrium.
+     *
+     * Solves @f$A u + B^T\lambda = f@f$ with the wall constraint at
+     * current_time and sets the velocity and the acceleration to zero. The
+     * acceleration is consistent: @f$C a = f - A u - B^T\lambda - D v@f$
+     * vanishes. Requires a dynamic run, imposes_wall_displacement(), and
+     * assembled stiffness and coupling matrices.
+     */
+    void
+    initialize_newmark_at_equilibrium();
 
     /**
      * Mark cells for refinement according to deal.ii routines fixed_number,

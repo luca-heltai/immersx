@@ -202,16 +202,14 @@ namespace ImmersX
     // cross-section modes have maximum one, as in point coupling, so the data
     // are the amplitudes of the modes (see
     // ReducedCoupling::assemble_reduced_rhs()).
-    if (par.uses_prescribed_vessel_pressure() ||
-        par.time_mode != TimeMode::Static)
+    if (!imposes_wall_displacement())
       tensor_product_coupling->assemble_prescribed_rhs(force_rhs.block(1));
     else
       tensor_product_coupling->assemble_reduced_rhs(force_rhs.block(1));
     system_rhs.block(1) = force_rhs.block(1);
     // Finish the copy on every rank before adding affine constraint loads.
     system_rhs.block(1).compress(VectorOperation::insert);
-    if (par.uses_prescribed_vessel_pressure() ||
-        par.time_mode != TimeMode::Static)
+    if (!imposes_wall_displacement())
       tensor_product_coupling->assemble_multiplier_load_matrix(
         multiplier_load_matrix(), dh, constraints);
     else
@@ -269,8 +267,12 @@ namespace ImmersX
                         inclusions.inclusions_data[inclusion].size())
                     data +=
                       basis[j] * inclusions.get_inclusion_data(inclusion, j);
+                // Transient pressure data are modulated in time by the
+                // boundary data. Imposed wall displacements are used as given,
+                // as in static runs.
                 if (par.time_parameters.initial_time !=
-                    par.time_parameters.final_time)
+                      par.time_parameters.final_time &&
+                    !imposes_wall_displacement())
                   data *= inclusions.inclusions_rhs.value(point, component);
               }
             else
