@@ -116,6 +116,7 @@ namespace
 
 TEST(KINSOLAdapter, MPI_NonlinearScalarSolve) // NOLINT
 {
+  dealii::GrowingVectorMemory<GlobalVector>::release_unused_memory();
   ImmersX::KINSOLAdapterParameters parameters;
   parameters.strategy                      = "newton";
   parameters.maximum_non_linear_iterations = 20;
@@ -179,6 +180,7 @@ TEST(KINSOLAdapter, BOTH_NativeSolveWithoutConstraints)
 
 TEST(KINSOLAdapter, BOTH_NativeConstraintOperationsAvailability)
 {
+  dealii::GrowingVectorMemory<GlobalVector>::release_unused_memory();
   ImmersX::KINSOLAdapterParameters parameters;
   parameters.strategy           = "newton";
   parameters.function_tolerance = 1.e-12;
