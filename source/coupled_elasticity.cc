@@ -265,6 +265,9 @@ namespace ImmersX
     else if (this->uses_tensor_product_coupling())
       {
 #ifdef DEAL_II_WITH_VTK
+        // The coupling is rebuilt after mesh refinement.
+        if (parametrized_coupling != this->tensor_product_coupling.get())
+          make_vessel_index_of_a_cell();
         AssertThrow(!vessel_index_of_a_cell.empty(),
                     ExcMessage("The reduced grid has no vessel identifiers."));
         const auto &coupling     = *this->tensor_product_coupling;
@@ -525,24 +528,66 @@ namespace ImmersX
         pressure_at_immersed_surface_by_inclusion.reinit(
           owned_output, this->mpi_communicator);
         std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
+        // Vessel and normalized arc length of each support point of each
+        // locally owned cell, by reduced dof. A support point where vessels
+        // meet belongs to each of them. The entries of the output vector are
+        // known on the ranks that own the dofs.
+        std::vector<double> local_samples, local_entries;
         for (const auto &cell : reduced_dh.active_cell_iterators())
           if (cell->is_locally_owned())
             {
               cell->get_dof_indices(indices);
               cell->as_dof_handler_iterator(pressure_dh)
                 ->get_dof_indices(pressure_indices);
+              const auto &arc =
+                reduced_cell_arcs.at(cell->global_active_cell_index());
               for (unsigned int i = 0; i < indices.size(); ++i)
                 {
                   const auto [component, base] =
                     fe.system_to_component_index(i);
-                  if (component == 0 && owned_first.is_element(indices[i]))
-                    pressure_at_immersed_surface_by_inclusion
-                      [first + owned_first.index_within_set(indices[i])] =
+                  if (component != 0)
+                    continue;
+                  const double t = fe.unit_support_point(i)[0];
+                  local_samples.insert(local_samples.end(),
+                                       {static_cast<double>(indices[i]),
+                                        static_cast<double>(arc.vessel),
+                                        arc.first_arc_length +
+                                          t * (arc.second_arc_length -
+                                               arc.first_arc_length)});
+                  if (owned_first.is_element(indices[i]))
+                    {
+                      const auto entry =
+                        first + owned_first.index_within_set(indices[i]);
+                      pressure_at_immersed_surface_by_inclusion[entry] =
                         relevant_pressure[pressure_indices[base]];
+                      local_entries.insert(local_entries.end(),
+                                           {static_cast<double>(indices[i]),
+                                            static_cast<double>(entry)});
+                    }
                 }
             }
         pressure_at_immersed_surface_by_inclusion.compress(
           VectorOperation::insert);
+        std::map<types::global_dof_index, std::size_t> entry_of_dof;
+        for (const auto &entries :
+             Utilities::MPI::all_gather(this->mpi_communicator, local_entries))
+          for (unsigned int k = 0; k < entries.size(); k += 2)
+            entry_of_dof[static_cast<types::global_dof_index>(entries[k])] =
+              static_cast<std::size_t>(entries[k + 1]);
+        n_pressure_entries = total;
+        pressure_sample_entry.clear();
+        pressure_sample_vessel.clear();
+        pressure_sample_arc_length.clear();
+        for (const auto &samples :
+             Utilities::MPI::all_gather(this->mpi_communicator, local_samples))
+          for (unsigned int k = 0; k < samples.size(); k += 3)
+            {
+              pressure_sample_entry.push_back(entry_of_dof.at(
+                static_cast<types::global_dof_index>(samples[k])));
+              pressure_sample_vessel.push_back(
+                static_cast<unsigned int>(samples[k + 1]));
+              pressure_sample_arc_length.push_back(samples[k + 2]);
+            }
         std::vector<double> integral(n_vessels()), length(n_vessels());
         Utilities::MPI::sum(local_integral, this->mpi_communicator, integral);
         Utilities::MPI::sum(local_length, this->mpi_communicator, length);
@@ -1204,17 +1249,67 @@ namespace ImmersX
       }
     else
       {
-#ifdef DEAL_II_WITH_VTK
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Cannot split the pressure over inclusions for tensor coupling"));
-
-#endif
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Trying to split the pressure over inclusions: the code uses tensor_coupling but VTK flag is OFF"));
+        AssertThrow(number_of_cells_per_vessel.size() == n_vessels(),
+                    ExcDimensionMismatch(number_of_cells_per_vessel.size(),
+                                         n_vessels()));
+        AssertThrow(full_press.size() == n_pressure_entries,
+                    ExcMessage("The pressure does not match the support "
+                               "points of the last pressure computation."));
+        // (arc length, pressure) of the support points of each vessel.
+        std::vector<std::vector<std::pair<double, double>>> profile(
+          n_vessels());
+        for (unsigned int k = 0; k < pressure_sample_entry.size(); ++k)
+          {
+            AssertIndexRange(pressure_sample_vessel[k], n_vessels());
+            profile[pressure_sample_vessel[k]].emplace_back(
+              pressure_sample_arc_length[k],
+              full_press[pressure_sample_entry[k]]);
+          }
+        for (unsigned int vessel = 0; vessel < n_vessels(); ++vessel)
+          {
+            auto     &points = profile[vessel];
+            const int n      = number_of_cells_per_vessel[vessel];
+            AssertThrow(n > 0,
+                        ExcMessage("Each vessel must have at least one cell."));
+            AssertThrow(!points.empty(),
+                        ExcMessage("A vessel has no pressure samples."));
+            std::sort(points.begin(), points.end());
+            const auto value_at = [&points](const double s) {
+              const auto next =
+                std::upper_bound(points.begin(),
+                                 points.end(),
+                                 s,
+                                 [](const double x, const auto &p) {
+                                   return x < p.first;
+                                 });
+              if (next == points.begin())
+                return points.front().second;
+              if (next == points.end())
+                return points.back().second;
+              const auto   previous = std::prev(next);
+              const double w =
+                (s - previous->first) / (next->first - previous->first);
+              return (1 - w) * previous->second + w * next->second;
+            };
+            std::vector<double> samples(n);
+            if (points.size() == 1)
+              std::fill(samples.begin(), samples.end(), points[0].second);
+            else if (n == 1)
+              {
+                // Arc-length mean of the piecewise linear profile.
+                double integral = 0.;
+                for (unsigned int k = 0; k + 1 < points.size(); ++k)
+                  integral += 0.5 * (points[k].second + points[k + 1].second) *
+                              (points[k + 1].first - points[k].first);
+                const double length =
+                  points.back().first - points.front().first;
+                samples[0] = length > 0. ? integral / length : points[0].second;
+              }
+            else
+              for (int j = 0; j < n; ++j)
+                samples[j] = value_at(static_cast<double>(j) / (n - 1));
+            split_pressure.push_back(samples);
+          }
         return split_pressure;
       }
   }
