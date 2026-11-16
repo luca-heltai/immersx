@@ -227,6 +227,51 @@ TEST(SecondOrderCondensation, BOTH_RejectsNonKinematicRows)
 
 #if defined(DEAL_II_WITH_SUNDIALS) && defined(DEAL_II_WITH_MUMPS) && \
   !defined(IMMERSX_USE_PETSC_LA)
+namespace
+{
+  using BlrAdapter = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
+
+  void
+  add_blr_second_order_matrix(BlrAdapter                  &adapter,
+                              BlockMatrix                 &jacobian,
+                              const std::vector<IndexSet> &layout)
+  {
+    adapter.add([&](auto &builder) {
+      using Model       = typename std::decay_t<decltype(builder)>::Model;
+      const auto u      = builder.differential_field("u", layout[0]);
+      const auto v      = builder.differential_field("v", layout[1]);
+      const auto lambda = builder.algebraic_field("lambda", layout[2]);
+      const std::array<ImmersX::FieldId, 3> fields{{u, v, lambda}};
+      for (unsigned int row = 0; row < 3; ++row)
+        for (unsigned int column = 0; column < 3; ++column)
+          {
+            typename Model::MatrixOperatorFactory factory =
+              [&, row, column](const auto &) {
+                return ImmersX::matrix_operator<FieldVector>(
+                  jacobian.block(row, column));
+              };
+            builder
+              .term(fields[row],
+                    "entry-" + std::to_string(row) + "-" +
+                      std::to_string(column))
+              .state(fields[column], factory);
+          }
+      builder.second_order_pair(
+        u,
+        v,
+        [] { return 0ul; },
+        [&layout] {
+          ImmersX::SecondOrderPreconditionerData data;
+          data.constrained = IndexSet(layout[0].size());
+          if (layout[0].size() > constrained)
+            data.constrained.add_index(constrained);
+          return data;
+        });
+      return fields;
+    });
+  }
+} // namespace
+
 TEST(SecondOrderCondensation, BOTH_BlrAdapterSolvesFullConstrainedSystem)
 {
   using Adapter     = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
@@ -243,38 +288,7 @@ TEST(SecondOrderCondensation, BOTH_BlrAdapterSolvesFullConstrainedSystem)
       adapter.set_mumps_blr_parameters(1.e-5);
       BlockMatrix jacobian;
       assemble(jacobian, layout, 3.);
-      adapter.add([&](auto &builder) {
-        using Model       = typename std::decay_t<decltype(builder)>::Model;
-        const auto u      = builder.differential_field("u", layout[0]);
-        const auto v      = builder.differential_field("v", layout[1]);
-        const auto lambda = builder.algebraic_field("lambda", layout[2]);
-        const std::array<ImmersX::FieldId, 3> fields{{u, v, lambda}};
-        for (unsigned int row = 0; row < 3; ++row)
-          for (unsigned int column = 0; column < 3; ++column)
-            {
-              typename Model::MatrixOperatorFactory factory =
-                [&, row, column](const auto &) {
-                  return ImmersX::matrix_operator<FieldVector>(
-                    jacobian.block(row, column));
-                };
-              builder
-                .term(fields[row],
-                      "entry-" + std::to_string(row) + "-" +
-                        std::to_string(column))
-                .state(fields[column], factory);
-            }
-        builder.second_order_pair(
-          u,
-          v,
-          [] { return 0ul; },
-          [] {
-            ImmersX::SecondOrderPreconditionerData data;
-            data.constrained = IndexSet(n);
-            data.constrained.add_index(constrained);
-            return data;
-          });
-        return fields;
-      });
+      add_blr_second_order_matrix(adapter, jacobian, layout);
       auto state = adapter.make_state(), dot = adapter.make_state();
       state    = 0.;
       dot      = 0.;
@@ -309,5 +323,41 @@ TEST(SecondOrderCondensation, BOTH_BlrAdapterSolvesFullConstrainedSystem)
         }
     }
   condensed_mass = true;
+}
+
+TEST(SecondOrderCondensation, BOTH_BlrSmallMassPreservesFullFallback)
+{
+  const unsigned int size = 3;
+  const auto         owned =
+    Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
+                                                           size);
+  const auto multipliers =
+    Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD, m);
+  const std::vector<IndexSet> layout{owned, owned, multipliers};
+  BlockMatrix                 jacobian;
+  assemble(jacobian, layout, 2.);
+  ImmersX::TimeIntervalParameters time;
+  ImmersX::IDAParameters          parameters;
+  BlrAdapter                      adapter(time, parameters, MPI_COMM_WORLD);
+  adapter.set_linear_solver(BlrAdapter::LinearSolver::mumps_blr_fgmres);
+  add_blr_second_order_matrix(adapter, jacobian, layout);
+  auto state = adapter.make_state(), dot = adapter.make_state();
+  auto rhs = adapter.make_state(), solution = adapter.make_state();
+  state = 0.;
+  dot   = 0.;
+  for (unsigned int block = 0; block < 3; ++block)
+    for (const auto i : rhs.block(block).locally_owned_elements())
+      rhs.block(block)[i] = 1. + .2 * i + .4 * block;
+  rhs.compress(VectorOperation::insert);
+  adapter.solver().setup_jacobian(1., state, dot, 2.);
+  adapter.solver().solve_with_jacobian(rhs, solution, 1.e-11);
+  auto error = adapter.make_state();
+  jacobian.vmult(error, solution);
+  error -= rhs;
+  EXPECT_LE(error.l2_norm(), 1.e-10 * rhs.l2_norm());
+  if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) > size)
+    {
+      EXPECT_EQ(adapter.statistics().kinematic_factorizations, 0u);
+    }
 }
 #endif

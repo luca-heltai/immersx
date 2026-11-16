@@ -192,7 +192,8 @@ the same kinematic condensation as the direct solver: the global kinematic
 mass is solved exactly, MUMPS BLR factors only the reduced sparse matrix, and
 the displacement/velocity pair is reconstructed. Its immutable mass factors
 are reused while the global matrix entries remain identical. If no compatible
-pair exists, BLR factors the full matrix as before. No dense Schur complement
+pair exists, or a reduced factor has fewer unknowns than MPI ranks, BLR
+factors the full matrix as before. No dense Schur complement
 or cache of cell-local matrices is created. The condensed preconditioner is
 forward-only; a transpose request is explicitly unsupported, rather than
 applying an incorrect transpose of the elimination maps.

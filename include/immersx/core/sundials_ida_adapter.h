@@ -1055,8 +1055,22 @@ namespace ImmersX
                                   const BlockMatrixType &blocks)
     {
       std::function<void(GlobalVectorType &, const GlobalVectorType &, bool)>
-                 apply;
-      const auto condensed = composition_.second_order_condensation(blocks);
+           apply;
+      auto condensed = composition_.second_order_condensation(blocks);
+      if (condensed)
+        {
+          // Native MUMPS needs a nonempty balanced solution partition. A
+          // small pair can have fewer unknowns than ranks even when the full
+          // coupled matrix is large enough; retain the original full fallback.
+          const auto ranks = dealii::Utilities::MPI::n_mpi_processes(
+            composition_.communicator());
+          bool supported = condensed->reduced_matrix().m() >= ranks;
+          for (std::size_t p = 0; p < condensed->n_pairs(); ++p)
+            supported =
+              supported && condensed->kinematic_partition(p).size() >= ranks;
+          if (!supported)
+            condensed.reset();
+        }
       if (condensed)
         {
           prepare_kinematic_solvers(condensed, LinearSolver::mumps);
