@@ -1702,4 +1702,69 @@ TEST(CoupledElasticity, BOTH_VesselIndexOfACellRejectsGap)
 }
 
 
+
+// The pointwise pressures at the reduced support points are interpolated in
+// arc length to equally spaced samples of each vessel. With a multiplier
+// linear in x, the pressure is k (lambda_3 + lambda_7)(x) at every support
+// point (see BOTH_PressureFromMultiplierTensorProduct), and so at every
+// sample; a single sample receives the vessel mean.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsTensorProduct)
+{
+  with_problem(
+    two_vessel_tensor_parameters({multiplier_only}), [](auto &problem) {
+      problem.run_timestep0();
+      const auto &reduced_dh =
+        problem.tensor_product_coupling->get_dof_handler();
+      const auto lambda_3 = [](const double x) { return 1. + x; };
+      const auto lambda_7 = [](const double x) { return 2. + 3. * x; };
+      {
+        auto           &lambda = problem.locally_relevant_solution.block(1);
+        LA::MPI::Vector owned(lambda.locally_owned_elements(), MPI_COMM_WORLD);
+        VectorTools::interpolate(
+          reduced_dh,
+          FunctionFromFunctionObjects<3>(
+            {[&](const Point<3> &p) { return lambda_3(p[0]); },
+             [&](const Point<3> &p) { return lambda_7(p[0]); }}),
+          owned);
+        lambda = owned;
+      }
+      problem.compute_pressure_at_immersed_surface();
+
+      const Vector<double> pressure(
+        problem.pressure_at_immersed_surface_by_inclusion);
+      auto sorted = gather(problem.pressure_at_immersed_surface_by_inclusion);
+      std::sort(sorted.begin(), sorted.end());
+      const double k        = sorted[0] / (lambda_3(-1.) + lambda_7(-1.));
+      const auto   expected = [&](const double x) {
+        return k * (lambda_3(x) + lambda_7(x));
+      };
+
+      const auto split =
+        problem.split_pressure_over_inclusions({3, 2}, pressure);
+      ASSERT_EQ(split.size(), 2u);
+      ASSERT_EQ(split[0].size(), 3u);
+      ASSERT_EQ(split[1].size(), 2u);
+      for (unsigned int j = 0; j < 3; ++j)
+        EXPECT_NEAR(split[0][j], expected(-1. + 0.5 * j), 1e-12)
+          << "vessel 0, sample " << j;
+      for (unsigned int j = 0; j < 2; ++j)
+        EXPECT_NEAR(split[1][j], expected(1. * j), 1e-12)
+          << "vessel 1, sample " << j;
+
+      const auto means =
+        problem.split_pressure_over_inclusions({1, 1}, pressure);
+      const auto by_vessel = gather(problem.pressure_at_immersed_surface);
+      ASSERT_EQ(means.size(), 2u);
+      for (unsigned int v = 0; v < 2; ++v)
+        {
+          ASSERT_EQ(means[v].size(), 1u);
+          EXPECT_NEAR(means[v][0], by_vessel[v], 1e-12) << "vessel " << v;
+        }
+
+      EXPECT_ANY_THROW(problem.split_pressure_over_inclusions({3}, pressure));
+      EXPECT_ANY_THROW(
+        problem.split_pressure_over_inclusions({3, 0}, pressure));
+    });
+}
+
 #endif

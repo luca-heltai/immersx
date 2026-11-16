@@ -147,11 +147,19 @@ namespace ImmersX
     update_vessel_radius_data(std::vector<double> new_data,
                               std::vector<int>    cells_per_vessel);
 
-    /** Interpolate gathered inclusion pressures to vessel samples.
-     * A single inclusion supplies a constant pressure; a single requested
-     * sample receives the vessel mean. Each vessel needs at least one sample.
-     * This callback performs no MPI operations and may run only on rank zero
-     * after the caller gathers the pressure vector.
+    /** Interpolate gathered wall pressures to equally spaced vessel samples.
+     *
+     * With point coupling, `pressure` holds one value per inclusion, and the
+     * samples run from the first to the last inclusion of each vessel. With
+     * tensor-product coupling, it holds pressure_at_immersed_surface_by_
+     * inclusion, one value per reduced support point, and the samples run in
+     * arc length along the vessel as in update_vessel_radius_data(). A single
+     * pressure value is constant; a single requested sample receives the
+     * vessel mean (the arc-length mean for tensor-product coupling). Each
+     * vessel needs at least one sample. This function performs no MPI
+     * operations and may run only on rank zero after the caller gathers the
+     * pressure vector; with tensor-product coupling it uses the support point
+     * positions stored by the last compute_pressure_at_immersed_surface().
      */
     std::vector<std::vector<double>>
       split_pressure_over_inclusions(std::vector<int>, Vector<double>) const;
@@ -245,6 +253,14 @@ namespace ImmersX
      * empty until update_vessel_radius_data() is called. */
     std::vector<std::vector<double>> wall_displacement_samples;
 
+    /** With tensor-product coupling, the support points of every reduced
+     * cell, on every rank: entry of pressure_at_immersed_surface_by_inclusion,
+     * vessel and normalized arc length. A support point where vessels meet
+     * appears once for each of them. */
+    std::vector<std::size_t>  pressure_sample_entry;
+    std::vector<unsigned int> pressure_sample_vessel;
+    std::vector<double>       pressure_sample_arc_length;
+    std::size_t               n_pressure_entries = 0;
 
     unsigned int n_vessels_from_input = 0;
     // unsigned int n_vessels;
