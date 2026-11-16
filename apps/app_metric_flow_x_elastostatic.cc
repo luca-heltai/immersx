@@ -19,11 +19,7 @@
 
 #include <deal.II/numerics/data_out.h>
 
-#include <deal.II/sundials/kinsol.h>
-#include <deal.II/sundials/n_vector.h>
-
 #include <immersx/config.h>
-#include <kinsol/kinsol.h>
 
 #ifdef IMMERSX_WITH_METRIC_FLOW_X
 
@@ -59,6 +55,7 @@
 #  include <vector>
 
 #  include "metric_flow_x_elastostatic_checkpoint.h"
+#  include "metric_flow_x_elastostatic_kinsol.h"
 #  include "metric_flow_x_physical_input.h"
 
 namespace
@@ -1057,43 +1054,22 @@ namespace
         for (const auto index : solution_scaling.locally_owned_elements())
           solution_scaling[index] = 1. / characteristics[index];
         solution_scaling.compress(VectorOperation::insert);
-        auto &backend         = adapter.solver();
-        auto  constraint_view = dealii::SUNDIALS::internal::make_nvector_view(
-          *state_constraints
-#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
-          ,
-          backend.get_sun_context()
-#  endif
-        );
-        using Steady = dealii::SUNDIALS::KINSOL<GlobalVector>;
-        Steady::AdditionalData data(Steady::AdditionalData::newton,
-                                    steady_maximum_iterations,
-                                    steady_function_tolerance,
-                                    steady_step_tolerance,
-                                    true,
-                                    1);
-        Steady                 steady(data, MPI_COMM_WORLD);
-        steady.reinit_vector = backend.reinit_vector;
-        steady.residual      = [&](const GlobalVector &y, GlobalVector &F) {
-          backend.residual(flow_time.initial_time, y, state_dot, F);
-        };
-        steady.setup_jacobian = [&](const GlobalVector &y,
-                                    const GlobalVector &) {
-          adapter.setup_steady_jacobian(flow_time.initial_time, y, state_dot);
-        };
-        steady.solve_with_jacobian  = backend.solve_with_jacobian;
-        steady.get_solution_scaling = [&]() -> GlobalVector & {
-          return solution_scaling;
-        };
-        steady.get_function_scaling = [&]() -> GlobalVector & {
-          return function_scaling;
-        };
-        steady.custom_setup = [&](void *memory) {
-          const int status = KINSetConstraints(memory, constraint_view);
-          AssertThrow(status >= 0, ExcMessage("KINSetConstraints failed."));
-        };
-        steady_iterations = steady.solve(candidate);
-        auto residual     = adapter.make_state();
+        const auto result = solve_elastostatic_kinsol(adapter,
+                                                      flow_time.initial_time,
+                                                      candidate,
+                                                      state_dot,
+                                                      solution_scaling,
+                                                      function_scaling,
+                                                      *state_constraints,
+                                                      steady_maximum_iterations,
+                                                      steady_function_tolerance,
+                                                      steady_step_tolerance);
+        steady_iterations = result.first;
+        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+          std::cout << "Steady KINSOL native status: " << result.second
+                    << std::endl;
+        auto &backend  = adapter.solver();
+        auto  residual = adapter.make_state();
         backend.residual(flow_time.initial_time,
                          candidate,
                          state_dot,

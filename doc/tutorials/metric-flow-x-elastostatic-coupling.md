@@ -286,8 +286,9 @@ Returning from KINSOL alone is insufficient: the application reevaluates the
 full native residual, requires `max_i abs(F_i)/S_i` to meet the function norm
 tolerance, verifies finite state values, positive cell/trace area coefficients
 and native cell quadrature areas, and checks that all rates remain zero.
-A small-step termination that fails these checks produces no accepted-state
-output or checkpoint. After acceptance, output and the native checkpoint use
+These area checks do not certify positivity between the sampled points of a
+quadratic polynomial. A small-step termination that fails the final checks
+produces no accepted-state output or checkpoint. After acceptance, output and the native checkpoint use
 `t0` without a dummy time step or a second IDA correction. Native checkpoint
 MPI-size requirements still apply. Independent pressure-law, KCL, and mass
 balance checks remain necessary before adopting a computed equilibrium; no
