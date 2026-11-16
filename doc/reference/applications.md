@@ -30,7 +30,7 @@ and `space dimension` entries select the template instantiation.
 | `elasticity` | `apps/app_elasticity.cc`; `ElasticityProblem` | `2/2`, `2/3`, `3/3` | MPI; `tutorials/elasticity/strong_dirichlet.prm` |
 | `elasticity_freq` | `apps/app_elasticity_freq.cc`; `ElasticityFreqProblem` | `1/1`, `1/2`, `1/3`, `2/2`, `2/3`, `3/3` | MPI and Trilinos; frequency-domain amplitudes and phases |
 | `elasticity_explicit` | `apps/app_elasticity_explicit.cc`; lumped-mass forward Euler elasticity | `2/2`, `2/3`, `3/3` | MPI and Trilinos; `prms/prm_2d_euler_mms.prm` |
-| `coupled_elasticity` | `apps/app_coupled_elasticity.cc`; 3D tissue and 1D hemodynamics | 3D tissue; command-line coupling controls | MPI, OpenMP, and `lib1dsolver`; enable with `ENABLE_COUPLED_PROBLEMS` |
+| `coupled_elasticity` | `apps/app_coupled_elasticity.cc`; static or damped elastodynamic 3D tissue and 1D hemodynamics | 3D tissue; command-line coupling controls | MPI, OpenMP, and `lib1dsolver`; enable with `ENABLE_COUPLED_PROBLEMS` |
 | `pseudocoupling1D` | `apps/app_pseudocoupling1D.cc`; 3D tissue and 1D pseudo-coupling | 3D tissue; five positional arguments | MPI, OpenMP, and `lib1dsolver`; enable with `ENABLE_COUPLED_PROBLEMS` |
 
 MetricFlowX executables are excluded from the build unless both MetricFlowX
@@ -163,6 +163,42 @@ That interpolation performs no MPI operations. Each tissue solve computes the
 wall pressures, with the interior-stress correction by default, as described in
 [Pressure on the vessel walls](../concepts/vessel-pressure.md); `coupled_elasticity`
 passes their negative, converted from Pa to dyn/cm², to the flow model.
+
+`coupled_elasticity parameters.prm input_1d.pot [sampling start [mode]]`
+exchanges data every `sampling` 1D steps (default 1) once the 1D time exceeds
+`start` (default 9). `mode` 0 (default) exchanges one wall displacement and
+one pressure per vessel; `mode` 1 exchanges one value per 1D cell, which
+needs tensor-product coupling or point coupling without clustering. Without
+the 1D input file the application solves the tissue alone.
+
+With tensor-product coupling, `update_vessel_radius_data` replaces the
+`Reduced right hand side` expression in the radial modes. Per-cell samples
+and the pointwise pressures of `mode` 1 are placed by arc length along each
+vessel of the reduced grid. A vessel must be a single chain of reduced cells;
+it starts at the end that lies in the first cell of the reduced grid file. The
+pointwise pressures are the values of
+`pressure_at_immersed_surface_by_inclusion` at the reduced support points.
+
+The parameter file selects the tissue model. In a dynamic run (different
+`Initial time` and `Final time` and a positive `Density` for every material),
+`run_timestep(t)` advances the tissue with one Newmark step to `t` instead of
+solving a static problem, and `coupled_elasticity` replaces `Time step` with
+`sampling` times the 1D time step. The multiplier imposes the current wall
+data at `t`, so the run needs `Pressure coupling = false`. The first call
+starts at the static equilibrium of the wall data at `t`, at rest; every
+later call must advance `t` by `Time step`. Damping comes from
+`Rayleigh alpha`, `Rayleigh beta` and `Viscosity eta`. Without the 1D input
+file, a dynamic tissue runs from the equilibrium at `Initial time` to
+`Final time`.
+
+The exchange is explicit: each pressure enters the next 1D step, without
+iterations within a step. With strong damping or inertia the pressure
+response of the tissue to a wall velocity or acceleration can exceed what the
+1D model absorbs in one step, and the exchange becomes unstable, with wall
+pressures of alternating sign that grow from step to step. In a three-vessel
+test this happened from `Viscosity eta / (Lame mu x Time step)` = 5 on; with
+negligible density and no damping the dynamic results agreed with the static
+ones to about 0.1%.
 
 The generated `gtests/parameters/coupled_elasticity_simplex.prm` exercises this
 interface. The external 1D drivers still require a complete library compatible
