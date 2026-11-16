@@ -207,6 +207,138 @@ TEST(SecondOrderCondensation, BOTH_ReducedSolveMatchesCoupledJacobian)
   condensed_mass = true;
 }
 
+
+#ifdef DEAL_II_WITH_SUNDIALS
+// Unlike contiguous field ownership, cyclic ownership leaves gaps between
+// owned sparse rows and requires importing constrained flags from other ranks.
+TEST(SecondOrderCondensation, BOTH_RepeatedCyclicOwnershipPreservesRemoteFlags)
+{
+  using Adapter              = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
+  const auto            rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto            ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  std::vector<IndexSet> layout{IndexSet(n), IndexSet(n), IndexSet(m)};
+  for (auto &owned : layout)
+    {
+      for (unsigned int i = 0; i < owned.size(); ++i)
+        if (i % ranks == rank)
+          owned.add_index(i);
+      owned.compress();
+    }
+  EXPECT_EQ(Utilities::MPI::sum(static_cast<unsigned int>(layout[2].is_empty()),
+                                MPI_COMM_WORLD),
+            ranks > m ? ranks - m : 0u);
+  BlockMatrix          jacobian;
+  Adapter::Composition composition(MPI_COMM_WORLD);
+  composition.add(
+    [&](auto &builder) {
+      using Model = typename std::decay_t<decltype(builder)>::Model;
+      const std::array<ImmersX::FieldId, 3> ids{
+        {builder.differential_field("u", layout[0]),
+         builder.differential_field("v", layout[1]),
+         builder.algebraic_field("lambda", layout[2])}};
+      for (unsigned int row = 0; row < 3; ++row)
+        for (unsigned int col = 0; col < 3; ++col)
+          {
+            typename Model::MatrixOperatorFactory factory =
+              [&, row, col](const auto &) {
+                return ImmersX::matrix_operator<FieldVector>(
+                  jacobian.block(row, col));
+              };
+            builder
+              .term(ids[row],
+                    "block-" + std::to_string(row) + "-" + std::to_string(col))
+              .state(ids[col], factory);
+          }
+      builder.second_order_pair(
+        ids[0],
+        ids[1],
+        [] { return 0ul; },
+        [] {
+          ImmersX::SecondOrderPreconditionerData data;
+          data.constrained = IndexSet(n);
+          data.constrained.add_index(constrained);
+          return data;
+        });
+      return ids;
+    },
+    "solid");
+  auto state = composition.make_state();
+  state      = 0.;
+  // Independent prescribed correction, including nonzero constrained u/v.
+  const auto exact = [](unsigned int block, unsigned int i) {
+    return .17 * (i + 1) - .31 * block;
+  };
+  for (const bool condensed : {true, false})
+    {
+      condensed_mass = condensed;
+      for (const double stiffness_factor : {1., 1.7})
+        for (const double alpha : {3., 0.})
+          {
+            SCOPED_TRACE(condensed);
+            SCOPED_TRACE(stiffness_factor);
+            SCOPED_TRACE(alpha);
+            assemble(jacobian, layout, alpha);
+            jacobian.block(1, 0) *= stiffness_factor;
+            const auto blocks  = composition.block_matrix(state);
+            const auto reduced = composition.second_order_condensation(blocks);
+            ASSERT_TRUE(reduced);
+            // 14 free stiffness entries, six B and six transpose-B entries,
+            // two multiplier diagonals and one prescribed velocity row.
+            // An uncondensed mass adds two remote constrained-v columns.
+            EXPECT_EQ(reduced->reduced_matrix().n_nonzero_elements(),
+                      condensed ? 29u : 31u);
+            GlobalVector rhs(layout, MPI_COMM_WORLD);
+            // Evaluate the original equations directly, without multiplying
+            // either the assembled Jacobian or its condensed representation.
+            for (const auto i : layout[0])
+              {
+                rhs.block(0)[i] = i == constrained ? 2.5 * exact(0, i) : 0.;
+                rhs.block(1)[i] = i == constrained ? exact(1, i) : 0.;
+                for (unsigned int j = 0; j < n; ++j)
+                  {
+                    rhs.block(0)[i] +=
+                      mass(i, j) * (alpha * exact(0, j) - exact(1, j));
+                    rhs.block(1)[i] +=
+                      stiffness_factor * stiffness(i, j) * exact(0, j) +
+                      (alpha * mass(i, j) + damping(i, j)) * exact(1, j);
+                  }
+                if (i != constrained)
+                  for (unsigned int j = 0; j < m; ++j)
+                    rhs.block(1)[i] += coupling(j, i) * exact(2, j);
+              }
+            for (const auto i : layout[2])
+              {
+                rhs.block(2)[i] = -.01 * exact(2, i);
+                for (unsigned int j = 0; j < n; ++j)
+                  rhs.block(2)[i] += coupling(i, j) * exact(0, j);
+              }
+            rhs.compress(VectorOperation::insert);
+            const auto mass_matrix = reduced->kinematic_mass(0).make_matrix(
+              reduced->kinematic_partition(0), MPI_COMM_WORLD);
+            FieldVector              kinematic_rhs;
+            std::vector<FieldVector> kinematic(1);
+            reduced->kinematic_rhs(rhs, 0, kinematic_rhs);
+            solve(*mass_matrix, kinematic[0], kinematic_rhs);
+            reduced->finish_kinematic_solution(rhs, 0, kinematic[0]);
+            FieldVector reduced_rhs, reduced_solution;
+            reduced->reduced_rhs(rhs, kinematic, reduced_rhs);
+            solve(reduced->reduced_matrix(), reduced_solution, reduced_rhs);
+            GlobalVector solution(layout, MPI_COMM_WORLD);
+            reduced->expand(reduced_solution, kinematic, solution);
+            for (unsigned int block = 0; block < 3; ++block)
+              for (const auto i : layout[block])
+                EXPECT_NEAR(solution.block(block)[i], exact(block, i), 1.e-9);
+            GlobalVector defect(layout, MPI_COMM_WORLD);
+            jacobian.vmult(defect, solution);
+            defect -= rhs;
+            EXPECT_LT(defect.l2_norm(), 1.e-10 * rhs.l2_norm());
+          }
+    }
+  condensed_mass = true;
+}
+
+#endif
+
 TEST(SecondOrderCondensation, BOTH_RejectsNonKinematicRows)
 {
   const auto  layout = partitions();
@@ -271,6 +403,90 @@ namespace
     });
   }
 } // namespace
+
+TEST(SecondOrderCondensation, BOTH_DirectSolveHandlesDisjointRowsAndStoredZeros)
+{
+  using Adapter   = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
+  const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  IndexSet   owned(2);
+  if (rank < 2)
+    owned.add_index(rank);
+  owned.compress();
+  for (const bool diagonal : {false, true})
+    {
+      ParameterAcceptor::clear();
+      const std::array<std::array<double, 4>, 4> coefficients =
+        diagonal ? std::array<std::array<double, 4>, 4>{{{{2., 0., 0., 0.}},
+                                                         {{0., -3., 0., 0.}},
+                                                         {{0., 0., 4., 0.}},
+                                                         {{0., 0., 0., -5.}}}} :
+                   std::array<std::array<double, 4>, 4>{{{{2., -1., 1., 0.}},
+                                                         {{-1., 3., 0., -1.}},
+                                                         {{1., 0., 4., -2.}},
+                                                         {{0., 1., -2., 5.}}}};
+      ImmersX::TimeIntervalParameters time("/", false);
+      ImmersX::IDAParameters          parameters("/", &time);
+      Adapter                         adapter(time, parameters, MPI_COMM_WORLD);
+      adapter.set_linear_solver(Adapter::LinearSolver::mumps);
+      const auto fields = adapter.add([&](auto &builder) {
+        using Model = typename std::decay_t<decltype(builder)>::Model;
+        const std::array<ImmersX::FieldId, 2> ids{
+          {builder.algebraic_field("first", owned),
+           builder.algebraic_field("second", owned)}};
+        for (unsigned int row = 0; row < 2; ++row)
+          for (unsigned int col = 0; col < 2; ++col)
+            {
+              typename Model::MatrixOperatorFactory factory =
+                [owned, coefficients, row, col](const auto &) {
+                  DynamicSparsityPattern pattern(2, 2, owned);
+                  for (const auto i : owned)
+                    for (unsigned int j = 0; j < 2; ++j)
+                      pattern.add(i, j);
+                  auto matrix = std::make_shared<Matrix>();
+                  matrix->reinit(owned, owned, pattern, MPI_COMM_WORLD);
+                  for (const auto i : owned)
+                    for (unsigned int j = 0; j < 2; ++j)
+                      matrix->set(i, j, coefficients[2 * row + i][2 * col + j]);
+                  matrix->compress(VectorOperation::insert);
+                  return ImmersX::matrix_operator<FieldVector>(matrix);
+                };
+              builder
+                .term(ids[row],
+                      "block-" + std::to_string(row) + "-" +
+                        std::to_string(col))
+                .state(ids[col], factory);
+            }
+        return ids;
+      });
+      auto       state = adapter.make_state(), dot = adapter.make_state();
+      state = 0.;
+      dot   = 0.;
+      adapter.solver().setup_jacobian(0., state, dot, 0.);
+      // Dense independent oracle; negative diagonals and explicit structural
+      // off-diagonal zeros must remain eligible for entrywise inversion.
+      const std::array<double, 4> exact{{1., -2., 3., -4.}};
+      const std::array<double, 4> forcing =
+        diagonal ? std::array<double, 4>{{2., 6., 12., 20.}} :
+                   std::array<double, 4>{{7., -3., 21., -28.}};
+      auto rhs = adapter.make_state(), solution = adapter.make_state();
+      for (unsigned int block = 0; block < 2; ++block)
+        for (const auto i : owned)
+          adapter.field(rhs, fields.fields()[block])[i] =
+            forcing[2 * block + i];
+      rhs.compress(VectorOperation::insert);
+      adapter.solver().solve_with_jacobian(rhs, solution, 1.e-12);
+      for (unsigned int block = 0; block < 2; ++block)
+        for (const auto i : owned)
+          EXPECT_NEAR(adapter.field(solution, fields.fields()[block])[i],
+                      exact[2 * block + i],
+                      1.e-12);
+      auto defect = adapter.make_state();
+      adapter.current_jacobian().vmult(defect, solution);
+      defect -= rhs;
+      EXPECT_LT(defect.l2_norm(), 1.e-12 * rhs.l2_norm());
+      ParameterAcceptor::clear();
+    }
+}
 
 TEST(SecondOrderCondensation, BOTH_BlrAdapterSolvesFullConstrainedSystem)
 {

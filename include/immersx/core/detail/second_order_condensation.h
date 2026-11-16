@@ -15,7 +15,7 @@
 #include <deal.II/base/mpi.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
-#include <deal.II/lac/la_parallel_vector.h>
+#include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/vector_operation.h>
 
 #include <algorithm>
@@ -344,7 +344,7 @@ namespace ImmersX
             ghosts[p].add_index(column);
 
         // Constrained flags, including ghost columns.
-        std::vector<dealii::LinearAlgebra::distributed::Vector<double>> flags(
+        std::vector<dealii::LinearAlgebra::ReadWriteVector<double>> flags(
           result->pairs_.size());
         for (std::size_t p = 0; p < result->pairs_.size(); ++p)
           {
@@ -353,12 +353,19 @@ namespace ImmersX
             auto relevant = ghosts[p];
             relevant.add_indices(owned);
             relevant.compress();
-            flags[p].reinit(owned, relevant, communicator);
+            // The backend field vector supports its actual partition;
+            // LA::distributed::Vector would require contiguous ownership.
+            FieldVectorType owned_flags;
+            owned_flags.reinit(owned, communicator);
+            owned_flags = 0.;
             // 1: constrained with a unit velocity row, 2: other constrained.
             for (const auto index : result->pairs_[p].constrained)
-              flags[p](index) =
+              owned_flags(index) =
                 result->pairs_[p].velocity_diagonal.count(index) ? 1. : 2.;
-            flags[p].update_ghost_values();
+            owned_flags.compress(dealii::VectorOperation::insert);
+            flags[p].reinit(relevant);
+            flags[p].import_elements(owned_flags,
+                                     dealii::VectorOperation::insert);
           }
 
         // Free mass rows may reach a constrained column only if v_c is known
@@ -606,11 +613,19 @@ namespace ImmersX
                   std::vector<std::pair<size_type, double>> &entries)
       {
         entries.clear();
-        if (matrix.row_length(row) != 0)
-          for (auto entry = matrix.begin(row), end = matrix.end(row);
-               entry != end;
-               ++entry)
-            entries.emplace_back(entry->column(), entry->value());
+        const auto n_entries = matrix.row_length(row);
+        if (n_entries != 0)
+          {
+            auto entry = matrix.begin(row);
+            for (size_type i = 0; i < n_entries; ++i)
+              {
+                entries.emplace_back(entry->column(), entry->value());
+                // Per-field ownership can also have gaps. Never construct a
+                // next-row accessor after extracting this owned row.
+                if (i + 1 < n_entries)
+                  ++entry;
+              }
+          }
         std::sort(entries.begin(), entries.end());
       }
 
