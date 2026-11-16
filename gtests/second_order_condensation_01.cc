@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/core/detail/second_order_condensation.h>
+#include <immersx/core/sundials_ida_adapter.h>
 
 #include <functional>
 #include <vector>
@@ -222,3 +223,141 @@ TEST(SecondOrderCondensation, BOTH_RejectsNonKinematicRows)
   assemble(jacobian, layout, 3., 0., false);
   EXPECT_TRUE(Condensation::build(jacobian, {{0, 1}}, layout, MPI_COMM_WORLD));
 }
+
+
+#if defined(DEAL_II_WITH_SUNDIALS) && defined(DEAL_II_WITH_MUMPS) && \
+  !defined(IMMERSX_USE_PETSC_LA)
+namespace
+{
+  using BlrAdapter = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
+
+  void
+  add_blr_second_order_matrix(BlrAdapter                  &adapter,
+                              BlockMatrix                 &jacobian,
+                              const std::vector<IndexSet> &layout)
+  {
+    adapter.add([&](auto &builder) {
+      using Model       = typename std::decay_t<decltype(builder)>::Model;
+      const auto u      = builder.differential_field("u", layout[0]);
+      const auto v      = builder.differential_field("v", layout[1]);
+      const auto lambda = builder.algebraic_field("lambda", layout[2]);
+      const std::array<ImmersX::FieldId, 3> fields{{u, v, lambda}};
+      for (unsigned int row = 0; row < 3; ++row)
+        for (unsigned int column = 0; column < 3; ++column)
+          {
+            typename Model::MatrixOperatorFactory factory =
+              [&, row, column](const auto &) {
+                return ImmersX::matrix_operator<FieldVector>(
+                  jacobian.block(row, column));
+              };
+            builder
+              .term(fields[row],
+                    "entry-" + std::to_string(row) + "-" +
+                      std::to_string(column))
+              .state(fields[column], factory);
+          }
+      builder.second_order_pair(
+        u,
+        v,
+        [] { return 0ul; },
+        [&layout] {
+          ImmersX::SecondOrderPreconditionerData data;
+          data.constrained = IndexSet(layout[0].size());
+          if (layout[0].size() > constrained)
+            data.constrained.add_index(constrained);
+          return data;
+        });
+      return fields;
+    });
+  }
+} // namespace
+
+TEST(SecondOrderCondensation, BOTH_BlrAdapterSolvesFullConstrainedSystem)
+{
+  using Adapter     = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
+  const auto layout = partitions();
+  // Both mass boundary treatments exercise nonzero prescribed u/v entries.
+  for (const bool condensed : {true, false})
+    {
+      condensed_mass = condensed;
+      ImmersX::TimeIntervalParameters time;
+      ImmersX::IDAParameters          parameters;
+      parameters.linear_solver_controls.krylov_maximum_iterations = 100;
+      Adapter adapter(time, parameters, MPI_COMM_WORLD);
+      adapter.set_linear_solver(Adapter::LinearSolver::mumps_blr_fgmres);
+      adapter.set_mumps_blr_parameters(1.e-5);
+      BlockMatrix jacobian;
+      assemble(jacobian, layout, 3.);
+      add_blr_second_order_matrix(adapter, jacobian, layout);
+      auto state = adapter.make_state(), dot = adapter.make_state();
+      state    = 0.;
+      dot      = 0.;
+      auto rhs = adapter.make_state(), solution = adapter.make_state();
+      auto residual = adapter.make_state();
+      for (unsigned int block = 0; block < 3; ++block)
+        for (const auto i : rhs.block(block).locally_owned_elements())
+          rhs.block(block)[i] = 1. + .3 * i - .7 * block;
+      rhs.compress(VectorOperation::insert);
+      // Alpha changes alone reuse Mhat. A changed kinematic mass must rebuild.
+      for (unsigned int step = 0; step < 3; ++step)
+        {
+          const double alpha = step == 0 ? 3. : step == 1 ? 0. : 2.;
+          assemble(jacobian, layout, alpha);
+          if (step == 2)
+            {
+              jacobian.block(0, 0) *= 1.25;
+              jacobian.block(0, 1) *= 1.25;
+            }
+          adapter.solver().setup_jacobian(1. + step, state, dot, alpha);
+          solution = 0.;
+          adapter.solver().solve_with_jacobian(rhs, solution, 1.e-11);
+          // Independent uncondensed matrix oracle includes the nonzero
+          // kinematic RHS and both constrained rows; never just S*x=b.
+          jacobian.vmult(residual, solution);
+          residual -= rhs;
+          EXPECT_LE(residual.l2_norm(), 1.e-10 * rhs.l2_norm());
+          const auto statistics = adapter.statistics();
+          EXPECT_EQ(statistics.kinematic_factorizations, step < 2 ? 1u : 2u);
+          EXPECT_EQ(statistics.kinematic_factorization_reuses,
+                    step == 0 ? 0u : 1u);
+        }
+    }
+  condensed_mass = true;
+}
+
+TEST(SecondOrderCondensation, BOTH_BlrSmallMassPreservesFullFallback)
+{
+  const unsigned int size = 3;
+  const auto         owned =
+    Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD,
+                                                           size);
+  const auto multipliers =
+    Utilities::MPI::create_evenly_distributed_partitioning(MPI_COMM_WORLD, m);
+  const std::vector<IndexSet> layout{owned, owned, multipliers};
+  BlockMatrix                 jacobian;
+  assemble(jacobian, layout, 2.);
+  ImmersX::TimeIntervalParameters time;
+  ImmersX::IDAParameters          parameters;
+  BlrAdapter                      adapter(time, parameters, MPI_COMM_WORLD);
+  adapter.set_linear_solver(BlrAdapter::LinearSolver::mumps_blr_fgmres);
+  add_blr_second_order_matrix(adapter, jacobian, layout);
+  auto state = adapter.make_state(), dot = adapter.make_state();
+  auto rhs = adapter.make_state(), solution = adapter.make_state();
+  state = 0.;
+  dot   = 0.;
+  for (unsigned int block = 0; block < 3; ++block)
+    for (const auto i : rhs.block(block).locally_owned_elements())
+      rhs.block(block)[i] = 1. + .2 * i + .4 * block;
+  rhs.compress(VectorOperation::insert);
+  adapter.solver().setup_jacobian(1., state, dot, 2.);
+  adapter.solver().solve_with_jacobian(rhs, solution, 1.e-11);
+  auto error = adapter.make_state();
+  jacobian.vmult(error, solution);
+  error -= rhs;
+  EXPECT_LE(error.l2_norm(), 1.e-10 * rhs.l2_norm());
+  if (Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) > size)
+    {
+      EXPECT_EQ(adapter.statistics().kinematic_factorizations, 0u);
+    }
+}
+#endif
