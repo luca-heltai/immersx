@@ -1281,13 +1281,47 @@ namespace
     auto        &solver         = adapter.solver();
     const auto   original_solve = solver.solve_with_jacobian;
     unsigned int checks         = 0;
+    unsigned int rejections     = 0;
     solver.solve_with_jacobian =
       [&](const auto &rhs, auto &answer, const double tolerance) {
         EXPECT_TRUE(std::isinf(tolerance));
         EXPECT_GT(rhs.linfty_norm(), 0.);
         EXPECT_EQ(rhs.l2_norm(), 0.);
+        if (unbounded)
+          {
+            auto weights = adapter.make_state();
+            auto view    = Compatibility::SUNDIALS::internal::make_nvector_view(
+              weights
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+              ,
+              solver.get_sun_context()
+#  endif
+            );
+            EXPECT_EQ(IDAGetErrWeights(solver.get_ida_memory(), view),
+                      IDA_SUCCESS);
+            EXPECT_DOUBLE_EQ(weights.l2_norm(), 1.);
+          }
+        // The native zero initial correction passes a norm-only raw gate, but
+        // its actual full-J residual has a nonzero owned entry.
+        auto defect = adapter.make_state();
+        adapter.current_jacobian().vmult(defect, answer);
+        defect -= rhs;
+        EXPECT_EQ(defect.l2_norm(), 0.);
+        EXPECT_GT(defect.linfty_norm(), 0.);
         ++checks;
-        original_solve(rhs, answer, tolerance);
+        try
+          {
+            original_solve(rhs, answer, tolerance);
+          }
+        catch (const dealii::ExceptionBase &)
+          {
+            ++rejections;
+            throw;
+          }
+        ADD_FAILURE()
+          << "A nonzero entry was accepted against a zero raw target.";
+        AssertThrow(false,
+                    dealii::ExcMessage("Unexpected native linear acceptance."));
       };
     try
       {
@@ -1296,12 +1330,10 @@ namespace
       }
     catch (const dealii::ExceptionBase &error)
       {
-        if (unbounded)
-          EXPECT_NE(std::string(error.what())
-                      .find("requires an exactly zero full-J residual"),
-                    std::string::npos);
+        ::testing::Test::RecordProperty("native_rejection", error.what());
       }
     EXPECT_GT(checks, 0u);
+    EXPECT_EQ(rejections, checks);
   }
 } // namespace
 TEST(DistributedIDA, BOTH_IndeterminateNativeTargetRejectsUnderflowedResidual)
