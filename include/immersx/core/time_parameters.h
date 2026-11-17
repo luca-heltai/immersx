@@ -199,6 +199,11 @@ namespace ImmersX
     bool                    print_statistics            = false;
     bool                    print_nonlinear_diagnostics = false;
 
+    bool         initial_residual_continuation = false;
+    double       initial_continuation_step     = .125;
+    double       minimum_continuation_step     = 1.e-5;
+    unsigned int maximum_continuation_attempts = 100;
+
     std::string correction_type_at_initial_time = "none";
     std::string correction_type_after_restart   = "none";
 
@@ -292,6 +297,24 @@ namespace ImmersX
         "weights, recoverable failures and native backtrack counters. This "
         "does not change solver tolerances or convergence tests.");
       prm.enter_subsection("Initial condition correction parameters");
+      prm.add_parameter(
+        "Enable residual continuation",
+        initial_residual_continuation,
+        "Initialize at fixed initial time by continuing the residual "
+        "from the supplied rest state to the unchanged physical equations. "
+        "Requires use_y_dot and zero state derivative.");
+      prm.add_parameter("Initial continuation step",
+                        initial_continuation_step,
+                        "",
+                        dealii::Patterns::Double(0., 1.));
+      prm.add_parameter("Minimum continuation step",
+                        minimum_continuation_step,
+                        "",
+                        dealii::Patterns::Double(0., 1.));
+      prm.add_parameter("Maximum continuation attempts",
+                        maximum_continuation_attempts,
+                        "",
+                        dealii::Patterns::Integer(1));
       prm.add_parameter("Correction type at initial time",
                         correction_type_at_initial_time,
                         "",

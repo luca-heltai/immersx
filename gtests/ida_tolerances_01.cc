@@ -1235,4 +1235,146 @@ TEST(DistributedIDA, BOTH_AlgebraicRampProtectionValidatesOnlyAppliedScales)
     }
 }
 
+TEST(DistributedIDA, BOTH_ResidualContinuationPreservesPhysicalInitialEquation)
+{
+  TimeIntervalParameters time;
+  time.final_time = 0.;
+  IDAParameters parameters;
+  parameters.initial_residual_continuation   = true;
+  parameters.correction_type_at_initial_time = "use_y_dot";
+  parameters.absolute_tolerance              = 1.e-10;
+  parameters.relative_tolerance              = 1.e-10;
+  Adapter    adapter(time, parameters, MPI_COMM_WORLD);
+  const auto field = add_forced_field(adapter, true, 1.);
+  auto       state = adapter.make_state(), derivative = adapter.make_state();
+  state                = 0.;
+  derivative           = 0.;
+  unsigned int outputs = 0;
+  adapter.set_output_step(
+    [&](double t, const auto &y, const auto &yp, unsigned int) {
+      ++outputs;
+      EXPECT_EQ(t, 0.);
+      EXPECT_EQ(yp.linfty_norm(), 0.);
+      for (const auto index :
+           adapter.field(y, field.fields()).locally_owned_elements())
+        EXPECT_NEAR(adapter.field(y, field.fields())[index], 3., 1.e-8);
+    });
+  EXPECT_EQ(adapter.solve(state, derivative), 0u);
+  EXPECT_EQ(outputs, 1u);
+  auto residual = adapter.make_state();
+  adapter.solver().residual(0., state, derivative, residual);
+  EXPECT_LT(residual.linfty_norm(), 1.e-8);
+  // A different candidate checks that the temporary shifted callback was
+  // restored.
+  state = 1.;
+  adapter.solver().residual(0., state, derivative, residual);
+  for (const auto index :
+       adapter.field(residual, field.fields()).locally_owned_elements())
+    EXPECT_NEAR(adapter.field(residual, field.fields())[index], -2., 1.e-13);
+}
+
+TEST(DistributedIDA,
+     BOTH_ResidualContinuationRestoresAfterOriginalCallbackFailure)
+{
+  TimeIntervalParameters time;
+  time.final_time = 0.;
+  IDAParameters parameters;
+  parameters.initial_residual_continuation   = true;
+  parameters.correction_type_at_initial_time = "use_y_dot";
+  Adapter    adapter(time, parameters, MPI_COMM_WORLD);
+  const auto field = add_forced_field(adapter, true, 1.);
+  auto       state = adapter.make_state(), derivative = adapter.make_state();
+  state                = 0.;
+  derivative           = 0.;
+  unsigned int outputs = 0, resets = 0;
+  adapter.set_output_step(
+    [&](double, const auto &, const auto &, unsigned int) { ++outputs; });
+  auto      &solver         = adapter.solver();
+  const auto original_setup = solver.custom_setup;
+  solver.custom_setup       = [&](void *memory) {
+    if (original_setup)
+      original_setup(memory);
+    if (++resets == 2)
+      throw std::runtime_error("original continuation setup failure");
+  };
+  try
+    {
+      adapter.solve(state, derivative);
+      FAIL() << "Expected the original callback exception.";
+    }
+  catch (const std::runtime_error &error)
+    {
+      EXPECT_STREQ(error.what(), "original continuation setup failure");
+    }
+  EXPECT_EQ(resets, 2u);
+  EXPECT_EQ(outputs, 0u);
+  EXPECT_EQ(state.linfty_norm(), 0.);
+  EXPECT_EQ(derivative.linfty_norm(), 0.);
+  EXPECT_FALSE(solver.last_initial_condition_status().has_value());
+  auto residual = adapter.make_state();
+  solver.residual(0., state, derivative, residual);
+  for (const auto index :
+       adapter.field(residual, field.fields()).locally_owned_elements())
+    EXPECT_NEAR(adapter.field(residual, field.fields())[index], -3., 1.e-13);
+}
+
+TEST(DistributedIDA, BOTH_ResidualContinuationRejectsIncompatibleCorrection)
+{
+  TimeIntervalParameters time;
+  time.final_time = 0.;
+  IDAParameters parameters;
+  parameters.initial_residual_continuation   = true;
+  parameters.correction_type_at_initial_time = "use_y_diff";
+  Adapter adapter(time, parameters, MPI_COMM_WORLD);
+  add_forced_field(adapter, true, 1.);
+  auto state = adapter.make_state(), derivative = adapter.make_state();
+  state      = 0.;
+  derivative = 0.;
+  EXPECT_THROW(adapter.solve(state, derivative), dealii::ExceptionBase);
+}
+
+TEST(DistributedIDA, BOTH_ResidualContinuationPreservesTypedPendingException)
+{
+  TimeIntervalParameters time;
+  time.final_time = 0.;
+  IDAParameters parameters;
+  parameters.initial_residual_continuation   = true;
+  parameters.correction_type_at_initial_time = "use_y_dot";
+  Adapter    adapter(time, parameters, MPI_COMM_WORLD);
+  bool       fail    = false;
+  const auto failure = std::make_exception_ptr(
+    Compatibility::SUNDIALS::ExcIDAError(IDA_CONV_FAIL));
+  add_forced_field(adapter, true, 1., [&]() {
+    if (fail)
+      std::rethrow_exception(failure);
+  });
+  auto state = adapter.make_state(), derivative = adapter.make_state();
+  state                       = 0.;
+  derivative                  = 0.;
+  auto        &solver         = adapter.solver();
+  const auto   original_setup = solver.custom_setup;
+  unsigned int resets         = 0;
+  solver.custom_setup         = [&](void *memory) {
+    if (original_setup)
+      original_setup(memory);
+    ++resets;
+    fail = true;
+  };
+  try
+    {
+      adapter.solve(state, derivative);
+      FAIL() << "Expected the original pending callback exception.";
+    }
+  catch (const Compatibility::SUNDIALS::ExcIDAError &)
+    {
+      EXPECT_TRUE(std::current_exception() == failure);
+    }
+  EXPECT_EQ(resets, 1u);
+  EXPECT_FALSE(solver.last_initial_condition_status().has_value());
+  EXPECT_EQ(state.linfty_norm(), 0.);
+  fail          = false;
+  auto residual = adapter.make_state();
+  solver.residual(0., state, derivative, residual);
+  EXPECT_NEAR(residual.linfty_norm(), 3., 1.e-13);
+}
 #endif

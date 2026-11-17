@@ -51,6 +51,7 @@
 #  include <cmath>
 #  include <limits>
 #  include <memory>
+#  include <optional>
 
 #endif // DEAL_II_WITH_SUNDIALS
 
@@ -1410,6 +1411,14 @@ namespace ImmersX::Compatibility
       void *
       get_ida_memory() const;
 
+      /** Last native IDACalcIC result, absent before that call or when a
+       * user callback exception was rethrown. Cleared at each reset(). */
+      std::optional<int>
+      last_initial_condition_status() const
+      {
+        return last_initial_condition_status_;
+      }
+
 #  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
       /** Return the SUNContext, invalidated and recreated by reset(). */
       SUNContext
@@ -1485,6 +1494,7 @@ namespace ImmersX::Compatibility
        * has returned.
        */
       mutable std::exception_ptr pending_exception;
+      std::optional<int>         last_initial_condition_status_;
 
 #  ifdef DEAL_II_WITH_PETSC
 #    ifdef PETSC_USE_COMPLEX

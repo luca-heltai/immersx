@@ -101,6 +101,31 @@ Newton, linear solve, step-growth, and initial-correction controls.
 Adaptivity controls require SUNDIALS 6.2 or newer; the constraint-failure limit
 requires 7.6 or newer.
 
+The optional `Initial condition correction parameters/Enable residual continuation`
+keeps the physical initial time fixed and follows roots of
+`G_eta(y) = F(t0,y,0) - (1-eta) F(t0,y_rest,0)`. At eta zero the supplied
+rest state is a root by construction; no IDA reset or factorization is needed
+there. Positive stages use the same IDA instance, error weights, tolerance
+ramp and native `use_y_dot` correction. The constant residual offset does not
+change the state or derivative Jacobians. Eta one restores the original
+physical equations before ordinary integration and its initial output.
+
+This is disabled by default and requires zero initial state derivative,
+`use_y_dot`, and no application consistent-initial-condition callback. The
+initial step defaults to 0.125, its lower bound to 1e-5, and the attempt budget
+to 100. Successful steps grow by 1.5; native IC convergence or line-search
+failures halve the step and retry from the last accepted candidate. Callback
+exceptions, illegal input and linear-solver failures propagate immediately.
+Exhausting the retry budget immediately after a rejected stage preserves that
+native failure; after accepted progress it reports the budget and last accepted
+eta. Failed continuation
+leaves the caller's state unchanged, and the temporary residual callback is
+restored on every exit. No intermediate continuation state is output as a
+physical result. Stage markers and the `Initial residual continuation` timer
+report startup cost separately; optional residual diagnostics during a stage
+report the unshifted physical F. This path retains one global residual offset
+and temporary state checkpoints, without retaining element matrices.
+
 After registering contributors, `ida.solver()` exposes the constraint and
 expert setup callbacks. For inequality constraints, create an execution vector
 with `ida.make_state()`, fill it through `ida.field()`, and return it from
