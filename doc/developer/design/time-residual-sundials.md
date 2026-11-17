@@ -86,10 +86,11 @@ error test. Projected Krylov norms alone cannot accept a correction. Defect
 corrections share one bounded iteration budget; zero progress fails.
 
 Extremely large or small valid weights can make the native scalar conversion
-indeterminate (`infinity * 0` or `0 * infinity`). The original target then
-cannot be recovered. Only in those two cases, an unscaled solve may be accepted
-if every owned entry of the full-J residual is exactly zero across all MPI
-ranks, in addition to the raw gate. A zero computed norm alone is insufficient
+indeterminate. If the native RMS of positive error weights is zero, or a zero
+callback scalar is paired with infinite RMS, the original target cannot be
+recovered. In those cases, an unscaled solve may be accepted only if every
+owned entry of the full-J residual is exactly zero across all MPI ranks,
+in addition to the raw gate. A zero computed norm alone is insufficient
 because it can underflow. Any approximate residual is rejected; invalid weights
 and a NaN callback tolerance remain errors.
 

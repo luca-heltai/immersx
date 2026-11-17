@@ -372,15 +372,20 @@ TEST(DistributedIDA, BOTH_IndeterminateTargetRequiresExactResidualEntries)
     ImmersX::detail::ida_exact_residual_krylov<Vector>(
       f.matrix, nullptr, f.rhs, f.solution, 1e-8, 4, true, MPI_COMM_WORLD),
     0u);
-  // The nearest binary64 value of 1/49 leaves a nonzero true defect. Its
-  // raw norm meets 1e-8, but cannot certify an indeterminate weighted target.
-  f.matrix.vmult = [](Vector &dst, const Vector &src) {
-    dst = src;
-    dst *= 49.;
-  };
+  // The residual norm underflows, but its entry remains nonzero. A norm
+  // pass must not certify an indeterminate native weighted target.
+  f.set(f.rhs, {{std::numeric_limits<double>::min(), 0, 0, 0}});
+  const double raw_target = 1e-8 * f.rhs.l2_norm();
+  ASSERT_EQ(f.rhs.l2_norm(), 0.);
   EXPECT_THROW(
-    ImmersX::detail::ida_exact_residual_krylov<Vector>(
-      f.matrix, nullptr, f.rhs, f.solution, 1e-8, 4, true, MPI_COMM_WORLD),
+    ImmersX::detail::ida_exact_residual_krylov<Vector>(f.matrix,
+                                                       nullptr,
+                                                       f.rhs,
+                                                       f.solution,
+                                                       raw_target,
+                                                       4,
+                                                       true,
+                                                       MPI_COMM_WORLD),
     dealii::ExceptionBase);
   bool   exact  = true;
   Vector defect = f.rhs;
@@ -389,6 +394,6 @@ TEST(DistributedIDA, BOTH_IndeterminateTargetRequiresExactResidualEntries)
   for (const auto i : defect.locally_owned_elements())
     exact = exact && defect[i] == 0.;
   EXPECT_EQ(dealii::Utilities::MPI::min(exact ? 1u : 0u, MPI_COMM_WORLD), 0u);
-  EXPECT_LE(defect.l2_norm(), 1e-8);
+  EXPECT_LE(defect.l2_norm(), raw_target);
 }
 #endif

@@ -164,14 +164,20 @@ namespace ImmersX
             dst[i] = inverse ? src[i] / weights[i] : src[i] * weights[i];
           dst.compress(dealii::VectorOperation::insert);
         };
-      auto scaled_operator = jacobian;
+      // Krylov consumes vmult; do not inherit unscaled additive/transpose
+      // actions.
+      dealii::LinearOperator<VectorType> scaled_operator;
+      scaled_operator.reinit_domain_vector = jacobian.reinit_domain_vector;
+      scaled_operator.reinit_range_vector  = jacobian.reinit_range_vector;
       scaled_operator.vmult =
         [&input, &scale, &jacobian](VectorType &dst, const VectorType &src) {
           scale(input, src, true);
           jacobian.vmult(dst, input);
           scale(dst, dst, false);
         };
-      auto scaled_inverse = jacobian;
+      dealii::LinearOperator<VectorType> scaled_inverse;
+      scaled_inverse.reinit_domain_vector = jacobian.reinit_range_vector;
+      scaled_inverse.reinit_range_vector  = jacobian.reinit_domain_vector;
       scaled_inverse.vmult =
         [&input, &scale, preconditioner](VectorType       &dst,
                                          const VectorType &src) {
@@ -182,8 +188,11 @@ namespace ImmersX
             dst = input;
           scale(dst, dst, false);
         };
-      solution                = 0.;
-      defect                  = rhs;
+      solution = 0.;
+      defect   = rhs;
+      // Native IDA vectors may require an import into this map. Close Insert
+      // mode before a matrix-free action accumulates into the same vector.
+      defect.compress(dealii::VectorOperation::insert);
       unsigned int iterations = 0;
       for (;;)
         {
@@ -1750,8 +1759,7 @@ namespace ImmersX
                           "Invalid native IDA linear weights or tolerance."));
             const double weight_rms = N_VWrmsNorm(weight_view, ones_view);
             const bool   exact_only =
-              (std::isinf(tolerance) && weight_rms == 0.) ||
-              (tolerance == 0. && std::isinf(weight_rms));
+              weight_rms == 0. || (tolerance == 0. && std::isinf(weight_rms));
             const auto  &controls = ida_parameters_.linear_solver_controls;
             const double raw_target =
               controls.krylov_relative_tolerance * rhs.l2_norm();

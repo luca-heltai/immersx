@@ -1251,4 +1251,35 @@ TEST(DistributedIDA, BOTH_AlgebraicRampProtectionValidatesOnlyAppliedScales)
     }
 }
 
+
+TEST(DistributedIDA, BOTH_IndeterminateNativeTargetRejectsUnderflowedResidual)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.final_time                            = .001;
+  time.output_time_interval                  = .001;
+  parameters.initial_step_size               = .001;
+  parameters.maximum_step_size               = .001;
+  parameters.absolute_tolerance              = 1e307;
+  parameters.relative_tolerance              = 0.;
+  parameters.correction_type_at_initial_time = "none";
+  Adapter adapter(time, parameters, MPI_COMM_WORLD);
+  add_forced_field(adapter, false, 1e-307);
+  auto y = adapter.make_state(), yp = adapter.make_state();
+  y                           = 0.;
+  yp                          = 0.;
+  auto        &solver         = adapter.solver();
+  const auto   original_solve = solver.solve_with_jacobian;
+  unsigned int checks         = 0;
+  solver.solve_with_jacobian =
+    [&](const auto &rhs, auto &answer, const double tolerance) {
+      EXPECT_TRUE(std::isinf(tolerance));
+      EXPECT_GT(rhs.linfty_norm(), 0.);
+      EXPECT_EQ(rhs.l2_norm(), 0.);
+      ++checks;
+      original_solve(rhs, answer, tolerance);
+    };
+  EXPECT_THROW(adapter.solve(y, yp), dealii::ExceptionBase);
+  EXPECT_GT(checks, 0u);
+}
 #endif
