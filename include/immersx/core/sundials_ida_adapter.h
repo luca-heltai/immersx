@@ -73,7 +73,6 @@ namespace ImmersX
       jacobian.reinit_domain_vector(correction, false);
       jacobian.vmult(residual, solution);
       residual.sadd(-1., 1., rhs);
-      correction = 0.;
       dealii::LinearOperator<VectorType> inverse;
       bool                               backsolve_failed = false;
       inverse.vmult                                       = [&backsolve,
@@ -89,26 +88,43 @@ namespace ImmersX
             throw;
           }
       };
-      dealii::SolverControl control(maximum_iterations, absolute_target);
-      typename dealii::SolverFGMRES<VectorType>::AdditionalData data(
-        maximum_iterations);
-      data.orthogonalization_strategy =
-        dealii::LinearAlgebra::OrthogonalizationStrategy::modified_gram_schmidt;
-      dealii::SolverFGMRES<VectorType> solver(control, data);
-      try
+      unsigned int iterations    = 0;
+      double       residual_norm = residual.l2_norm();
+      while (iterations < maximum_iterations && std::isfinite(residual_norm) &&
+             residual_norm > absolute_target)
         {
-          solver.solve(jacobian, correction, residual, inverse);
+          const auto remaining = maximum_iterations - iterations;
+          correction           = 0.;
+          dealii::SolverControl control(remaining, absolute_target);
+          typename dealii::SolverFGMRES<VectorType>::AdditionalData data(
+            remaining);
+          data.orthogonalization_strategy = dealii::LinearAlgebra::
+            OrthogonalizationStrategy::modified_gram_schmidt;
+          dealii::SolverFGMRES<VectorType> solver(control, data);
+          try
+            {
+              solver.solve(jacobian, correction, residual, inverse);
+            }
+          catch (const dealii::SolverControl::NoConvergence &)
+            {
+              if (backsolve_failed)
+                throw;
+              // An exhausted budget may still leave a useful correction.
+            }
+          iterations += control.last_step();
+          solution += correction;
+          solution.compress(dealii::VectorOperation::insert);
+          jacobian.vmult(residual, solution);
+          residual.sadd(-1., 1., rhs);
+          const double next_norm = residual.l2_norm();
+          // Projected convergence can precede convergence of the accumulated
+          // solution. Restart on its true defect, without resetting the budget.
+          if (!std::isfinite(next_norm) || next_norm <= absolute_target ||
+              control.last_step() == 0 || next_norm >= residual_norm)
+            break;
+          residual_norm = next_norm;
         }
-      catch (const dealii::SolverControl::NoConvergence &)
-        {
-          if (backsolve_failed)
-            throw;
-          // An exhausted budget may leave a useful correction. The caller's
-          // unchanged true-residual check still rejects an inaccurate solve.
-        }
-      solution += correction;
-      solution.compress(dealii::VectorOperation::insert);
-      return control.last_step();
+      return iterations;
     }
   } // namespace detail
 
