@@ -1,4 +1,4 @@
-PR: pending
+PR: #459
 
 - The forces files written by `ElasticityProblem` and `ElasticityFreqProblem`
   have a new column `sigmaNN_<id>` per boundary id, after `uDotN_<id>`: the
