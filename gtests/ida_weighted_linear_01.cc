@@ -248,7 +248,8 @@ TEST(DistributedIDA, BOTH_NativeIdaMixedWeightsUseBothLinearGates)
   parameters.relative_tolerance              = 0.;
   parameters.absolute_tolerance              = 1.;
   parameters.correction_type_at_initial_time = "none";
-  Adapter                     adapter(time, parameters, MPI_COMM_WORLD);
+  Adapter adapter(time, parameters, MPI_COMM_WORLD);
+  adapter.set_stop_at_output_times(true);
   const std::array<double, 4> errors{{1e-12, 1., 1e-3, 1e3}};
   const std::array<double, 4> initial{{1e-12, 1000., 1e-3, 1.}};
   const auto                  contributor = adapter.add(
@@ -353,7 +354,6 @@ TEST(DistributedIDA, BOTH_NativeIdaMixedWeightsUseBothLinearGates)
     EXPECT_LE(defect.l2_norm(), delta);
     ++checks;
   };
-  adapter.set_stop_at_output_times(true);
   EXPECT_GT(adapter.solve(state, rate), 0u);
   EXPECT_GT(checks, 0u);
   for (unsigned int k = 0; k < 4; ++k)

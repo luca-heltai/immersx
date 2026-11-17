@@ -90,7 +90,6 @@ their existing stopping contracts. Expert callback invocations before native
 IDA memory exists also retain their scalar-tolerance path. This change does
 not establish convergence or physical validity for a coupled application.
 
-
 `TimeIntervalParameters` owns the initial and final times and the physical
 output interval. `IDAParameters` owns IDA's adaptive-step controls, error
 tolerances, differential/algebraic error handling, and initial-condition
