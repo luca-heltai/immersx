@@ -990,7 +990,8 @@ namespace ImmersX
             for (auto vertex : cell->vertex_indices())
               {
                 for (const auto &neigh_i :
-                     GridTools::find_cells_adjacent_to_vertex(this->dh, vertex))
+                     GridTools::find_cells_adjacent_to_vertex(
+                       this->dh, cell->vertex_index(vertex)))
                   // for (auto neigh_i = cell->neighbor(face_no)->begin_face();
                   // neigh_i < cell->neighbor(face_no)->end_face(); ++neigh_i)
                   {
@@ -1001,7 +1002,7 @@ namespace ImmersX
                         for (auto vertey : neigh_i->vertex_indices())
                           for (const auto &neigh_j :
                                GridTools::find_cells_adjacent_to_vertex(
-                                 this->dh, vertey))
+                                 this->dh, neigh_i->vertex_index(vertey)))
                             // for (auto neigh_j =
                             // cell->neighbor(neigh_i)->begin_face(); neigh_j <
                             // cell->neighbor(neigh_i)->end_face(); ++neigh_j)
