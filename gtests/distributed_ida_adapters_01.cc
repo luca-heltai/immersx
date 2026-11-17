@@ -578,7 +578,7 @@ namespace
         native.get_sun_context()
 #  endif
       );
-      ASSERT_EQ(IDAGetErrWeights(native.get_ida_memory(), view), IDA_SUCCESS);
+      EXPECT_EQ(IDAGetErrWeights(native.get_ida_memory(), view), IDA_SUCCESS);
       EXPECT_EQ(adapter.make_state().size(), 2u);
       EXPECT_EQ(domain.size(), rhs.size());
       EXPECT_EQ(range.size(), rhs.size());
@@ -594,7 +594,8 @@ namespace
         }
       const unsigned int phase = rhs.size() == 3 ? 1 : 0;
       EXPECT_EQ(rhs.size(), phase ? 3u : 2u);
-      if (++map_checks[phase] == 1)
+      if (++map_checks[phase] == 1 &&
+          dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
         std::cout << "RESTART_NATIVE_MAPS comm_size="
                   << dealii::Utilities::MPI::n_mpi_processes(communicator)
                   << " rhs=" << rhs.size() << " Jacobian=" << domain.size()
