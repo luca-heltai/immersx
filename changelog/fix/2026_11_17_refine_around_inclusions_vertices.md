@@ -1,4 +1,4 @@
-PR: pending
+PR: #462
 
 - `CoupledElasticityProblem::refine_and_transfer_around_inclusions()` now
   refines the cells around the vertices of each inclusion cell. It passed
