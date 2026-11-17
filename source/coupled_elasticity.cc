@@ -23,6 +23,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <optional>
+#include <vector>
 
 namespace ImmersX
 {
@@ -973,6 +975,13 @@ namespace ImmersX
 
         const int material_id = 1;
 
+        // Refine the inclusion cells and two layers of vertex neighbours
+        // around them. Refine flags set on ghost cells are ignored by the
+        // distributed triangulation, so the layers are built on the owned
+        // cells: the marks are sent to the ghost cells before each layer and
+        // every rank flags its own cells next to a marked cell.
+        std::vector<char> marked(this->tria->n_active_cells(), 0);
+
         auto particle = this->inclusions.inclusions_as_particles.begin();
         while (particle != this->inclusions.inclusions_as_particles.end())
           {
@@ -981,41 +990,49 @@ namespace ImmersX
               this->inclusions.inclusions_as_particles.particles_in_cell(cell);
             Assert(pic.begin() == particle, ExcInternalError());
 
-            cell->set_refine_flag();
-            cell->set_material_id(material_id);
-
-            // for (auto f : cell->face_indices())
-            // for (unsigned int face_no = 0; face_no
-            // <GeometryInfo<spacedim>::faces_per_cell; ++face_no)
-            for (auto vertex : cell->vertex_indices())
-              {
-                for (const auto &neigh_i :
-                     GridTools::find_cells_adjacent_to_vertex(
-                       this->dh, cell->vertex_index(vertex)))
-                  // for (auto neigh_i = cell->neighbor(face_no)->begin_face();
-                  // neigh_i < cell->neighbor(face_no)->end_face(); ++neigh_i)
-                  {
-                    if (!neigh_i->refine_flag_set())
-                      {
-                        neigh_i->set_refine_flag();
-                        neigh_i->set_material_id(material_id);
-                        for (auto vertey : neigh_i->vertex_indices())
-                          for (const auto &neigh_j :
-                               GridTools::find_cells_adjacent_to_vertex(
-                                 this->dh, neigh_i->vertex_index(vertey)))
-                            // for (auto neigh_j =
-                            // cell->neighbor(neigh_i)->begin_face(); neigh_j <
-                            // cell->neighbor(neigh_i)->end_face(); ++neigh_j)
-                            {
-                              neigh_j->set_refine_flag();
-                              neigh_j->set_material_id(material_id);
-                            }
-                      }
-                  }
-              }
-
-            particle = pic.end();
+            marked[cell->active_cell_index()] = 1;
+            particle                          = pic.end();
           }
+
+        const auto vertex_to_cells = GridTools::vertex_to_cell_map(*this->tria);
+
+        const auto add_neighbor_layer = [&]() {
+          GridTools::exchange_cell_data_to_ghosts<char, DoFHandler<spacedim>>(
+            this->dh,
+            [&](const auto &cell) -> std::optional<char> {
+              return marked[cell->active_cell_index()];
+            },
+            [&](const auto &cell, const char &value) {
+              marked[cell->active_cell_index()] = value;
+            });
+
+          std::vector<char> next = marked;
+          for (const auto &cell : this->tria->active_cell_iterators())
+            if (cell->is_locally_owned() && !marked[cell->active_cell_index()])
+              for (const auto vertex : cell->vertex_indices())
+                {
+                  bool near_marked = false;
+                  for (const auto &neighbor :
+                       vertex_to_cells[cell->vertex_index(vertex)])
+                    near_marked =
+                      near_marked || marked[neighbor->active_cell_index()];
+                  if (near_marked)
+                    {
+                      next[cell->active_cell_index()] = 1;
+                      break;
+                    }
+                }
+          marked = std::move(next);
+        };
+        add_neighbor_layer();
+        add_neighbor_layer();
+
+        for (const auto &cell : this->tria->active_cell_iterators())
+          if (cell->is_locally_owned() && marked[cell->active_cell_index()])
+            {
+              cell->set_refine_flag();
+              cell->set_material_id(material_id);
+            }
         this->execute_actual_refine_and_transfer();
 
         for (unsigned int ref_cycle = 0;

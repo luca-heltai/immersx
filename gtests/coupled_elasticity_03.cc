@@ -417,6 +417,24 @@ TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataChangesPressurePoint)
   });
 }
 
+// The first timestep with Strategy = inclusions refines the inclusion cells and
+// two layers of vertex neighbours around them. The neighbours owned by another
+// rank must be refined too, so the number of cells does not depend on the
+// partition. The initial mesh has 8^3 cells, which the region does not cover.
+TEST(CoupledElasticity, BOTH_RefinementAroundInclusionsPoint)
+{
+  with_problem(
+    point_parameters(
+      {{"Strategy", "inclusions"}, {"Initial refinement", "3"}}),
+    [](auto &problem) {
+      problem.run_timestep0();
+      ASSERT_EQ(problem.tria->n_global_active_cells(), 512u);
+      problem.run_timestep();
+      // 6 x 6 x 8 of the 512 cells are refined into 8 children each.
+      EXPECT_EQ(problem.tria->n_global_active_cells(), 2528u);
+    });
+}
+
 // -----------------------------------------------------------------------------
 // compute_pressure_at_immersed_surface()
 // -----------------------------------------------------------------------------
