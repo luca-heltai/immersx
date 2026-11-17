@@ -85,6 +85,15 @@ entries participate in this linear norm even when excluded from IDA's local
 error test. Projected Krylov norms alone cannot accept a correction. Defect
 corrections share one bounded iteration budget; zero progress fails.
 
+Extremely large or small valid weights can make the native scalar conversion
+indeterminate (`infinity * 0` or `0 * infinity`). The original target then
+cannot be recovered. Only in those two cases, an unscaled solve may be accepted
+if every owned entry of the full-J residual is exactly zero across all MPI
+ranks, in addition to the raw gate. A zero computed norm alone is insufficient
+because it can underflow. Any approximate residual is rejected; invalid weights
+and a NaN callback tolerance remain errors.
+
+
 MUMPS/UMFPACK solves, application-supplied callbacks, and steady solves retain
 their existing stopping contracts. Expert callback invocations before native
 IDA memory exists also retain their scalar-tolerance path. This change does

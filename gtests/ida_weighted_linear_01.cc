@@ -363,4 +363,32 @@ TEST(DistributedIDA, BOTH_NativeIdaMixedWeightsUseBothLinearGates)
                   std::exp(-time.final_time),
                   1e-3);
 }
+TEST(DistributedIDA, BOTH_IndeterminateTargetRequiresExactResidualEntries)
+{
+  FourFields f(true);
+  f.set(f.rhs, {{1, 0, 0, 0}});
+  f.matrix.vmult = [](Vector &dst, const Vector &src) { dst = src; };
+  EXPECT_GT(
+    ImmersX::detail::ida_exact_residual_krylov<Vector>(
+      f.matrix, nullptr, f.rhs, f.solution, 1e-8, 4, true, MPI_COMM_WORLD),
+    0u);
+  // The nearest binary64 value of 1/49 leaves a nonzero true defect. Its
+  // raw norm meets 1e-8, but cannot certify an indeterminate weighted target.
+  f.matrix.vmult = [](Vector &dst, const Vector &src) {
+    dst = src;
+    dst *= 49.;
+  };
+  EXPECT_THROW(
+    ImmersX::detail::ida_exact_residual_krylov<Vector>(
+      f.matrix, nullptr, f.rhs, f.solution, 1e-8, 4, true, MPI_COMM_WORLD),
+    dealii::ExceptionBase);
+  bool   exact  = true;
+  Vector defect = f.rhs;
+  f.matrix.vmult(defect, f.solution);
+  defect -= f.rhs;
+  for (const auto i : defect.locally_owned_elements())
+    exact = exact && defect[i] == 0.;
+  EXPECT_EQ(dealii::Utilities::MPI::min(exact ? 1u : 0u, MPI_COMM_WORLD), 0u);
+  EXPECT_LE(defect.l2_norm(), 1e-8);
+}
 #endif

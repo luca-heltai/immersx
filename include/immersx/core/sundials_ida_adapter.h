@@ -240,6 +240,49 @@ namespace ImmersX
           defect.sadd(-1., 1., rhs);
         }
     }
+
+    /** Certify an indeterminate native target only through an exact defect.
+     * A zero norm can hide underflow; compare every owned entry instead.
+     */
+    template <typename VectorType>
+    unsigned int
+    ida_exact_residual_krylov(
+      const dealii::LinearOperator<VectorType> &jacobian,
+      const dealii::LinearOperator<VectorType> *preconditioner,
+      const VectorType                         &rhs,
+      VectorType                               &solution,
+      const double                              raw_target,
+      const unsigned int                        maximum_iterations,
+      const bool                                flexible,
+      const MPI_Comm                            communicator)
+    {
+      VectorType ones, defect;
+      jacobian.reinit_domain_vector(ones, false);
+      jacobian.reinit_range_vector(defect, false);
+      ones = 1.;
+      const auto iterations =
+        ida_weighted_krylov(jacobian,
+                            preconditioner,
+                            rhs,
+                            solution,
+                            ones,
+                            std::max(raw_target,
+                                     std::numeric_limits<double>::min()),
+                            raw_target,
+                            maximum_iterations,
+                            flexible,
+                            communicator);
+      jacobian.vmult(defect, solution);
+      defect -= rhs;
+      bool exact = true;
+      for (const auto i : defect.locally_owned_elements())
+        exact = exact && defect[i] == 0.;
+      AssertThrow(
+        dealii::Utilities::MPI::min(exact ? 1u : 0u, communicator),
+        dealii::ExcMessage(
+          "Indeterminate native IDA target requires an exactly zero full-J residual."));
+      return iterations;
+    }
   } // namespace detail
 
   /** Public transient DAE adapter backed by the private composition engine. */
@@ -1693,28 +1736,62 @@ namespace ImmersX
               );
             const int status =
               IDAGetErrWeights(ida_->get_ida_memory(), weight_view);
-            AssertThrow(status == IDA_SUCCESS,
+            AssertThrow(
+              dealii::Utilities::MPI::min(status == IDA_SUCCESS ? 1u : 0u,
+                                          composition_.communicator()),
+              dealii::ExcMessage(
+                "Could not obtain native IDA linear error weights."));
+            bool valid = !std::isnan(tolerance) && tolerance >= 0.;
+            for (const auto i : weights.locally_owned_elements())
+              valid = valid && std::isfinite(weights[i]) && weights[i] > 0.;
+            AssertThrow(dealii::Utilities::MPI::min(
+                          valid ? 1u : 0u, composition_.communicator()),
                         dealii::ExcMessage(
-                          "Could not obtain native IDA linear error weights."));
-            // Undo IDAS's homogeneous-weight fallback, without adding sqrt(N).
-            const double weighted_target =
-              tolerance * N_VWrmsNorm(weight_view, ones_view);
-            const auto &controls   = ida_parameters_.linear_solver_controls;
-            const auto  iterations = detail::ida_weighted_krylov(
-              *current_jacobian_,
-              current_preconditioner_ ? &*current_preconditioner_ : nullptr,
-              rhs,
-              dst,
-              weights,
-              weighted_target,
-              controls.krylov_relative_tolerance * rhs.l2_norm(),
-              controls.krylov_maximum_iterations,
-              current_solver_is_flexible_,
-              composition_.communicator());
-            pcout << "IDAAdapter: weighted Krylov converged in " << iterations
-                  << " iteration(s), native weighted target " << weighted_target
-                  << ", raw relative target "
-                  << controls.krylov_relative_tolerance << std::endl;
+                          "Invalid native IDA linear weights or tolerance."));
+            const double weight_rms = N_VWrmsNorm(weight_view, ones_view);
+            const bool   exact_only =
+              (std::isinf(tolerance) && weight_rms == 0.) ||
+              (tolerance == 0. && std::isinf(weight_rms));
+            const auto  &controls = ida_parameters_.linear_solver_controls;
+            const double raw_target =
+              controls.krylov_relative_tolerance * rhs.l2_norm();
+            const auto *preconditioner =
+              current_preconditioner_ ? &*current_preconditioner_ : nullptr;
+            if (exact_only)
+              {
+                const auto iterations = detail::ida_exact_residual_krylov(
+                  *current_jacobian_,
+                  preconditioner,
+                  rhs,
+                  dst,
+                  raw_target,
+                  controls.krylov_maximum_iterations,
+                  current_solver_is_flexible_,
+                  composition_.communicator());
+                pcout
+                  << "IDAAdapter: indeterminate native weighted target; exact full-J residual certified after "
+                  << iterations << " iteration(s)." << std::endl;
+              }
+            else
+              {
+                // Undo IDAS's homogeneous-weight fallback without sqrt(N).
+                const double weighted_target = tolerance * weight_rms;
+                const auto   iterations      = detail::ida_weighted_krylov(
+                  *current_jacobian_,
+                  preconditioner,
+                  rhs,
+                  dst,
+                  weights,
+                  weighted_target,
+                  raw_target,
+                  controls.krylov_maximum_iterations,
+                  current_solver_is_flexible_,
+                  composition_.communicator());
+                pcout << "IDAAdapter: weighted Krylov converged in "
+                      << iterations << " iteration(s), native weighted target "
+                      << weighted_target << ", raw relative target "
+                      << controls.krylov_relative_tolerance << std::endl;
+              }
           }
         else
           {

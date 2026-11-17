@@ -1230,7 +1230,23 @@ TEST(DistributedIDA, BOTH_AlgebraicRampProtectionValidatesOnlyAppliedScales)
         }
       else
         {
+          auto        &solver         = adapter.solver();
+          const auto   original_solve = solver.solve_with_jacobian;
+          unsigned int exact_checks   = 0;
+          solver.solve_with_jacobian =
+            [&](const auto &rhs, auto &answer, const double tolerance) {
+              // RMS(EWT) underflows for the valid protected atol=1e307.
+              EXPECT_TRUE(std::isinf(tolerance));
+              original_solve(rhs, answer, tolerance);
+              auto defect = adapter.make_state();
+              adapter.current_jacobian().vmult(defect, answer);
+              defect -= rhs;
+              for (const auto i : defect.locally_owned_elements())
+                EXPECT_EQ(defect[i], 0.);
+              ++exact_checks;
+            };
           EXPECT_NO_THROW(adapter.solve(y, yp));
+          EXPECT_GT(exact_checks, 0u);
         }
     }
 }
