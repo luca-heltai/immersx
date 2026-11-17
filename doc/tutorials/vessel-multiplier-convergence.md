@@ -129,29 +129,38 @@ test. With it, at pass 2 ($h/a = 0.76$), $\lambda_h/J$ at $T = 0.1$ is
 
 | $dt$ | 0.01 | 0.0025 | 0.00125 | 0.000625 |
 |---|---:|---:|---:|---:|
-| $\lambda_h/J$ | 1.2936 | 1.2965 | 1.2941 | 1.2935 |
+| $\lambda_h/J$ | 1.2471 | 1.2495 | 1.2474 | 1.2468 |
 
 An oscillation from the equilibrium start decays over the first steps; for
-$t \ge 0.05$, $\lambda_h/J$ stays within 1.290–1.298 for every $dt$. The mean wall displacement stays at 0.997 of
-its target (the 32-sided cross section). The time error is negligible: the
-factor 1.29 is the spatial error, and a static solve on the same mesh gives
-1.28.
+$t \ge 0.05$, $\lambda_h/J$ stays within 1.246–1.253 for $dt \le 0.0025$.
+The radial displacement sampled on the circle $r = a$ at $x = 0$ stays at
+0.997 of its target at pass 2 and at 0.981 at pass 5, at every step. The
+decrease under refinement is not explained yet. The time error is negligible: the static solve on the same mesh
+gives 1.2425.
 
-Under spatial refinement, with $dt = 0.0025$:
+Under spatial refinement:
 
-| passes | $h/a$ | $\lambda_h/J$ at $T = 0.1$ | static ratio on the same mesh |
-|---:|---:|---:|---:|
-| 2 | 0.76 | 1.2965 | 1.2811 |
-| 3 | 0.38 | 1.1965 | 1.1733 |
-| 4 | 0.19 | 1.0837 | 1.0541 |
-| 5 | 0.096 | 1.0613 | 1.0296 |
+| passes | $h/a$ | $dt$ | $\lambda_h/J$ at $T = 0.1$ | static |
+|---:|---:|---:|---:|---:|
+| 2 | 0.76 | 0.0025 | 1.2495 | 1.2425 |
+| 3 | 0.38 | 0.0025 | 1.1576 | 1.1548 |
+| 4 | 0.19 | 0.0025 | 1.0513 | 1.0497 |
+| 5 | 0.096 | 0.0025 | 1.0298 | 1.0280 |
+| 5 | 0.096 | 0.00125 | 1.0276 | 1.0280 |
 
-The static ratios here are the means over all support points. The dynamic
-multiplier follows the static one to pass 4. At pass 5 its error, 6.1 %, is
-twice the static one; the multiplier alternates by about 0.3 % from step to
-step and drifts from 1.05 at $t = 0.05$ to 1.06 at $t = 0.1$. Whether this excess is time error
-of $dt = 0.0025$ on the finer mesh is not checked yet: a run with
-$dt = 0.00125$ at pass 5 is in progress.
+The dynamic multiplier has the error of the static one at every pass, to
+within 0.7 %. The support points at the ends of the vessel, near the faces
+of the cube, behave differently: there the dynamic error is larger than the
+static one (10 % against 3 % at pass 5) and does not change when $dt$ is
+halved. Including them, the mean ratio at pass 5 is 1.061 for
+$dt = 0.0025$ and 1.059 for $dt = 0.00125$, against 1.030 static. This is
+an effect of the end faces, where the vessel meets the boundary data, not of
+the time integration.
+
+At pass 5 a step solves a system with 620295 displacement dofs. The inner
+solve with the augmented block needs an AMG preconditioner; without it its
+iterations double with each refinement (870 per solve at pass 5, fixed in
+#463).
 
 ## What this means for #379
 
@@ -170,7 +179,8 @@ error $e$ of the jump becomes an error $3.2\,e$ of $\lambda^\star$.
   The fitted grid of #379 gives 5.9 %; its $h/a$ at the wall is not
   reported there.
 - The IDA tolerances of #379 barely change the multiplier, and here the time
-  step does not either once the constraint is solved accurately. #463
+  step does not either once the constraint is solved accurately: away from
+  the cube faces the dynamic multiplier has the static error. #463
   concerns the iterative solve of the ImmersX Newmark step; MetricFlowX
   integrates with IDA and other linear solvers, and its tolerance study shows
   no comparable effect.
