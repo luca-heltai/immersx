@@ -1669,6 +1669,7 @@ namespace ImmersX
 #endif
             solve_wall_constrained_system(stiffness_matrix,
                                           1.,
+                                          prec_A,
                                           system_rhs.block(0),
                                           system_rhs.block(1),
                                           u,
@@ -1713,12 +1714,13 @@ namespace ImmersX
   template <int dim, int spacedim>
   void
   ElasticityProblem<dim, spacedim>::solve_wall_constrained_system(
-    const LA::MPI::SparseMatrix &matrix,
-    const double                 scale,
-    const LA::MPI::Vector       &f,
-    const LA::MPI::Vector       &g,
-    LA::MPI::Vector             &u,
-    LA::MPI::Vector             &lambda)
+    const LA::MPI::SparseMatrix    &matrix,
+    const double                    scale,
+    const LA::MPI::PreconditionAMG &preconditioner,
+    const LA::MPI::Vector          &f,
+    const LA::MPI::Vector          &g,
+    LA::MPI::Vector                &u,
+    LA::MPI::Vector                &lambda)
   {
     const auto K  = scale * linear_operator<LA::MPI::Vector>(matrix);
     const auto Bt = linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
@@ -1770,7 +1772,10 @@ namespace ImmersX
       par.displacement_solver_control);
     SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
 
-    auto Aug_inv = inverse_operator(Aug, solver_lagrangian);
+    // The augmentation adds a term of the rank of the multiplier space to
+    // K, so an AMG of K preconditions the augmented block. Without it the
+    // inner iterations double with every refinement of the mesh.
+    auto Aug_inv = inverse_operator(Aug, solver_lagrangian, preconditioner);
 
     SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(
       par.augmented_lagrange_solver_control);
@@ -1853,8 +1858,22 @@ namespace ImmersX
 
     auto &u      = solution.block(0);
     auto &lambda = solution.block(1);
+    // prec_A is not built in dynamic runs. The equilibrium solve needs it,
+    // and the Newmark steps need prec_newmark.
+    Teuchos::ParameterList amg_parameters;
+    amg_parameters.set("smoother: type", "Chebyshev");
+    amg_parameters.set("smoother: sweeps", 2);
+    amg_parameters.set("smoother: pre or post", "both");
+    amg_parameters.set("coarse: type", "Amesos-KLU");
+    amg_parameters.set("coarse: max size", 2000);
+    amg_parameters.set("aggregation: threshold", 0.02);
+    prec_A.clear();
+    prec_A.initialize(stiffness_matrix, amg_parameters);
+    prec_newmark.clear();
+    prec_newmark.initialize(newmark_matrix, amg_parameters);
+
     solve_wall_constrained_system(
-      stiffness_matrix, 1., rhs, system_rhs.block(1), u, lambda);
+      stiffness_matrix, 1., prec_A, rhs, system_rhs.block(1), u, lambda);
     constraints.distribute(u);
     distribute_multiplier_solution(lambda);
     velocity                  = 0.;
@@ -2057,6 +2076,7 @@ namespace ImmersX
         increment.reinit(a);
         solve_wall_constrained_system(newmark_matrix,
                                       1. / factor,
+                                      prec_newmark,
                                       acceleration_rhs,
                                       constraint_rhs,
                                       increment,

@@ -628,15 +628,19 @@ namespace ImmersX
      * Solve the saddle point problem
      * @f$K u + B^T\lambda = f@f$, @f$B u - O\lambda = g@f$ with
      * @f$K@f$ = `scale` `matrix`, using the augmented Lagrangian
-     * preconditioner of the static solve. The initial guess is zero.
+     * preconditioner of the static solve. `preconditioner` approximates the
+     * inverse of `matrix` and preconditions the inner solves with the
+     * augmented block. The initial guess is zero.
      */
     void
-    solve_wall_constrained_system(const LA::MPI::SparseMatrix &matrix,
-                                  const double                 scale,
-                                  const LA::MPI::Vector       &f,
-                                  const LA::MPI::Vector       &g,
-                                  LA::MPI::Vector             &u,
-                                  LA::MPI::Vector             &lambda);
+    solve_wall_constrained_system(
+      const LA::MPI::SparseMatrix    &matrix,
+      const double                    scale,
+      const LA::MPI::PreconditionAMG &preconditioner,
+      const LA::MPI::Vector          &f,
+      const LA::MPI::Vector          &g,
+      LA::MPI::Vector                &u,
+      LA::MPI::Vector                &lambda);
 
     /**
      * Start a wall-constrained Newmark run at the static equilibrium.
