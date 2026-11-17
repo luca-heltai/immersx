@@ -194,10 +194,9 @@ Finer meshes would need a Release build. Graded radial cells, or local
 refinement near the wall, would help the resolved wall stress much more than
 uniform refinement.
 
-## Next step: the dynamic case
+## Next step: convergence in a cube and in time
 
-[One vessel in a cube: a manufactured
-solution](metric-flow-x-elastodynamics-mms.md) runs the same comparison in
-time, with inertia and viscosity, for the MetricFlowX coupling. There the
-multiplier is also a traction jump, and removing the fictitious interior
-response turns it into the exterior radial stress.
+[Convergence of the vessel multiplier](vessel-multiplier-convergence.md)
+measures the rate of the multiplier in a cube refined near the wall, adds an
+axial strain and Newmark steps with inertia and damping, and compares with the
+MetricFlowX study of [One vessel in a cube](metric-flow-x-elastodynamics-mms.md).

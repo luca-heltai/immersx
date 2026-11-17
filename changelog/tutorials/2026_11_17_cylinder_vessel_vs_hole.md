@@ -8,3 +8,8 @@ PR: pending
   (tensor-product coupling) against the exact Lamé solution, and shows that
   the multiplier is the traction jump while the pressure is the tissue-side
   stress.
+- Added "Convergence of the vessel multiplier"
+  (`doc/tutorials/vessel-multiplier-convergence.md`): the static multiplier
+  converges at first order in h/a near the wall, does not depend on an axial
+  strain, and Newmark steps add no visible time error; this accounts for the
+  size of the MetricFlowX multiplier error of #379.
