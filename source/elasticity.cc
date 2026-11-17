@@ -1801,21 +1801,34 @@ namespace ImmersX
     const auto outside  = linear_operator<LA::MPI::Vector>(outside_mass_matrix);
     const auto reaction = Bt - gamma * Bt * invW * outside;
     const auto negative_outside = -1. * outside;
-    auto       AA               = block_operator<2, 2, LA::MPI::BlockVector>(
-      {{{{Aug, reaction}}, {{B, negative_outside}}}});
+    // Augmentation of the first row.
+    LA::MPI::Vector rhs_u;
+    rhs_u.reinit(f);
+    rhs_u = gamma * Bt * invW * g;
+    rhs_u.add(1., f);
+
+    // FGMRES stops on the norm of the whole residual. In a Newmark step the
+    // momentum row is scaled by 1 / (beta dt^2), while the constraint row
+    // holds only the small residual g - B u_pred of the predictor. Then the
+    // momentum row alone decides when FGMRES stops, the wall constraint may
+    // be left unmet, and the multiplier takes up the error amplified by
+    // 1 / (beta dt^2). Weight the constraint row by the same factor. The
+    // preconditioner undoes the weight, so the preconditioned operator is
+    // similar to the unweighted one: the weight changes only the norm in
+    // which FGMRES measures convergence.
+    const double weight           = scale;
+    const auto   weighted_B       = weight * B;
+    const auto   weighted_outside = weight * negative_outside;
+    auto         AA               = block_operator<2, 2, LA::MPI::BlockVector>(
+      {{{{Aug, reaction}}, {{weighted_B, weighted_outside}}}});
 
     LA::MPI::BlockVector solution_block;
     LA::MPI::BlockVector system_rhs_block;
     AA.reinit_domain_vector(solution_block, false);
     AA.reinit_range_vector(system_rhs_block, false);
-
-    // Augmentation of the first row.
-    LA::MPI::Vector tmp;
-    tmp.reinit(f);
-    tmp                       = gamma * Bt * invW * g;
-    system_rhs_block.block(0) = f;
-    system_rhs_block.block(0).add(1., tmp);
+    system_rhs_block.block(0) = rhs_u;
     system_rhs_block.block(1) = g;
+    system_rhs_block.block(1) *= weight;
 
     CumulativeReductionControl augmented_control(
       par.displacement_solver_control);
@@ -1829,10 +1842,25 @@ namespace ImmersX
     BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
       augmented_lagrangian_preconditioner{Aug_inv, B, reaction, invW, gamma};
 
+    // The preconditioner approximates the inverse of the unweighted system.
+    struct WeightedPreconditioner
+    {
+      void
+      vmult(LA::MPI::BlockVector &v, const LA::MPI::BlockVector &r) const
+      {
+        LA::MPI::BlockVector unweighted(r);
+        unweighted.block(1) /= weight;
+        preconditioner.vmult(v, unweighted);
+      }
+      const BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
+                  &preconditioner;
+      const double weight;
+    } weighted_preconditioner{augmented_lagrangian_preconditioner, weight};
+
     solver_fgmres.solve(AA,
                         solution_block,
                         system_rhs_block,
-                        augmented_lagrangian_preconditioner);
+                        weighted_preconditioner);
 
     u      = solution_block.block(0);
     lambda = solution_block.block(1);
