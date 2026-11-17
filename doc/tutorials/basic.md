@@ -9,5 +9,6 @@ Learn scalar and vector finite-element solves, time integration, and flow.
 poisson
 elasticity
 elastodynamics
+liver-material-parameters
 navier-stokes
 ```
