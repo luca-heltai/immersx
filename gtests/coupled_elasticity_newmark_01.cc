@@ -427,6 +427,36 @@ TEST(CoupledElasticityNewmark, BOTH_ViscousRelaxationReachesStaticSolutionPoint)
                });
 }
 
+// Small, smoothly growing wall data with a small time step and a body force.
+// Each step solves the saddle point problem for the increment beta dt^2 a
+// with the momentum row scaled by 1 / (beta dt^2), while the constraint row
+// holds the small residual g - B u_pred. Without the same scaling of the
+// constraint row, FGMRES stopped after one iteration in the first steps, with
+// relative constraint residuals up to 4.7e-3 (serial Release run); with it,
+// the residuals stay below 2e-5. On the cube of
+// doc/tutorials/metric-flow-x-elastodynamics-mms.md the unmet constraint made
+// the multiplier oscillate from step to step with an amplitude growing like
+// 1 / dt^2.
+TEST(CoupledElasticityNewmark,
+     BOTH_SmallTimeStepKeepsWallConstraintTensorProduct)
+{
+  with_problem(parameters(false,
+                          true,
+                          {{"Time step", "0.001"},
+                           {"Reduced right hand side", "1.e-5*t^3; 1.e-5*t^3"}},
+                          "0; 0; 0"),
+               [&](auto &problem) {
+                 problem.run_timestep0();
+                 problem.run_timestep(0.);
+                 for (unsigned int step = 1; step <= 20; ++step)
+                   {
+                     problem.run_timestep(0.001 * step);
+                     EXPECT_LT(constraint_residual(problem), 1.e-4)
+                       << "step " << step;
+                   }
+               });
+}
+
 // A coupled Newmark step must advance the tissue by exactly one time step.
 TEST(CoupledElasticityNewmark, BOTH_RejectsStepOfWrongSizePoint)
 {
