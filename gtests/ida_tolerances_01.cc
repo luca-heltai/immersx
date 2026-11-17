@@ -1282,4 +1282,56 @@ TEST(DistributedIDA, BOTH_IndeterminateNativeTargetRejectsUnderflowedResidual)
   EXPECT_THROW(adapter.solve(y, yp), dealii::ExceptionBase);
   EXPECT_GT(checks, 0u);
 }
+TEST(DistributedIDA, BOTH_ZeroNativeTargetRequiresExactCorrection)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.final_time                            = .001;
+  time.output_time_interval                  = .001;
+  parameters.initial_step_size               = .001;
+  parameters.maximum_step_size               = .001;
+  parameters.absolute_tolerance              = 1.;
+  parameters.relative_tolerance              = 0.;
+  parameters.correction_type_at_initial_time = "none";
+  // A valid loose raw gate must not accept the initial zero correction when
+  // native IDA requests a zero linear residual.
+  parameters.linear_solver_controls.krylov_relative_tolerance = 1.;
+  Adapter adapter(time, parameters, MPI_COMM_WORLD);
+  auto    controls = adapter.additional_data();
+  // IDASetEpsLin accepts this positive factor. Multiplication by epsNewt
+  // underflows to zero before division by the finite, unit RMS(EWT).
+  controls.linear_tolerance_factor = std::numeric_limits<double>::denorm_min();
+  adapter.set_additional_data(controls);
+  add_forced_field(adapter, false, 1.);
+  auto y = adapter.make_state(), yp = adapter.make_state();
+  y = yp                      = 0.;
+  auto        &solver         = adapter.solver();
+  const auto   original_solve = solver.solve_with_jacobian;
+  unsigned int checks         = 0;
+  solver.solve_with_jacobian =
+    [&](const auto &rhs, auto &answer, const double tolerance) {
+      EXPECT_EQ(tolerance, 0.);
+      auto weights = adapter.make_state();
+      auto view    = Compatibility::SUNDIALS::internal::make_nvector_view(
+        weights
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+        ,
+        solver.get_sun_context()
+#  endif
+      );
+      EXPECT_EQ(IDAGetErrWeights(solver.get_ida_memory(), view), IDA_SUCCESS);
+      EXPECT_DOUBLE_EQ(weights.l2_norm(), 1.);
+      ++checks;
+      original_solve(rhs, answer, tolerance);
+      auto defect = adapter.make_state();
+      adapter.current_jacobian().vmult(defect, answer);
+      defect -= rhs;
+      for (const auto i : defect.locally_owned_elements())
+        EXPECT_EQ(defect[i], 0.);
+    };
+  EXPECT_NO_THROW(adapter.solve(y, yp));
+  EXPECT_GT(checks, 0u);
+  for (const auto i : y.locally_owned_elements())
+    EXPECT_DOUBLE_EQ(y[i], 2. + std::sin(time.final_time));
+}
 #endif

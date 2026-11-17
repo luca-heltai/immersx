@@ -86,12 +86,19 @@ error test. Projected Krylov norms alone cannot accept a correction. Defect
 corrections share one bounded iteration budget; zero progress fails.
 
 Extremely large or small valid weights can make the native scalar conversion
-indeterminate. If the native RMS of positive error weights is zero, or a zero
-callback scalar is paired with infinite RMS, the original target cannot be
-recovered. In those cases, an unscaled solve may be accepted only if every
+indeterminate. If the native RMS of positive error weights is zero, the original target
+cannot be recovered. A zero callback scalar can also arise when IDA multiplies
+its positive linear tolerance factor by the nonlinear target and underflows,
+even with finite positive RMS. Both cases require an exact certificate: an
+unscaled solve may be accepted only if every
 owned entry of the full-J residual is exactly zero across all MPI ranks,
 in addition to the raw gate. A zero computed norm alone is insufficient
-because it can underflow. Any approximate residual is rejected; invalid weights
+because it can underflow. Exact-only refinement uses a positive target tied to half the current true
+defect infinity norm, independently of the raw bound. Each correction is
+followed by a full-J residual calculation; the true infinity norm must decrease
+strictly until every entry is zero. All corrections share the original
+iteration budget. A loose raw gate cannot accept zero work, and a projected
+norm cannot certify exactness. Any approximate residual is rejected; invalid weights
 and a NaN callback tolerance remain errors.
 
 

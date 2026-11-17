@@ -265,32 +265,72 @@ namespace ImmersX
       const bool                                flexible,
       const MPI_Comm                            communicator)
     {
-      VectorType ones, defect;
+      AssertThrow(dealii::Utilities::MPI::min(
+                    std::isfinite(raw_target) && raw_target >= 0. ? 1u : 0u,
+                    communicator),
+                  dealii::ExcMessage("Invalid raw IDA linear target."));
+      VectorType ones, defect, correction;
       jacobian.reinit_domain_vector(ones, false);
+      jacobian.reinit_domain_vector(correction, false);
       jacobian.reinit_range_vector(defect, false);
-      ones = 1.;
-      const auto iterations =
-        ida_weighted_krylov(jacobian,
-                            preconditioner,
-                            rhs,
-                            solution,
-                            ones,
-                            std::max(raw_target,
-                                     std::numeric_limits<double>::min()),
-                            raw_target,
-                            maximum_iterations,
-                            flexible,
-                            communicator);
-      jacobian.vmult(defect, solution);
-      defect -= rhs;
-      bool exact = true;
-      for (const auto i : defect.locally_owned_elements())
-        exact = exact && defect[i] == 0.;
-      AssertThrow(
-        dealii::Utilities::MPI::min(exact ? 1u : 0u, communicator),
-        dealii::ExcMessage(
-          "Indeterminate native IDA target requires an exactly zero full-J residual."));
-      return iterations;
+      ones     = 1.;
+      solution = 0.;
+      defect   = rhs;
+      defect.compress(dealii::VectorOperation::insert);
+      unsigned int iterations      = 0;
+      double       previous_defect = std::numeric_limits<double>::infinity();
+      for (;;)
+        {
+          bool finite = true, exact = true;
+          for (const auto i : defect.locally_owned_elements())
+            {
+              finite = finite && std::isfinite(defect[i]);
+              exact  = exact && defect[i] == 0.;
+            }
+          AssertThrow(dealii::Utilities::MPI::min(finite ? 1u : 0u,
+                                                  communicator),
+                      dealii::ExcMessage("Nonfinite exact-only IDA defect."));
+          if (dealii::Utilities::MPI::min(exact ? 1u : 0u, communicator))
+            {
+              AssertThrow(defect.l2_norm() <= raw_target,
+                          dealii::ExcMessage(
+                            "Raw IDA linear residual gate failed."));
+              return iterations;
+            }
+          const double norm = defect.linfty_norm();
+          AssertThrow(
+            norm > 0. && norm < previous_defect,
+            dealii::ExcMessage(
+              "Exact-only IDA refinement made no true-defect progress."));
+          AssertThrow(iterations < maximum_iterations,
+                      dealii::SolverControl::NoConvergence(iterations, norm));
+          previous_defect = norm;
+          // A raw-sized projected target could accept zero work. Ask for
+          // genuine progress, then independently recalculate the full defect.
+          // The infinity norm avoids squaring tiny entries before this test.
+          const double target =
+            std::max(.5 * norm, std::numeric_limits<double>::denorm_min());
+          const auto steps =
+            ida_weighted_krylov(jacobian,
+                                preconditioner,
+                                defect,
+                                correction,
+                                ones,
+                                target,
+                                target,
+                                maximum_iterations - iterations,
+                                flexible,
+                                communicator);
+          AssertThrow(
+            steps > 0,
+            dealii::ExcMessage(
+              "Indeterminate or zero IDA target requires an exactly zero full-J residual; correction made no progress."));
+          iterations += steps;
+          solution += correction;
+          solution.compress(dealii::VectorOperation::insert);
+          jacobian.vmult(defect, solution);
+          defect.sadd(-1., 1., rhs);
+        }
     }
   } // namespace detail
 
@@ -1758,9 +1798,8 @@ namespace ImmersX
                         dealii::ExcMessage(
                           "Invalid native IDA linear weights or tolerance."));
             const double weight_rms = N_VWrmsNorm(weight_view, ones_view);
-            const bool   exact_only =
-              weight_rms == 0. || (tolerance == 0. && std::isinf(weight_rms));
-            const auto  &controls = ida_parameters_.linear_solver_controls;
+            const bool   exact_only = weight_rms == 0. || tolerance == 0.;
+            const auto  &controls   = ida_parameters_.linear_solver_controls;
             const double raw_target =
               controls.krylov_relative_tolerance * rhs.l2_norm();
             const auto *preconditioner =
