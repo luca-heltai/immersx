@@ -1011,7 +1011,21 @@ namespace ImmersX
                 break;
               }
 
-          if (!has_prescribed_face)
+          // A hanging node whose master is a boundary dof inherits the
+          // inhomogeneity of that dof when the constraints are closed. The
+          // cells around it need not touch the boundary, but their affine
+          // contribution must be added too.
+          cell->get_dof_indices(local_dof_indices);
+          bool has_affine_dof = has_prescribed_face;
+          for (unsigned int i = 0; i < dofs_per_cell && !has_affine_dof; ++i)
+            has_affine_dof =
+              displacement_predictor_constraints.is_inhomogeneously_constrained(
+                local_dof_indices[i]) ||
+              velocity_predictor_constraints.is_inhomogeneously_constrained(
+                local_dof_indices[i]) ||
+              acceleration_constraints.is_inhomogeneously_constrained(
+                local_dof_indices[i]);
+          if (!has_affine_dof)
             continue;
 
           const auto &mp     = par.get_material_properties(cell->material_id());

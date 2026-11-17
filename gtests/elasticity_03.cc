@@ -1,5 +1,9 @@
 #include <deal.II/base/function_parser.h>
 
+#include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/precondition.h>
+#include <deal.II/lac/solver_cg.h>
+
 #include <deal.II/numerics/vector_tools.h>
 
 #include <gtest/gtest.h>
@@ -653,4 +657,78 @@ TEST(ElasticityProblem, BOTH_RobinNormalFluxTranslation)
 {
   check_newmark_robin_translation(false, false, true);
   check_newmark_robin_translation(false, true, true);
+}
+
+// In dynamic runs the matrices have homogeneous essential columns, and
+// add_dynamic_constraint_rhs() adds the affine part of the boundary data.
+// Refining one corner cell creates hanging nodes whose masters include
+// boundary dofs; when the constraints are closed they inherit the boundary
+// data. The fine cells around such a node need not touch the boundary. With
+// affine boundary data, the stiffness solve with this right-hand side must
+// reproduce the affine field.
+TEST(ElasticityProblem, BOTH_DynamicAffineLiftingReachesHangingNodes)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  const std::string                affine = "1 + x + 2*y; -0.5 + 3*x - y";
+  parse_parameters(par,
+                   R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 0, 1, 2, 3
+      subsection Time parameters
+        set Initial time = 0
+        set Final time   = 0.1
+        set Time step    = 0.1
+      end
+      subsection Material properties
+        subsection default
+          set Density = 1
+        end
+      end
+    end
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = )" +
+                     affine + R"(
+      end
+    end
+  )");
+  par.check_model_consistency();
+  ASSERT_EQ(par.time_mode, TimeMode::Dynamic);
+  // Refine the quarter [-1, 0]^2. The hanging nodes on x = 0 and y = 0 have
+  // a boundary dof among their masters.
+  problem.make_grid();
+  for (const auto &cell : problem.tria->active_cell_iterators())
+    if (cell->is_locally_owned() && cell->center()[0] < 0. &&
+        cell->center()[1] < 0.)
+      cell->set_refine_flag();
+  problem.tria->execute_coarsening_and_refinement();
+  problem.setup_fe();
+  problem.inclusions.setup_inclusions_particles(*problem.tria);
+  problem.setup_dofs();
+  problem.assemble_elasticity_system();
+  problem.setup_constraints();
+
+  unsigned int inherited = 0;
+  for (const auto &line : problem.constraints.get_lines())
+    if (!line.entries.empty() && std::abs(line.inhomogeneity) > 0. &&
+        problem.owned_dofs[0].is_element(line.index))
+      ++inherited;
+  ASSERT_GT(Utilities::MPI::sum(inherited, MPI_COMM_WORLD), 0u);
+
+  LA::MPI::Vector rhs(problem.owned_dofs[0], problem.mpi_communicator);
+  AffineConstraints<double> homogeneous;
+  homogeneous.close();
+  problem.add_dynamic_constraint_rhs(problem.constraints,
+                                     homogeneous,
+                                     homogeneous,
+                                     rhs);
+
+  LA::MPI::Vector           u(rhs);
+  SolverControl             control(1000, 1.e-13 * rhs.l2_norm());
+  SolverCG<LA::MPI::Vector> cg(control);
+  cg.solve(problem.stiffness_matrix, u, rhs, PreconditionIdentity());
+  problem.constraints.distribute(u);
+  EXPECT_LT(max_difference(u, interpolate(problem, affine)), 1.e-10);
 }
