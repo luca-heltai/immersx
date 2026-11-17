@@ -1,0 +1,61 @@
+# Cylinder of radius re = 2 and length 4 around the z axis with a resolved
+# cylindrical hole of radius ri = 0.2. The hole wall (boundary id 0) moves
+# radially by di = 0.1 and the outer surface (id 1) is fixed. The end faces
+# (ids 2 and 3) get the exact field, whose axial component is zero: plane
+# strain. (No-normal-flux constraints on the end faces would give the same
+# solution, but currently fail with NaN on locally refined meshes and in
+# parallel, issue #458.)
+set dimension       = 3
+set space dimension = 3
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  = @TEST_OUTPUT_DIR@/tutorial-output/cylinder-vessel/hole_errors.txt
+  set Error precision                  = 6
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
+subsection Functions
+  # Exact radial Lame field u_r = A (re^2 / r - r), A = ri di / (re^2 - ri^2).
+  subsection Dirichlet boundary conditions
+    set Function constants  = ri=0.2, re=2, di=0.1
+    set Function expression = ri*di/(re*re-ri*ri)*(re*re/(x*x+y*y)-1)*x; ri*di/(re*re-ri*ri)*(re*re/(x*x+y*y)-1)*y; 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Exact solution
+    set Function constants  = ri=0.2, re=2, di=0.1
+    set Function expression = ri*di/(re*re-ri*ri)*(re*re/(x*x+y*y)-1)*x; ri*di/(re*re-ri*ri)*(re*re/(x*x+y*y)-1)*y; 0
+    set Variable names      = x,y,z,t
+  end
+end
+subsection Immersed Problem
+  set Dirichlet boundary ids             = 0, 1, 2, 3
+  set FE degree                          = 1
+  set Initial refinement                 = 1
+  set Output directory                   = @TEST_OUTPUT_DIR@/tutorial-output/cylinder-vessel
+  set Output name                        = hole
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = cylinder_shell
+    # length : inner radius : outer radius : radial cells : axial cells : colorize
+    set Grid generator arguments = 4: 0.2: 2: 0: 0: true
+  end
+  subsection Material properties
+    subsection default
+      set Lame lambda = 1
+      set Lame mu     = 1
+    end
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 1
+    set Strategy                    = global
+  end
+end
+subsection Solvers
+  subsection Displacement
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+end
