@@ -110,4 +110,136 @@ TEST(DistributedIDA, BOTH_KrylovPropagatesBacksolveFailure)
   EXPECT_THROW(check_saddle_refinement(3, true, true),
                dealii::SolverControl::NoConvergence);
 }
+namespace
+{
+  void
+  check_projected_residual_restart(const unsigned int budget)
+  {
+    const auto comm  = MPI_COMM_WORLD;
+    const bool owner = dealii::Utilities::MPI::this_mpi_process(comm) == 0;
+    dealii::IndexSet owned(2);
+    if (owner)
+      owned.add_range(0, 2);
+    Vector       rhs(owned, comm), solution(owned, comm);
+    const double coefficient = std::ldexp(1., 27);
+    const double forcing     = std::ldexp(1., -24);
+    if (owner)
+      {
+        rhs[1]      = forcing;
+        solution[1] = std::ldexp(1., 26);
+      }
+    rhs.compress(dealii::VectorOperation::insert);
+    solution.compress(dealii::VectorOperation::insert);
+    dealii::LinearOperator<Vector> matrix;
+    matrix.reinit_range_vector = [owned, comm](Vector &v, bool) {
+      v.reinit(owned, comm);
+    };
+    matrix.reinit_domain_vector = matrix.reinit_range_vector;
+    matrix.vmult = [owner, coefficient](Vector &dst, const Vector &src) {
+      if (owner)
+        {
+          dst[0] = src[0];
+          dst[1] = coefficient * src[1];
+        }
+      dst.compress(dealii::VectorOperation::insert);
+    };
+    unsigned int                                        applications = 0;
+    const std::function<void(const Vector &, Vector &)> inverse =
+      [owner, coefficient, &applications](const Vector &src, Vector &dst) {
+        ++applications;
+        if (owner)
+          {
+            dst[0] = src[0];
+            dst[1] = src[1] / coefficient;
+          }
+        dst.compress(dealii::VectorOperation::insert);
+      };
+    const double target     = 1.e-8 * rhs.l2_norm();
+    const auto   iterations = ImmersX::detail::mumps_krylov_refinement<Vector>(
+      matrix, inverse, rhs, solution, budget, target);
+    EXPECT_EQ(iterations, budget);
+    EXPECT_EQ(applications, budget);
+    // First correction cancels 2^26 to zero: the tiny RHS was lost in b-Ax.
+    // A fresh residual needs one more step to recover the exact 2^-51 solution.
+    const double defect = dealii::Utilities::MPI::max(
+      owner ? std::hypot(solution[0], coefficient * solution[1] - forcing) : 0.,
+      comm);
+    if (budget == 2)
+      {
+        EXPECT_LE(defect, target);
+        if (owner)
+          EXPECT_DOUBLE_EQ(solution[1], std::ldexp(1., -51));
+      }
+    else
+      EXPECT_GT(defect, target);
+  }
+} // namespace
+
+TEST(DistributedIDA, BOTH_KrylovRestartsAfterProjectedConvergence)
+{
+  check_projected_residual_restart(0);
+  check_projected_residual_restart(1);
+  check_projected_residual_restart(2);
+}
+
+TEST(DistributedIDA, BOTH_KrylovRejectsRoundedAwayCorrection)
+{
+  const auto       comm  = MPI_COMM_WORLD;
+  const bool       owner = dealii::Utilities::MPI::this_mpi_process(comm) == 0;
+  dealii::IndexSet owned(2);
+  if (owner)
+    owned.add_range(0, 2);
+  Vector       rhs(owned, comm), solution(owned, comm);
+  const double large = std::ldexp(1., 53);
+  if (owner)
+    {
+      rhs[0] = rhs[1] = 1.;
+      solution[0]     = large;
+      solution[1]     = 1.;
+    }
+  rhs.compress(dealii::VectorOperation::insert);
+  solution.compress(dealii::VectorOperation::insert);
+  dealii::LinearOperator<Vector> matrix;
+  matrix.reinit_range_vector = [owned, comm](Vector &v, bool) {
+    v.reinit(owned, comm);
+  };
+  matrix.reinit_domain_vector = matrix.reinit_range_vector;
+  matrix.vmult                = [owner, large](Vector &dst, const Vector &src) {
+    if (owner)
+      {
+        dst[0] = src[0] - large * src[1];
+        dst[1] = src[1];
+      }
+    dst.compress(dealii::VectorOperation::insert);
+  };
+  unsigned int                                        applications = 0;
+  const std::function<void(const Vector &, Vector &)> inverse =
+    [owner, large, &applications](const Vector &src, Vector &dst) {
+      ++applications;
+      if (owner)
+        {
+          dst[0] = src[0] + large * src[1];
+          dst[1] = src[1];
+        }
+      dst.compress(dealii::VectorOperation::insert);
+    };
+  const double target     = 1.e-8 * rhs.l2_norm();
+  const auto   iterations = ImmersX::detail::mumps_krylov_refinement<Vector>(
+    matrix, inverse, rhs, solution, 8, target);
+  // The exact correction (1,0) rounds away when added to (2^53,1).
+  EXPECT_EQ(iterations, 1u);
+  EXPECT_EQ(applications, 1u);
+  const double defect = dealii::Utilities::MPI::max(
+    owner ?
+      std::hypot(solution[0] - large * solution[1] - 1., solution[1] - 1.) :
+      0.,
+    comm);
+  EXPECT_DOUBLE_EQ(defect, 1.);
+  EXPECT_GT(defect, target);
+  if (owner)
+    {
+      EXPECT_DOUBLE_EQ(solution[0], large);
+      EXPECT_DOUBLE_EQ(solution[1], 1.);
+    }
+}
 #endif
