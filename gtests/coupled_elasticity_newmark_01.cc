@@ -443,7 +443,7 @@ TEST(CoupledElasticityNewmark,
   with_problem(parameters(false,
                           true,
                           {{"Time step", "0.001"},
-                           {"Reduced right hand side", "1.e-5*t^3; 1.e-5*t^3"}},
+                           {"Reduced right hand side", "1e-5*t^3; 1e-5*t^3"}},
                           "0; 0; 0"),
                [&](auto &problem) {
                  problem.run_timestep0();
