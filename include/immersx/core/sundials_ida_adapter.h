@@ -1798,13 +1798,28 @@ namespace ImmersX
                         dealii::ExcMessage(
                           "Invalid native IDA linear weights or tolerance."));
             const double weight_rms = N_VWrmsNorm(weight_view, ones_view);
-            const bool   exact_only = weight_rms == 0. || tolerance == 0.;
-            const auto  &controls   = ida_parameters_.linear_solver_controls;
+            AssertThrow(!std::isnan(weight_rms) && weight_rms >= 0.,
+                        dealii::ExcMessage("Invalid native IDA weight RMS."));
+            bool   exact_only      = weight_rms == 0. || tolerance == 0.;
+            double weighted_target = 0.;
+            if (!exact_only)
+              {
+                // Avoid evaluating 0*Inf. Classify overflow before converting
+                // the recovered target back to double precision.
+                const long double product =
+                  static_cast<long double>(tolerance) * weight_rms;
+                weighted_target = product > std::numeric_limits<double>::max() ?
+                                    std::numeric_limits<double>::infinity() :
+                                    tolerance * weight_rms;
+                exact_only      = weighted_target == 0.;
+              }
+            const bool   unbounded = std::isinf(weighted_target);
+            const auto  &controls  = ida_parameters_.linear_solver_controls;
             const double raw_target =
               controls.krylov_relative_tolerance * rhs.l2_norm();
             const auto *preconditioner =
               current_preconditioner_ ? &*current_preconditioner_ : nullptr;
-            if (exact_only)
+            if (exact_only || (unbounded && raw_target == 0.))
               {
                 const auto iterations = detail::ida_exact_residual_krylov(
                   *current_jacobian_,
@@ -1819,11 +1834,29 @@ namespace ImmersX
                   << "IDAAdapter: indeterminate native weighted target; exact full-J residual certified after "
                   << iterations << " iteration(s)." << std::endl;
               }
+            else if (unbounded)
+              {
+                // An infinite native target imposes no finite weighted bound.
+                // Keep the independent raw full-J gate, with identity scaling.
+                const auto iterations = detail::ida_weighted_krylov(
+                  *current_jacobian_,
+                  preconditioner,
+                  rhs,
+                  dst,
+                  ones,
+                  raw_target,
+                  raw_target,
+                  controls.krylov_maximum_iterations,
+                  current_solver_is_flexible_,
+                  composition_.communicator());
+                pcout
+                  << "IDAAdapter: unbounded native weighted target; raw full-J gate passed after "
+                  << iterations << " iteration(s)." << std::endl;
+              }
             else
               {
                 // Undo IDAS's homogeneous-weight fallback without sqrt(N).
-                const double weighted_target = tolerance * weight_rms;
-                const auto   iterations      = detail::ida_weighted_krylov(
+                const auto iterations = detail::ida_weighted_krylov(
                   *current_jacobian_,
                   preconditioner,
                   rhs,

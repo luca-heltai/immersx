@@ -98,7 +98,12 @@ defect infinity norm, independently of the raw bound. Each correction is
 followed by a full-J residual calculation; the true infinity norm must decrease
 strictly until every entry is zero. All corrections share the original
 iteration budget. A loose raw gate cannot accept zero work, and a projected
-norm cannot certify exactness. Any approximate residual is rejected; invalid weights
+norm cannot certify exactness. Any approximate residual is rejected in exact-only
+mode. If the recovered native target is positive infinity, it imposes no finite
+weighted bound: an unscaled solve must still satisfy the original raw full-J
+residual gate. A zero raw target instead requires exact certification. Native
+IDAS accepts an infinite positive linear tolerance factor, so this case is
+covered by an actual native callback oracle. Invalid weights, an invalid RMS
 and a NaN callback tolerance remain errors.
 
 
