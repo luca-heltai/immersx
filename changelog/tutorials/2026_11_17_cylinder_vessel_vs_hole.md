@@ -15,5 +15,6 @@ PR: #459
   size of the MetricFlowX multiplier error of #379. The page also covers the
   displacement at the wall, the refinement of the centerline (interior values
   do not depend on it; the nodes on the cube faces do not converge), meshes
-  fitted to the wall (second order instead of first), five
+  fitted to the wall (second order instead of first), the dynamic boundary
+  data bug of #466, five
   figures, and the input files in `tutorials/vessel_multiplier/`.

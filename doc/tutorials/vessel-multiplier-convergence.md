@@ -21,7 +21,7 @@ ingredient is added at a time:
 The result: the multiplier converges at first order in the size $h$ of the
 cells at the wall, relative to the vessel radius $a$, and at second order on
 meshes fitted to the wall. Time integration adds
-no visible error. The multiplier error reported in #379 is the size this
+no visible error once two solver bugs found on the way are fixed. The multiplier error reported in #379 is the size this
 spatial error predicts at the meshes used there.
 
 ## Setting
@@ -217,52 +217,57 @@ amplitude growing like $1/dt^2$: at $h/a = 0.76$, the mean of
 $\lambda_h/J$ over all nodes at $T$ was 1.21 for $dt = 0.0025$ and $-10.4$
 for $dt = 0.00125$, alternating in sign from step to step. PR
 [#463](https://github.com/luca-heltai/immersx/pull/463) fixes the stopping
-test. With it, at $h/a = 0.76$, $\lambda_h/J$ at $T = 0.1$ is
+test. A second bug, on master, affected the boundary data of dynamic runs on
+locally refined meshes
+([#466](https://github.com/luca-heltai/immersx/issues/466), fixed in
+[#467](https://github.com/luca-heltai/immersx/pull/467)); see below. With
+both fixes, at $h/a = 0.76$, $\lambda_h/J$ at $T = 0.1$ is
 
 | $dt$ | 0.01 | 0.0025 | 0.00125 | 0.000625 |
 |---|---:|---:|---:|---:|
-| $\lambda_h/J$ | 1.2471 | 1.2495 | 1.2474 | 1.2468 |
+| $\lambda_h/J$ | 1.2453 | 1.2477 | 1.2456 | 1.2451 |
 
 ```{figure} ../_static/vessel-multiplier-convergence/time-step.svg
-:alt: Multiplier over exact jump against time at h/a = 0.76 for four time steps. After an initial oscillation all curves settle at about 1.247, just above the static value 1.2426.
+:alt: Multiplier over exact jump against time at h/a = 0.76 for four time steps. After an initial oscillation all curves settle at about 1.246, just above the static value 1.2426.
 
 $\lambda_h/J$ against $t$ at $h/a = 0.76$, interior nodes. The dotted line is
 the static solve on the same mesh.
 ```
 
 An oscillation from the equilibrium start decays over the first steps; for
-$t \ge 0.05$, $\lambda_h/J$ stays within 1.246–1.253 for $dt \le 0.0025$.
+$t \ge 0.05$, $\lambda_h/J$ stays within 1.244–1.253 for $dt \le 0.0025$.
 The time error is negligible: the static solve on the same mesh gives 1.2425.
 
-Under spatial refinement:
+Under spatial refinement, with $dt = 0.0025$, against the static solve on
+the same mesh:
 
-| passes | $h/a$ | $dt$ | $\lambda_h/J$ at $T = 0.1$ | static |
-|---:|---:|---:|---:|---:|
-| 2 | 0.76 | 0.0025 | 1.2495 | 1.2425 |
-| 3 | 0.38 | 0.0025 | 1.1576 | 1.1548 |
-| 4 | 0.19 | 0.0025 | 1.0513 | 1.0497 |
-| 5 | 0.096 | 0.0025 | 1.0298 | 1.0280 |
-| 5 | 0.096 | 0.00125 | 1.0276 | 1.0280 |
+| passes | $h/a$ | interior | static | all nodes | static | face node | static | $L^2$ error of $u$ / $g(T)$ | static |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2 | 0.76 | 1.2477 | 1.2425 | 1.2880 | 1.2811 | 1.487 | 1.471 | 3.46e−5 | 3.51e−5 |
+| 3 | 0.38 | 1.1591 | 1.1548 | 1.1789 | 1.1733 | 1.274 | 1.262 | 2.23e−5 | 2.27e−5 |
+| 4 | 0.19 | 1.0531 | 1.0497 | 1.0584 | 1.0541 | 1.084 | 1.076 | 6.31e−6 | 6.38e−6 |
+| 5 | 0.096 | 1.0314 | 1.0280 | 1.0338 | 1.0296 | 1.046 | 1.037 | 3.23e−6 | 3.24e−6 |
 
-The dynamic multiplier has the error of the static one at every pass, to
-within 0.7 %. What the dynamic terms change, at pass 3 with $dt = 0.0025$
-($\lambda_h/J$ of mode 3 at the centre node and at a face node, at
-$T = 0.1$ for the Newmark runs):
+The Newmark multiplier has the error of the static one at every pass: within
+0.6 % in the interior and in the mean over all nodes, within 1.1 % at the
+face nodes. The displacement error is the static one.
 
-| run | centre node | face node |
-|---|---:|---:|
-| static | 1.154 | 1.262 |
-| Newmark | 1.152 | 1.322 |
-| Newmark, $\rho = 10^{-6}$ | 1.150 | 1.321 |
-| Newmark, $h = 0$ | 1.158 | 1.288 |
+### A bug found on the way
 
-Inertia changes nothing. In the interior the multiplier has the static value.
-At the face nodes the dynamic error is larger, about half of the excess
-comes from the axial strain, and it does not change when $dt$ is halved
-(10.1 % and 9.7 % at pass 5 for $dt = 0.0025$ and $0.00125$, mean over the
-nodes with $|x| > \ell/2$). The mean over all
-nodes, including the faces, is therefore larger than the static one: 1.061
-at pass 5 against 1.030.
+The first dynamic runs did not match the static ones at the face nodes: at
+pass 5 the mean over all nodes was 1.061 against 1.030, and the face nodes
+had 10 % error against 3 %, independent of $dt$. Switching off inertia and
+damping did not remove it. An axial field alone, $u = (2t^4 x, 0, 0)$,
+which $Q_1$ represents exactly, had a nodal error of 21 % at $x = 7\ell/8$
+on the band-refined mesh and none on a uniform mesh.
+
+In dynamic runs the matrices have homogeneous essential columns and
+`add_dynamic_constraint_rhs()` adds the affine part of the boundary data
+cell by cell, but only on cells with a Dirichlet face. A hanging node whose
+master is a boundary dof inherits that dof's data when the constraints are
+closed, and the cells around it, half a coarse cell from the face, were
+skipped. With the fix of #467 the axial field is exact (error $4\times10^{-12}$)
+and the dynamic face nodes match the static ones (table above).
 
 ## Fitted meshes
 
@@ -336,8 +341,9 @@ error $e$ of the jump becomes an error $3.2\,e$ of $\lambda^\star$.
   cells. The unfitted grid of #379 ($h/a \approx 0.38$ at the wall) gives a
   predicted 50 % against a measured 63 %.
 - The IDA tolerances of #379 barely change the multiplier, and here the time
-  step does not either once the constraint is solved accurately: away from
-  the cube faces the dynamic multiplier has the static error.
+  step does not either once the constraint is solved accurately and the
+  boundary data reach every cell (#463, #467): the dynamic multiplier has the
+  static error at every node.
 - #379 reports the $L^2$ error of the multiplier over the whole centerline,
   including the ends on the cube faces, and the mean multiplier. Their
   difference is small there (55 % and 53 % on the finest unfitted grid), so
@@ -379,7 +385,7 @@ small drivers built against the library. They read these files with
 with `newmark_wall_constraint = true`, as `coupled_elasticity` does), and
 write the multiplier at the centerline nodes. Their sources are attached to
 [#379](https://github.com/luca-heltai/immersx/issues/379). The dynamic driver
-needs #449 and #463. All runs used Release builds and eight MPI ranks.
+needs #449, #463 and #467. All runs used Release builds and eight MPI ranks.
 
 The fitted runs use the static input with `Domain type = file`,
 `Grid generator` set to the mesh written by
