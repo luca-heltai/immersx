@@ -2381,14 +2381,13 @@ namespace ImmersX
     //   local_dof_indices(dofs_per_cell);
     //   // Tensor<2, spacedim>                  grad_phi_u;
     //   // double                               div_phi_u;
-    Tensor<2, spacedim> identity;
-    for (unsigned int ix = 0; ix < spacedim; ++ix)
-      identity[ix][ix] = 1;
+    const SymmetricTensor<2, spacedim> identity =
+      unit_symmetric_tensor<spacedim>();
 
     //   // std::vector<std::vector<Tensor<1,spacedim>>>
     //   // solution_gradient(face_quadrature_formula->size(),
     //   // std::vector<Tensor<1,spacedim> >(spacedim+1));
-    std::vector<Tensor<2, spacedim>> displacement_gradient(
+    std::vector<SymmetricTensor<2, spacedim>> displacement_strain(
       face_quadrature_formula->size());
     std::vector<double> displacement_divergence(
       face_quadrature_formula->size());
@@ -2439,8 +2438,8 @@ namespace ImmersX
                   auto boundary_index = cell->face(f)->boundary_id();
                   fe_face_values.reinit(cell, f);
 
-                  fe_face_values[displacement].get_function_gradients(
-                    locally_relevant_solution.block(0), displacement_gradient);
+                  fe_face_values[displacement].get_function_symmetric_gradients(
+                    locally_relevant_solution.block(0), displacement_strain);
                   fe_face_values[displacement].get_function_values(
                     locally_relevant_solution.block(0), displacement_values);
                   fe_face_values[displacement].get_function_divergences(
@@ -2453,7 +2452,7 @@ namespace ImmersX
                     {
                       perimeter[boundary_index] += fe_face_values.JxW(q);
                       boundary_stress[boundary_index] +=
-                        (2 * mp.Lame_mu * displacement_gradient[q] +
+                        (2 * mp.Lame_mu * displacement_strain[q] +
                          mp.Lame_lambda * displacement_divergence[q] *
                            identity) *
                         fe_face_values.JxW(q) * fe_face_values.normal_vector(q);
@@ -2481,6 +2480,7 @@ namespace ImmersX
         boundary_stress[id] =
           Utilities::MPI::sum(boundary_stress[id], mpi_communicator);
         perimeter[id] = Utilities::MPI::sum(perimeter[id], mpi_communicator);
+        u_dot_n[id]   = Utilities::MPI::sum(u_dot_n[id], mpi_communicator);
         Assert(perimeter[id] > 0, ExcInternalError());
         boundary_stress[id] /= perimeter[id];
       }
