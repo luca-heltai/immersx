@@ -14,5 +14,6 @@ PR: #459
   strain, and Newmark steps add no visible time error; this accounts for the
   size of the MetricFlowX multiplier error of #379. The page also covers the
   displacement at the wall, the refinement of the centerline (interior values
-  do not depend on it; the nodes on the cube faces do not converge), four
+  do not depend on it; the nodes on the cube faces do not converge), meshes
+  fitted to the wall (second order instead of first), five
   figures, and the input files in `tutorials/vessel_multiplier/`.

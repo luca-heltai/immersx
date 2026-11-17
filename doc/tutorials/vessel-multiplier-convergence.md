@@ -15,10 +15,12 @@ ingredient is added at a time:
 4. an axial strain along the vessel: the jump does not change, the tissue
    stress does;
 5. Newmark steps with inertia and damping: the time error of the multiplier;
-6. the dynamic manufactured solution under spatial refinement.
+6. the dynamic manufactured solution under spatial refinement;
+7. meshes fitted to the vessel wall.
 
 The result: the multiplier converges at first order in the size $h$ of the
-cells at the wall, relative to the vessel radius $a$. Time integration adds
+cells at the wall, relative to the vessel radius $a$, and at second order on
+meshes fitted to the wall. Time integration adds
 no visible error. The multiplier error reported in #379 is the size this
 spatial error predicts at the meshes used there.
 
@@ -262,6 +264,38 @@ nodes with $|x| > \ell/2$). The mean over all
 nodes, including the faces, is therefore larger than the static one: 1.061
 at pass 5 against 1.030.
 
+## Fitted meshes
+
+The first order comes from the kink of the exact field at the wall, which an
+unfitted $Q_1$ mesh cuts. On a mesh whose faces lie on the wall, $Q_1$
+represents the kink. The `fitted_vessel_mesh` application (see
+[One vessel in a cube](metric-flow-x-elastodynamics-mms.md)) writes such a
+mesh of the same cube; the static problem is solved on it unchanged, with
+`Domain type = file`, no band refinement, and the same exact field and
+material inside and outside:
+
+| generator refinement | cells | dofs | wall sides | multiplier | error |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 2016 | 7527 | 8 | −6.873 | 14.6 % |
+| 1 | 16128 | 54075 | 16 | −6.228 | 3.8 % |
+| 2 | 129024 | 409395 | 32 | −6.048 | 0.79 % |
+
+The error falls by four per refinement, second order, against two per pass
+on the unfitted meshes. At the same cost the fitted mesh is four times more
+accurate: 3.8 % against 15 % at 54 000 dofs, and 0.79 % at 409 000 dofs
+against 2.8 % at 620 000.
+
+```{figure} ../_static/vessel-multiplier-convergence/fitted.svg
+:alt: Relative error of the interior multiplier against the number of displacement dofs on log-log axes, for unfitted meshes refined near the wall and for fitted meshes. The fitted error is lower and falls faster.
+
+Relative error of the interior multiplier against the number of
+displacement dofs, static.
+```
+
+The radial displacement at $r = a$ is within 0.5 % on the fitted meshes
+at refinements 1 and 2, with no dip, and within 0.1 % at $r = a/2$ and $2a$
+at refinement 2.
+
 ## Solver
 
 Two fixes in [#463](https://github.com/luca-heltai/immersx/pull/463) were
@@ -292,22 +326,34 @@ error $e$ of the jump becomes an error $3.2\,e$ of $\lambda^\star$.
   15 to 28 %, which gives 50 to 90 % on $\lambda^\star$. #379 measures 26 to
   72 %, and 55 % on the uniform $16\times64\times64$ mesh ($h/a = 0.38$).
 - To reach 5 % on $\lambda^\star$ the jump must be accurate to about 1.5 %,
-  which needs $h/a \approx 0.05$ near the wall with first-order convergence.
-  The fitted grid of #379 gives 5.9 %; its $h/a$ at the wall is not
-  reported there.
+  which needs $h/a \approx 0.05$ near the wall with first-order convergence
+  on unfitted meshes.
+- On fitted meshes the jump converges at second order. The fitted grids of
+  #379 are the ones in the table above, at the same refinement. The
+  predicted bias of $\lambda^\star$, 3.2 times the jump error, is 47 % at
+  refinement 0 and 12 % at refinement 1. #379 measures a mean bias of 44.7 %
+  and 5.0 %, the latter after co-refinement added half again as many
+  cells. The unfitted grid of #379 ($h/a \approx 0.38$ at the wall) gives a
+  predicted 50 % against a measured 63 %.
 - The IDA tolerances of #379 barely change the multiplier, and here the time
   step does not either once the constraint is solved accurately: away from
   the cube faces the dynamic multiplier has the static error.
-- If the multiplier of #379 is averaged over the whole vessel, the nodes at
-  the faces of the cube add an error that does not converge and grows with
-  the centerline resolution. Interior values avoid it.
+- #379 reports the $L^2$ error of the multiplier over the whole centerline,
+  including the ends on the cube faces, and the mean multiplier. Their
+  difference is small there (55 % and 53 % on the finest unfitted grid), so
+  the face nodes do not dominate yet. On finer centerlines they add an error
+  that does not converge; interior values avoid it.
+- The trace identity that #379 found with two solid axial cells per flow
+  cell is the inf-sup failure of the centerline refinement section: a
+  multiplier grid as fine as the 3D mesh.
 
-So the multiplier error of #379 is consistent with the first-order spatial
-convergence of the jump at $h/a$ near 0.5, amplified by $|J/\lambda^\star|$.
-No error source other than the spatial resolution of the wall is needed to
-explain it. A convergence study of #379 needs refinement that reaches
-$h/a \approx 0.05$ at the wall, not only around the axis, with a centerline
-cell of at least twice the wall cell.
+So the multiplier error of #379 is the spatial error of the jump at the
+wall, amplified by $|J/\lambda^\star|$: first order in $h/a$ on unfitted
+meshes, second order on fitted ones. No error source other than the
+resolution of the wall is needed to explain the measured values on either
+kind of grid. A convergence study of #379 needs fitted meshes, or unfitted
+refinement that reaches $h/a \approx 0.05$ at the wall, not only around the
+axis, and a centerline cell of at least twice the wall cell.
 
 ## Reproducing
 
@@ -334,6 +380,11 @@ with `newmark_wall_constraint = true`, as `coupled_elasticity` does), and
 write the multiplier at the centerline nodes. Their sources are attached to
 [#379](https://github.com/luca-heltai/immersx/issues/379). The dynamic driver
 needs #449 and #463. All runs used Release builds and eight MPI ranks.
+
+The fitted runs use the static input with `Domain type = file`,
+`Grid generator` set to the mesh written by
+`fitted_vessel_mesh --refinement N`, `Initial refinement = 0`, and the radius
+of that mesh, $a = 0.009870093245078749$.
 
 `gtests/vessel_multiplier_convergence_01.cc` builds the static cube with the
 band refinement above and checks the first two passes and the independence
