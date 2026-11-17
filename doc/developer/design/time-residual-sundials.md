@@ -107,6 +107,10 @@ covered by an actual native callback oracle. Invalid weights, an invalid RMS
 and a NaN callback tolerance remain errors.
 
 
+Native weight-query buffers follow the current linear callback RHS map. A
+restart can resize state vectors while field registration remains unchanged;
+using registration-time partitions would give IDAGetErrWeights the wrong size.
+
 MUMPS/UMFPACK solves, application-supplied callbacks, and steady solves retain
 their existing stopping contracts. Expert callback invocations before native
 IDA memory exists also retain their scalar-tolerance path. This change does

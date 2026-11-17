@@ -1764,9 +1764,13 @@ namespace ImmersX
           }
         else if (ida_ && ida_->get_ida_memory())
           {
-            auto weights = composition_.make_state();
-            auto ones    = composition_.make_state();
-            ones         = 1.;
+            // A restart may resize native vectors without changing field
+            // registration. Follow the current IDA callback map, not that
+            // original registration-time partition.
+            GlobalVectorType weights, ones;
+            weights.reinit(rhs);
+            ones.reinit(rhs);
+            ones = 1.;
             auto weight_view =
               Compatibility::SUNDIALS::internal::make_nvector_view(
                 weights
