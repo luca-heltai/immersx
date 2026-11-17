@@ -1,4 +1,4 @@
-PR: pending
+PR: #467
 
 - Dynamic elasticity runs now add the affine contribution of the boundary
   data also on cells around hanging nodes that inherit boundary data from
