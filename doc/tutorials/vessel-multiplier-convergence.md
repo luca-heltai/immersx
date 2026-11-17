@@ -11,17 +11,23 @@ ingredient is added at a time:
    traction jump;
 2. a static cube with the manufactured exterior field of the MetricFlowX
    study, refined near the wall: the rate of the jump in $h/a$;
-3. an axial strain along the vessel: the jump does not change, the tissue
+3. the displacement near the wall, and the refinement of the centerline;
+4. an axial strain along the vessel: the jump does not change, the tissue
    stress does;
-4. Newmark steps with inertia and damping: the time error of the multiplier;
-5. the dynamic manufactured solution under spatial refinement.
+5. Newmark steps with inertia and damping: the time error of the multiplier;
+6. the dynamic manufactured solution under spatial refinement.
+
+The result: the multiplier converges at first order in the size $h$ of the
+cells at the wall, relative to the vessel radius $a$. Time integration adds
+no visible error. The multiplier error reported in #379 is the size this
+spatial error predicts at the meshes used there.
 
 ## Setting
 
 The cube is $[-\ell,\ell]^3$ with a vessel of radius $a$ on the $x$ axis,
 $\lambda = \mu = 1$, tensor-product coupling with the modes 3 and 7 (the mean
-radial displacement), a cross section with 32 sides and eight reduced cells.
-The manufactured field is
+radial displacement), a cross section with 32 sides and a centerline with
+eight cells unless stated otherwise. The manufactured field is
 
 $$
 u = \bigl(h\,x,\; g\,W_y,\; g\,W_z\bigr),\qquad
@@ -46,10 +52,10 @@ The jump does not depend on $h$.
 
 The mesh starts with $8^3$ cells. Each refinement pass refines the cells within
 one cell diameter of the wall $r = a$. $h$ below is the size of the smallest
-cell, at the wall. The tables give the mean of the multiplier coefficients
-(both modes) at the reduced support points with $|x| \le \ell/2$; the mean
-over all support points, including the two ends on the faces of the cube,
-differs by less than the error and converges at the same rate.
+cell, at the wall. Unless stated otherwise the tables give the mean of the
+multiplier coefficients (both modes) at the centerline nodes with
+$|x| \le \ell/2$, called interior nodes below. The nodes on the faces of the
+cube behave differently; see the section on centerline refinement below.
 
 The tensor coupling's own `Space post-refinement cycles` cannot be used for
 this study: they refine only the cells around the vessel axis, not around the
@@ -69,22 +75,104 @@ $\ell = 1$, $a = 0.2$, $g = 0.5$, $h = 0$: exact jump $J = -3$.
 
 Without refinement ($h/a = 1.25$) the solve does not converge. Below
 $h/a \approx 0.3$ the error falls roughly by two per pass: first order in
-$h/a$. A cross section with 64 or 128 sides, four times more reduced cells,
-or four times more axial quadrature points change the multiplier at pass 3 by
-less than 0.005.
+$h/a$. A cross section with 64 or 128 sides, four times more quadrature
+repetitions, or four times more axial quadrature points change the multiplier
+at pass 3 by less than 0.005.
 
 The same study with the proportions of the MetricFlowX cube,
 $\ell = 0.120685$, $a = 0.00987$ ($a/\ell = 0.082$) and $g = 1$ (exact jump
 $-6$):
 
-| passes | cells | dofs | $h/a$ | multiplier | relative error |
-|---:|---:|---:|---:|---:|---:|
-| 2 | 5440 | 20211 | 0.76 | −7.455 | 24 % |
-| 3 | 15296 | 54927 | 0.38 | −6.929 | 15 % |
-| 4 | 51136 | 174939 | 0.19 | −6.298 | 5.0 % |
-| 5 | 183744 | 620295 | 0.096 | −6.168 | 2.8 % |
+| passes | cells | dofs | $h/a$ | interior | error | all nodes | $L^2$ error of $u$ |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2 | 5440 | 20211 | 0.76 | −7.455 | 24 % | −7.687 | 3.5e−5 |
+| 3 | 15296 | 54927 | 0.38 | −6.929 | 15 % | −7.040 | 2.3e−5 |
+| 4 | 51136 | 174939 | 0.19 | −6.298 | 5.0 % | −6.325 | 6.4e−6 |
+| 5 | 183744 | 620295 | 0.096 | −6.168 | 2.8 % | −6.178 | 3.2e−6 |
 
-The relative error depends on $h/a$ much more than on $a/\ell$.
+The relative error depends on $h/a$ much more than on $a/\ell$:
+
+```{figure} ../_static/vessel-multiplier-convergence/convergence.svg
+:alt: Relative error of the interior multiplier against h/a on log-log axes, for the static cube with a/l = 0.2, the static cube with a/l = 0.082, and the Newmark runs with a/l = 0.082. All three fall with slope about one.
+
+Relative error of the interior multiplier against $h/a$. The Newmark curve
+is the value at $T = 0.1$ with $dt = 0.0025$.
+```
+
+The displacement error falls more slowly than $h$ in $H^1$ (0.0090,
+0.0072, 0.0045, 0.0036): the refinement is only near the wall, and the
+coarse cells away from it set the $H^1$ error.
+
+## Displacement at the wall
+
+The radial displacement $u_r$ at $x = 0$, averaged over 64 angles, divided by
+the exact value:
+
+| $h/a$ | $r = a/2$ | $0.9a$ | $0.97a$ | $a$ | $1.03a$ | $1.1a$ | $2a$ |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.76 | 1.248 | 1.107 | 1.030 | 0.997 | 1.025 | 1.076 | 1.221 |
+| 0.38 | 1.148 | 1.090 | 1.026 | 0.997 | 1.027 | 1.087 | 1.136 |
+| 0.19 | 1.045 | 1.046 | 1.026 | 0.995 | 1.015 | 1.035 | 1.036 |
+| 0.096 | 1.025 | 1.021 | 1.005 | 0.980 | 1.000 | 1.014 | 1.015 |
+
+```{figure} ../_static/vessel-multiplier-convergence/radial-displacement.svg
+:alt: Ratio of the computed to the exact radial displacement against r/a for four meshes. Away from r = a the ratio falls toward one under refinement; at r = a it dips below one.
+
+$u_r/u_r^{\rm exact}$ at $x = 0$ for the four meshes.
+```
+
+Away from the wall the error falls with $h$. At $r = a$ the ratio decreases
+under refinement, from 0.997 to 0.980. That is expected: the exact $u_r$ has
+a kink at the wall, slope $+g$ inside and $-g$ outside, and a $Q_1$ field
+cannot follow the corner unless a mesh plane passes through it. It cuts the
+peak by up to $g h/2$, by about $g h/4$ on average over the angles: 2.4 % at
+$h/a = 0.096$. On the coarse meshes the whole field is 10 to 25 % too large
+and hides the cut. The constraint is met (the mean over the cross-section
+polygon of $u \cdot n$ equals $g a$); the values just inside and outside the
+wall are a little above the exact ones to compensate.
+
+## Centerline refinement
+
+The centerline is the 1D grid of the multiplier. With eight cells its nodes
+are $\ell/4 = 0.030$ apart, much more than the cells at the wall. Refining it
+at fixed 3D mesh, static, interior mean:
+
+| $h/a$ | 8 cells | 16 cells | 32 cells | 64 cells |
+|---:|---:|---:|---:|---:|
+| 0.76 | −7.455 | −7.436 | fails | fails |
+| 0.38 | −6.929 | −6.919 | −6.917 | fails |
+| 0.19 | −6.298 | −6.295 | −6.295 | −6.295 |
+| 0.096 | −6.168 | −6.178 | −6.178 | −6.178 |
+
+The interior multiplier does not depend on the centerline. When a centerline
+cell is about as small as the 3D cells at the wall (32 cells at
+$h/a = 0.76$, 64 cells at $h/a = 0.76$ and $0.38$) the solve does not
+converge: the multiplier space is then too rich for the displacement trace
+(an inf-sup failure). A centerline cell of at least about twice the 3D cell
+works.
+
+The nodes on the two faces of the cube, where the vessel meets the boundary
+data, are different. Value of $\lambda_h/J$ at pass 5 ($h/a = 0.096$):
+
+| centerline cells | 8 | 16 | 32 | 64 |
+|---|---:|---:|---:|---:|
+| face node | 1.037 | 1.060 | 1.107 | 1.244 |
+| next node | 1.026 | 1.024 | 1.017 | 0.996 |
+| centre ($x = 0$) | 1.028 | 1.030 | 1.030 | 1.030 |
+
+```{figure} ../_static/vessel-multiplier-convergence/centerline.svg
+:alt: Multiplier over exact jump along the vessel at h/a = 0.096 for 8, 16, 32 and 64 centerline cells. The curves agree at about 1.03 in the interior and spike at the two faces of the cube, more for finer centerlines.
+
+$\lambda_h/J$ along the vessel at $h/a = 0.096$, static.
+```
+
+The face node gets worse as the centerline is refined, and the neighbouring
+nodes start to alternate. With the ratio of centerline cell to 3D cell fixed
+at eight, the face node goes from 1.262 to 1.114 to 1.107 at passes 3, 4,
+5: it does not converge. Its test function has half its support, and its
+row of the constraint couples mostly to displacement degrees of freedom
+fixed by the boundary data. Averages over the whole vessel therefore depend
+on the centerline at the ends; the interior values do not.
 
 ## Axial strain
 
@@ -123,20 +211,26 @@ displacement constraint in a Newmark step balances the acceleration of the
 increment, so a constraint residual $\delta$ shows up in the multiplier as
 about $M\delta/(\beta\,dt^2)$. In the first version of #449 the solver could
 stop with the constraint unmet, and the multiplier oscillated with an
-amplitude growing like $1/dt^2$. PR
+amplitude growing like $1/dt^2$: at $h/a = 0.76$, the mean of
+$\lambda_h/J$ over all nodes at $T$ was 1.21 for $dt = 0.0025$ and $-10.4$
+for $dt = 0.00125$, alternating in sign from step to step. PR
 [#463](https://github.com/luca-heltai/immersx/pull/463) fixes the stopping
-test. With it, at pass 2 ($h/a = 0.76$), $\lambda_h/J$ at $T = 0.1$ is
+test. With it, at $h/a = 0.76$, $\lambda_h/J$ at $T = 0.1$ is
 
 | $dt$ | 0.01 | 0.0025 | 0.00125 | 0.000625 |
 |---|---:|---:|---:|---:|
 | $\lambda_h/J$ | 1.2471 | 1.2495 | 1.2474 | 1.2468 |
 
+```{figure} ../_static/vessel-multiplier-convergence/time-step.svg
+:alt: Multiplier over exact jump against time at h/a = 0.76 for four time steps. After an initial oscillation all curves settle at about 1.247, just above the static value 1.2426.
+
+$\lambda_h/J$ against $t$ at $h/a = 0.76$, interior nodes. The dotted line is
+the static solve on the same mesh.
+```
+
 An oscillation from the equilibrium start decays over the first steps; for
 $t \ge 0.05$, $\lambda_h/J$ stays within 1.246–1.253 for $dt \le 0.0025$.
-The radial displacement sampled on the circle $r = a$ at $x = 0$ stays at
-0.997 of its target at pass 2 and at 0.981 at pass 5, at every step. The
-decrease under refinement is not explained yet. The time error is negligible: the static solve on the same mesh
-gives 1.2425.
+The time error is negligible: the static solve on the same mesh gives 1.2425.
 
 Under spatial refinement:
 
@@ -149,18 +243,41 @@ Under spatial refinement:
 | 5 | 0.096 | 0.00125 | 1.0276 | 1.0280 |
 
 The dynamic multiplier has the error of the static one at every pass, to
-within 0.7 %. The support points at the ends of the vessel, near the faces
-of the cube, behave differently: there the dynamic error is larger than the
-static one (10 % against 3 % at pass 5) and does not change when $dt$ is
-halved. Including them, the mean ratio at pass 5 is 1.061 for
-$dt = 0.0025$ and 1.059 for $dt = 0.00125$, against 1.030 static. This is
-an effect of the end faces, where the vessel meets the boundary data, not of
-the time integration.
+within 0.7 %. What the dynamic terms change, at pass 3 with $dt = 0.0025$
+($\lambda_h/J$ of mode 3 at the centre node and at a face node, at
+$T = 0.1$ for the Newmark runs):
 
-At pass 5 a step solves a system with 620295 displacement dofs. The inner
-solve with the augmented block needs an AMG preconditioner; without it its
-iterations double with each refinement (870 per solve at pass 5, fixed in
-#463).
+| run | centre node | face node |
+|---|---:|---:|
+| static | 1.154 | 1.262 |
+| Newmark | 1.152 | 1.322 |
+| Newmark, $\rho = 10^{-6}$ | 1.150 | 1.321 |
+| Newmark, $h = 0$ | 1.158 | 1.288 |
+
+Inertia changes nothing. In the interior the multiplier has the static value.
+At the face nodes the dynamic error is larger, about half of the excess
+comes from the axial strain, and it does not change when $dt$ is halved
+(10.1 % and 9.7 % at pass 5 for $dt = 0.0025$ and $0.00125$, mean over the
+nodes with $|x| > \ell/2$). The mean over all
+nodes, including the faces, is therefore larger than the static one: 1.061
+at pass 5 against 1.030.
+
+## Solver
+
+Two fixes in [#463](https://github.com/luca-heltai/immersx/pull/463) were
+needed for these runs:
+
+- FGMRES stops on the norm of the whole residual. In a Newmark step the
+  momentum row is scaled by $1/(\beta\,dt^2)$, and the constraint row holds
+  only the small residual of the predictor, so the momentum row alone decided
+  when FGMRES stopped. The constraint row is now weighted by the same factor,
+  and the preconditioner undoes the weight.
+- The inner CG solve with the augmented block $K + \gamma B^T W^{-1} B$ had
+  no preconditioner. Its iterations doubled with each refinement: about 70,
+  185, 400, 870 per solve at passes 2 to 5. The augmentation has the rank of
+  the multiplier space, so the AMG of $K$ preconditions it: 21 iterations at
+  pass 3 and 47 at pass 5. A pass-5 run with 80 steps takes 40 minutes on
+  eight ranks instead of about two hours, and the multiplier does not change.
 
 ## What this means for #379
 
@@ -180,23 +297,44 @@ error $e$ of the jump becomes an error $3.2\,e$ of $\lambda^\star$.
   reported there.
 - The IDA tolerances of #379 barely change the multiplier, and here the time
   step does not either once the constraint is solved accurately: away from
-  the cube faces the dynamic multiplier has the static error. #463
-  concerns the iterative solve of the ImmersX Newmark step; MetricFlowX
-  integrates with IDA and other linear solvers, and its tolerance study shows
-  no comparable effect.
+  the cube faces the dynamic multiplier has the static error.
+- If the multiplier of #379 is averaged over the whole vessel, the nodes at
+  the faces of the cube add an error that does not converge and grows with
+  the centerline resolution. Interior values avoid it.
 
 So the multiplier error of #379 is consistent with the first-order spatial
 convergence of the jump at $h/a$ near 0.5, amplified by $|J/\lambda^\star|$.
 No error source other than the spatial resolution of the wall is needed to
 explain it. A convergence study of #379 needs refinement that reaches
-$h/a \approx 0.05$ at the wall, not only around the axis.
+$h/a \approx 0.05$ at the wall, not only around the axis, with a centerline
+cell of at least twice the wall cell.
 
 ## Reproducing
 
+The input files are in `tutorials/vessel_multiplier/`: the static case,
+
+```{literalinclude} ../../tutorials/vessel_multiplier/static_cube.prm.in
+:language: text
+```
+
+and the dynamic one, which adds the density and damping, the time
+parameters, and time-dependent data:
+
+```{literalinclude} ../../tutorials/vessel_multiplier/dynamic_cube.prm.in
+:language: text
+:lines: 13-45
+```
+
+Its wall data are `Reduced right hand side = 0.0098700932*t^3;
+0.0098700932*t^3`. `vessel_x.vtk.in` is the centerline with eight cells. The study used two
+small drivers built against the library. They read these files with
+`initialize_parameters`, refine the band around the wall, solve
+(`solve_static`, or `initialize_newmark_at_equilibrium` and `solve_newmark`
+with `newmark_wall_constraint = true`, as `coupled_elasticity` does), and
+write the multiplier at the centerline nodes. Their sources are attached to
+[#379](https://github.com/luca-heltai/immersx/issues/379). The dynamic driver
+needs #449 and #463. All runs used Release builds and eight MPI ranks.
+
 `gtests/vessel_multiplier_convergence_01.cc` builds the static cube with the
 band refinement above and checks the first two passes and the independence
-of the axial strain (`VesselMultiplierValidation`, nightly). The tables used
-the same setup with more passes, Release builds and four or eight MPI ranks.
-The dynamic runs call `ElasticityProblem` with
-`newmark_wall_constraint = true`, as `coupled_elasticity` does, and need
-#449 and #463.
+of the axial strain (`VesselMultiplierValidation`, nightly).

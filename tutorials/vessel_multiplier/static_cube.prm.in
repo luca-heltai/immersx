@@ -1,0 +1,69 @@
+subsection Immersed Problem
+  set Coupling type                          = TensorProduct
+  set Dirichlet boundary ids                 = 0
+  set FE degree                              = 1
+  set Initial refinement                     = 3
+  set Output directory                       = @TEST_OUTPUT_DIR@/tutorial-output/vessel-multiplier-static
+  set Output name                            = static
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = hyper_cube
+    set Grid generator arguments = -0.120685: 0.120685: false
+  end
+  subsection Material properties
+    subsection default
+      set Lame lambda = 1
+      set Lame mu     = 1
+    end
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 1
+    set Strategy                    = global
+  end
+end
+subsection Functions
+  subsection Dirichlet boundary conditions
+    set Function expression = 0.0*x; 1.0*y*9.741873977668626e-05/max(y*y+z*z,9.741873977668626e-05); 1.0*z*9.741873977668626e-05/max(y*y+z*z,9.741873977668626e-05)
+    set Variable names      = x,y,z,t
+  end
+  subsection Right hand side
+    set Function expression = 0; 0; 0
+    set Variable names      = x,y,z,t
+  end
+  subsection Exact solution
+    set Function expression = 0.0*x; 1.0*y*9.741873977668626e-05/max(y*y+z*z,9.741873977668626e-05); 1.0*z*9.741873977668626e-05/max(y*y+z*z,9.741873977668626e-05)
+    set Variable names      = x,y,z,t
+  end
+end
+subsection Tensor product coupling
+  subsection Cross section
+    set Geometry type        = hyper_ball
+    set Maximum basis degree = 1
+    set Refinement level     = 3
+    set Selected modes       = 3, 7
+  end
+  subsection Particle coupling
+    set RTree extraction level = 1
+  end
+  subsection Representative domain
+    set Finite element degree            = 1
+    set Input file fields                = vessel_id
+    set Number of quadrature points      = 3
+    set Number of quadrature repetitions = 16
+    set Reduced grid name                = @IMMERSX_BINARY_DIR@/tutorials/vessel_multiplier/vessel_x.vtk
+    set Reduced right hand side          = 0.0098700932; 0.0098700932
+    set Thickness                        = 0.0098700932
+  end
+end
+subsection Solvers
+  subsection Augmented Lagrange
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+  subsection Displacement
+    set Max steps = 10000
+    set Reduction = 1.e-8
+    set Tolerance = 1.e-14
+  end
+end

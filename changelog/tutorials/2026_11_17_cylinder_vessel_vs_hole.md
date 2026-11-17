@@ -12,4 +12,7 @@ PR: #459
   (`doc/tutorials/vessel-multiplier-convergence.md`): the static multiplier
   converges at first order in h/a near the wall, does not depend on an axial
   strain, and Newmark steps add no visible time error; this accounts for the
-  size of the MetricFlowX multiplier error of #379.
+  size of the MetricFlowX multiplier error of #379. The page also covers the
+  displacement at the wall, the refinement of the centerline (interior values
+  do not depend on it; the nodes on the cube faces do not converge), four
+  figures, and the input files in `tutorials/vessel_multiplier/`.
