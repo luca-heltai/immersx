@@ -126,6 +126,120 @@ namespace ImmersX
         }
       return iterations;
     }
+
+    /** Solve in native IDA error-weight coordinates and verify both norms.
+     * The caller supplies the weighted L2 target. No scaled matrix is stored.
+     */
+    template <typename VectorType>
+    unsigned int
+    ida_weighted_krylov(
+      const dealii::LinearOperator<VectorType> &jacobian,
+      const dealii::LinearOperator<VectorType> *preconditioner,
+      const VectorType                         &rhs,
+      VectorType                               &solution,
+      const VectorType                         &weights,
+      const double                              weighted_target,
+      const double                              raw_target,
+      const unsigned int                        maximum_iterations,
+      const bool                                flexible,
+      const MPI_Comm                            communicator)
+    {
+      bool valid = std::isfinite(weighted_target) && weighted_target > 0. &&
+                   std::isfinite(raw_target) && raw_target >= 0.;
+      for (const auto i : weights.locally_owned_elements())
+        valid = valid && std::isfinite(weights[i]) && weights[i] > 0. &&
+                std::isfinite(1. / weights[i]);
+      AssertThrow(dealii::Utilities::MPI::min(valid ? 1u : 0u, communicator),
+                  dealii::ExcMessage(
+                    "Invalid native IDA linear weights or targets."));
+      VectorType input, defect, scaled_rhs, scaled_correction, weighted_defect;
+      jacobian.reinit_domain_vector(input, false);
+      jacobian.reinit_range_vector(defect, false);
+      scaled_rhs.reinit(defect);
+      weighted_defect.reinit(defect);
+      scaled_correction.reinit(input);
+      const auto scale =
+        [&weights](VectorType &dst, const VectorType &src, const bool inverse) {
+          for (const auto i : dst.locally_owned_elements())
+            dst[i] = inverse ? src[i] / weights[i] : src[i] * weights[i];
+          dst.compress(dealii::VectorOperation::insert);
+        };
+      auto scaled_operator = jacobian;
+      scaled_operator.vmult =
+        [&input, &scale, &jacobian](VectorType &dst, const VectorType &src) {
+          scale(input, src, true);
+          jacobian.vmult(dst, input);
+          scale(dst, dst, false);
+        };
+      auto scaled_inverse = jacobian;
+      scaled_inverse.vmult =
+        [&input, &scale, preconditioner](VectorType       &dst,
+                                         const VectorType &src) {
+          scale(input, src, true);
+          if (preconditioner)
+            preconditioner->vmult(dst, input);
+          else
+            dst = input;
+          scale(dst, dst, false);
+        };
+      solution                = 0.;
+      defect                  = rhs;
+      unsigned int iterations = 0;
+      for (;;)
+        {
+          scale(weighted_defect, defect, false);
+          const double raw_norm      = defect.l2_norm();
+          const double weighted_norm = weighted_defect.l2_norm();
+          AssertThrow(std::isfinite(raw_norm) && std::isfinite(weighted_norm),
+                      dealii::ExcMessage(
+                        "Nonfinite true IDA linear residual."));
+          if (raw_norm <= raw_target && weighted_norm <= weighted_target)
+            return iterations;
+          AssertThrow(iterations < maximum_iterations && weighted_norm > 0.,
+                      dealii::SolverControl::NoConvergence(iterations,
+                                                           weighted_norm));
+          scaled_rhs        = weighted_defect;
+          scaled_correction = 0.;
+          // A weighted pass can still fail the independent raw gate. Force
+          // progress instead of accepting a zero-iteration correction.
+          dealii::SolverControl control(maximum_iterations - iterations,
+                                        std::min(weighted_target,
+                                                 .5 * weighted_norm));
+          if (flexible)
+            {
+              typename dealii::SolverFGMRES<VectorType>::AdditionalData data(
+                100);
+              data.orthogonalization_strategy = dealii::LinearAlgebra::
+                OrthogonalizationStrategy::modified_gram_schmidt;
+              dealii::SolverFGMRES<VectorType> solver(control, data);
+              solver.solve(scaled_operator,
+                           scaled_correction,
+                           scaled_rhs,
+                           scaled_inverse);
+            }
+          else
+            {
+              typename dealii::SolverGMRES<VectorType>::AdditionalData data;
+              data.right_preconditioning      = true;
+              data.orthogonalization_strategy = dealii::LinearAlgebra::
+                OrthogonalizationStrategy::modified_gram_schmidt;
+              dealii::SolverGMRES<VectorType> solver(control, data);
+              solver.solve(scaled_operator,
+                           scaled_correction,
+                           scaled_rhs,
+                           scaled_inverse);
+            }
+          AssertThrow(control.last_step() > 0,
+                      dealii::SolverControl::NoConvergence(iterations,
+                                                           weighted_norm));
+          iterations += control.last_step();
+          scale(input, scaled_correction, true);
+          solution += input;
+          solution.compress(dealii::VectorOperation::insert);
+          jacobian.vmult(defect, solution);
+          defect.sadd(-1., 1., rhs);
+        }
+    }
   } // namespace detail
 
   /** Public transient DAE adapter backed by the private composition engine. */
@@ -1555,6 +1669,52 @@ namespace ImmersX
             solve_(*current_jacobian_, rhs, dst, tolerance);
             pcout << "IDAAdapter: configured linear solver finished."
                   << std::endl;
+          }
+        else if (ida_ && ida_->get_ida_memory())
+          {
+            auto weights = composition_.make_state();
+            auto ones    = composition_.make_state();
+            ones         = 1.;
+            auto weight_view =
+              Compatibility::SUNDIALS::internal::make_nvector_view(
+                weights
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+                ,
+                ida_->get_sun_context()
+#  endif
+              );
+            auto ones_view =
+              Compatibility::SUNDIALS::internal::make_nvector_view(
+                ones
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+                ,
+                ida_->get_sun_context()
+#  endif
+              );
+            const int status =
+              IDAGetErrWeights(ida_->get_ida_memory(), weight_view);
+            AssertThrow(status == IDA_SUCCESS,
+                        dealii::ExcMessage(
+                          "Could not obtain native IDA linear error weights."));
+            // Undo IDAS's homogeneous-weight fallback, without adding sqrt(N).
+            const double weighted_target =
+              tolerance * N_VWrmsNorm(weight_view, ones_view);
+            const auto &controls   = ida_parameters_.linear_solver_controls;
+            const auto  iterations = detail::ida_weighted_krylov(
+              *current_jacobian_,
+              current_preconditioner_ ? &*current_preconditioner_ : nullptr,
+              rhs,
+              dst,
+              weights,
+              weighted_target,
+              controls.krylov_relative_tolerance * rhs.l2_norm(),
+              controls.krylov_maximum_iterations,
+              current_solver_is_flexible_,
+              composition_.communicator());
+            pcout << "IDAAdapter: weighted Krylov converged in " << iterations
+                  << " iteration(s), native weighted target " << weighted_target
+                  << ", raw relative target "
+                  << controls.krylov_relative_tolerance << std::endl;
           }
         else
           {

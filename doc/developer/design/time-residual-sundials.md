@@ -69,6 +69,28 @@ graph. Direct solvers require materializable contributions; matrix-free terms
 remain available to iterative and custom solves. Custom linear solve callbacks
 keep their existing path.
 
+During a native IDA built-in iterative solve, the adapter reads IDA's current
+error weights `W = diag(EWT)`. The compatibility callback receives
+`tau = delta / RMS(EWT)`, because its native linear-solver bridge does not
+advertise scaling-vector support. The adapter recovers the weighted L2 target
+`delta = tau * RMS(EWT)` and solves `W J W^-1 z = W rhs`, returning `W^-1 z`.
+The existing preconditioner is applied as `W P^-1 W^-1`; its matrices and
+factorizations stay unscaled. No scaled global or element matrix is stored.
+
+Acceptance independently checks both `||W (J correction - rhs)||_2 <= delta`
+and `||J correction - rhs||_2 <= relative_tolerance * ||rhs||_2`. The native
+norm factor remains unchanged; with its configured value of one, converting
+the weighted L2 bound to WRMS also divides the bound by `sqrt(N)`. Algebraic
+entries participate in this linear norm even when excluded from IDA's local
+error test. Projected Krylov norms alone cannot accept a correction. Defect
+corrections share one bounded iteration budget; zero progress fails.
+
+MUMPS/UMFPACK solves, application-supplied callbacks, and steady solves retain
+their existing stopping contracts. Expert callback invocations before native
+IDA memory exists also retain their scalar-tolerance path. This change does
+not establish convergence or physical validity for a coupled application.
+
+
 `TimeIntervalParameters` owns the initial and final times and the physical
 output interval. `IDAParameters` owns IDA's adaptive-step controls, error
 tolerances, differential/algebraic error handling, and initial-condition
