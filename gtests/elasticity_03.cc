@@ -302,6 +302,33 @@ TEST(ElasticityProblem, BOTH_PointCouplingAveragesDisplacementOverInclusion)
 
 
 
+// The Neumann data is a traction t, so the static and the time-dependent
+// assembly must produce the same load int t . phi_i ds.
+TEST(ElasticityProblem, BOTH_ForcingTermsNeumannLoadMatchesStaticAssembly)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, R"(
+    subsection Immersed Problem
+      set Neumann boundary ids = 1
+    end
+    subsection Functions
+      subsection Neumann boundary conditions
+        set Function expression = 3; 1 + y
+      end
+    end
+  )");
+  setup_system(problem, true);
+
+  problem.assemble_elasticity_system();
+  const LA::MPI::Vector static_rhs(problem.system_rhs.block(0));
+  ASSERT_GT(static_rhs.linfty_norm(), 1.);
+
+  problem.assemble_forcing_terms(0.);
+  EXPECT_LT(max_difference(problem.neumann_bc_rhs.block(0), static_rhs), 1e-12);
+}
+
 TEST(ElasticityProblem, BOTH_SaddlePointSolutionSatisfiesBothEquations)
 {
   ParameterAcceptor::clear();

@@ -1301,19 +1301,16 @@ namespace ImmersX
                          q < fe_face_values.n_quadrature_points;
                          ++q)
                       {
-                        double neumann_value = 0;
-                        for (int d = 0; d < spacedim; ++d)
-                          neumann_value +=
-                            neumann_scale *
-                            neumann_bc.value(fe_face_values.quadrature_point(q),
-                                             d) *
-                            fe_face_values.normal_vector(q)[d];
-                        neumann_value /= spacedim;
                         for (unsigned int i = 0; i < dofs_per_cell; ++i)
                           {
+                            const auto comp_i =
+                              fe->system_to_component_index(i).first;
+                            const auto un =
+                              neumann_scale *
+                              neumann_bc.value(
+                                fe_face_values.quadrature_point(q), comp_i);
                             cell_neumann_bc_rhs(i) +=
-                              -neumann_value *
-                              fe_face_values.shape_value(i, q) *
+                              un * fe_face_values.shape_value(i, q) *
                               fe_face_values.JxW(q);
                           }
                       }

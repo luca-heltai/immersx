@@ -13,7 +13,9 @@ and `ElasticStaticProblem`. The canonical input is
 ```
 
 The square uses a vector `FE_Q` space. Three faces have prescribed displacement
-and the remaining face has a Neumann load. The `Material properties` subsection
+and the remaining face has a Neumann load. The Neumann function is a traction
+vector `t`, one component per spatial dimension, and the load is
+`int t . phi_i ds` in static and time-dependent runs alike. The `Material properties` subsection
 defines Lamé coefficients; the function expressions have one component per
 spatial dimension.
 
