@@ -508,7 +508,8 @@ TEST(DistributedIDA, NoneLeavesInitialConditionsUntouched) // NOLINT
 namespace
 {
   void
-  check_resized_native_restart(const MPI_Comm communicator)
+  check_resized_native_restart(const MPI_Comm communicator,
+                               const bool     diagnostics = false)
   {
     TimeIntervalParameters time_parameters;
     FixedStepParameters    fixed_step_parameters;
@@ -528,6 +529,7 @@ namespace
     ida_parameters.correction_type_at_initial_time   = "use_y_diff";
     ida_parameters.correction_type_after_restart     = "use_y_diff";
     ida_parameters.ignore_algebraic_terms_for_errors = false;
+    ida_parameters.print_nonlinear_diagnostics       = diagnostics;
 
     Adapter    adapter(time_parameters, ida_parameters, communicator);
     const auto field =
@@ -620,6 +622,11 @@ TEST(DistributedIDA, RestartCallbackPrecedesResetAndCanResizeState) // NOLINT
 TEST(DistributedIDA, BOTH_RestartResizeUsesNativeWeightAndJacobianMaps)
 {
   check_resized_native_restart(MPI_COMM_WORLD);
+}
+
+TEST(DistributedIDA, BOTH_RestartResizeDiagnosticsUseNativeWeights)
+{
+  check_resized_native_restart(MPI_COMM_WORLD, true);
 }
 
 TEST(DistributedIDA, MPI_StateDependentJacobianOwnsEvaluationState) // NOLINT

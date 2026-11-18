@@ -2160,7 +2160,7 @@ namespace ImmersX
           return;
         }
       GlobalVectorType weights;
-      composition_.reinit(weights);
+      weights.reinit(correction);
       auto view = Compatibility::SUNDIALS::internal::make_nvector_view(
         weights
 #  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
