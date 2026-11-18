@@ -1,4 +1,4 @@
-PR: pending
+PR: #471
 
 - `ElasticityProblem` time-dependent runs (`run_quasistatic()`,
   `run_newmark()`) apply the Neumann function as a traction vector, as the
