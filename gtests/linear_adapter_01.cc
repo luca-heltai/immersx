@@ -296,6 +296,78 @@ namespace
   }
 } // namespace
 
+#ifdef DEAL_II_WITH_MUMPS
+TEST(LinearAdapter, BOTH_MumpsUsesOwnedIndicesForPackedFields)
+{
+  using namespace dealii;
+  using Adapter    = ImmersX::LinearAdapter<ImmersX::ImmersXLA::MPI::Vector,
+                                         ImmersX::ImmersXLA::MPI::BlockVector>;
+  const auto rank  = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto ranks = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  if (ranks > 4)
+    GTEST_SKIP() << "The four-unknown fixture supports at most four ranks.";
+
+  std::array<ImmersX::FakeProblem, 2>        problems;
+  const std::array<std::array<double, 2>, 2> diagonal = {
+    {{{2., 3.}}, {{5., 7.}}}};
+  for (unsigned int field = 0; field < problems.size(); ++field)
+    {
+      auto &problem = problems[field];
+      problem.owned = IndexSet(2);
+      if (ranks == 1)
+        problem.owned.add_range(0, 2);
+      else if (rank < 2)
+        problem.owned.add_index(rank);
+      problem.owned.compress();
+      DynamicSparsityPattern sparsity(2, 2);
+      sparsity.add(0, 0);
+      sparsity.add(1, 1);
+      problem.matrix.reinit(problem.owned,
+                            problem.owned,
+                            sparsity,
+                            MPI_COMM_WORLD);
+      problem.rhs.reinit(problem.owned, MPI_COMM_WORLD);
+      for (const auto index : problem.owned)
+        {
+          problem.matrix.set(index, index, diagonal[field][index]);
+          problem.rhs[index] =
+            diagonal[field][index] * (index + 1. + 2. * field);
+        }
+      problem.matrix.compress(VectorOperation::insert);
+      problem.rhs.compress(VectorOperation::insert);
+    }
+
+  ImmersX::LinearAdapterParameters parameters;
+  parameters.solver = ImmersX::LinearSolver::mumps;
+  Adapter    adapter(parameters, MPI_COMM_WORLD);
+  const auto first  = adapter.add(problems[0], "first");
+  const auto second = adapter.add(problems[1], "second");
+  const std::array<ImmersX::FieldId, 2> fields = {
+    {first.fields().solution, second.fields().solution}};
+  auto state = adapter.make_state();
+  adapter.solve(state);
+  for (unsigned int solve = 0; solve < 2; ++solve)
+    {
+      double worst = 0.;
+      for (unsigned int field = 0; field < fields.size(); ++field)
+        for (const auto index : problems[field].owned)
+          worst = std::max(worst,
+                           std::abs(adapter.field(state, fields[field])[index] -
+                                    (solve + 1.) * (index + 1. + 2. * field)));
+      EXPECT_LT(Utilities::MPI::max(worst, MPI_COMM_WORLD), 1.e-12);
+      auto residual = adapter.make_state();
+      adapter.evaluate_residual(state, residual);
+      EXPECT_LT(residual.l2_norm(), 1.e-12);
+      if (solve == 0)
+        {
+          for (auto &problem : problems)
+            problem.rhs *= 2.;
+          adapter.solve_with_current_direct(state);
+        }
+    }
+}
+#endif
+
 TEST(LinearAdapter, DirectContributorAndSemanticFieldAccess)
 {
   ImmersX::FakeProblem problem;
