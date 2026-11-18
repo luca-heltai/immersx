@@ -308,7 +308,8 @@ TEST(LinearAdapter, BOTH_MumpsUsesOwnedIndicesForPackedFields)
     GTEST_SKIP() << "The four-unknown fixture supports at most four ranks.";
 
   std::array<ImmersX::FakeProblem, 2>        problems;
-  const std::array<std::array<double, 2>, 2> diagonal = {{{2., 3.}, {5., 7.}}};
+  const std::array<std::array<double, 2>, 2> diagonal = {
+    {{{2., 3.}}, {{5., 7.}}}};
   for (unsigned int field = 0; field < problems.size(); ++field)
     {
       auto &problem = problems[field];
@@ -341,9 +342,9 @@ TEST(LinearAdapter, BOTH_MumpsUsesOwnedIndicesForPackedFields)
   Adapter    adapter(parameters, MPI_COMM_WORLD);
   const auto first  = adapter.add(problems[0], "first");
   const auto second = adapter.add(problems[1], "second");
-  const std::array<ImmersX::FieldId, 2> fields = {first.fields().solution,
-                                                  second.fields().solution};
-  auto                                  state  = adapter.make_state();
+  const std::array<ImmersX::FieldId, 2> fields = {
+    {first.fields().solution, second.fields().solution}};
+  auto state = adapter.make_state();
   adapter.solve(state);
   for (unsigned int solve = 0; solve < 2; ++solve)
     {
