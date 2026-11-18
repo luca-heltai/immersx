@@ -168,7 +168,9 @@ namespace
       {
         EXPECT_LE(defect, target);
         if (owner)
-          EXPECT_DOUBLE_EQ(solution[1], std::ldexp(1., -51));
+          {
+            EXPECT_DOUBLE_EQ(solution[1], std::ldexp(1., -51));
+          }
       }
     else
       EXPECT_GT(defect, target);

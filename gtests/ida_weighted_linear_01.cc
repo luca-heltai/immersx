@@ -112,7 +112,9 @@ TEST(DistributedIDA, BOTH_WeightedKrylovHomogeneousAndMixedFields)
           const std::array<double, 4> exact{{.5, 1., 2., 3.}};
           for (unsigned int k = 0; k < 4; ++k)
             if (f.solution.block(k).locally_owned_elements().n_elements())
-              EXPECT_NEAR(f.solution.block(k)[0], exact[k], 1e-10);
+              {
+                EXPECT_NEAR(f.solution.block(k)[0], exact[k], 1e-10);
+              }
           Vector defect = f.rhs;
           f.matrix.vmult(defect, f.solution);
           defect -= f.rhs;

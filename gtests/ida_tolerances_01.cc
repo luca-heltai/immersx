@@ -1404,7 +1404,9 @@ namespace
               parameters.linear_solver_controls.krylov_relative_tolerance *
                 rhs.l2_norm());
             if (rhs.linfty_norm() > 0.)
-              EXPECT_GT(answer.linfty_norm(), 0.);
+              {
+                EXPECT_GT(answer.linfty_norm(), 0.);
+              }
           }
         else
           for (const auto i : defect.locally_owned_elements())
