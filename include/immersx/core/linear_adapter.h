@@ -17,6 +17,7 @@
 #include <deal.II/base/timer.h>
 
 #include <deal.II/lac/precondition.h>
+#include <deal.II/lac/read_write_vector.h>
 #include <deal.II/lac/solver_control.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/vector_memory.h>
@@ -431,7 +432,27 @@ namespace ImmersX
       auto solution = composition_.pack(result);
 #ifdef DEAL_II_WITH_MUMPS
       if (mumps_solver_)
-        mumps_solver_->vmult(solution, rhs);
+        {
+          AssertThrow(
+            solution.size() >= dealii::Utilities::MPI::n_mpi_processes(
+                                 composition_.communicator()),
+            dealii::ExcMessage(
+              "MUMPS requires at least one coupled unknown per MPI rank."));
+          // The native MUMPS wrapper scatters contiguous solution slices.
+          // Packed semantic fields can instead have gaps in their ownership.
+          FieldVectorType balanced;
+          balanced.reinit(
+            dealii::Utilities::MPI::create_evenly_distributed_partitioning(
+              composition_.communicator(), solution.size()),
+            composition_.communicator());
+          mumps_solver_->vmult(balanced, rhs);
+          dealii::LinearAlgebra::ReadWriteVector<double> imported(
+            solution.locally_owned_elements());
+          imported.import_elements(balanced, dealii::VectorOperation::insert);
+          for (const auto index : solution.locally_owned_elements())
+            solution[index] = imported[index];
+          solution.compress(dealii::VectorOperation::insert);
+        }
       else
 #endif
         {
