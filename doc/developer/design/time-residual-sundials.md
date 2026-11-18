@@ -69,6 +69,55 @@ graph. Direct solvers require materializable contributions; matrix-free terms
 remain available to iterative and custom solves. Custom linear solve callbacks
 keep their existing path.
 
+During a native IDA built-in iterative solve, the adapter reads IDA's current
+error weights `W = diag(EWT)`. The compatibility callback receives
+`tau = delta / RMS(EWT)`, because its native linear-solver bridge does not
+advertise scaling-vector support. The adapter recovers the weighted L2 target
+`delta = tau * RMS(EWT)` and solves `W J W^-1 z = W rhs`, returning `W^-1 z`.
+The existing preconditioner is applied as `W P^-1 W^-1`; its matrices and
+factorizations stay unscaled. No scaled global or element matrix is stored.
+
+Acceptance independently checks both `||W (J correction - rhs)||_2 <= delta`
+and `||J correction - rhs||_2 <= relative_tolerance * ||rhs||_2`. The native
+norm factor remains unchanged; with its configured value of one, converting
+the weighted L2 bound to WRMS also divides the bound by `sqrt(N)`. Algebraic
+entries participate in this linear norm even when excluded from IDA's local
+error test. Projected Krylov norms alone cannot accept a correction. Defect
+corrections share one bounded iteration budget; zero progress fails.
+
+Extremely large or small valid weights can make the native scalar conversion
+indeterminate. If the native RMS of positive error weights is zero, the original target
+cannot be recovered. A zero callback scalar can also arise when IDA multiplies
+its positive linear tolerance factor by the nonlinear target and underflows,
+even with finite positive RMS. Both cases require an exact certificate: an
+unscaled solve may be accepted only if every
+owned entry of the full-J residual is exactly zero across all MPI ranks,
+in addition to the raw gate. A zero computed norm alone is insufficient
+because it can underflow. Exact-only refinement uses a positive target tied to half the current true
+defect infinity norm, independently of the raw bound. Each correction is
+followed by a full-J residual calculation; the true infinity norm must decrease
+strictly until every entry is zero. All corrections share the original
+iteration budget. A loose raw gate cannot accept zero work, and a projected
+norm cannot certify exactness. Any approximate residual is rejected in exact-only
+mode. If the recovered native target is positive infinity, it imposes no finite
+weighted bound: an unscaled solve must still satisfy the original raw full-J
+residual gate. A zero raw target instead requires exact certification. Native
+IDAS accepts an infinite positive linear tolerance factor, so this case is
+covered by an actual native callback oracle. Invalid weights, an invalid RMS
+and a NaN callback tolerance remain errors.
+
+
+Native weight-query buffers follow the current linear callback RHS map. A
+restart can resize state vectors while field registration remains unchanged;
+using registration-time partitions would give IDAGetErrWeights the wrong size.
+Optional nonlinear-correction diagnostics likewise size their query buffer from
+the current correction vector.
+
+MUMPS/UMFPACK solves, application-supplied callbacks, and steady solves retain
+their existing stopping contracts. Expert callback invocations before native
+IDA memory exists also retain their scalar-tolerance path. This change does
+not establish convergence or physical validity for a coupled application.
+
 `TimeIntervalParameters` owns the initial and final times and the physical
 output interval. `IDAParameters` owns IDA's adaptive-step controls, error
 tolerances, differential/algebraic error handling, and initial-condition

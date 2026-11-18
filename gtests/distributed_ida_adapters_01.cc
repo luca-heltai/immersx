@@ -36,14 +36,16 @@ namespace
   add_identity_field(AdapterType       &adapter,
                      const unsigned int size,
                      bool              *initial_output = nullptr,
-                     bool              *early_residual = nullptr)
+                     bool              *early_residual = nullptr,
+                     const MPI_Comm     communicator   = MPI_COMM_SELF)
   {
     return adapter.add(
       [=](auto &builder) {
         using Model = typename std::decay_t<decltype(builder)>::Model;
 
         dealii::IndexSet owned(size);
-        owned.add_range(0, size);
+        if (dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
+          owned.add_range(0, size);
         owned.compress();
         const auto field = builder.differential_field("value", owned);
 
@@ -503,63 +505,128 @@ TEST(DistributedIDA, NoneLeavesInitialConditionsUntouched) // NOLINT
   EXPECT_DOUBLE_EQ(initial_dot_norm, 0.);
 }
 
+namespace
+{
+  void
+  check_resized_native_restart(const MPI_Comm communicator,
+                               const bool     diagnostics = false)
+  {
+    TimeIntervalParameters time_parameters;
+    FixedStepParameters    fixed_step_parameters;
+    IDAParameters          ida_parameters;
+    time_parameters.initial_time                     = 0.;
+    time_parameters.final_time                       = 0.02;
+    fixed_step_parameters.time_step                  = 0.01;
+    time_parameters.output_time_interval             = 0.01;
+    ida_parameters.initial_step_size                 = 0.01;
+    ida_parameters.maximum_order                     = 1;
+    ida_parameters.minimum_step_size                 = 1.e-6;
+    ida_parameters.maximum_non_linear_iterations     = 10;
+    ida_parameters.absolute_tolerance                = 1.e-6;
+    ida_parameters.relative_tolerance                = 1.e-5;
+    ida_parameters.maximum_non_linear_iterations_ic  = 5;
+    ida_parameters.ls_norm_factor                    = 0.;
+    ida_parameters.correction_type_at_initial_time   = "use_y_diff";
+    ida_parameters.correction_type_after_restart     = "use_y_diff";
+    ida_parameters.ignore_algebraic_terms_for_errors = false;
+    ida_parameters.print_nonlinear_diagnostics       = diagnostics;
+
+    Adapter    adapter(time_parameters, ida_parameters, communicator);
+    const auto field =
+      add_identity_field(adapter, 2, nullptr, nullptr, communicator);
+    auto         state            = adapter.make_state();
+    auto         dot              = adapter.make_state();
+    unsigned int restart_count    = 0;
+    unsigned int consistent_count = 0;
+    unsigned int tolerance_builds = 0;
+    adapter.set_local_tolerances(field.fields(), [&](FieldVector &values) {
+      ++tolerance_builds;
+      EXPECT_EQ(values.size(), tolerance_builds == 1 ? 2u : 3u);
+      values = 1.e-6;
+    });
+    adapter.set_compute_consistent_initial_conditions(
+      [&](const double, GlobalVector &y, GlobalVector &y_dot) {
+        ++consistent_count;
+        adapter.field(y, field.fields())     = 3.;
+        adapter.field(y_dot, field.fields()) = -3.;
+      });
+    adapter.set_solver_should_restart(
+      [&](const double, GlobalVector &y, GlobalVector &y_dot) {
+        if (restart_count++ != 0)
+          return false;
+        dealii::IndexSet owned(3);
+        if (dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
+          owned.add_range(0, 3);
+        owned.compress();
+        y.reinit(std::vector<dealii::IndexSet>{owned}, communicator);
+        y_dot.reinit(std::vector<dealii::IndexSet>{owned}, communicator);
+        return true;
+      });
+
+    auto                       &native         = adapter.solver();
+    const auto                  original_solve = native.solve_with_jacobian;
+    std::array<unsigned int, 2> map_checks{{0, 0}};
+    native.solve_with_jacobian = [&](const GlobalVector &rhs,
+                                     GlobalVector       &answer,
+                                     const double        tolerance) {
+      GlobalVector weights, domain, range;
+      weights.reinit(rhs);
+      adapter.current_jacobian().reinit_domain_vector(domain, false);
+      adapter.current_jacobian().reinit_range_vector(range, false);
+      auto view = Compatibility::SUNDIALS::internal::make_nvector_view(
+        weights
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+        ,
+        native.get_sun_context()
+#  endif
+      );
+      EXPECT_EQ(IDAGetErrWeights(native.get_ida_memory(), view), IDA_SUCCESS);
+      EXPECT_EQ(adapter.make_state().size(), 2u);
+      EXPECT_EQ(domain.size(), rhs.size());
+      EXPECT_EQ(range.size(), rhs.size());
+      EXPECT_EQ(weights.size(), rhs.size());
+      for (unsigned int b = 0; b < rhs.n_blocks(); ++b)
+        {
+          EXPECT_TRUE(domain.block(b).locally_owned_elements() ==
+                      rhs.block(b).locally_owned_elements());
+          EXPECT_TRUE(range.block(b).locally_owned_elements() ==
+                      rhs.block(b).locally_owned_elements());
+          EXPECT_TRUE(weights.block(b).locally_owned_elements() ==
+                      rhs.block(b).locally_owned_elements());
+        }
+      const unsigned int phase = rhs.size() == 3 ? 1 : 0;
+      EXPECT_EQ(rhs.size(), phase ? 3u : 2u);
+      if (++map_checks[phase] == 1 &&
+          dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+        std::cout << "RESTART_NATIVE_MAPS comm_size="
+                  << dealii::Utilities::MPI::n_mpi_processes(communicator)
+                  << " rhs=" << rhs.size() << " Jacobian=" << domain.size()
+                  << " EWT=" << weights.size() << " descriptor=2" << std::endl;
+      original_solve(rhs, answer, tolerance);
+    };
+    EXPECT_GT(adapter.solve(state, dot), 0u);
+    EXPECT_GT(map_checks[0], 0u);
+    EXPECT_GT(map_checks[1], 0u);
+    EXPECT_GE(restart_count, 2u);
+    EXPECT_EQ(consistent_count, 2u);
+    EXPECT_EQ(tolerance_builds, 2u);
+    EXPECT_EQ(state.block(0).size(), 3u);
+    EXPECT_EQ(dot.block(0).size(), 3u);
+  }
+
+} // namespace
 TEST(DistributedIDA, RestartCallbackPrecedesResetAndCanResizeState) // NOLINT
 {
-  TimeIntervalParameters time_parameters;
-  FixedStepParameters    fixed_step_parameters;
-  IDAParameters          ida_parameters;
-  time_parameters.initial_time                     = 0.;
-  time_parameters.final_time                       = 0.02;
-  fixed_step_parameters.time_step                  = 0.01;
-  time_parameters.output_time_interval             = 0.01;
-  ida_parameters.initial_step_size                 = 0.01;
-  ida_parameters.maximum_order                     = 1;
-  ida_parameters.minimum_step_size                 = 1.e-6;
-  ida_parameters.maximum_non_linear_iterations     = 10;
-  ida_parameters.absolute_tolerance                = 1.e-6;
-  ida_parameters.relative_tolerance                = 1.e-5;
-  ida_parameters.maximum_non_linear_iterations_ic  = 5;
-  ida_parameters.ls_norm_factor                    = 0.;
-  ida_parameters.correction_type_at_initial_time   = "use_y_diff";
-  ida_parameters.correction_type_after_restart     = "use_y_diff";
-  ida_parameters.ignore_algebraic_terms_for_errors = false;
+  check_resized_native_restart(MPI_COMM_SELF);
+}
+TEST(DistributedIDA, BOTH_RestartResizeUsesNativeWeightAndJacobianMaps)
+{
+  check_resized_native_restart(MPI_COMM_WORLD);
+}
 
-  Adapter      adapter(time_parameters, ida_parameters, MPI_COMM_SELF);
-  const auto   field            = add_identity_field(adapter, 2);
-  auto         state            = adapter.make_state();
-  auto         dot              = adapter.make_state();
-  unsigned int restart_count    = 0;
-  unsigned int consistent_count = 0;
-  unsigned int tolerance_builds = 0;
-  adapter.set_local_tolerances(field.fields(), [&](FieldVector &values) {
-    ++tolerance_builds;
-    EXPECT_EQ(values.size(), tolerance_builds == 1 ? 2u : 3u);
-    values = 1.e-6;
-  });
-  adapter.set_compute_consistent_initial_conditions(
-    [&](const double, GlobalVector &y, GlobalVector &y_dot) {
-      ++consistent_count;
-      adapter.field(y, field.fields())     = 3.;
-      adapter.field(y_dot, field.fields()) = -3.;
-    });
-  adapter.set_solver_should_restart(
-    [&](const double, GlobalVector &y, GlobalVector &y_dot) {
-      if (restart_count++ != 0)
-        return false;
-      dealii::IndexSet owned(3);
-      owned.add_range(0, 3);
-      owned.compress();
-      y.reinit(std::vector<dealii::IndexSet>{owned}, MPI_COMM_SELF);
-      y_dot.reinit(std::vector<dealii::IndexSet>{owned}, MPI_COMM_SELF);
-      return true;
-    });
-
-  EXPECT_GT(adapter.solve(state, dot), 0u);
-  EXPECT_GE(restart_count, 2u);
-  EXPECT_EQ(consistent_count, 2u);
-  EXPECT_EQ(tolerance_builds, 2u);
-  EXPECT_EQ(state.block(0).size(), 3u);
-  EXPECT_EQ(dot.block(0).size(), 3u);
+TEST(DistributedIDA, BOTH_RestartResizeDiagnosticsUseNativeWeights)
+{
+  check_resized_native_restart(MPI_COMM_WORLD, true);
 }
 
 TEST(DistributedIDA, MPI_StateDependentJacobianOwnsEvaluationState) // NOLINT

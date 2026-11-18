@@ -1230,9 +1230,198 @@ TEST(DistributedIDA, BOTH_AlgebraicRampProtectionValidatesOnlyAppliedScales)
         }
       else
         {
+          auto        &solver         = adapter.solver();
+          const auto   original_solve = solver.solve_with_jacobian;
+          unsigned int exact_checks   = 0;
+          solver.solve_with_jacobian =
+            [&](const auto &rhs, auto &answer, const double tolerance) {
+              // RMS(EWT) underflows for the valid protected atol=1e307.
+              EXPECT_TRUE(std::isinf(tolerance));
+              original_solve(rhs, answer, tolerance);
+              auto defect = adapter.make_state();
+              adapter.current_jacobian().vmult(defect, answer);
+              defect -= rhs;
+              for (const auto i : defect.locally_owned_elements())
+                EXPECT_EQ(defect[i], 0.);
+              ++exact_checks;
+            };
           EXPECT_NO_THROW(adapter.solve(y, yp));
+          EXPECT_GT(exact_checks, 0u);
         }
     }
 }
 
+
+namespace
+{
+  void
+  check_underflowed_native_residual(const bool unbounded)
+  {
+    TimeIntervalParameters time;
+    IDAParameters          parameters;
+    time.final_time                            = .001;
+    time.output_time_interval                  = .001;
+    parameters.initial_step_size               = .001;
+    parameters.maximum_step_size               = .001;
+    parameters.absolute_tolerance              = unbounded ? 1. : 1e307;
+    parameters.relative_tolerance              = 0.;
+    parameters.correction_type_at_initial_time = "none";
+    Adapter adapter(time, parameters, MPI_COMM_WORLD);
+    if (unbounded)
+      {
+        auto controls = adapter.additional_data();
+        controls.linear_tolerance_factor =
+          std::numeric_limits<double>::infinity();
+        adapter.set_additional_data(controls);
+      }
+    add_forced_field(adapter, false, 1e-307);
+    auto y = adapter.make_state(), yp = adapter.make_state();
+    y                           = 0.;
+    yp                          = 0.;
+    auto        &solver         = adapter.solver();
+    const auto   original_solve = solver.solve_with_jacobian;
+    unsigned int checks         = 0;
+    unsigned int rejections     = 0;
+    solver.solve_with_jacobian =
+      [&](const auto &rhs, auto &answer, const double tolerance) {
+        EXPECT_TRUE(std::isinf(tolerance));
+        EXPECT_GT(rhs.linfty_norm(), 0.);
+        EXPECT_EQ(rhs.l2_norm(), 0.);
+        if (unbounded)
+          {
+            auto weights = adapter.make_state();
+            auto view    = Compatibility::SUNDIALS::internal::make_nvector_view(
+              weights
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+              ,
+              solver.get_sun_context()
+#  endif
+            );
+            EXPECT_EQ(IDAGetErrWeights(solver.get_ida_memory(), view),
+                      IDA_SUCCESS);
+            EXPECT_DOUBLE_EQ(weights.l2_norm(), 1.);
+          }
+        // The native zero initial correction passes a norm-only raw gate, but
+        // its actual full-J residual has a nonzero owned entry.
+        auto defect = adapter.make_state();
+        adapter.current_jacobian().vmult(defect, answer);
+        defect -= rhs;
+        EXPECT_EQ(defect.l2_norm(), 0.);
+        EXPECT_GT(defect.linfty_norm(), 0.);
+        ++checks;
+        try
+          {
+            original_solve(rhs, answer, tolerance);
+          }
+        catch (const dealii::ExceptionBase &)
+          {
+            ++rejections;
+            throw;
+          }
+        ADD_FAILURE()
+          << "A nonzero entry was accepted against a zero raw target.";
+        AssertThrow(false,
+                    dealii::ExcMessage("Unexpected native linear acceptance."));
+      };
+    try
+      {
+        adapter.solve(y, yp);
+        FAIL() << "A nonzero residual entry cannot satisfy an exact raw gate.";
+      }
+    catch (const dealii::ExceptionBase &error)
+      {
+        ::testing::Test::RecordProperty("native_rejection", error.what());
+      }
+    EXPECT_GT(checks, 0u);
+    EXPECT_EQ(rejections, checks);
+  }
+} // namespace
+TEST(DistributedIDA, BOTH_IndeterminateNativeTargetRejectsUnderflowedResidual)
+{
+  check_underflowed_native_residual(false);
+}
+TEST(DistributedIDA, BOTH_InfiniteTargetWithZeroRawBoundRequiresExactResidual)
+{
+  check_underflowed_native_residual(true);
+}
+namespace
+{
+  void
+  check_extreme_native_target(const bool unbounded)
+  {
+    TimeIntervalParameters time;
+    IDAParameters          parameters;
+    time.final_time                            = .001;
+    time.output_time_interval                  = .001;
+    parameters.initial_step_size               = .001;
+    parameters.maximum_step_size               = .001;
+    parameters.absolute_tolerance              = 1.;
+    parameters.relative_tolerance              = 0.;
+    parameters.correction_type_at_initial_time = "none";
+    // A valid loose raw gate must not accept the initial zero correction when
+    // native IDA requests a zero linear residual.
+    parameters.linear_solver_controls.krylov_relative_tolerance =
+      unbounded ? 1.e-8 : 1.;
+    Adapter adapter(time, parameters, MPI_COMM_WORLD);
+    auto    controls = adapter.additional_data();
+    // IDASetEpsLin accepts both positive factors. Their native scalar is zero
+    // or infinity while RMS(EWT) remains finite and equal to one.
+    controls.linear_tolerance_factor =
+      unbounded ? std::numeric_limits<double>::infinity() :
+                  std::numeric_limits<double>::denorm_min();
+    adapter.set_additional_data(controls);
+    add_forced_field(adapter, false, 1.);
+    auto y = adapter.make_state(), yp = adapter.make_state();
+    y = yp                      = 0.;
+    auto        &solver         = adapter.solver();
+    const auto   original_solve = solver.solve_with_jacobian;
+    unsigned int checks         = 0;
+    solver.solve_with_jacobian =
+      [&](const auto &rhs, auto &answer, const double tolerance) {
+        if (unbounded)
+          EXPECT_TRUE(std::isinf(tolerance));
+        else
+          EXPECT_EQ(tolerance, 0.);
+        auto weights = adapter.make_state();
+        auto view    = Compatibility::SUNDIALS::internal::make_nvector_view(
+          weights
+#  if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+          ,
+          solver.get_sun_context()
+#  endif
+        );
+        EXPECT_EQ(IDAGetErrWeights(solver.get_ida_memory(), view), IDA_SUCCESS);
+        EXPECT_DOUBLE_EQ(weights.l2_norm(), 1.);
+        ++checks;
+        original_solve(rhs, answer, tolerance);
+        auto defect = adapter.make_state();
+        adapter.current_jacobian().vmult(defect, answer);
+        defect -= rhs;
+        if (unbounded)
+          {
+            EXPECT_LE(
+              defect.l2_norm(),
+              parameters.linear_solver_controls.krylov_relative_tolerance *
+                rhs.l2_norm());
+            if (rhs.linfty_norm() > 0.)
+              EXPECT_GT(answer.linfty_norm(), 0.);
+          }
+        else
+          for (const auto i : defect.locally_owned_elements())
+            EXPECT_EQ(defect[i], 0.);
+      };
+    EXPECT_NO_THROW(adapter.solve(y, yp));
+    EXPECT_GT(checks, 0u);
+    for (const auto i : y.locally_owned_elements())
+      EXPECT_DOUBLE_EQ(y[i], 2. + std::sin(time.final_time));
+  }
+} // namespace
+TEST(DistributedIDA, BOTH_ZeroNativeTargetRequiresExactCorrection)
+{
+  check_extreme_native_target(false);
+}
+TEST(DistributedIDA, BOTH_InfiniteNativeTargetPreservesRawGate)
+{
+  check_extreme_native_target(true);
+}
 #endif
