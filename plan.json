@@ -205,8 +205,6 @@
   },
   "harness_sha": "b73453dbc507d22450075abd6857e63d51d3d020",
   "schema_version": 1,
-  "selected": [
-    "b73453dbc507d22450075abd6857e63d51d3d020"
-  ],
+  "selected": [],
   "source_sha": "b73453dbc507d22450075abd6857e63d51d3d020"
 }
