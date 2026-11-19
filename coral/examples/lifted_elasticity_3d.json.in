@@ -153,7 +153,7 @@
         "value": "displacement"
       },
       "27": {
-        "type": "Vector field",
+        "type": "Vector field::std::function<ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector>(const ImmersX::FiniteElementSpaceView<3, 3>&, const std::__cxx11::basic_string<char>&)>",
         "name": "Vector field",
         "qualified_id": "elasticity.27"
       },
@@ -180,7 +180,7 @@
         "value": "0"
       },
       "32": {
-        "type": "Dirichlet boundary condition",
+        "type": "Dirichlet boundary condition::std::function<ImmersX::BoundaryConditions<3> (const ImmersX::BoundaryConditions<3> &, unsigned int, const ImmersX::Function<3> &)>",
         "name": "Dirichlet boundary condition",
         "qualified_id": "elasticity.32"
       },
@@ -190,7 +190,7 @@
         "qualified_id": "elasticity.33"
       },
       "34": {
-        "type": "Create linear execution",
+        "type": "Create linear execution::std::function<std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> (const ImmersX::LinearAdapterParameters &)>",
         "name": "Create linear execution",
         "qualified_id": "elasticity.34"
       },
@@ -223,12 +223,12 @@
         "qualified_id": "elasticity.39"
       },
       "40": {
-        "type": "Elasticity energy term",
+        "type": "Elasticity energy term::std::function<ImmersX::IsotropicElasticityTerm<ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector> >(const ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector>&, const ImmersX::IsotropicElasticStress<3>&)>",
         "name": "Elasticity energy term",
         "qualified_id": "elasticity.40"
       },
       "41": {
-        "type": "Add elasticity energy",
+        "type": "Add elasticity energy::std::function<void(std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector> >&, const ImmersX::IsotropicElasticityTerm<ImmersX::Field<3, 3, dealii::FEValuesExtractors::Vector> >&)>" ,
         "name": "Add elasticity energy",
         "qualified_id": "elasticity.41"
       },
@@ -442,27 +442,27 @@
         "qualified_id": "elasticity.81"
       },
       "82": {
-        "type": "Create linear state",
+        "type": "Create linear state::std::function<dealii::TrilinosWrappers::MPI::BlockVector (const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &)>",
         "name": "Create linear state",
         "qualified_id": "elasticity.82"
       },
       "83": {
-        "type": "Solve linear state",
+        "type": "Solve linear state::std::function<void (const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, dealii::TrilinosWrappers::MPI::BlockVector &)>",
         "name": "Solve linear state",
         "qualified_id": "elasticity.83"
       },
       "84": {
-        "type": "Create linear state",
+        "type": "Create linear state::std::function<dealii::TrilinosWrappers::MPI::BlockVector (const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &)>",
         "name": "Create linear state",
         "qualified_id": "elasticity.84"
       },
       "85": {
-        "type": "Evaluate linear residual",
+        "type": "Evaluate linear residual::std::function<void (const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const dealii::TrilinosWrappers::MPI::BlockVector &, dealii::TrilinosWrappers::MPI::BlockVector &)>",
         "name": "Evaluate linear residual",
         "qualified_id": "elasticity.85"
       },
       "86": {
-        "type": "Linear state norm",
+        "type": "Linear state norm::std::function<double (const dealii::TrilinosWrappers::MPI::BlockVector &)>",
         "name": "Linear state norm",
         "qualified_id": "elasticity.86"
       },
@@ -473,7 +473,7 @@
         "value": "1e-9"
       },
       "88": {
-        "type": "Assert finite below",
+        "type": "Assert finite below::std::function<void (const double &, const double &)>",
         "name": "Assert finite below",
         "qualified_id": "elasticity.88"
       },
