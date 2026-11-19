@@ -21,7 +21,7 @@
       "11": {"type": "ImmersX::FiberEmbeddedProblem<2>::prepare", "position": {"x": 1080, "y": 120}, "qualified_id": "prepare_fiber"},
       "12": {"type": "ImmersX::FiberVelocityContinuity<2>::prepare", "position": {"x": 1340, "y": 220}, "qualified_id": "prepare_velocity_continuity"},
       "13": {"type": "ImmersX::FiberExecutionAdapter<2>::run", "position": {"x": 1600, "y": 220}, "qualified_id": "run_fiber_ida"},
-      "14": {"type": "ImmersX::FiberExecutionAdapter<2>::state_is_finite", "position": {"x": 1860, "y": 120}, "qualified_id": "fiber_finite"},
+      "14": {"type": "ImmersX::FiberExecutionAdapter<2>::state_is_finite::std::function<bool(const ImmersX::FiberReinforcedElastodynamics<2>&)>", "position": {"x": 1860, "y": 120}, "qualified_id": "fiber_finite"},
       "15": {"type": "ImmersX::FiberExecutionAdapter<2>::matrix_velocity_residual", "position": {"x": 1860, "y": 180}, "qualified_id": "matrix_velocity_residual"},
       "16": {"type": "ImmersX::FiberExecutionAdapter<2>::fiber_velocity_residual", "position": {"x": 1860, "y": 240}, "qualified_id": "fiber_velocity_residual"},
       "17": {"type": "ImmersX::FiberExecutionAdapter<2>::velocity_constraint_residual", "position": {"x": 1860, "y": 300}, "qualified_id": "velocity_constraint_residual"},

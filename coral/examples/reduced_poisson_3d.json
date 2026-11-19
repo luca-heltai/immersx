@@ -24,7 +24,7 @@
         "qualified_id": "reduced_poisson_run"
       },
       "3": {
-        "type": "ImmersX::ReducedPoissonWorkflow<3>::state_is_finite",
+        "type": "ImmersX::ReducedPoissonWorkflow<3>::state_is_finite::std::function<bool(const ImmersX::Coral::ReducedPoisson3D&)>",
         "position": {"x": 1080, "y": 20},
         "qualified_id": "reduced_poisson_finite"
       },

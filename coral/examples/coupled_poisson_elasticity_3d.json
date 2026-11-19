@@ -24,7 +24,7 @@
         "qualified_id": "coupled_poisson_elasticity_run"
       },
       "3": {
-        "type": "ImmersX::CoupledPoissonElasticity<3>::residual_norm",
+        "type": "ImmersX::CoupledPoissonElasticity<3>::residual_norm::std::function<double(const ImmersX::Coral::CoupledPoissonElasticity3D&)>",
         "position": {"x": 1040, "y": 20},
         "qualified_id": "coupled_residual"
       },
