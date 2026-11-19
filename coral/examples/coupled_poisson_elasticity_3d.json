@@ -34,7 +34,7 @@
         "qualified_id": "pressure_scale_error"
       },
       "5": {
-        "type": "ImmersX::CoupledPoissonElasticity<3>::traction_balance_error",
+        "type": "ImmersX::CoupledPoissonElasticity<3>::traction_balance_error::std::function<double(const ImmersX::Coral::CoupledPoissonElasticity3D&)>",
         "position": {"x": 1040, "y": 180},
         "qualified_id": "traction_balance_error"
       }

@@ -34,12 +34,12 @@
         "qualified_id": "reduced_poisson_dofs"
       },
       "5": {
-        "type": "ImmersX::ReducedPoissonWorkflow<3>::bulk_solution_l2_norm",
+        "type": "ImmersX::ReducedPoissonWorkflow<3>::bulk_solution_l2_norm::std::function<double(const ImmersX::Coral::ReducedPoisson3D&)>",
         "position": {"x": 1080, "y": 140},
         "qualified_id": "reduced_poisson_bulk_norm"
       },
       "6": {
-        "type": "ImmersX::ReducedPoissonWorkflow<3>::multiplier_solution_l2_norm",
+        "type": "ImmersX::ReducedPoissonWorkflow<3>::multiplier_solution_l2_norm::std::function<double(const ImmersX::Coral::ReducedPoisson3D&)>",
         "position": {"x": 1080, "y": 200},
         "qualified_id": "reduced_poisson_multiplier_norm"
       }
