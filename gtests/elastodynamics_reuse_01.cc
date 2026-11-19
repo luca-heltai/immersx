@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 #include <immersx/io/utils.h>
 #include <immersx/physics/elastodynamics.h>
+#include <immersx/physics/elastodynamics_semidiscrete.h>
 
 #include <map>
 #include <string>
@@ -414,4 +415,128 @@ TEST(Elastodynamics, BOTH_BackwardEulerMovingBoundaryWithHangingNodes)
   EXPECT_EQ(problem.assembly_statistics().spatial_operators, 1u);
   EXPECT_EQ(problem.assembly_statistics().body_force, 1u);
   EXPECT_EQ(problem.assembly_statistics().time_system_matrix, 1u);
+}
+
+
+TEST(Elastodynamics, BOTH_RetainedMatrixOwnersSurviveRobinUpdates)
+{
+  ParameterAcceptor::clear();
+  ElastodynamicsParameters<2> parameters;
+  configure_reuse_problem(R"(
+    subsection Elastodynamics
+      set Dirichlet boundary ids = 0
+      set Robin boundary ids = 1
+      subsection Material properties
+        subsection default
+          set Rayleigh alpha = 2
+        end
+      end
+      subsection Functions
+        subsection Robin coefficient
+          set Function expression = 2+t
+        end
+        subsection Displacement boundary
+          set Function expression = t; 0
+        end
+      end
+    end
+  )");
+
+  Problem problem(parameters);
+  problem.make_grid();
+  problem.setup_fe();
+  problem.setup_system();
+  problem.assemble_operators();
+
+  StateLayout                     layout;
+  SemiDiscreteModel<VectorType>   model;
+  SemidiscreteBuilder<VectorType> builder(layout, model);
+  const auto                      fields    = contribute(builder, problem);
+  const auto                      u         = fields.displacement.id();
+  const auto                      v         = fields.velocity.id();
+  const auto                      direction = component_direction(problem, 0);
+  VectorType                      zero, raw_diagonal_before, product;
+  zero.reinit(direction);
+  raw_diagonal_before.reinit(direction);
+  product.reinit(direction);
+  problem.diagonal_mass_matrix().vmult(raw_diagonal_before, direction);
+  StateView<VectorType> state0(layout, 0.);
+  state0.bind(u, zero).bind(v, zero);
+  const EvaluationContext<VectorType> context0(0., state0);
+  model.update_context(context0);
+  const auto retained0 = model.retained_linearization(context0);
+  const auto mass0 =
+    retained0.derivative_matrix_operator(v, v, context0).value();
+  const auto diagonal0 =
+    retained0.derivative_matrix_operator(u, u, context0).value();
+  const auto negative_diagonal0 =
+    retained0.state_matrix_operator(u, v, context0).value();
+  const auto identity0 =
+    retained0.state_matrix_operator(u, u, context0).value();
+  const auto damping0 = retained0.state_matrix_operator(v, v, context0).value();
+  const auto stiffness0 =
+    retained0.state_matrix_operator(v, u, context0).value();
+  stiffness0.view.vmult(product, direction);
+  const double initial_energy = direction * product;
+
+  // Materializing the identity mask must not overwrite the diagonal mass owner.
+  identity0.matrix();
+  problem.diagonal_mass_matrix().vmult(product, direction);
+  product -= raw_diagonal_before;
+  EXPECT_EQ(product.l2_norm(), 0.);
+
+  for (const double time : {0., 0.5, 0.5, 0.})
+    {
+      StateView<VectorType> state(layout, time);
+      state.bind(u, zero).bind(v, zero);
+      const EvaluationContext<VectorType> context(time, state);
+      model.update_context(context);
+      const auto snapshot = model.retained_linearization(context);
+      const auto mass =
+        snapshot.derivative_matrix_operator(v, v, context).value();
+      const auto diagonal =
+        snapshot.derivative_matrix_operator(u, u, context).value();
+      const auto negative_diagonal =
+        snapshot.state_matrix_operator(u, v, context).value();
+      const auto identity =
+        snapshot.state_matrix_operator(u, u, context).value();
+      const auto damping =
+        snapshot.state_matrix_operator(v, v, context).value();
+      const auto stiffness =
+        snapshot.state_matrix_operator(v, u, context).value();
+      EXPECT_TRUE(mass.immutable && diagonal.immutable && damping.immutable &&
+                  stiffness.immutable && negative_diagonal.immutable &&
+                  identity.immutable);
+      EXPECT_EQ(mass.matrix().get(), mass0.matrix().get());
+      EXPECT_EQ(diagonal.matrix().get(), diagonal0.matrix().get());
+      EXPECT_EQ(negative_diagonal.matrix().get(),
+                negative_diagonal0.matrix().get());
+      EXPECT_EQ(identity.matrix().get(), identity0.matrix().get());
+      EXPECT_EQ(damping.matrix().get(), damping0.matrix().get());
+      EXPECT_EQ(stiffness.matrix().get(),
+                model.state_matrix_operator(v, u, context)->matrix().get());
+      if (time == 0.5)
+        {
+          EXPECT_NE(stiffness.matrix().get(), stiffness0.matrix().get());
+        }
+      stiffness.view.vmult(product, direction);
+      // Constant x displacement has unit squared boundary norm on x=1.
+      EXPECT_NEAR(direction * product - initial_energy, time, 1.e-11);
+      stiffness0.view.vmult(product, direction);
+      EXPECT_NEAR(direction * product, initial_energy, 1.e-12);
+    }
+
+  // A new spatial assembly replaces the current owners even at the same time.
+  problem.setup_system();
+  problem.assemble_operators();
+  model.update_context(context0);
+  const auto rebuilt = model.retained_linearization(context0);
+  EXPECT_NE(rebuilt.derivative_matrix_operator(v, v, context0)->matrix().get(),
+            mass0.matrix().get());
+  EXPECT_NE(rebuilt.derivative_matrix_operator(u, u, context0)->matrix().get(),
+            diagonal0.matrix().get());
+  EXPECT_NE(rebuilt.state_matrix_operator(v, v, context0)->matrix().get(),
+            damping0.matrix().get());
+  stiffness0.view.vmult(product, direction);
+  EXPECT_NEAR(direction * product, initial_energy, 1.e-12);
 }
