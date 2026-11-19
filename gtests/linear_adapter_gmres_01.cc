@@ -151,7 +151,7 @@ namespace
 
     LinearAdapterParameters parameters;
     parameters.solver             = LinearSolver::iterative;
-    parameters.preconditioner     = LinearPreconditioner::none;
+    parameters.preconditioner     = LinearPreconditioner::block_triangular;
     parameters.maximum_iterations = 1;
     parameters.fgmres_basis_size  = 1;
     parameters.tolerance          = 1.e-30;
@@ -166,6 +166,9 @@ namespace
               return stiffness.view * context.state(u) - rhs;
             })
             .state(u, stiffness);
+          builder.preconditioner(u, [](const auto &, const auto &reinit) {
+            return identity_operator<Vector>(reinit);
+          });
           return u;
         })
         .fields();
