@@ -579,7 +579,53 @@ namespace ImmersX
                 OrthogonalizationStrategy::modified_gram_schmidt;
               dealii::SolverFGMRES<GlobalVectorType> solver(control,
                                                             right_data);
-              solver.solve(operator_view, state, residual, preconditioner);
+              const auto                             report_failure =
+                [&](const dealii::SolverControl::NoConvergence &failure,
+                    const GlobalVectorType                     &solver_state,
+                    const GlobalVectorType                     *base_state) {
+                  auto candidate = composition_.make_state();
+                  candidate      = solver_state;
+                  if (base_state != nullptr)
+                    candidate += *base_state;
+
+                  auto defect = composition_.make_state();
+                  operator_view.vmult(defect, candidate);
+                  defect.sadd(-1., 1., residual);
+                  pcout << "LinearAdapter: FGMRES solve raised "
+                        << "NoConvergence at its iteration "
+                        << failure.last_step << "; projected "
+                        << "residual=" << failure.last_residual
+                        << ", tolerance=" << parameters_.tolerance
+                        << ", true residual ||b-Ax||=" << defect.l2_norm()
+                        << "." << std::endl;
+                  for (std::size_t i = 0; i < composition_.n_fields(); ++i)
+                    {
+                      const FieldId field(i);
+                      pcout << "LinearAdapter: FGMRES field '"
+                            << composition_.state_layout().field(field).name
+                            << "' ||b-Ax||="
+                            << composition_.field(defect, field).l2_norm()
+                            << "." << std::endl;
+                    }
+                };
+              const auto solve_fgmres =
+                [&](GlobalVectorType       &solution,
+                    const GlobalVectorType &right_hand_side,
+                    const GlobalVectorType *base_state) {
+                  try
+                    {
+                      solver.solve(operator_view,
+                                   solution,
+                                   right_hand_side,
+                                   preconditioner);
+                    }
+                  catch (const dealii::SolverControl::NoConvergence &failure)
+                    {
+                      report_failure(failure, solution, base_state);
+                      throw;
+                    }
+                };
+              solve_fgmres(state, residual, nullptr);
               // Inexact saddle-point preconditioners can trigger an apparent
               // happy breakdown before the physical residual is small. Check
               // the original operator and solve correction equations, rather
@@ -598,10 +644,7 @@ namespace ImmersX
                   auto correction = composition_.make_state();
                   control.set_max_steps(parameters_.maximum_iterations -
                                         iterations);
-                  solver.solve(operator_view,
-                               correction,
-                               defect,
-                               preconditioner);
+                  solve_fgmres(correction, defect, &state);
                   iterations += control.last_step();
                   state += correction;
                 }
