@@ -189,7 +189,8 @@
     "4475e3a4f02817b7b8996e8c8ba2caa5bb5bffd4",
     "09a5e8d4d2a85e5c3d5e1a061c087e853c128cf1",
     "50964ef15825b526fb01b2b2c3f27a8cf91e4775",
-    "b73453dbc507d22450075abd6857e63d51d3d020"
+    "b73453dbc507d22450075abd6857e63d51d3d020",
+    "4bcafe747eedb6ffe5b1f1c301c9734c55406fa4"
   ],
   "configuration": {
     "build_type": "Release",
@@ -203,8 +204,10 @@
     "repetitions": 9,
     "timing_contract": "source-isolated; absent timing_scope is legacy-unspecified"
   },
-  "harness_sha": "b73453dbc507d22450075abd6857e63d51d3d020",
+  "harness_sha": "4bcafe747eedb6ffe5b1f1c301c9734c55406fa4",
   "schema_version": 1,
-  "selected": [],
-  "source_sha": "b73453dbc507d22450075abd6857e63d51d3d020"
+  "selected": [
+    "4bcafe747eedb6ffe5b1f1c301c9734c55406fa4"
+  ],
+  "source_sha": "4bcafe747eedb6ffe5b1f1c301c9734c55406fa4"
 }
