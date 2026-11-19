@@ -1871,11 +1871,11 @@ namespace ImmersX::Coral
     coral::NodeObject::register_function(
       std::function<double(const Problem &)>(
         &poisson_solution_l2_norm<dim, spacedim>),
-      {name + "::solution_l2_norm", "problem", "norm"});
+      {name + "::solution_l2_norm", "norm", "problem"});
     coral::NodeObject::register_function(
       std::function<bool(const Problem &)>(
         &poisson_solution_is_finite<dim, spacedim>),
-      {name + "::solution_is_finite", "problem", "is_finite"});
+      {name + "::solution_is_finite", "is_finite", "problem"});
   }
 
   template <int dim, int spacedim>
