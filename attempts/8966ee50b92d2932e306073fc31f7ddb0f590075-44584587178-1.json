@@ -1,0 +1,2928 @@
+{
+  "attempt": 1,
+  "benchmark_sources": {
+    "lifted_integration_support": "196a2ecba012124e2ca0a9d87390711466ade7e7",
+    "particle_penalty": "5d2f3eec408c10df49dc649d1d68643b8cd5fd24",
+    "particle_penalty_coupling": "aaf2fe35535f076a840089e8c15ff205d560e18e",
+    "particle_penalty_native": "a3fb272cd2f2952713fffbdb347dcbf0982e8ba0",
+    "weak_term_assembly": "57dc5db8e95f6bf6ee540c88966d4fb998bee41e"
+  },
+  "configuration": {
+    "build_type": "Release",
+    "harness_version": 4,
+    "particle_penalty_ranks": [
+      1,
+      2
+    ],
+    "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+    "refinements": 3,
+    "repetitions": 9,
+    "timing_contract": "source-isolated; absent timing_scope is legacy-unspecified"
+  },
+  "environment": {
+    "architecture": "x86_64",
+    "cmake_options": [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DIMMERSX_BUILD_BENCHMARKS=ON",
+      "-DENABLE_COUPLED_PROBLEMS=OFF",
+      "-DENABLE_GOOGLE_TESTING=OFF",
+      "-DENABLE_DEAL_II_APP_TESTING=OFF",
+      "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+      "-DIMMERSX_USE_CCACHE=ON",
+      "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
+      "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+      "-DCMAKE_CXX_FLAGS=-ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build"
+    ],
+    "compile_commands": [
+      "/usr/bin/c++ -DBOOST_ATOMIC_DYN_LINK -DBOOST_ATOMIC_NO_LIB -DBOOST_IOSTREAMS_DYN_LINK -DBOOST_IOSTREAMS_NO_LIB -DBOOST_SERIALIZATION_DYN_LINK -DBOOST_SERIALIZATION_NO_LIB -DBOOST_SYSTEM_DYN_LINK -DBOOST_SYSTEM_NO_LIB -DBOOST_THREAD_DYN_LINK -DBOOST_THREAD_NO_LIB -DDEAL_II_PACKAGE_VERSION=\\\"9.7.1\\\" -DKOKKOS_DEPENDENCE -DNDEBUG -I/source/include -I/build/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include/openmpi -isystem /usr/include/petsc -isystem /usr/include/kokkos -isystem /usr/include/trilinos -isystem /usr/include/scotch -isystem /usr/include/hdf5/openmpi -isystem /usr/include/suitesparse -isystem /usr/local/include/magic_enum -isystem /usr/include/opencascade -isystem /usr/include/slepc -isystem /usr/local/include/symengine/utilities/cereal/include -isystem /usr/include/flint -isystem /usr/include/vtk-9.1 -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -O3 -DNDEBUG -std=gnu++20 -ffile-prefix-map=./=/immersx/build/ -fdebug-prefix-map=./=/immersx/build/ -fmacro-prefix-map=./=/immersx/build/ -ffile-prefix-map=../=/immersx/source -fdebug-prefix-map=../=/immersx/source -fmacro-prefix-map=../=/immersx/source -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -pedantic -Wall -Wextra -Wmissing-braces -Woverloaded-virtual -Wpointer-arith -Wsign-compare -Wsuggest-override -Wswitch -Wsynth -Wwrite-strings -Wno-placement-new -Wno-literal-suffix -Wno-psabi -Wno-unused-local-typedefs -fopenmp-simd -O2 -funroll-loops -funroll-all-loops -Wno-unused-parameter -fopenmp -o CMakeFiles/particle_penalty_benchmark.dir/particle_penalty.cc.o -c /source/benchmarks/particle_penalty.cc",
+      "/usr/bin/c++ -DBOOST_ATOMIC_DYN_LINK -DBOOST_ATOMIC_NO_LIB -DBOOST_IOSTREAMS_DYN_LINK -DBOOST_IOSTREAMS_NO_LIB -DBOOST_SERIALIZATION_DYN_LINK -DBOOST_SERIALIZATION_NO_LIB -DBOOST_SYSTEM_DYN_LINK -DBOOST_SYSTEM_NO_LIB -DBOOST_THREAD_DYN_LINK -DBOOST_THREAD_NO_LIB -DDEAL_II_PACKAGE_VERSION=\\\"9.7.1\\\" -DKOKKOS_DEPENDENCE -DNDEBUG -I/source/include -I/build/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include/openmpi -isystem /usr/include/petsc -isystem /usr/include/kokkos -isystem /usr/include/trilinos -isystem /usr/include/scotch -isystem /usr/include/hdf5/openmpi -isystem /usr/include/suitesparse -isystem /usr/local/include/magic_enum -isystem /usr/include/opencascade -isystem /usr/include/slepc -isystem /usr/local/include/symengine/utilities/cereal/include -isystem /usr/include/flint -isystem /usr/include/vtk-9.1 -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -O3 -DNDEBUG -std=gnu++20 -ffile-prefix-map=./=/immersx/build/ -fdebug-prefix-map=./=/immersx/build/ -fmacro-prefix-map=./=/immersx/build/ -ffile-prefix-map=../=/immersx/source -fdebug-prefix-map=../=/immersx/source -fmacro-prefix-map=../=/immersx/source -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -pedantic -Wall -Wextra -Wmissing-braces -Woverloaded-virtual -Wpointer-arith -Wsign-compare -Wsuggest-override -Wswitch -Wsynth -Wwrite-strings -Wno-placement-new -Wno-literal-suffix -Wno-psabi -Wno-unused-local-typedefs -fopenmp-simd -O2 -funroll-loops -funroll-all-loops -Wno-unused-parameter -fopenmp -o CMakeFiles/weak_term_assembly_benchmark.dir/weak_term_assembly.cc.o -c /source/benchmarks/weak_term_assembly.cc",
+      "/usr/bin/c++ -DBOOST_ATOMIC_DYN_LINK -DBOOST_ATOMIC_NO_LIB -DBOOST_IOSTREAMS_DYN_LINK -DBOOST_IOSTREAMS_NO_LIB -DBOOST_SERIALIZATION_DYN_LINK -DBOOST_SERIALIZATION_NO_LIB -DBOOST_SYSTEM_DYN_LINK -DBOOST_SYSTEM_NO_LIB -DBOOST_THREAD_DYN_LINK -DBOOST_THREAD_NO_LIB -DDEAL_II_PACKAGE_VERSION=\\\"9.7.1\\\" -DKOKKOS_DEPENDENCE -DNDEBUG -I/source/include -I/build/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include/openmpi -isystem /usr/include/petsc -isystem /usr/include/kokkos -isystem /usr/include/trilinos -isystem /usr/include/scotch -isystem /usr/include/hdf5/openmpi -isystem /usr/include/suitesparse -isystem /usr/local/include/magic_enum -isystem /usr/include/opencascade -isystem /usr/include/slepc -isystem /usr/local/include/symengine/utilities/cereal/include -isystem /usr/include/flint -isystem /usr/include/vtk-9.1 -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -O3 -DNDEBUG -std=gnu++20 -ffile-prefix-map=./=/immersx/build/ -fdebug-prefix-map=./=/immersx/build/ -fmacro-prefix-map=./=/immersx/build/ -ffile-prefix-map=../=/immersx/source -fdebug-prefix-map=../=/immersx/source -fmacro-prefix-map=../=/immersx/source -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -pedantic -Wall -Wextra -Wmissing-braces -Woverloaded-virtual -Wpointer-arith -Wsign-compare -Wsuggest-override -Wswitch -Wsynth -Wwrite-strings -Wno-placement-new -Wno-literal-suffix -Wno-psabi -Wno-unused-local-typedefs -fopenmp-simd -O2 -funroll-loops -funroll-all-loops -Wno-unused-parameter -fopenmp -o CMakeFiles/lifted_integration_support_benchmark.dir/lifted_integration_support.cc.o -c /source/benchmarks/lifted_integration_support.cc",
+      "/usr/bin/c++ -DBOOST_ATOMIC_DYN_LINK -DBOOST_ATOMIC_NO_LIB -DBOOST_IOSTREAMS_DYN_LINK -DBOOST_IOSTREAMS_NO_LIB -DBOOST_SERIALIZATION_DYN_LINK -DBOOST_SERIALIZATION_NO_LIB -DBOOST_SYSTEM_DYN_LINK -DBOOST_SYSTEM_NO_LIB -DBOOST_THREAD_DYN_LINK -DBOOST_THREAD_NO_LIB -DKOKKOS_DEPENDENCE -DNDEBUG -Dvascular_network_profile_EXPORTS -I/source/include -I/build/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include/openmpi -isystem /usr/include/petsc -isystem /usr/include/kokkos -isystem /usr/include/trilinos -isystem /usr/include/scotch -isystem /usr/include/hdf5/openmpi -isystem /usr/include/suitesparse -isystem /usr/local/include/magic_enum -isystem /usr/include/opencascade -isystem /usr/include/slepc -isystem /usr/local/include/symengine/utilities/cereal/include -isystem /usr/include/flint -isystem /usr/include/vtk-9.1 -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -O3 -DNDEBUG -std=gnu++20 -ffile-prefix-map=./=/immersx/build/ -fdebug-prefix-map=./=/immersx/build/ -fmacro-prefix-map=./=/immersx/build/ -ffile-prefix-map=../=/immersx/source -fdebug-prefix-map=../=/immersx/source -fmacro-prefix-map=../=/immersx/source -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -pedantic -Wall -Wextra -Wmissing-braces -Woverloaded-virtual -Wpointer-arith -Wsign-compare -Wsuggest-override -Wswitch -Wsynth -Wwrite-strings -Wno-placement-new -Wno-literal-suffix -Wno-psabi -Wno-unused-local-typedefs -fopenmp-simd -O2 -funroll-loops -funroll-all-loops -Wno-unused-parameter -fopenmp -o CMakeFiles/vascular_network_profile.dir/vascular_mpi_profile.cc.o -c /source/benchmarks/vascular_mpi_profile.cc",
+      "/usr/bin/c++ -DBOOST_ATOMIC_DYN_LINK -DBOOST_ATOMIC_NO_LIB -DBOOST_IOSTREAMS_DYN_LINK -DBOOST_IOSTREAMS_NO_LIB -DBOOST_SERIALIZATION_DYN_LINK -DBOOST_SERIALIZATION_NO_LIB -DBOOST_SYSTEM_DYN_LINK -DBOOST_SYSTEM_NO_LIB -DBOOST_THREAD_DYN_LINK -DBOOST_THREAD_NO_LIB -DKOKKOS_DEPENDENCE -DNDEBUG -Dvascular_mpi_profile_test_EXPORTS -isystem /usr/lib/x86_64-linux-gnu/openmpi/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include/openmpi -isystem /usr/include/petsc -isystem /usr/include/kokkos -isystem /usr/include/trilinos -isystem /usr/include/scotch -isystem /usr/include/hdf5/openmpi -isystem /usr/include/suitesparse -isystem /usr/local/include/magic_enum -isystem /usr/include/opencascade -isystem /usr/include/slepc -isystem /usr/local/include/symengine/utilities/cereal/include -isystem /usr/include/flint -isystem /usr/include/vtk-9.1 -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -O3 -DNDEBUG -std=gnu++20 -ffile-prefix-map=./=/immersx/build/ -fdebug-prefix-map=./=/immersx/build/ -fmacro-prefix-map=./=/immersx/build/ -ffile-prefix-map=../=/immersx/source -fdebug-prefix-map=../=/immersx/source -fmacro-prefix-map=../=/immersx/source -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -pedantic -Wall -Wextra -Wmissing-braces -Woverloaded-virtual -Wpointer-arith -Wsign-compare -Wsuggest-override -Wswitch -Wsynth -Wwrite-strings -Wno-placement-new -Wno-literal-suffix -Wno-psabi -Wno-unused-local-typedefs -fopenmp-simd -O2 -funroll-loops -funroll-all-loops -Wno-unused-parameter -o CMakeFiles/vascular_mpi_profile_test.dir/vascular_mpi_profile_test.cc.o -c /source/benchmarks/vascular_mpi_profile_test.cc",
+      "/usr/bin/c++ -DBOOST_ATOMIC_DYN_LINK -DBOOST_ATOMIC_NO_LIB -DBOOST_IOSTREAMS_DYN_LINK -DBOOST_IOSTREAMS_NO_LIB -DBOOST_SERIALIZATION_DYN_LINK -DBOOST_SERIALIZATION_NO_LIB -DBOOST_SYSTEM_DYN_LINK -DBOOST_SYSTEM_NO_LIB -DBOOST_THREAD_DYN_LINK -DBOOST_THREAD_NO_LIB -DKOKKOS_DEPENDENCE -DNDEBUG -Dvascular_mpi_profile_test_EXPORTS -isystem /usr/lib/x86_64-linux-gnu/openmpi/include -isystem /usr/lib/x86_64-linux-gnu/openmpi/include/openmpi -isystem /usr/include/petsc -isystem /usr/include/kokkos -isystem /usr/include/trilinos -isystem /usr/include/scotch -isystem /usr/include/hdf5/openmpi -isystem /usr/include/suitesparse -isystem /usr/local/include/magic_enum -isystem /usr/include/opencascade -isystem /usr/include/slepc -isystem /usr/local/include/symengine/utilities/cereal/include -isystem /usr/include/flint -isystem /usr/include/vtk-9.1 -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -O3 -DNDEBUG -std=gnu++20 -ffile-prefix-map=./=/immersx/build/ -fdebug-prefix-map=./=/immersx/build/ -fmacro-prefix-map=./=/immersx/build/ -ffile-prefix-map=../=/immersx/source -fdebug-prefix-map=../=/immersx/source -fmacro-prefix-map=../=/immersx/source -ffile-prefix-map=/source=/immersx/source -fdebug-prefix-map=/source=/immersx/source -fmacro-prefix-map=/source=/immersx/source -ffile-prefix-map=/build=/immersx/build -fdebug-prefix-map=/build=/immersx/build -fmacro-prefix-map=/build=/immersx/build -pedantic -Wall -Wextra -Wmissing-braces -Woverloaded-virtual -Wpointer-arith -Wsign-compare -Wsuggest-override -Wswitch -Wsynth -Wwrite-strings -Wno-placement-new -Wno-literal-suffix -Wno-psabi -Wno-unused-local-typedefs -fopenmp-simd -O2 -funroll-loops -funroll-all-loops -Wno-unused-parameter -o CMakeFiles/vascular_mpi_profile_test.dir/vascular_mpi_profile.cc.o -c /source/benchmarks/vascular_mpi_profile.cc"
+    ],
+    "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "cpu": "Intel(R) Xeon(R) 6975P-C",
+    "deal_ii_config": "deal.II_DIR:PATH=/usr/local/lib/cmake/deal.II",
+    "deal_ii_version": [
+      "9.7.1"
+    ],
+    "diagnostic": true,
+    "id": "github-hosted-diagnostic",
+    "image": "dealii/dealii@sha256:28a40c95e76879c717a96ea3f5c87cc00ec1d7a4ce9d250ab936fb723eab6995",
+    "mpi_launcher_version": "mpirun (Open MPI) 4.1.6\n\nReport bugs to http://www.open-mpi.org/community/help/",
+    "os": "Linux-7.0.0-1014-aws-x86_64-with-glibc2.39",
+    "rank_counts": [
+      1,
+      2
+    ],
+    "threads": 1
+  },
+  "errors": [],
+  "finished_at": "2026-11-19T18:11:50.947302+00:00",
+  "harness_sha": "8966ee50b92d2932e306073fc31f7ddb0f590075",
+  "harness_version": 4,
+  "id": "8966ee50b92d2932e306073fc31f7ddb0f590075-44584587178-1",
+  "missing_cases": [],
+  "raw_files": [
+    "CMakeCache.txt",
+    "ccache-after.log",
+    "ccache-before.log",
+    "ccache-config.log",
+    "compile_commands.json",
+    "configure.log",
+    "lifted_integration_support_benchmark-build.log",
+    "lifted_integration_support_benchmark.jsonl",
+    "lifted_integration_support_benchmark.stderr",
+    "particle_penalty_benchmark-build.log",
+    "particle_penalty_benchmark-mpi2.jsonl",
+    "particle_penalty_benchmark-mpi2.stderr",
+    "particle_penalty_benchmark.jsonl",
+    "particle_penalty_benchmark.stderr",
+    "weak_term_assembly_benchmark-build.log",
+    "weak_term_assembly_benchmark.jsonl",
+    "weak_term_assembly_benchmark.stderr"
+  ],
+  "raw_path": "raw/8966ee50b92d2932e306073fc31f7ddb0f590075-44584587178-1/",
+  "records": [
+    {
+      "case": "rhs_constant",
+      "checks": {
+        "relative_rhs_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 1,
+      "mesh": {
+        "cells": 8,
+        "dimension": 1,
+        "dofs": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.5610053684724254,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.00013,
+          "median_ms": 0.004098
+        },
+        "warm_immersx": {
+          "mad_ms": 0.000161,
+          "median_ms": 0.006397
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "rhs_constant",
+        "cells": 8,
+        "deal_ii_version": "9.7.1",
+        "dimension": 1,
+        "dofs": 9,
+        "ranks": 1,
+        "relative_rhs_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.00013,
+        "warm_dealii_median_ms": 0.004098,
+        "warm_immersx_mad_ms": 0.000161,
+        "warm_immersx_median_ms": 0.006397,
+        "warm_ratio": 1.56101
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "mass_q1",
+      "checks": {
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 1,
+      "mesh": {
+        "cells": 8,
+        "dimension": 1,
+        "dofs": 9,
+        "quadrature_points_per_cell": 2,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.4739403013006456,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.000453,
+          "median_ms": 0.010687
+        },
+        "warm_immersx": {
+          "mad_ms": 0.000535,
+          "median_ms": 0.015752
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "mass_q1",
+        "cells": 8,
+        "cold_dealii_ms": 0.089426,
+        "cold_immersx_ms": 0.097233,
+        "cold_ratio": 1.0873,
+        "common_setup_ms": 1.77452,
+        "deal_ii_version": "9.7.1",
+        "dimension": 1,
+        "dofs": 9,
+        "quadrature_points_per_cell": 2,
+        "ranks": 1,
+        "relative_matrix_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.000453,
+        "warm_dealii_median_ms": 0.010687,
+        "warm_immersx_mad_ms": 0.000535,
+        "warm_immersx_median_ms": 0.015752,
+        "warm_ratio": 1.47394
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "laplace_q1",
+      "checks": {
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 1,
+      "mesh": {
+        "cells": 8,
+        "dimension": 1,
+        "dofs": 9,
+        "quadrature_points_per_cell": 2,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.494356005788712,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.0005,
+          "median_ms": 0.010365
+        },
+        "warm_immersx": {
+          "mad_ms": 0.000287,
+          "median_ms": 0.015489
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "laplace_q1",
+        "cells": 8,
+        "cold_dealii_ms": 0.018418,
+        "cold_immersx_ms": 0.034529,
+        "cold_ratio": 1.87474,
+        "common_setup_ms": 1.77452,
+        "deal_ii_version": "9.7.1",
+        "dimension": 1,
+        "dofs": 9,
+        "quadrature_points_per_cell": 2,
+        "ranks": 1,
+        "relative_matrix_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.0005,
+        "warm_dealii_median_ms": 0.010365,
+        "warm_immersx_mad_ms": 0.000287,
+        "warm_immersx_median_ms": 0.015489,
+        "warm_ratio": 1.49436
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "rhs_constant",
+      "checks": {
+        "relative_rhs_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 64,
+        "dimension": 2,
+        "dofs": 81,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 3.041862609497464,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 6.7e-05,
+          "median_ms": 0.010845
+        },
+        "warm_immersx": {
+          "mad_ms": 0.00015,
+          "median_ms": 0.032989
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "rhs_constant",
+        "cells": 64,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 81,
+        "ranks": 1,
+        "relative_rhs_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 6.7e-05,
+        "warm_dealii_median_ms": 0.010845,
+        "warm_immersx_mad_ms": 0.00015,
+        "warm_immersx_median_ms": 0.032989,
+        "warm_ratio": 3.04186
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "rhs_boundary",
+      "checks": {
+        "relative_rhs_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 64,
+        "dimension": 2,
+        "dofs": 81,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.0082230244685118,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.000175,
+          "median_ms": 0.009972
+        },
+        "warm_immersx": {
+          "mad_ms": 0.000203,
+          "median_ms": 0.020026
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "rhs_boundary",
+        "cells": 64,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 81,
+        "ranks": 1,
+        "relative_rhs_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.000175,
+        "warm_dealii_median_ms": 0.009972,
+        "warm_immersx_mad_ms": 0.000203,
+        "warm_immersx_median_ms": 0.020026,
+        "warm_ratio": 2.00822
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "boundary_flux_q1",
+      "checks": {
+        "relative_rhs_error": {
+          "tolerance": 1e-12,
+          "value": 6.28037e-16
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 64,
+        "dimension": 2,
+        "dofs": 81,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": "ImmersX evaluates the linear weak term through its prepared matrix path; deal.II assembles the boundary RHS directly.",
+      "native_ratio": null,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.00084,
+          "median_ms": 0.008286
+        },
+        "warm_immersx": {
+          "mad_ms": 0.001666,
+          "median_ms": 0.042558
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "boundary_flux_q1",
+        "cells": 64,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 81,
+        "native_timing_ratio": null,
+        "ranks": 1,
+        "relative_rhs_error": 6.28037e-16,
+        "repetitions": 9,
+        "timing_equivalent": false,
+        "timing_note": "ImmersX evaluates the linear weak term through its prepared matrix path; deal.II assembles the boundary RHS directly.",
+        "warm_dealii_mad_ms": 0.00084,
+        "warm_dealii_median_ms": 0.008286,
+        "warm_immersx_mad_ms": 0.001666,
+        "warm_immersx_median_ms": 0.042558
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "mass_q1",
+      "checks": {
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 64,
+        "dimension": 2,
+        "dofs": 81,
+        "quadrature_points_per_cell": 4,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.2723758983787399,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.000519,
+          "median_ms": 0.047864
+        },
+        "warm_immersx": {
+          "mad_ms": 0.001501,
+          "median_ms": 0.060901
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "mass_q1",
+        "cells": 64,
+        "cold_dealii_ms": 0.086355,
+        "cold_immersx_ms": 0.076752,
+        "cold_ratio": 0.888796,
+        "common_setup_ms": 0.376619,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 81,
+        "quadrature_points_per_cell": 4,
+        "ranks": 1,
+        "relative_matrix_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.000519,
+        "warm_dealii_median_ms": 0.047864,
+        "warm_immersx_mad_ms": 0.001501,
+        "warm_immersx_median_ms": 0.060901,
+        "warm_ratio": 1.27238
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "laplace_q1",
+      "checks": {
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 64,
+        "dimension": 2,
+        "dofs": 81,
+        "quadrature_points_per_cell": 4,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.3243095373572022,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.000505,
+          "median_ms": 0.045694
+        },
+        "warm_immersx": {
+          "mad_ms": 0.000884,
+          "median_ms": 0.060513
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "laplace_q1",
+        "cells": 64,
+        "cold_dealii_ms": 0.052876,
+        "cold_immersx_ms": 0.074307,
+        "cold_ratio": 1.40531,
+        "common_setup_ms": 0.376619,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 81,
+        "quadrature_points_per_cell": 4,
+        "ranks": 1,
+        "relative_matrix_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.000505,
+        "warm_dealii_median_ms": 0.045694,
+        "warm_immersx_mad_ms": 0.000884,
+        "warm_immersx_median_ms": 0.060513,
+        "warm_ratio": 1.32431
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "rhs_constant",
+      "checks": {
+        "relative_rhs_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 512,
+        "dimension": 3,
+        "dofs": 729,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 3.2953217536468067,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.001486,
+          "median_ms": 0.125795
+        },
+        "warm_immersx": {
+          "mad_ms": 0.00302,
+          "median_ms": 0.414535
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "rhs_constant",
+        "cells": 512,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 729,
+        "ranks": 1,
+        "relative_rhs_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.001486,
+        "warm_dealii_median_ms": 0.125795,
+        "warm_immersx_mad_ms": 0.00302,
+        "warm_immersx_median_ms": 0.414535,
+        "warm_ratio": 3.29532
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "rhs_boundary",
+      "checks": {
+        "relative_rhs_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 512,
+        "dimension": 3,
+        "dofs": 729,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.311745747394854,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.000279,
+          "median_ms": 0.125041
+        },
+        "warm_immersx": {
+          "mad_ms": 0.00454,
+          "median_ms": 0.289063
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "rhs_boundary",
+        "cells": 512,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 729,
+        "ranks": 1,
+        "relative_rhs_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.000279,
+        "warm_dealii_median_ms": 0.125041,
+        "warm_immersx_mad_ms": 0.00454,
+        "warm_immersx_median_ms": 0.289063,
+        "warm_ratio": 2.31175
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "boundary_flux_q1",
+      "checks": {
+        "relative_rhs_error": {
+          "tolerance": 1e-12,
+          "value": 3.89827e-16
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 512,
+        "dimension": 3,
+        "dofs": 729,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": "ImmersX evaluates the linear weak term through its prepared matrix path; deal.II assembles the boundary RHS directly.",
+      "native_ratio": null,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.00371,
+          "median_ms": 0.05079
+        },
+        "warm_immersx": {
+          "mad_ms": 0.009299,
+          "median_ms": 0.528088
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "boundary_flux_q1",
+        "cells": 512,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 729,
+        "native_timing_ratio": null,
+        "ranks": 1,
+        "relative_rhs_error": 3.89827e-16,
+        "repetitions": 9,
+        "timing_equivalent": false,
+        "timing_note": "ImmersX evaluates the linear weak term through its prepared matrix path; deal.II assembles the boundary RHS directly.",
+        "warm_dealii_mad_ms": 0.00371,
+        "warm_dealii_median_ms": 0.05079,
+        "warm_immersx_mad_ms": 0.009299,
+        "warm_immersx_median_ms": 0.528088
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "mass_q1",
+      "checks": {
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 512,
+        "dimension": 3,
+        "dofs": 729,
+        "quadrature_points_per_cell": 8,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.318803681285478,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.010516,
+          "median_ms": 0.706601
+        },
+        "warm_immersx": {
+          "mad_ms": 0.005528,
+          "median_ms": 0.931868
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "mass_q1",
+        "cells": 512,
+        "cold_dealii_ms": 0.832379,
+        "cold_immersx_ms": 0.953114,
+        "cold_ratio": 1.14505,
+        "common_setup_ms": 0.952828,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 729,
+        "quadrature_points_per_cell": 8,
+        "ranks": 1,
+        "relative_matrix_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.010516,
+        "warm_dealii_median_ms": 0.706601,
+        "warm_immersx_mad_ms": 0.005528,
+        "warm_immersx_median_ms": 0.931868,
+        "warm_ratio": 1.3188
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "laplace_q1",
+      "checks": {
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 512,
+        "dimension": 3,
+        "dofs": 729,
+        "quadrature_points_per_cell": 8,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.4373797129818553,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.00532,
+          "median_ms": 0.760161
+        },
+        "warm_immersx": {
+          "mad_ms": 0.011157,
+          "median_ms": 1.09264
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "laplace_q1",
+        "cells": 512,
+        "cold_dealii_ms": 0.773651,
+        "cold_immersx_ms": 1.10227,
+        "cold_ratio": 1.42477,
+        "common_setup_ms": 0.952828,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 729,
+        "quadrature_points_per_cell": 8,
+        "ranks": 1,
+        "relative_matrix_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.00532,
+        "warm_dealii_median_ms": 0.760161,
+        "warm_immersx_mad_ms": 0.011157,
+        "warm_immersx_median_ms": 1.09264,
+        "warm_ratio": 1.43738
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "heterogeneous_nonlinear_q1_q2_dgq0",
+      "checks": {
+        "relative_jacobian_action_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_q1_jacobian_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_q2_jacobian_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_residual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 64,
+        "dimension": 2,
+        "dofs_q1": 81,
+        "dofs_q2": 289,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 5.2682092523541675,
+      "phases": {
+        "warm_dealii_meshworker": {
+          "mad_ms": 0.003892,
+          "median_ms": 0.126584
+        },
+        "warm_immersx": {
+          "mad_ms": 0.008403,
+          "median_ms": 0.666871
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "case": "heterogeneous_nonlinear_q1_q2_dgq0",
+        "cells": 64,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs_q1": 81,
+        "dofs_q2": 289,
+        "immersx_assembly_calls": 3,
+        "native_cell_traversals": 1,
+        "quadrature_points_per_cell": 9,
+        "ranks": 1,
+        "relative_jacobian_action_error": 0,
+        "relative_q1_jacobian_error": 0,
+        "relative_q2_jacobian_error": 0,
+        "relative_residual_error": 0,
+        "repetitions": 9,
+        "setup_ms": 0.308812,
+        "timing_scope": "end_to_end_residual_and_two_jacobians",
+        "warm_dealii_meshworker_mad_ms": 0.003892,
+        "warm_dealii_meshworker_median_ms": 0.126584,
+        "warm_immersx_mad_ms": 0.008403,
+        "warm_immersx_median_ms": 0.666871,
+        "warm_ratio": 5.26821
+      },
+      "status": "passed",
+      "timing_contract": {
+        "immersx_assembly_calls": 3,
+        "native_cell_traversals": 1,
+        "scope": "end_to_end_residual_and_two_jacobians"
+      }
+    },
+    {
+      "case": "nonmatching_value_reverse",
+      "checks": {
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "bulk_dofs": 81,
+        "dimension": 2,
+        "embedded_dimension": 1,
+        "embedded_dofs": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.1131472700516936,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.001206,
+          "median_ms": 0.079507
+        },
+        "warm_immersx": {
+          "mad_ms": 0.001919,
+          "median_ms": 0.088503
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "bulk_dofs": 81,
+        "case": "nonmatching_value_reverse",
+        "cold_dealii_ms": 0.101795,
+        "cold_immersx_ms": 0.404268,
+        "cold_ratio": 3.97139,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "embedded_dimension": 1,
+        "embedded_dofs": 9,
+        "ranks": 1,
+        "relative_matrix_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.001206,
+        "warm_dealii_median_ms": 0.079507,
+        "warm_immersx_mad_ms": 0.001919,
+        "warm_immersx_median_ms": 0.088503,
+        "warm_ratio": 1.11315
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "nonmatching_value_forward",
+      "checks": {
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "bulk_dofs": 81,
+        "dimension": 2,
+        "embedded_dimension": 1,
+        "embedded_dofs": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time"
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.10537144345335,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.00059,
+          "median_ms": 0.076795
+        },
+        "warm_immersx": {
+          "mad_ms": 0.00121,
+          "median_ms": 0.084887
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "bulk_dofs": 81,
+        "case": "nonmatching_value_forward",
+        "cold_dealii_ms": 0.077628,
+        "cold_immersx_ms": 0.092379,
+        "cold_ratio": 1.19002,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "embedded_dimension": 1,
+        "embedded_dofs": 9,
+        "ranks": 1,
+        "relative_matrix_error": 0,
+        "repetitions": 9,
+        "warm_dealii_mad_ms": 0.00059,
+        "warm_dealii_median_ms": 0.076795,
+        "warm_immersx_mad_ms": 0.00121,
+        "warm_immersx_median_ms": 0.084887,
+        "warm_ratio": 1.10537
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "independent_background_trace_mass",
+      "checks": {
+        "analytical_measure_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "analytical_x2_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "background_cells": 64,
+        "background_dofs": 81,
+        "dimension": 2,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "support_cells": 1,
+        "support_dimension": 1
+      },
+      "native_na_reason": "No native deal.II bulk-bulk trace assembler exists; timings are ImmersX-only.",
+      "native_ratio": null,
+      "phases": {
+        "operator_action": {
+          "mad_ms": 1.2e-05,
+          "median_ms": 0.000369
+        },
+        "warm_immersx_assembly": {
+          "mad_ms": 0.002363,
+          "median_ms": 0.065284
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "analytical_measure_error": 0,
+        "analytical_x2_error": 0,
+        "background_cells": 64,
+        "background_dofs": 81,
+        "case": "independent_background_trace_mass",
+        "cold_immersx_assembly_ms": 0.131551,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "native_reference": null,
+        "native_timing_ratio": null,
+        "operator_action_mad_ms": 1.2e-05,
+        "operator_action_median_ms": 0.000369,
+        "ranks": 1,
+        "repetitions": 9,
+        "setup_ms": 0.135821,
+        "support_cells": 1,
+        "support_dimension": 1,
+        "timing_note": "No native deal.II bulk-bulk trace assembler exists; timings are ImmersX-only.",
+        "warm_immersx_assembly_mad_ms": 0.002363,
+        "warm_immersx_assembly_median_ms": 0.065284
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "independent_rotated_trace_surface_3d",
+      "checks": {
+        "analytical_area_error": {
+          "tolerance": 1e-12,
+          "value": 2.22045e-16
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "background_cells": 8,
+        "background_dofs": 27,
+        "dimension": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "support_cells": 1,
+        "support_dimension": 2
+      },
+      "native_na_reason": "No native deal.II bulk-bulk trace assembler exists; timings are ImmersX-only.",
+      "native_ratio": null,
+      "phases": {
+        "operator_action": {
+          "mad_ms": 4.6e-05,
+          "median_ms": 0.000277
+        },
+        "warm_immersx_assembly": {
+          "mad_ms": 0.005775,
+          "median_ms": 0.056215
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "analytical_area_error": 2.22045e-16,
+        "background_cells": 8,
+        "background_dofs": 27,
+        "case": "independent_rotated_trace_surface_3d",
+        "cold_immersx_assembly_ms": 0.227237,
+        "cold_operator_action_ms": 0.00079,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "native_reference": null,
+        "native_timing_ratio": null,
+        "operator_action_mad_ms": 4.6e-05,
+        "operator_action_median_ms": 0.000277,
+        "ranks": 1,
+        "repetitions": 9,
+        "setup_ms": 0.199629,
+        "support_cells": 1,
+        "support_dimension": 2,
+        "timing_note": "No native deal.II bulk-bulk trace assembler exists; timings are ImmersX-only.",
+        "warm_immersx_assembly_mad_ms": 0.005775,
+        "warm_immersx_assembly_median_ms": 0.056215
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "legacy-unspecified"
+      }
+    },
+    {
+      "case": "lifted_geometry_rebuild",
+      "checks": {
+        "analytical_action_error": {
+          "tolerance": 1e-12,
+          "value": 3.05311e-16
+        },
+        "measure_error": {
+          "tolerance": 1e-10,
+          "value": 0.0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "background_dofs": 729,
+        "dimension": 2,
+        "quadrature_points": 96,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "representative_dimension": 1,
+        "spacedimension": 3
+      },
+      "native_na_reason": "No equivalent native bulk\u2013bulk assembler",
+      "native_ratio": null,
+      "phases": {
+        "operator_action": {
+          "mad_ms": 0.000185,
+          "median_ms": 0.006485
+        },
+        "warm_bulk_assembly": {
+          "mad_ms": 0.008366,
+          "median_ms": 1.26845
+        },
+        "warm_rebuild": {
+          "mad_ms": 0.020744,
+          "median_ms": 0.171346
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "analytical_action_error": 3.05311e-16,
+        "background_dofs": 729,
+        "background_setup_ms": 2.35025,
+        "case": "lifted_geometry_rebuild",
+        "cold_operator_action_ms": 0.037036,
+        "cold_support_build_ms": 3.1827,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "first_bulk_assembly_ms": 2.18715,
+        "immersx_over_dealii_ratio": "N/A",
+        "measure": 0.2,
+        "native_reference": "unavailable",
+        "operator_action_mad_ms": 0.000185,
+        "operator_action_median_ms": 0.006485,
+        "quadrature_points": 96,
+        "ranks": 1,
+        "refinements": 3,
+        "repetitions": 9,
+        "representative_dimension": 1,
+        "setup_ms": 0.715729,
+        "spacedimension": 3,
+        "timing_scope": "barrier_then_max_rank_wall_time",
+        "warm_bulk_assembly_mad_ms": 0.008366,
+        "warm_bulk_assembly_median_ms": 1.26845,
+        "warm_rebuild_mad_ms": 0.020744,
+        "warm_rebuild_median_ms": 0.171346
+      },
+      "status": "passed",
+      "timing_contract": {
+        "scope": "barrier_then_max_rank_wall_time"
+      }
+    },
+    {
+      "case": "particle_penalty_1d_in_2d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 2.1789762393662638e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 2.7755575615628914e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.0518614847573614e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 9.075202354315744e-17
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 67,
+        "components": 1,
+        "dimension": 2,
+        "dofs": 86,
+        "quadrature_points_per_cell": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 2,
+        "support_dimension": 1
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.7882087372194926,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.00673399999999999,
+          "median_ms": 0.158151
+        },
+        "warm_immersx": {
+          "mad_ms": 0.005718000000000001,
+          "median_ms": 0.440958
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_1d_in_2d_scalar",
+        "cells": 67,
+        "components": 1,
+        "constant_measure_error": 2.1789762393662638e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 86,
+        "max_entry_error": 2.7755575615628914e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 3,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 1.0518614847573614e-16,
+        "relative_matrix_error": 9.075202354315744e-17,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 2,
+        "support_dimension": 1,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.00673399999999999,
+        "warm_dealii_median_ms": 0.158151,
+        "warm_immersx_mad_ms": 0.005718000000000001,
+        "warm_immersx_median_ms": 0.440958,
+        "warm_ratio": 2.7882087372194926
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_1d_in_2d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 2.1789762393662638e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 2.7755575615628914e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 9.148452988605126e-17
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 9.075202354315747e-17
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 67,
+        "components": 2,
+        "dimension": 2,
+        "dofs": 172,
+        "quadrature_points_per_cell": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 2,
+        "support_dimension": 1
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.2371356799956237,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.012097000000000024,
+          "median_ms": 0.219347
+        },
+        "warm_immersx": {
+          "mad_ms": 0.007160999999999973,
+          "median_ms": 0.490709
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_1d_in_2d_vector",
+        "cells": 67,
+        "components": 2,
+        "constant_measure_error": 2.1789762393662638e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 172,
+        "max_entry_error": 2.7755575615628914e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 3,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 9.148452988605126e-17,
+        "relative_matrix_error": 9.075202354315747e-17,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 2,
+        "support_dimension": 1,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.012097000000000024,
+        "warm_dealii_median_ms": 0.219347,
+        "warm_immersx_mad_ms": 0.007160999999999973,
+        "warm_immersx_median_ms": 0.490709,
+        "warm_ratio": 2.2371356799956237
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_2d_in_3d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 3.817879807734888e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 2.7755575615628914e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.2507463034278512e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.8930539036195648e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 1,
+        "dimension": 3,
+        "dofs": 748,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 4,
+        "support_dimension": 2
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.037722375533153,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.012630000000000141,
+          "median_ms": 1.859692
+        },
+        "warm_immersx": {
+          "mad_ms": 0.029628999999999905,
+          "median_ms": 3.789536
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_2d_in_3d_scalar",
+        "cells": 519,
+        "components": 1,
+        "constant_measure_error": 3.817879807734888e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 748,
+        "max_entry_error": 2.7755575615628914e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 9,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 1.2507463034278512e-16,
+        "relative_matrix_error": 1.8930539036195648e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 4,
+        "support_dimension": 2,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.012630000000000141,
+        "warm_dealii_median_ms": 1.859692,
+        "warm_immersx_mad_ms": 0.029628999999999905,
+        "warm_immersx_median_ms": 3.789536,
+        "warm_ratio": 2.037722375533153
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_2d_in_3d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 1.654414583351785e-15
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 2.7755575615628914e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 2.3969141486025955e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.8930539036195594e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 3,
+        "dimension": 3,
+        "dofs": 2244,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 4,
+        "support_dimension": 2
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.0410318707989683,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.0859230000000002,
+          "median_ms": 5.097111
+        },
+        "warm_immersx": {
+          "mad_ms": 0.05136900000000022,
+          "median_ms": 5.306255
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_2d_in_3d_vector",
+        "cells": 519,
+        "components": 3,
+        "constant_measure_error": 1.654414583351785e-15,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 2244,
+        "max_entry_error": 2.7755575615628914e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 9,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 2.3969141486025955e-16,
+        "relative_matrix_error": 1.8930539036195594e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 4,
+        "support_dimension": 2,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.0859230000000002,
+        "warm_dealii_median_ms": 5.097111,
+        "warm_immersx_mad_ms": 0.05136900000000022,
+        "warm_immersx_median_ms": 5.306255,
+        "warm_ratio": 1.0410318707989683
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_1d_in_3d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 1.8569390755491774e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 5.551115123125783e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 2.2331812629580254e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 2.0616527148019316e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 1,
+        "dimension": 3,
+        "dofs": 748,
+        "quadrature_points_per_cell": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 2,
+        "support_dimension": 1
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.8330849432801926,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.01728799999999997,
+          "median_ms": 1.634526
+        },
+        "warm_immersx": {
+          "mad_ms": 0.017168000000000294,
+          "median_ms": 2.996225
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_1d_in_3d_scalar",
+        "cells": 519,
+        "components": 1,
+        "constant_measure_error": 1.8569390755491774e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 748,
+        "max_entry_error": 5.551115123125783e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 3,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 2.2331812629580254e-16,
+        "relative_matrix_error": 2.0616527148019316e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 2,
+        "support_dimension": 1,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.01728799999999997,
+        "warm_dealii_median_ms": 1.634526,
+        "warm_immersx_mad_ms": 0.017168000000000294,
+        "warm_immersx_median_ms": 2.996225,
+        "warm_ratio": 1.8330849432801926
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_1d_in_3d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 3.713878151098355e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 5.551115123125783e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 2.946013755588952e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 2.0616527148019323e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 3,
+        "dimension": 3,
+        "dofs": 2244,
+        "quadrature_points_per_cell": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 2,
+        "support_dimension": 1
+      },
+      "native_na_reason": null,
+      "native_ratio": 0.7526079423754999,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.06477100000000036,
+          "median_ms": 4.514191
+        },
+        "warm_immersx": {
+          "mad_ms": 0.022455999999999587,
+          "median_ms": 3.397416
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_1d_in_3d_vector",
+        "cells": 519,
+        "components": 3,
+        "constant_measure_error": 3.713878151098355e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 2244,
+        "max_entry_error": 5.551115123125783e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 3,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 2.946013755588952e-16,
+        "relative_matrix_error": 2.0616527148019323e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 2,
+        "support_dimension": 1,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.06477100000000036,
+        "warm_dealii_median_ms": 4.514191,
+        "warm_immersx_mad_ms": 0.022455999999999587,
+        "warm_immersx_median_ms": 3.397416,
+        "warm_ratio": 0.7526079423754999
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_2d_in_2d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 3.6349111359548957e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 1.3877787807814457e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.5909485598868677e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.2621144511229627e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 67,
+        "components": 1,
+        "dimension": 2,
+        "dofs": 86,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 4,
+        "support_dimension": 2
+      },
+      "native_na_reason": null,
+      "native_ratio": 3.7882774756160553,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.007079000000000002,
+          "median_ms": 0.230377
+        },
+        "warm_immersx": {
+          "mad_ms": 0.009740000000000082,
+          "median_ms": 0.872732
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_2d_in_2d_scalar",
+        "cells": 67,
+        "components": 1,
+        "constant_measure_error": 3.6349111359548957e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 86,
+        "max_entry_error": 1.3877787807814457e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 9,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 1.5909485598868677e-16,
+        "relative_matrix_error": 1.2621144511229627e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 4,
+        "support_dimension": 2,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.007079000000000002,
+        "warm_dealii_median_ms": 0.230377,
+        "warm_immersx_mad_ms": 0.009740000000000082,
+        "warm_immersx_median_ms": 0.872732,
+        "warm_ratio": 3.7882774756160553
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_2d_in_2d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 4.846548181273194e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 1.3877787807814457e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.590419185313122e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.2621144511229627e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 67,
+        "components": 2,
+        "dimension": 2,
+        "dofs": 172,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 4,
+        "support_dimension": 2
+      },
+      "native_na_reason": null,
+      "native_ratio": 3.229745041613505,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.0009120000000000239,
+          "median_ms": 0.322131
+        },
+        "warm_immersx": {
+          "mad_ms": 0.007764000000000104,
+          "median_ms": 1.040401
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_2d_in_2d_vector",
+        "cells": 67,
+        "components": 2,
+        "constant_measure_error": 4.846548181273194e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 172,
+        "max_entry_error": 1.3877787807814457e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 9,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 1.590419185313122e-16,
+        "relative_matrix_error": 1.2621144511229627e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 4,
+        "support_dimension": 2,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.0009120000000000239,
+        "warm_dealii_median_ms": 0.322131,
+        "warm_immersx_mad_ms": 0.007764000000000104,
+        "warm_immersx_median_ms": 1.040401,
+        "warm_ratio": 3.229745041613505
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_3d_in_3d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 8.67847995593357e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 6.938893903907228e-18
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.8363807397344114e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.7413531601145274e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 1,
+        "dimension": 3,
+        "dofs": 748,
+        "quadrature_points_per_cell": 27,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 8,
+        "support_dimension": 3
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.3991448056682043,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.035106000000000304,
+          "median_ms": 2.901095
+        },
+        "warm_immersx": {
+          "mad_ms": 0.01853299999999969,
+          "median_ms": 6.960147
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_3d_in_3d_scalar",
+        "cells": 519,
+        "components": 1,
+        "constant_measure_error": 8.67847995593357e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 748,
+        "max_entry_error": 6.938893903907228e-18,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 27,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 1.8363807397344114e-16,
+        "relative_matrix_error": 1.7413531601145274e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 8,
+        "support_dimension": 3,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.035106000000000304,
+        "warm_dealii_median_ms": 2.901095,
+        "warm_immersx_mad_ms": 0.01853299999999969,
+        "warm_immersx_median_ms": 6.960147,
+        "warm_ratio": 2.3991448056682043
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_3d_in_3d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 7.232066629944641e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 6.938893903907228e-18
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.887545045985372e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.741353160114513e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 3,
+        "dimension": 3,
+        "dofs": 2244,
+        "quadrature_points_per_cell": 27,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 8,
+        "support_dimension": 3
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.603759035421498,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.0757570000000003,
+          "median_ms": 7.598013
+        },
+        "warm_immersx": {
+          "mad_ms": 0.058419999999999916,
+          "median_ms": 12.185382
+        }
+      },
+      "ranks": 1,
+      "raw": {
+        "active_particle_ranks": 1,
+        "case": "particle_penalty_3d_in_3d_vector",
+        "cells": 519,
+        "components": 3,
+        "constant_measure_error": 7.232066629944641e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 2244,
+        "max_entry_error": 6.938893903907228e-18,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 27,
+        "ranks": 1,
+        "refinements": 3,
+        "relative_action_error": 1.887545045985372e-16,
+        "relative_matrix_error": 1.741353160114513e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 8,
+        "support_dimension": 3,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.0757570000000003,
+        "warm_dealii_median_ms": 7.598013,
+        "warm_immersx_mad_ms": 0.058419999999999916,
+        "warm_immersx_median_ms": 12.185382,
+        "warm_ratio": 1.603759035421498
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_1d_in_2d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 2.1789762393662638e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 2.7755575615628914e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.1303832393365827e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 9.075202354315743e-17
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 67,
+        "components": 1,
+        "dimension": 2,
+        "dofs": 86,
+        "quadrature_points_per_cell": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 2,
+        "support_dimension": 1
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.5384045848387293,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.008160999999999974,
+          "median_ms": 0.853596
+        },
+        "warm_immersx": {
+          "mad_ms": 0.011552999999999702,
+          "median_ms": 2.166772
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_1d_in_2d_scalar",
+        "cells": 67,
+        "components": 1,
+        "constant_measure_error": 2.1789762393662638e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 86,
+        "max_entry_error": 2.7755575615628914e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 3,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 1.1303832393365827e-16,
+        "relative_matrix_error": 9.075202354315743e-17,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 2,
+        "support_dimension": 1,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.008160999999999974,
+        "warm_dealii_median_ms": 0.853596,
+        "warm_immersx_mad_ms": 0.011552999999999702,
+        "warm_immersx_median_ms": 2.166772,
+        "warm_ratio": 2.5384045848387293
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_1d_in_2d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 4.3579524787325276e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 2.7755575615628914e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 8.921431925559703e-17
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 9.075202354315742e-17
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 67,
+        "components": 2,
+        "dimension": 2,
+        "dofs": 172,
+        "quadrature_points_per_cell": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 2,
+        "support_dimension": 1
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.4614599841521394,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.014817999999999998,
+          "median_ms": 0.90864
+        },
+        "warm_immersx": {
+          "mad_ms": 0.012061999999999795,
+          "median_ms": 2.236581
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_1d_in_2d_vector",
+        "cells": 67,
+        "components": 2,
+        "constant_measure_error": 4.3579524787325276e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 172,
+        "max_entry_error": 2.7755575615628914e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 3,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 8.921431925559703e-17,
+        "relative_matrix_error": 9.075202354315742e-17,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 2,
+        "support_dimension": 1,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.014817999999999998,
+        "warm_dealii_median_ms": 0.90864,
+        "warm_immersx_mad_ms": 0.012061999999999795,
+        "warm_immersx_median_ms": 2.236581,
+        "warm_ratio": 2.4614599841521394
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_2d_in_3d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 1.908939903867444e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 2.7755575615628914e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 2.0197829404975723e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.8344525332212956e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 1,
+        "dimension": 3,
+        "dofs": 748,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 4,
+        "support_dimension": 2
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.046358628596195,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.010403000000000162,
+          "median_ms": 2.288808
+        },
+        "warm_immersx": {
+          "mad_ms": 0.03559000000000001,
+          "median_ms": 4.683722
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_2d_in_3d_scalar",
+        "cells": 519,
+        "components": 1,
+        "constant_measure_error": 1.908939903867444e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 748,
+        "max_entry_error": 2.7755575615628914e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 9,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 2.0197829404975723e-16,
+        "relative_matrix_error": 1.8344525332212956e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 4,
+        "support_dimension": 2,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.010403000000000162,
+        "warm_dealii_median_ms": 2.288808,
+        "warm_immersx_mad_ms": 0.03559000000000001,
+        "warm_immersx_median_ms": 4.683722,
+        "warm_ratio": 2.046358628596195
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_2d_in_3d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 8.908386218048072e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 2.7755575615628914e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.9212652536075103e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.8344525332212948e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 3,
+        "dimension": 3,
+        "dofs": 2244,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 4,
+        "support_dimension": 2
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.1866635488567328,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.04781199999999952,
+          "median_ms": 5.221614
+        },
+        "warm_immersx": {
+          "mad_ms": 0.044154999999999944,
+          "median_ms": 6.196299
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_2d_in_3d_vector",
+        "cells": 519,
+        "components": 3,
+        "constant_measure_error": 8.908386218048072e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 2244,
+        "max_entry_error": 2.7755575615628914e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 9,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 1.9212652536075103e-16,
+        "relative_matrix_error": 1.8344525332212948e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 4,
+        "support_dimension": 2,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.04781199999999952,
+        "warm_dealii_median_ms": 5.221614,
+        "warm_immersx_mad_ms": 0.044154999999999944,
+        "warm_immersx_median_ms": 6.196299,
+        "warm_ratio": 1.1866635488567328
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_1d_in_3d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 1.8569390755491774e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 5.551115123125783e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 2.8741098022960254e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 2.061652714801932e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 1,
+        "dimension": 3,
+        "dofs": 748,
+        "quadrature_points_per_cell": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 2,
+        "support_dimension": 1
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.908991805317555,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.03346099999999996,
+          "median_ms": 2.174947
+        },
+        "warm_immersx": {
+          "mad_ms": 0.01627100000000059,
+          "median_ms": 4.151956
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_1d_in_3d_scalar",
+        "cells": 519,
+        "components": 1,
+        "constant_measure_error": 1.8569390755491774e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 748,
+        "max_entry_error": 5.551115123125783e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 3,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 2.8741098022960254e-16,
+        "relative_matrix_error": 2.061652714801932e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 2,
+        "support_dimension": 1,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.03346099999999996,
+        "warm_dealii_median_ms": 2.174947,
+        "warm_immersx_mad_ms": 0.01627100000000059,
+        "warm_immersx_median_ms": 4.151956,
+        "warm_ratio": 1.908991805317555
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_1d_in_3d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 3.713878151098355e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 5.551115123125783e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 3.005118023572233e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 2.0616527148019328e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 3,
+        "dimension": 3,
+        "dofs": 2244,
+        "quadrature_points_per_cell": 3,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 2,
+        "support_dimension": 1
+      },
+      "native_na_reason": null,
+      "native_ratio": 0.9810349850923067,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.04596399999999967,
+          "median_ms": 4.808591
+        },
+        "warm_immersx": {
+          "mad_ms": 0.04446300000000036,
+          "median_ms": 4.717396
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_1d_in_3d_vector",
+        "cells": 519,
+        "components": 3,
+        "constant_measure_error": 3.713878151098355e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 2244,
+        "max_entry_error": 5.551115123125783e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 3,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 3.005118023572233e-16,
+        "relative_matrix_error": 2.0616527148019328e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 2,
+        "support_dimension": 1,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.04596399999999967,
+        "warm_dealii_median_ms": 4.808591,
+        "warm_immersx_mad_ms": 0.04446300000000036,
+        "warm_immersx_median_ms": 4.717396,
+        "warm_ratio": 0.9810349850923067
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_2d_in_2d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 2.423274090636597e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 1.3877787807814457e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.5064722864271055e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.1479217187716177e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 67,
+        "components": 1,
+        "dimension": 2,
+        "dofs": 86,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 4,
+        "support_dimension": 2
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.7819621787619204,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.012137999999999982,
+          "median_ms": 0.897115
+        },
+        "warm_immersx": {
+          "mad_ms": 0.008389999999999898,
+          "median_ms": 2.49574
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_2d_in_2d_scalar",
+        "cells": 67,
+        "components": 1,
+        "constant_measure_error": 2.423274090636597e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 86,
+        "max_entry_error": 1.3877787807814457e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 9,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 1.5064722864271055e-16,
+        "relative_matrix_error": 1.1479217187716177e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 4,
+        "support_dimension": 2,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.012137999999999982,
+        "warm_dealii_median_ms": 0.897115,
+        "warm_immersx_mad_ms": 0.008389999999999898,
+        "warm_immersx_median_ms": 2.49574,
+        "warm_ratio": 2.7819621787619204
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_2d_in_2d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 3.6349111359548957e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 1.3877787807814457e-17
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.2586091412797705e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.1479217187716172e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 2,
+      "mesh": {
+        "cells": 67,
+        "components": 2,
+        "dimension": 2,
+        "dofs": 172,
+        "quadrature_points_per_cell": 9,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 4,
+        "support_dimension": 2
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.6741636804400395,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.015799000000000007,
+          "median_ms": 0.993729
+        },
+        "warm_immersx": {
+          "mad_ms": 0.009745000000000115,
+          "median_ms": 2.657394
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_2d_in_2d_vector",
+        "cells": 67,
+        "components": 2,
+        "constant_measure_error": 3.6349111359548957e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 2,
+        "dofs": 172,
+        "max_entry_error": 1.3877787807814457e-17,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 9,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 1.2586091412797705e-16,
+        "relative_matrix_error": 1.1479217187716172e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 4,
+        "support_dimension": 2,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.015799000000000007,
+        "warm_dealii_median_ms": 0.993729,
+        "warm_immersx_mad_ms": 0.009745000000000115,
+        "warm_immersx_median_ms": 2.657394,
+        "warm_ratio": 2.6741636804400395
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_3d_in_3d_scalar",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 8.67847995593357e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 6.938893903907228e-18
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.9181990851656267e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.7576335710462415e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 1,
+        "dimension": 3,
+        "dofs": 748,
+        "quadrature_points_per_cell": 27,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 8,
+        "support_dimension": 3
+      },
+      "native_na_reason": null,
+      "native_ratio": 2.3603611811368825,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.012962000000000362,
+          "median_ms": 3.095289
+        },
+        "warm_immersx": {
+          "mad_ms": 0.03432000000000013,
+          "median_ms": 7.306
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_3d_in_3d_scalar",
+        "cells": 519,
+        "components": 1,
+        "constant_measure_error": 8.67847995593357e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 748,
+        "max_entry_error": 6.938893903907228e-18,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 27,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 1.9181990851656267e-16,
+        "relative_matrix_error": 1.7576335710462415e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 8,
+        "support_dimension": 3,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.012962000000000362,
+        "warm_dealii_median_ms": 3.095289,
+        "warm_immersx_mad_ms": 0.03432000000000013,
+        "warm_immersx_median_ms": 7.306,
+        "warm_ratio": 2.3603611811368825
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    },
+    {
+      "case": "particle_penalty_3d_in_3d_vector",
+      "checks": {
+        "constant_measure_error": {
+          "tolerance": 1e-12,
+          "value": 2.892826651977856e-16
+        },
+        "max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 6.938893903907228e-18
+        },
+        "native_max_entry_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        },
+        "relative_action_error": {
+          "tolerance": 1e-12,
+          "value": 1.9996981365156866e-16
+        },
+        "relative_matrix_error": {
+          "tolerance": 1e-12,
+          "value": 1.757633571046243e-16
+        },
+        "relative_native_manual_error": {
+          "tolerance": 1e-12,
+          "value": 0
+        }
+      },
+      "dimension": 3,
+      "mesh": {
+        "cells": 519,
+        "components": 3,
+        "dimension": 3,
+        "dofs": 2244,
+        "quadrature_points_per_cell": 27,
+        "quadrature_recipe": "CP8: matching Q1 QGauss(2); heterogeneous QGauss(3); nonmatching/trace fixed benchmark rules; lifted representative=3 section=2 degree=0 thickness=0.05; particle_penalty Q1 QGauss(3) on partition-crossing tilted independently refined supports, gamma=2.75; distributed background and matrices; maximum-rank wall time",
+        "refinements": 3,
+        "support_cells": 8,
+        "support_dimension": 3
+      },
+      "native_na_reason": null,
+      "native_ratio": 1.7518173915332667,
+      "phases": {
+        "warm_dealii": {
+          "mad_ms": 0.07939900000000044,
+          "median_ms": 7.065346
+        },
+        "warm_immersx": {
+          "mad_ms": 0.09049900000000122,
+          "median_ms": 12.377196
+        }
+      },
+      "ranks": 2,
+      "raw": {
+        "active_particle_ranks": 2,
+        "case": "particle_penalty_3d_in_3d_vector",
+        "cells": 519,
+        "components": 3,
+        "constant_measure_error": 2.892826651977856e-16,
+        "deal_ii_version": "9.7.1",
+        "dimension": 3,
+        "dofs": 2244,
+        "max_entry_error": 6.938893903907228e-18,
+        "native_max_entry_error": 0,
+        "native_reference": "step-80 DoFHandlerCoupling::create_nitsche_restriction_matrix",
+        "penalty": 2.75,
+        "quadrature_points_per_cell": 27,
+        "ranks": 2,
+        "refinements": 3,
+        "relative_action_error": 1.9996981365156866e-16,
+        "relative_matrix_error": 1.757633571046243e-16,
+        "relative_native_manual_error": 0,
+        "repetitions": 9,
+        "support_cells": 8,
+        "support_dimension": 3,
+        "timing_equivalent": true,
+        "timing_scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank",
+        "upstream_sha": "c061c24bd41b4eb9fb62d1625dc0b818a54bc2bd",
+        "warm_dealii_mad_ms": 0.07939900000000044,
+        "warm_dealii_median_ms": 7.065346,
+        "warm_immersx_mad_ms": 0.09049900000000122,
+        "warm_immersx_median_ms": 12.377196,
+        "warm_ratio": 1.7518173915332667
+      },
+      "status": "passed",
+      "timing_contract": {
+        "penalty": 2.75,
+        "scope": "distributed_particle_generation_search_and_materialized_matrix_max_rank"
+      }
+    }
+  ],
+  "run": "44584587178",
+  "run_url": "https://github.com/luca-heltai/immersx/actions/runs/44584587178",
+  "schema_version": 1,
+  "sha": "8966ee50b92d2932e306073fc31f7ddb0f590075",
+  "started_at": "2026-11-19T18:10:45.701152+00:00",
+  "status": "passed"
+}
