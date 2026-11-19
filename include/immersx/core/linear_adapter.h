@@ -81,6 +81,11 @@ namespace ImmersX
       prm.enter_subsection("MUMPS BLR");
       prm.add_parameter("Tolerance", mumps_blr_tolerance);
       prm.add_parameter("Memory limit MB per rank", mumps_memory_limit_mb);
+      prm.add_parameter(
+        "Workspace relaxation",
+        mumps_workspace_relaxation,
+        "Extra MUMPS workspace percentage; -1 retains the native default.",
+        dealii::Patterns::Integer(-1));
       prm.add_parameter("Output details", mumps_output_details);
       prm.leave_subsection();
     }
@@ -92,6 +97,7 @@ namespace ImmersX
     unsigned int         fgmres_basis_size   = 100;
     double               mumps_blr_tolerance = 1.e-5;
     unsigned int         mumps_memory_limit_mb          = 0;
+    int                  mumps_workspace_relaxation     = -1;
     bool                 mumps_output_details           = false;
     double               augmented_lagrangian_parameter = 1.e1;
   };
@@ -676,6 +682,19 @@ namespace ImmersX
                                   const BlockMatrixType &blocks) const
     {
 #if defined(DEAL_II_WITH_MUMPS) && !defined(IMMERSX_USE_PETSC_LA)
+      const auto communicator = composition_.communicator();
+      const int  minimum_workspace =
+        dealii::Utilities::MPI::min(parameters_.mumps_workspace_relaxation,
+                                    communicator);
+      const int maximum_workspace =
+        dealii::Utilities::MPI::max(parameters_.mumps_workspace_relaxation,
+                                    communicator);
+      AssertThrow(minimum_workspace >= -1,
+                  dealii::ExcMessage(
+                    "MUMPS workspace relaxation must be -1 or nonnegative."));
+      AssertThrow(minimum_workspace == maximum_workspace,
+                  dealii::ExcMessage(
+                    "MUMPS workspace relaxation must agree on every rank."));
       AssertThrow(parameters_.mumps_blr_tolerance > 0. &&
                     parameters_.mumps_blr_tolerance < 1.,
                   dealii::ExcMessage(
@@ -684,8 +703,7 @@ namespace ImmersX
                     static_cast<unsigned int>(std::numeric_limits<int>::max()),
                   dealii::ExcMessage(
                     "MUMPS memory limit exceeds the integer range."));
-      const auto communicator = composition_.communicator();
-      auto       matrix       = std::make_shared<MatrixType>();
+      auto matrix = std::make_shared<MatrixType>();
       // Reuse the linearization already used by the outer Krylov operator.
       composition_.monolithic_matrix(blocks, *matrix);
       AssertThrow(
@@ -704,9 +722,11 @@ namespace ImmersX
       auto *control = factor->get_icntl();
       control[7]    = 8; // Scaling before truncating the frontal matrices.
       control[9]    = 0; // FGMRES controls the accuracy of the physical solve.
-      control[14]   = 0;
-      control[22]   = static_cast<int>(parameters_.mumps_memory_limit_mb);
-      control[35]   = 1;
+      if (parameters_.mumps_workspace_relaxation >= 0)
+        control[13] = parameters_.mumps_workspace_relaxation;
+      control[14] = 0;
+      control[22] = static_cast<int>(parameters_.mumps_memory_limit_mb);
+      control[35] = 1;
       pcout << "LinearAdapter: factorizing the MUMPS BLR preconditioner."
             << std::endl;
       factor->initialize(*matrix);
