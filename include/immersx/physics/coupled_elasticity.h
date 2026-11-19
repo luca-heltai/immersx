@@ -24,7 +24,19 @@ namespace ImmersX
     run_timestep();
 
     /** Solve at the supplied physical time, refreshing mechanical boundary
-     * data and affine lifting when that time changes. */
+     * data and affine lifting when that time changes.
+     *
+     * In a dynamic run (initial and final time differ and every material has
+     * a positive density) the tissue is advanced with Newmark steps instead.
+     * The first call refines the mesh as in the static case and starts at the
+     * static equilibrium of the current loads and wall data at
+     * physical_time, at rest. Every later call takes one Newmark step and
+     * must pass the previous time plus `Time step`. The multiplier imposes
+     * the current wall data at the new time, so the run needs
+     * `Pressure coupling = false`. As in static runs, point-coupling data are
+     * not modulated in time by the inclusion `Boundary data`. Damping comes
+     * from the Rayleigh coefficients and the viscosity of the materials.
+     */
     void
     run_timestep(const double physical_time);
 
@@ -107,17 +119,47 @@ namespace ImmersX
     void
     compute_pressure_at_immersed_surface();
 
+    /**
+     * Impose the radial wall displacement of each vessel, for example the one
+     * computed by a 1D flow model.
+     *
+     * With point coupling, `new_data` has one value per vessel or one per
+     * inclusion. With tensor-product coupling, it has one value per vessel;
+     * the data then replace the `Reduced right hand side` expression in the
+     * selected radial modes (indices spacedim and 2 spacedim + 1), as the
+     * point-coupling data do. Empty data change nothing.
+     */
     void
     update_vessel_radius_data(std::vector<double> new_data);
+
+    /**
+     * Impose radial wall displacements sampled along each vessel.
+     *
+     * `new_data` holds cells_per_vessel[v] samples for vessel v, one vessel
+     * after the other. The samples are equally spaced from the beginning to
+     * the end of the vessel and interpolated linearly in between. With point
+     * coupling the vessel runs from its first to its last inclusion in the
+     * inclusions file. With tensor-product coupling it runs along the reduced
+     * grid, in arc length, from the end that lies in the first cell of the
+     * reduced grid file (see make_vessel_index_of_a_cell()).
+     */
     void
     update_vessel_radius_data(std::vector<double> new_data,
                               std::vector<int>    cells_per_vessel);
 
-    /** Interpolate gathered inclusion pressures to vessel samples.
-     * A single inclusion supplies a constant pressure; a single requested
-     * sample receives the vessel mean. Each vessel needs at least one sample.
-     * This callback performs no MPI operations and may run only on rank zero
-     * after the caller gathers the pressure vector.
+    /** Interpolate gathered wall pressures to equally spaced vessel samples.
+     *
+     * With point coupling, `pressure` holds one value per inclusion, and the
+     * samples run from the first to the last inclusion of each vessel. With
+     * tensor-product coupling, it holds pressure_at_immersed_surface_by_
+     * inclusion, one value per reduced support point, and the samples run in
+     * arc length along the vessel as in update_vessel_radius_data(). A single
+     * pressure value is constant; a single requested sample receives the
+     * vessel mean (the arc-length mean for tensor-product coupling). Each
+     * vessel needs at least one sample. This function performs no MPI
+     * operations and may run only on rank zero after the caller gathers the
+     * pressure vector; with tensor-product coupling it uses the support point
+     * positions stored by the last compute_pressure_at_immersed_surface().
      */
     std::vector<std::vector<double>>
       split_pressure_over_inclusions(std::vector<int>, Vector<double>) const;
@@ -125,6 +167,12 @@ namespace ImmersX
     /**
      * Fill vessel_index_of_a_cell from the "vessel_id" input file field and
      * set n_vessels(). Throws if the ids are not 0, 1, ..., n_vessels() - 1.
+     *
+     * Also parametrize each vessel by its normalized arc length along the
+     * reduced grid, from 0 to 1. The cells of a vessel must form a single
+     * chain. The vessel starts at the end that lies in the reduced cell with
+     * the smallest CellId, i.e., in the first cell of the reduced grid file;
+     * if both ends lie in one cell, at its first vertex.
      */
     void
     make_vessel_index_of_a_cell();
@@ -163,13 +211,56 @@ namespace ImmersX
     TrilinosWrappers::MPI::Vector pressure_at_immersed_surface_by_inclusion;
 
   private:
+    /** Solve the static problem at physical_time, see run_timestep(). */
+    void
+    solve_static_timestep(const double physical_time);
+
+    /** Start or advance a Newmark run to physical_time, see run_timestep().
+     */
+    void
+    advance_newmark(const double physical_time);
+
     void
     refine_and_transfer_around_inclusions();
 
     void
     output_pressure_at_immersed_surface(bool) const;
 
+    /** Pass the stored wall displacement samples to the tensor-product
+     * coupling, which is rebuilt after mesh refinement. Collective. */
+    void
+    install_tensor_wall_data();
+
     std::vector<unsigned int> vessel_index_of_a_cell;
+
+    /** Normalized arc length of the two vertices of a reduced cell. */
+    struct ReducedCellArc
+    {
+      unsigned int    vessel;
+      Point<spacedim> first_vertex;
+      Point<spacedim> second_vertex;
+      double          first_arc_length;
+      double          second_arc_length;
+    };
+
+    /** Locally owned reduced cells, by global active cell index. */
+    std::map<types::global_cell_index, ReducedCellArc> reduced_cell_arcs;
+
+    /** The coupling for which reduced_cell_arcs was computed. */
+    const void *parametrized_coupling = nullptr;
+
+    /** Wall displacement samples of each vessel for tensor-product coupling,
+     * empty until update_vessel_radius_data() is called. */
+    std::vector<std::vector<double>> wall_displacement_samples;
+
+    /** With tensor-product coupling, the support points of every reduced
+     * cell, on every rank: entry of pressure_at_immersed_surface_by_inclusion,
+     * vessel and normalized arc length. A support point where vessels meet
+     * appears once for each of them. */
+    std::vector<std::size_t>  pressure_sample_entry;
+    std::vector<unsigned int> pressure_sample_vessel;
+    std::vector<double>       pressure_sample_arc_length;
+    std::size_t               n_pressure_entries = 0;
 
     unsigned int n_vessels_from_input = 0;
     // unsigned int n_vessels;

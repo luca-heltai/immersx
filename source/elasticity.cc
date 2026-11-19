@@ -1435,8 +1435,7 @@ namespace ImmersX
     if (n_multiplier_dofs() == 0)
       return;
     TimerOutput::Scope t(computing_timer, "Assemble Coupling matrix");
-    const bool constraint_coupling = par.time_mode == TimeMode::Static &&
-                                     !par.uses_prescribed_vessel_pressure();
+    const bool         constraint_coupling = imposes_wall_displacement();
     if (rebuild_matrices)
       multiplier_load_matrix() = 0.;
     LA::MPI::Vector affine_rhs(owned_dofs[1], mpi_communicator);
@@ -1682,68 +1681,13 @@ namespace ImmersX
                     << " iterations." << std::endl;
             }
 #endif
-            {
-              const auto M = linear_operator<LA::MPI::Vector>(inclusion_matrix);
-              const auto amgM = linear_operator(M, prec_M);
-              CumulativeReductionControl mass_control(
-                par.reduced_mass_solver_control);
-              SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(mass_control);
-              auto invM = inverse_operator(M, solver_CG_M, amgM);
-              auto invW = invM * invM;
-
-              // Try augmented lagrangian preconditioner
-              const double gamma = 10;
-              auto         Aug   = A + gamma * Bt * invW * B;
-
-
-              const auto outside =
-                linear_operator<LA::MPI::Vector>(outside_mass_matrix);
-              const auto reaction         = Bt - gamma * Bt * invW * outside;
-              const auto negative_outside = -1. * outside;
-              auto       AA = block_operator<2, 2, LA::MPI::BlockVector>(
-                {{{{Aug, reaction}}, {{B, negative_outside}}}});
-
-              LA::MPI::BlockVector solution_block;
-              LA::MPI::BlockVector system_rhs_block;
-              AA.reinit_domain_vector(solution_block, false);
-              AA.reinit_range_vector(system_rhs_block, false);
-
-
-              // lagrangian term
-              LA::MPI::Vector tmp;
-              tmp.reinit(system_rhs.block(0));
-              tmp = gamma * Bt * invW * system_rhs.block(1);
-              system_rhs_block.block(0) = system_rhs.block(0);
-              system_rhs_block.block(0).add(1., tmp); // ! augmented
-              system_rhs_block.block(1) = system_rhs.block(1);
-
-              CumulativeReductionControl augmented_control(
-                par.displacement_solver_control);
-              SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
-
-              auto Aug_inv =
-                inverse_operator(Aug, solver_lagrangian); //! augmented
-
-              SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(
-                par.augmented_lagrange_solver_control);
-
-              BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
-                augmented_lagrangian_preconditioner{
-                  Aug_inv, B, reaction, invW, gamma};
-
-              solver_fgmres.solve(AA,
-                                  solution_block,
-                                  system_rhs_block,
-                                  augmented_lagrangian_preconditioner);
-
-              solution.block(0) = solution_block.block(0);
-              solution.block(1) = solution_block.block(1);
-              output_augmented_lagrangian_iteration_summary(
-                pcout,
-                par.augmented_lagrange_solver_control,
-                augmented_control,
-                mass_control);
-            }
+            solve_wall_constrained_system(stiffness_matrix,
+                                          1.,
+                                          prec_A,
+                                          system_rhs.block(0),
+                                          system_rhs.block(1),
+                                          u,
+                                          lambda);
           }
         else
           {
@@ -1780,6 +1724,178 @@ namespace ImmersX
     distribute_multiplier_solution(lambda);
     locally_relevant_solution = solution;
   }
+
+  template <int dim, int spacedim>
+  void
+  ElasticityProblem<dim, spacedim>::solve_wall_constrained_system(
+    const LA::MPI::SparseMatrix    &matrix,
+    const double                    scale,
+    const LA::MPI::PreconditionAMG &preconditioner,
+    const LA::MPI::Vector          &f,
+    const LA::MPI::Vector          &g,
+    LA::MPI::Vector                &u,
+    LA::MPI::Vector                &lambda)
+  {
+    const auto K  = scale * linear_operator<LA::MPI::Vector>(matrix);
+    const auto Bt = linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
+    const auto B  = transpose_operator(Bt);
+    const auto M  = linear_operator<LA::MPI::Vector>(inclusion_matrix);
+    const auto amgM = linear_operator(M, prec_M);
+    CumulativeReductionControl mass_control(par.reduced_mass_solver_control);
+    SolverCG<TrilinosWrappers::MPI::Vector> solver_CG_M(mass_control);
+    auto invM = inverse_operator(M, solver_CG_M, amgM);
+    auto invW = invM * invM;
+
+    // Augmented Lagrangian preconditioner.
+    const double gamma = 10;
+    auto         Aug   = K + gamma * Bt * invW * B;
+
+    const auto outside  = linear_operator<LA::MPI::Vector>(outside_mass_matrix);
+    const auto reaction = Bt - gamma * Bt * invW * outside;
+    const auto negative_outside = -1. * outside;
+    // Augmentation of the first row.
+    LA::MPI::Vector rhs_u;
+    rhs_u.reinit(f);
+    rhs_u = gamma * Bt * invW * g;
+    rhs_u.add(1., f);
+
+    // FGMRES stops on the norm of the whole residual. In a Newmark step the
+    // momentum row is scaled by 1 / (beta dt^2), while the constraint row
+    // holds only the small residual g - B u_pred of the predictor. Then the
+    // momentum row alone decides when FGMRES stops, the wall constraint may
+    // be left unmet, and the multiplier takes up the error amplified by
+    // 1 / (beta dt^2). Weight the constraint row by the same factor. The
+    // preconditioner undoes the weight, so the preconditioned operator is
+    // similar to the unweighted one: the weight changes only the norm in
+    // which FGMRES measures convergence.
+    const double weight           = scale;
+    const auto   weighted_B       = weight * B;
+    const auto   weighted_outside = weight * negative_outside;
+    auto         AA               = block_operator<2, 2, LA::MPI::BlockVector>(
+      {{{{Aug, reaction}}, {{weighted_B, weighted_outside}}}});
+
+    LA::MPI::BlockVector solution_block;
+    LA::MPI::BlockVector system_rhs_block;
+    AA.reinit_domain_vector(solution_block, false);
+    AA.reinit_range_vector(system_rhs_block, false);
+    system_rhs_block.block(0) = rhs_u;
+    system_rhs_block.block(1) = g;
+    system_rhs_block.block(1) *= weight;
+
+    CumulativeReductionControl augmented_control(
+      par.displacement_solver_control);
+    SolverCG<LA::MPI::Vector> solver_lagrangian(augmented_control);
+
+    // The augmentation adds a term of the rank of the multiplier space to
+    // K, so an AMG of K preconditions the augmented block. Without it the
+    // inner iterations double with every refinement of the mesh.
+    auto Aug_inv = inverse_operator(Aug, solver_lagrangian, preconditioner);
+
+    SolverFGMRES<LA::MPI::BlockVector> solver_fgmres(
+      par.augmented_lagrange_solver_control);
+
+    BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
+      augmented_lagrangian_preconditioner{Aug_inv, B, reaction, invW, gamma};
+
+    // The preconditioner approximates the inverse of the unweighted system.
+    struct WeightedPreconditioner
+    {
+      void
+      vmult(LA::MPI::BlockVector &v, const LA::MPI::BlockVector &r) const
+      {
+        LA::MPI::BlockVector unweighted(r);
+        unweighted.block(1) /= weight;
+        preconditioner.vmult(v, unweighted);
+      }
+      const BlockPreconditionerAugmentedLagrangian<LA::MPI::Vector>
+                  &preconditioner;
+      const double weight;
+    } weighted_preconditioner{augmented_lagrangian_preconditioner, weight};
+
+    solver_fgmres.solve(AA,
+                        solution_block,
+                        system_rhs_block,
+                        weighted_preconditioner);
+
+    u      = solution_block.block(0);
+    lambda = solution_block.block(1);
+    output_augmented_lagrangian_iteration_summary(
+      pcout,
+      par.augmented_lagrange_solver_control,
+      augmented_control,
+      mass_control);
+  }
+
+
+
+  template <int dim, int spacedim>
+  bool
+  ElasticityProblem<dim, spacedim>::imposes_wall_displacement() const
+  {
+    if (par.uses_prescribed_vessel_pressure())
+      return false;
+    if (par.time_mode == TimeMode::Static)
+      return true;
+    else if (par.time_mode == TimeMode::Dynamic)
+      return newmark_wall_constraint;
+    else if (par.time_mode == TimeMode::QuasiStatic)
+      return false;
+    AssertThrow(false, ExcInternalError());
+    return false;
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  ElasticityProblem<dim, spacedim>::initialize_newmark_at_equilibrium()
+  {
+    TimerOutput::Scope t(computing_timer, "Solve (newmark equilibrium)");
+    AssertThrow(par.time_mode == TimeMode::Dynamic &&
+                  imposes_wall_displacement() && n_multiplier_dofs() > 0,
+                ExcMessage("The equilibrium start of a Newmark run needs a "
+                           "dynamic run with a wall displacement constraint."));
+
+    par.set_boundary_condition_times(current_time);
+    setup_constraints();
+    // Loads, springs and wall data with its affine part at current_time.
+    compute_system_rhs(current_time);
+
+    // In dynamic runs the stiffness matrix has homogeneous essential columns:
+    // add the affine contribution of the boundary data at current_time.
+    LA::MPI::Vector rhs;
+    rhs.reinit(system_rhs.block(0));
+    rhs = system_rhs.block(0);
+    AffineConstraints<double> homogeneous;
+    homogeneous.close();
+    add_dynamic_constraint_rhs(constraints, homogeneous, homogeneous, rhs);
+
+    auto &u      = solution.block(0);
+    auto &lambda = solution.block(1);
+    // prec_A is not built in dynamic runs. The equilibrium solve needs it,
+    // and the Newmark steps need prec_newmark.
+    Teuchos::ParameterList amg_parameters;
+    amg_parameters.set("smoother: type", "Chebyshev");
+    amg_parameters.set("smoother: sweeps", 2);
+    amg_parameters.set("smoother: pre or post", "both");
+    amg_parameters.set("coarse: type", "Amesos-KLU");
+    amg_parameters.set("coarse: max size", 2000);
+    amg_parameters.set("aggregation: threshold", 0.02);
+    prec_A.clear();
+    prec_A.initialize(stiffness_matrix, amg_parameters);
+    prec_newmark.clear();
+    prec_newmark.initialize(newmark_matrix, amg_parameters);
+
+    solve_wall_constrained_system(
+      stiffness_matrix, 1., prec_A, rhs, system_rhs.block(1), u, lambda);
+    constraints.distribute(u);
+    distribute_multiplier_solution(lambda);
+    velocity                  = 0.;
+    acceleration              = 0.;
+    locally_relevant_solution = solution;
+  }
+
+
 
   template <int dim, int spacedim>
   void
@@ -1836,8 +1952,11 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Solve (newmark)");
 
+    const bool wall_constraint =
+      n_multiplier_dofs() > 0 && imposes_wall_displacement();
     AssertThrow(par.uses_prescribed_vessel_pressure() == true ||
-                  uses_tensor_product_coupling() || n_multiplier_dofs() == 0,
+                  wall_constraint || uses_tensor_product_coupling() ||
+                  n_multiplier_dofs() == 0,
                 ExcNotImplemented(
                   "Dynamic solve without prescribed vessel pressure "
                   "is not implemented for point coupling."));
@@ -1911,7 +2030,7 @@ namespace ImmersX
     if (par.elasticity_model == ElasticityModel::LinearElasticity ||
         par.elasticity_model == ElasticityModel::KelvinVoigt)
       {
-        if (n_multiplier_dofs() == 0)
+        if (n_multiplier_dofs() == 0 || wall_constraint)
           {
             acceleration_rhs -= D * v_pred;
             acceleration_rhs -= A * u_pred;
@@ -1953,11 +2072,42 @@ namespace ImmersX
     // Start from a vector satisfying the same time-dependent constraints as
     // the acceleration right-hand side.
     acceleration_constraints.distribute(a);
-    solver_control.set_tolerance(
-      std::max(par.displacement_solver_control.tolerance(),
-               par.displacement_solver_control.reduction() *
-                 acceleration_rhs.l2_norm()));
-    solver_stiffness.solve(newmark_matrix, a, acceleration_rhs, prec_newmark);
+    if (wall_constraint)
+      {
+        // Solve for the displacement increment du = beta dt^2 a, which has the
+        // scaling of the static saddle point problem. The constraint row is
+        // B u^{n+1} - O lambda = g with u^{n+1} = u_pred + du. B has no
+        // columns for constrained dofs, and g holds their affine part.
+        const double factor =
+          beta * par.time_parameters.time_step * par.time_parameters.time_step;
+        const auto Bt =
+          linear_operator<LA::MPI::Vector>(multiplier_load_matrix());
+        LA::MPI::Vector constraint_rhs;
+        constraint_rhs.reinit(g);
+        constraint_rhs = g;
+        constraint_rhs -= transpose_operator(Bt) * u_pred;
+        LA::MPI::Vector increment;
+        increment.reinit(a);
+        solve_wall_constrained_system(newmark_matrix,
+                                      1. / factor,
+                                      prec_newmark,
+                                      acceleration_rhs,
+                                      constraint_rhs,
+                                      increment,
+                                      lambda);
+        a.equ(1. / factor, increment);
+      }
+    else
+      {
+        solver_control.set_tolerance(
+          std::max(par.displacement_solver_control.tolerance(),
+                   par.displacement_solver_control.reduction() *
+                     acceleration_rhs.l2_norm()));
+        solver_stiffness.solve(newmark_matrix,
+                               a,
+                               acceleration_rhs,
+                               prec_newmark);
+      }
     acceleration_constraints.distribute(a);
 
     // corrector step
@@ -3057,8 +3207,14 @@ namespace ImmersX
                                    system_rhs.block(0));
       }
 
-    system_rhs.block(1) = force_rhs.block(1);
-    system_rhs.block(1) *= inclusion_scale;
+    // Wall displacement data keep the affine part of the essential boundary
+    // data that assemble_coupling() added, without modulation, as in static
+    // runs.
+    if (!imposes_wall_displacement())
+      {
+        system_rhs.block(1) = force_rhs.block(1);
+        system_rhs.block(1) *= inclusion_scale;
+      }
   }
 
 

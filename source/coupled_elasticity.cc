@@ -17,15 +17,51 @@
  * Modified by: Luca Heltai, 2020
  */
 
+#include <deal.II/grid/cell_id.h>
+
 #include <immersx/core/reduced_field_values.h>
 #include <immersx/physics/coupled_elasticity.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <map>
+#include <string>
 
 namespace ImmersX
 {
+  namespace
+  {
+    // Value at normalized position s in [0, 1] of samples equally spaced from
+    // s = 0 to s = 1, interpolated linearly. A single sample is constant.
+    double
+    interpolate_samples(const std::vector<double> &samples, const double s)
+    {
+      AssertThrow(!samples.empty(), ExcMessage("No samples to interpolate."));
+      if (samples.size() == 1)
+        return samples[0];
+      const double x = std::clamp(s, 0., 1.) * (samples.size() - 1);
+      const auto   j =
+        std::min(static_cast<std::size_t>(std::floor(x)), samples.size() - 2);
+      const double w = x - static_cast<double>(j);
+      return (1 - w) * samples[j] + w * samples[j + 1];
+    }
+
+    // Exact lexicographic order of points, to identify shared vertices.
+    template <int spacedim>
+    struct PointLess
+    {
+      bool
+      operator()(const Point<spacedim> &a, const Point<spacedim> &b) const
+      {
+        for (unsigned int d = 0; d < spacedim; ++d)
+          if (a[d] != b[d])
+            return a[d] < b[d];
+        return false;
+      }
+    };
+  } // namespace
+
   template <int dim, int spacedim>
   CoupledElasticityProblem<dim, spacedim>::CoupledElasticityProblem(
     const ElasticityProblemParameters<dim, spacedim> &par)
@@ -229,6 +265,9 @@ namespace ImmersX
     else if (this->uses_tensor_product_coupling())
       {
 #ifdef DEAL_II_WITH_VTK
+        // The coupling is rebuilt after mesh refinement.
+        if (parametrized_coupling != this->tensor_product_coupling.get())
+          make_vessel_index_of_a_cell();
         AssertThrow(!vessel_index_of_a_cell.empty(),
                     ExcMessage("The reduced grid has no vessel identifiers."));
         const auto &coupling     = *this->tensor_product_coupling;
@@ -489,24 +528,66 @@ namespace ImmersX
         pressure_at_immersed_surface_by_inclusion.reinit(
           owned_output, this->mpi_communicator);
         std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
+        // Vessel and normalized arc length of each support point of each
+        // locally owned cell, by reduced dof. A support point where vessels
+        // meet belongs to each of them. The entries of the output vector are
+        // known on the ranks that own the dofs.
+        std::vector<double> local_samples, local_entries;
         for (const auto &cell : reduced_dh.active_cell_iterators())
           if (cell->is_locally_owned())
             {
               cell->get_dof_indices(indices);
               cell->as_dof_handler_iterator(pressure_dh)
                 ->get_dof_indices(pressure_indices);
+              const auto &arc =
+                reduced_cell_arcs.at(cell->global_active_cell_index());
               for (unsigned int i = 0; i < indices.size(); ++i)
                 {
                   const auto [component, base] =
                     fe.system_to_component_index(i);
-                  if (component == 0 && owned_first.is_element(indices[i]))
-                    pressure_at_immersed_surface_by_inclusion
-                      [first + owned_first.index_within_set(indices[i])] =
+                  if (component != 0)
+                    continue;
+                  const double t = fe.unit_support_point(i)[0];
+                  local_samples.insert(local_samples.end(),
+                                       {static_cast<double>(indices[i]),
+                                        static_cast<double>(arc.vessel),
+                                        arc.first_arc_length +
+                                          t * (arc.second_arc_length -
+                                               arc.first_arc_length)});
+                  if (owned_first.is_element(indices[i]))
+                    {
+                      const auto entry =
+                        first + owned_first.index_within_set(indices[i]);
+                      pressure_at_immersed_surface_by_inclusion[entry] =
                         relevant_pressure[pressure_indices[base]];
+                      local_entries.insert(local_entries.end(),
+                                           {static_cast<double>(indices[i]),
+                                            static_cast<double>(entry)});
+                    }
                 }
             }
         pressure_at_immersed_surface_by_inclusion.compress(
           VectorOperation::insert);
+        std::map<types::global_dof_index, std::size_t> entry_of_dof;
+        for (const auto &entries :
+             Utilities::MPI::all_gather(this->mpi_communicator, local_entries))
+          for (unsigned int k = 0; k < entries.size(); k += 2)
+            entry_of_dof[static_cast<types::global_dof_index>(entries[k])] =
+              static_cast<std::size_t>(entries[k + 1]);
+        n_pressure_entries = total;
+        pressure_sample_entry.clear();
+        pressure_sample_vessel.clear();
+        pressure_sample_arc_length.clear();
+        for (const auto &samples :
+             Utilities::MPI::all_gather(this->mpi_communicator, local_samples))
+          for (unsigned int k = 0; k < samples.size(); k += 3)
+            {
+              pressure_sample_entry.push_back(entry_of_dof.at(
+                static_cast<types::global_dof_index>(samples[k])));
+              pressure_sample_vessel.push_back(
+                static_cast<unsigned int>(samples[k + 1]));
+              pressure_sample_arc_length.push_back(samples[k + 2]);
+            }
         std::vector<double> integral(n_vessels()), length(n_vessels());
         Utilities::MPI::sum(local_integral, this->mpi_communicator, integral);
         Utilities::MPI::sum(local_length, this->mpi_communicator, length);
@@ -600,6 +681,161 @@ namespace ImmersX
                              std::to_string(largest_id)));
 
     n_vessels_from_input = largest_id + 1;
+
+    // Normalized arc length along each vessel. Gather the id, vessel and
+    // vertices of every reduced cell, walk each vessel from its first end,
+    // and keep the result for the locally owned cells.
+    std::vector<std::string> local_ids;
+    std::vector<double>      local_data;
+    for (const auto &cell : reduced_dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          local_ids.push_back(cell->id().to_string());
+          local_data.push_back(
+            vessel_index_of_a_cell[cell->active_cell_index()]);
+          for (const unsigned int v : {0u, 1u})
+            for (unsigned int d = 0; d < spacedim; ++d)
+              local_data.push_back(cell->vertex(v)[d]);
+        }
+    const auto all_ids =
+      Utilities::MPI::all_gather(this->mpi_communicator, local_ids);
+    const auto all_data =
+      Utilities::MPI::all_gather(this->mpi_communicator, local_data);
+
+    struct ChainCell
+    {
+      CellId                         id;
+      std::array<Point<spacedim>, 2> vertices;
+    };
+    std::map<unsigned int, std::vector<ChainCell>> cells_of_vessel;
+    for (unsigned int rank = 0; rank < all_ids.size(); ++rank)
+      for (unsigned int k = 0; k < all_ids[rank].size(); ++k)
+        {
+          const double *data  = &all_data[rank][k * (2 * spacedim + 1)];
+          ChainCell     chain = {CellId(all_ids[rank][k]), {}};
+          for (const unsigned int v : {0u, 1u})
+            for (unsigned int d = 0; d < spacedim; ++d)
+              chain.vertices[v][d] = data[1 + v * spacedim + d];
+          cells_of_vessel[static_cast<unsigned int>(data[0])].push_back(chain);
+        }
+
+    std::map<std::string, std::array<double, 2>> arc_of_cell;
+    for (const auto &vessel_and_cells : cells_of_vessel)
+      {
+        const unsigned int vessel = vessel_and_cells.first;
+        const auto        &cells  = vessel_and_cells.second;
+        // Cell and local vertex index of the cells at each vertex.
+        std::map<Point<spacedim>,
+                 std::vector<std::pair<unsigned int, unsigned int>>,
+                 PointLess<spacedim>>
+          incident;
+        for (unsigned int c = 0; c < cells.size(); ++c)
+          for (const unsigned int v : {0u, 1u})
+            incident[cells[c].vertices[v]].emplace_back(c, v);
+        std::vector<std::pair<unsigned int, unsigned int>> ends;
+        for (const auto &[point, at_vertex] : incident)
+          {
+            (void)point;
+            AssertThrow(at_vertex.size() <= 2,
+                        ExcMessage("Vessel " + std::to_string(vessel) +
+                                   " of the reduced grid branches."));
+            if (at_vertex.size() == 1)
+              ends.push_back(at_vertex[0]);
+          }
+        AssertThrow(ends.size() == 2,
+                    ExcMessage("Vessel " + std::to_string(vessel) +
+                               " of the reduced grid is not a single chain of "
+                               "cells."));
+        const auto key = [&](const std::pair<unsigned int, unsigned int> &e) {
+          return std::make_pair(cells[e.first].id, e.second);
+        };
+        auto [c, v] = key(ends[1]) < key(ends[0]) ? ends[1] : ends[0];
+
+        std::vector<std::array<double, 2>> arc(cells.size());
+        std::vector<bool>                  visited(cells.size(), false);
+        double                             length = 0.;
+        for (unsigned int k = 0; k < cells.size(); ++k)
+          {
+            AssertThrow(!visited[c],
+                        ExcMessage("Vessel " + std::to_string(vessel) +
+                                   " of the reduced grid is not a single "
+                                   "chain of cells."));
+            visited[c] = true;
+            arc[c][v]  = length;
+            length += cells[c].vertices[0].distance(cells[c].vertices[1]);
+            arc[c][1 - v] = length;
+            if (k + 1 < cells.size())
+              for (const auto &[next, w] :
+                   incident.at(cells[c].vertices[1 - v]))
+                if (next != c)
+                  {
+                    c = next;
+                    v = w;
+                    break;
+                  }
+          }
+        AssertThrow(length > 0.,
+                    ExcMessage("Vessel " + std::to_string(vessel) +
+                               " of the reduced grid has zero length."));
+        for (unsigned int k = 0; k < cells.size(); ++k)
+          arc_of_cell[cells[k].id.to_string()] = {
+            {arc[k][0] / length, arc[k][1] / length}};
+      }
+
+    reduced_cell_arcs.clear();
+    for (const auto &cell : reduced_dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          const auto &arc = arc_of_cell.at(cell->id().to_string());
+          reduced_cell_arcs[cell->global_active_cell_index()] = {
+            vessel_index_of_a_cell[cell->active_cell_index()],
+            cell->vertex(0),
+            cell->vertex(1),
+            arc[0],
+            arc[1]};
+        }
+    parametrized_coupling = this->tensor_product_coupling.get();
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::install_tensor_wall_data()
+  {
+#ifdef DEAL_II_WITH_VTK
+    if (!this->uses_tensor_product_coupling())
+      return;
+    AssertThrow(this->tensor_product_coupling,
+                ExcMessage("Tensor-product coupling not initialized"));
+    // The coupling is rebuilt after mesh refinement.
+    if (parametrized_coupling != this->tensor_product_coupling.get())
+      make_vessel_index_of_a_cell();
+    if (wall_displacement_samples.empty())
+      {
+        this->tensor_product_coupling->modal_data = nullptr;
+        return;
+      }
+    const auto selection =
+      this->par.tensor_product_coupling_parameters
+        .tensor_product_space_parameters.section.selected_coefficients;
+    this->tensor_product_coupling->modal_data =
+      [this, selection](const types::global_cell_index cell,
+                        const Point<spacedim>         &point) {
+        const auto  &arc = reduced_cell_arcs.at(cell);
+        const double t   = arc.first_vertex.distance(point) /
+                         arc.first_vertex.distance(arc.second_vertex);
+        const double s = arc.first_arc_length +
+                         t * (arc.second_arc_length - arc.first_arc_length);
+        const double value =
+          interpolate_samples(wall_displacement_samples[arc.vessel], s);
+        std::vector<double> coefficients(selection.size(), 0.);
+        for (unsigned int c = 0; c < selection.size(); ++c)
+          if (selection[c] == spacedim || selection[c] == 2 * spacedim + 1)
+            coefficients[c] = value;
+        return coefficients;
+      };
+#endif
   }
 
 
@@ -719,6 +955,8 @@ namespace ImmersX
 
     this->cycle        = 0;
     this->current_time = this->par.time_parameters.initial_time;
+    // Dynamic runs impose the wall data from the flow model at each step.
+    this->newmark_wall_constraint = this->par.time_mode == TimeMode::Dynamic;
     this->setup_dofs();
     if (this->uses_tensor_product_coupling())
       {
@@ -744,6 +982,80 @@ namespace ImmersX
   {
     AssertThrow(std::isfinite(physical_time),
                 ExcMessage("The coupled mechanical time must be finite."));
+    install_tensor_wall_data();
+    if (this->par.time_mode == TimeMode::Dynamic)
+      advance_newmark(physical_time);
+    else
+      solve_static_timestep(physical_time);
+
+    // `cycle` counts the coupled steps taken so far.
+    if (this->cycle % this->par.output_every_n_steps == 0)
+      this->output_results();
+
+    pressure_at_immersed_surface.clear();
+    pressure_at_immersed_surface_by_inclusion.clear();
+    compute_pressure_at_immersed_surface();
+    output_pressure_at_immersed_surface(this->cycle == 0 ? true : false);
+
+    this->compute_internal_and_boundary_stress(this->cycle == 0 ? true : false);
+    this->cycle++;
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::advance_newmark(
+    const double physical_time)
+  {
+    AssertThrow(this->imposes_wall_displacement(),
+                ExcMessage("Coupled Newmark steps impose the wall "
+                           "displacement: set Pressure coupling = false."));
+    if (this->cycle == 0)
+      {
+        this->current_time = physical_time;
+        if (this->par.refinement_strategy == "inclusions")
+          this->refine_and_transfer_around_inclusions();
+        else
+          for (unsigned int ref_cycle = 0;
+               ref_cycle + 1 < this->par.n_refinement_cycles;
+               ++ref_cycle)
+            {
+              this->assemble_elasticity_system();
+              this->initialize_newmark_at_equilibrium();
+              this->refine_and_transfer();
+              install_tensor_wall_data();
+            }
+        // Mass, damping and Newmark matrices use the current `Time step`.
+        this->assemble_elasticity_system();
+        this->initialize_newmark_at_equilibrium();
+        return;
+      }
+
+    const double time_step = this->par.time_parameters.time_step;
+    AssertThrow(std::abs(physical_time - this->current_time - time_step) <=
+                  1.e-8 * time_step,
+                ExcMessage("A coupled Newmark step must advance the tissue by "
+                           "the Time step " +
+                           std::to_string(time_step) + ", from " +
+                           std::to_string(this->current_time) + " to " +
+                           std::to_string(physical_time) + "."));
+    // Wall data and the affine part of the essential boundary data at the new
+    // time; solve_newmark() sets up the constraints at both ends of the step.
+    this->par.set_boundary_condition_times(physical_time);
+    this->setup_constraints();
+    this->compute_system_rhs(physical_time);
+    this->solve_newmark();
+    this->current_time = physical_time;
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  CoupledElasticityProblem<dim, spacedim>::solve_static_timestep(
+    const double physical_time)
+  {
     const bool time_changed = physical_time != this->current_time;
     this->current_time      = physical_time;
     if (time_changed)
@@ -773,7 +1085,10 @@ namespace ImmersX
                 this->assemble_coupling();
                 this->solve();
                 if (ref_cycle != this->par.n_refinement_cycles - 1)
-                  this->refine_and_transfer();
+                  {
+                    this->refine_and_transfer();
+                    install_tensor_wall_data();
+                  }
               }
           }
       }
@@ -786,21 +1101,6 @@ namespace ImmersX
         this->assemble_coupling();
         this->solve();
       }
-
-
-    // `cycle` counts the coupled steps taken so far.
-    if (this->cycle % this->par.output_every_n_steps == 0)
-      this->output_results();
-
-    pressure_at_immersed_surface.clear();
-    pressure_at_immersed_surface_by_inclusion.clear();
-    // vessel_wall_pressure =
-    // output_pressure(cycle == 0 ? true : false);
-    compute_pressure_at_immersed_surface();
-    output_pressure_at_immersed_surface(this->cycle == 0 ? true : false);
-
-    this->compute_internal_and_boundary_stress(this->cycle == 0 ? true : false);
-    this->cycle++;
   }
 
   template <int dim, int spacedim>
@@ -812,15 +1112,17 @@ namespace ImmersX
       this->inclusions.update_inclusions_data(new_data);
     else
       {
-#ifdef DEAL_II_WITH_VTK
-        AssertThrow(false,
-                    ExcMessage("Cannot update data for tensor coupling"));
-
-#endif
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Trying to update vessel radius data: the code uses tensor_coupling but VTK flag is OFF"));
+        if (new_data.empty())
+          return;
+        AssertThrow(new_data.size() == n_vessels(),
+                    ExcMessage("Tensor-product coupling needs one radial wall "
+                               "displacement per vessel, " +
+                               std::to_string(n_vessels()) + ", but got " +
+                               std::to_string(new_data.size()) + "."));
+        wall_displacement_samples.clear();
+        for (const double value : new_data)
+          wall_displacement_samples.push_back({value});
+        install_tensor_wall_data();
       }
   }
 
@@ -852,15 +1154,26 @@ namespace ImmersX
       }
     else
       {
-#ifdef DEAL_II_WITH_VTK
-        AssertThrow(false,
-                    ExcMessage("Cannot update data for tensor coupling"));
-
-#endif
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Trying to update vessel radius data: the code uses tensor_coupling but VTK flag is OFF"));
+        AssertThrow(cells_per_vessel.size() == n_vessels(),
+                    ExcDimensionMismatch(cells_per_vessel.size(), n_vessels()));
+        std::vector<std::vector<double>> samples;
+        std::size_t                      next = 0;
+        for (const int n : cells_per_vessel)
+          {
+            AssertThrow(n > 0,
+                        ExcMessage("Each vessel needs at least one sample."));
+            AssertThrow(next + n <= new_data.size(),
+                        ExcMessage("Fewer wall displacement samples than "
+                                   "cells in the vessels."));
+            samples.emplace_back(new_data.begin() + next,
+                                 new_data.begin() + next + n);
+            next += n;
+          }
+        AssertThrow(next == new_data.size(),
+                    ExcMessage("More wall displacement samples than cells in "
+                               "the vessels."));
+        wall_displacement_samples = std::move(samples);
+        install_tensor_wall_data();
       }
   }
 
@@ -936,17 +1249,67 @@ namespace ImmersX
       }
     else
       {
-#ifdef DEAL_II_WITH_VTK
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Cannot split the pressure over inclusions for tensor coupling"));
-
-#endif
-        AssertThrow(
-          false,
-          ExcMessage(
-            "Trying to split the pressure over inclusions: the code uses tensor_coupling but VTK flag is OFF"));
+        AssertThrow(number_of_cells_per_vessel.size() == n_vessels(),
+                    ExcDimensionMismatch(number_of_cells_per_vessel.size(),
+                                         n_vessels()));
+        AssertThrow(full_press.size() == n_pressure_entries,
+                    ExcMessage("The pressure does not match the support "
+                               "points of the last pressure computation."));
+        // (arc length, pressure) of the support points of each vessel.
+        std::vector<std::vector<std::pair<double, double>>> profile(
+          n_vessels());
+        for (unsigned int k = 0; k < pressure_sample_entry.size(); ++k)
+          {
+            AssertIndexRange(pressure_sample_vessel[k], n_vessels());
+            profile[pressure_sample_vessel[k]].emplace_back(
+              pressure_sample_arc_length[k],
+              full_press[pressure_sample_entry[k]]);
+          }
+        for (unsigned int vessel = 0; vessel < n_vessels(); ++vessel)
+          {
+            auto     &points = profile[vessel];
+            const int n      = number_of_cells_per_vessel[vessel];
+            AssertThrow(n > 0,
+                        ExcMessage("Each vessel must have at least one cell."));
+            AssertThrow(!points.empty(),
+                        ExcMessage("A vessel has no pressure samples."));
+            std::sort(points.begin(), points.end());
+            const auto value_at = [&points](const double s) {
+              const auto next =
+                std::upper_bound(points.begin(),
+                                 points.end(),
+                                 s,
+                                 [](const double x, const auto &p) {
+                                   return x < p.first;
+                                 });
+              if (next == points.begin())
+                return points.front().second;
+              if (next == points.end())
+                return points.back().second;
+              const auto   previous = std::prev(next);
+              const double w =
+                (s - previous->first) / (next->first - previous->first);
+              return (1 - w) * previous->second + w * next->second;
+            };
+            std::vector<double> samples(n);
+            if (points.size() == 1)
+              std::fill(samples.begin(), samples.end(), points[0].second);
+            else if (n == 1)
+              {
+                // Arc-length mean of the piecewise linear profile.
+                double integral = 0.;
+                for (unsigned int k = 0; k + 1 < points.size(); ++k)
+                  integral += 0.5 * (points[k].second + points[k + 1].second) *
+                              (points[k + 1].first - points[k].first);
+                const double length =
+                  points.back().first - points.front().first;
+                samples[0] = length > 0. ? integral / length : points[0].second;
+              }
+            else
+              for (int j = 0; j < n; ++j)
+                samples[j] = value_at(static_cast<double>(j) / (n - 1));
+            split_pressure.push_back(samples);
+          }
         return split_pressure;
       }
   }

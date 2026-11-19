@@ -1361,4 +1361,192 @@ end
     }
 }
 
+// -----------------------------------------------------------------------------
+// update_vessel_radius_data() and split_pressure_over_inclusions() with
+// tensor-product coupling
+// -----------------------------------------------------------------------------
+
+namespace
+{
+  // Reduced grid from x = -1 to x = 1 with two cells per vessel: vessel 0
+  // covers x in [-1, 0] and vessel 1 x in [0, 1]. Both start at their
+  // smallest x, which lies in their first cell of the file.
+  std::string
+  two_vessel_tensor_parameters(const Overrides &overrides = {})
+  {
+    return parameters(false,
+                      reduced_grid("two_vessels",
+                                   {-1., -0.5, 0., 0.5, 1.},
+                                   {0, 0, 1, 1}),
+                      "displacement, vessel_id",
+                      overrides);
+  }
+
+  // Check that every locally owned reduced quadrature point has the radial
+  // data value(vessel, x) in both selected modes 3 and 7.
+  void
+  check_tensor_wall_data(
+    const VesselElasticityProblem<3>                            &problem,
+    const std::function<double(unsigned int, const Point<3> &)> &value)
+  {
+    const auto    &coupling   = *problem.tensor_product_coupling;
+    const auto    &reduced_dh = coupling.get_dof_handler();
+    const auto     data       = coupling.source_modal_data_values();
+    FEValues<1, 3> values(reduced_dh.get_fe(),
+                          coupling.get_quadrature(),
+                          update_quadrature_points);
+    unsigned int   n_checked = 0;
+    for (const auto &cell : reduced_dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          values.reinit(cell);
+          const auto vessel =
+            problem.get_vessel_index_of_a_cell()[cell->active_cell_index()];
+          const auto &cell_data = data.at(cell->global_active_cell_index());
+          for (unsigned int q = 0; q < cell_data.size(); ++q)
+            {
+              ASSERT_EQ(cell_data[q].size(), 2u);
+              const double expected = value(vessel, values.quadrature_point(q));
+              for (const double coefficient : cell_data[q])
+                EXPECT_NEAR(coefficient, expected, 1e-12)
+                  << "vessel " << vessel << ", x "
+                  << values.quadrature_point(q)[0];
+              ++n_checked;
+            }
+        }
+    EXPECT_GT(Utilities::MPI::sum(n_checked, MPI_COMM_WORLD), 0u);
+  }
+} // namespace
+
+// One value per vessel replaces the Reduced right hand side expression in the
+// radial modes 3 and 7.
+TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataPerVesselTensorProduct)
+{
+  with_problem(two_vessel_tensor_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    check_tensor_wall_data(problem,
+                           [](unsigned int, const Point<3> &) { return 0.1; });
+    ASSERT_NO_THROW(problem.update_vessel_radius_data({0.3, 0.7}));
+    check_tensor_wall_data(problem, [](unsigned int vessel, const Point<3> &) {
+      return vessel == 0 ? 0.3 : 0.7;
+    });
+  });
+}
+
+// Samples per vessel are equally spaced in arc length from the first to the
+// last end of the vessel and interpolated linearly: 0, 1, 2 on vessel 0 at
+// x = -1, -0.5, 0 and 5, 7 on vessel 1 at x = 0, 1.
+TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataByCellsTensorProduct)
+{
+  with_problem(two_vessel_tensor_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    ASSERT_NO_THROW(
+      problem.update_vessel_radius_data({0., 1., 2., 5., 7.}, {3, 2}));
+    check_tensor_wall_data(problem, [](unsigned int vessel, const Point<3> &p) {
+      return vessel == 0 ? 2. * (p[0] + 1.) : 5. + 2. * p[0];
+    });
+  });
+}
+
+// The data need one value per vessel, or samples matching the cell counts.
+TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataWrongSizeTensorProduct)
+{
+  with_problem(two_vessel_tensor_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    EXPECT_ANY_THROW(problem.update_vessel_radius_data({0.1, 0.2, 0.3}));
+    EXPECT_ANY_THROW(problem.update_vessel_radius_data({0.1, 0.2, 0.3}, {2}));
+    EXPECT_ANY_THROW(
+      problem.update_vessel_radius_data({0.1, 0.2, 0.3}, {2, 2}));
+    EXPECT_ANY_THROW(problem.update_vessel_radius_data({0.1, 0.2}, {2, 0}));
+  });
+}
+
+// The updated data reach the solve with the meaning of the Reduced right hand
+// side 0.1; 0.1: doubling the radial displacement doubles the pressure.
+TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataChangesPressureTensorProduct)
+{
+  with_problem(two_vessel_tensor_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    problem.run_timestep();
+    const auto before = gather(problem.pressure_at_immersed_surface);
+
+    ASSERT_NO_THROW(problem.update_vessel_radius_data({0.2, 0.2}));
+    problem.run_timestep();
+    const auto after = gather(problem.pressure_at_immersed_surface);
+
+    ASSERT_EQ(before.size(), 2u);
+    ASSERT_EQ(after.size(), 2u);
+    for (unsigned int v = 0; v < 2; ++v)
+      {
+        ASSERT_NE(before[v], 0.0) << "vessel " << v;
+        EXPECT_NEAR(after[v], 2 * before[v], 1e-6 * std::abs(before[v]))
+          << "vessel " << v;
+      }
+  });
+}
+
+// The pointwise pressures at the reduced support points are interpolated in
+// arc length to equally spaced samples of each vessel. With a multiplier
+// linear in x, the pressure is k (lambda_3 + lambda_7)(x) at every support
+// point (see BOTH_PressureFromMultiplierTensorProduct), and so at every
+// sample; a single sample receives the vessel mean.
+TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsTensorProduct)
+{
+  with_problem(
+    two_vessel_tensor_parameters({multiplier_only}), [](auto &problem) {
+      problem.run_timestep0();
+      const auto &reduced_dh =
+        problem.tensor_product_coupling->get_dof_handler();
+      const auto lambda_3 = [](const double x) { return 1. + x; };
+      const auto lambda_7 = [](const double x) { return 2. + 3. * x; };
+      {
+        auto           &lambda = problem.locally_relevant_solution.block(1);
+        LA::MPI::Vector owned(lambda.locally_owned_elements(), MPI_COMM_WORLD);
+        VectorTools::interpolate(
+          reduced_dh,
+          FunctionFromFunctionObjects<3>(
+            {[&](const Point<3> &p) { return lambda_3(p[0]); },
+             [&](const Point<3> &p) { return lambda_7(p[0]); }}),
+          owned);
+        lambda = owned;
+      }
+      problem.compute_pressure_at_immersed_surface();
+
+      const Vector<double> pressure(
+        problem.pressure_at_immersed_surface_by_inclusion);
+      auto sorted = gather(problem.pressure_at_immersed_surface_by_inclusion);
+      std::sort(sorted.begin(), sorted.end());
+      const double k        = sorted[0] / (lambda_3(-1.) + lambda_7(-1.));
+      const auto   expected = [&](const double x) {
+        return k * (lambda_3(x) + lambda_7(x));
+      };
+
+      const auto split =
+        problem.split_pressure_over_inclusions({3, 2}, pressure);
+      ASSERT_EQ(split.size(), 2u);
+      ASSERT_EQ(split[0].size(), 3u);
+      ASSERT_EQ(split[1].size(), 2u);
+      for (unsigned int j = 0; j < 3; ++j)
+        EXPECT_NEAR(split[0][j], expected(-1. + 0.5 * j), 1e-12)
+          << "vessel 0, sample " << j;
+      for (unsigned int j = 0; j < 2; ++j)
+        EXPECT_NEAR(split[1][j], expected(1. * j), 1e-12)
+          << "vessel 1, sample " << j;
+
+      const auto means =
+        problem.split_pressure_over_inclusions({1, 1}, pressure);
+      const auto by_vessel = gather(problem.pressure_at_immersed_surface);
+      ASSERT_EQ(means.size(), 2u);
+      for (unsigned int v = 0; v < 2; ++v)
+        {
+          ASSERT_EQ(means[v].size(), 1u);
+          EXPECT_NEAR(means[v][0], by_vessel[v], 1e-12) << "vessel " << v;
+        }
+
+      EXPECT_ANY_THROW(problem.split_pressure_over_inclusions({3}, pressure));
+      EXPECT_ANY_THROW(
+        problem.split_pressure_over_inclusions({3, 0}, pressure));
+    });
+}
+
 #endif
