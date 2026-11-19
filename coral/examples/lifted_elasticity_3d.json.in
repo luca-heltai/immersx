@@ -527,7 +527,7 @@
         "qualified_id": "elasticity.97"
       },
       "98": {
-        "type": "Registered modal component",
+        "type": "Registered modal component::std::function<ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>(const ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>&, const ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>&)>",
         "name": "Registered modal component",
         "qualified_id": "elasticity.98"
       },
@@ -548,7 +548,7 @@
         "qualified_id": "elasticity.101"
       },
       "102": {
-        "type": "Registered modal component",
+        "type": "Registered modal component::std::function<ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>(const ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>&, const ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>&)>",
         "name": "Registered modal component",
         "qualified_id": "elasticity.102"
       },
@@ -569,7 +569,7 @@
         "qualified_id": "elasticity.105"
       },
       "106": {
-        "type": "Registered modal component",
+        "type": "Registered modal component::std::function<ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>(const ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>&, const ImmersX::Field<1, 3, dealii::FEValuesExtractors::Scalar>&)>",
         "name": "Registered modal component",
         "qualified_id": "elasticity.106"
       },

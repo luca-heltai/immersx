@@ -29,7 +29,7 @@
         "qualified_id": "coupled_residual"
       },
       "4": {
-        "type": "ImmersX::CoupledPoissonElasticity<3>::pressure_scale_error",
+        "type": "ImmersX::CoupledPoissonElasticity<3>::pressure_scale_error::std::function<double(const ImmersX::Coral::CoupledPoissonElasticity3D&)>",
         "position": {"x": 1040, "y": 100},
         "qualified_id": "pressure_scale_error"
       },

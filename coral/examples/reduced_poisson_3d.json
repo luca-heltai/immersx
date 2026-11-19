@@ -29,7 +29,7 @@
         "qualified_id": "reduced_poisson_finite"
       },
       "4": {
-        "type": "ImmersX::ReducedPoissonWorkflow<3>::n_reduced_dofs",
+        "type": "ImmersX::ReducedPoissonWorkflow<3>::n_reduced_dofs::std::function<unsigned int(const ImmersX::Coral::ReducedPoisson3D&)>",
         "position": {"x": 1080, "y": 80},
         "qualified_id": "reduced_poisson_dofs"
       },
