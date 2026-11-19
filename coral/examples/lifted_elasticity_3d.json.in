@@ -484,7 +484,7 @@
         "value": "displacement"
       },
       "90": {
-        "type": "Create output handler",
+        "type": "Create output handler::std::function<std::shared_ptr<ImmersX::OutputHandler<3, 3, dealii::TrilinosWrappers::MPI::Vector>> (const ImmersX::FiniteElementSpaceView<3, 3> &, const ImmersX::OutputHandlerParameters &, const std::string &)>",
         "name": "Create output handler",
         "qualified_id": "elasticity.90"
       },
