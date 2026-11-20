@@ -14,7 +14,8 @@ namespace
 {
   void
   check_permutation(const ImmersX::LinearPreconditioner choice,
-                    const bool                          root_owned)
+                    const bool                          root_owned,
+                    const int                           workspace = -1)
   {
     using namespace ImmersX;
     using namespace dealii;
@@ -66,10 +67,12 @@ namespace
         loads[i].compress(VectorOperation::insert);
       }
     LinearAdapterParameters options;
-    options.solver             = LinearSolver::iterative;
-    options.preconditioner     = choice;
-    options.maximum_iterations = 2;
-    options.tolerance          = 1.e-11;
+    options.solver                     = LinearSolver::iterative;
+    options.preconditioner             = choice;
+    options.maximum_iterations         = 2;
+    options.tolerance                  = 1.e-11;
+    options.mumps_workspace_relaxation = workspace;
+    options.mumps_output_details       = workspace == 73;
     Adapter    adapter(options, comm);
     const auto fields =
       adapter
@@ -122,5 +125,33 @@ TEST(LinearAdapter, BOTH_MumpsBlrHandlesFieldPartitions)
 {
   check_permutation(ImmersX::LinearPreconditioner::mumps_blr, false);
   check_permutation(ImmersX::LinearPreconditioner::mumps_blr, true);
+}
+
+// The dedicated CTest wrapper also checks the native factorization's ICNTL(14).
+TEST(LinearAdapter, BOTH_MumpsBlrWorkspaceReachesFactorization)
+{
+  check_permutation(ImmersX::LinearPreconditioner::mumps_blr, false, 73);
+  check_permutation(ImmersX::LinearPreconditioner::mumps_blr, true, 73);
+}
+
+TEST(LinearAdapter, BOTH_MumpsBlrRejectsInvalidWorkspace)
+{
+  EXPECT_THROW(check_permutation(ImmersX::LinearPreconditioner::mumps_blr,
+                                 false,
+                                 -2),
+               dealii::ExceptionBase);
+}
+
+TEST(LinearAdapter, MPI_MumpsBlrRejectsInconsistentWorkspace)
+{
+  if (dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD) < 2)
+    GTEST_SKIP()
+      << "This test requires different workspace values across ranks.";
+  const int workspace =
+    dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0 ? -1 : 73;
+  EXPECT_THROW(check_permutation(ImmersX::LinearPreconditioner::mumps_blr,
+                                 false,
+                                 workspace),
+               dealii::ExceptionBase);
 }
 #endif

@@ -263,6 +263,32 @@ FOREACH(_build_type ${_d2_build_types})
     if(NOT _immersx_mpiexec)
       set(_immersx_mpiexec "")
     endif()
+    if(DEAL_II_WITH_MUMPS AND DEAL_II_WITH_TRILINOS AND NOT IMMERSX_USE_PETSC_LA)
+      set(_blr_workspace_modes Serial)
+      if(_immersx_mpiexec)
+        list(APPEND _blr_workspace_modes MPI)
+      endif()
+      foreach(_mode IN LISTS _blr_workspace_modes)
+        set(_blr_workspace_mpi_args)
+        set(_blr_workspace_labels "unit;quick")
+        if(_mode STREQUAL "MPI")
+          list(APPEND _blr_workspace_mpi_args
+            "-DMPIEXEC=${_immersx_mpiexec}" "-DMPI_RANKS=2")
+          list(APPEND _blr_workspace_labels mpi)
+        endif()
+        set(_blr_workspace_test
+          "ImmersX${${_build_type}_ctest_suffix}.LinearAdapter.MumpsBlrWorkspace.${_mode}")
+        add_test(NAME "${_blr_workspace_test}"
+          COMMAND ${CMAKE_COMMAND}
+            "-DTEST_EXECUTABLE=$<TARGET_FILE:${_exe}>"
+            ${_blr_workspace_mpi_args}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/run_linear_adapter_blr_workspace.cmake")
+        set_tests_properties("${_blr_workspace_test}" PROPERTIES
+          LABELS "${_blr_workspace_labels}" TIMEOUT 120
+          ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1;DEAL_II_NUM_THREADS=1")
+      endforeach()
+    endif()
+
     add_custom_command(TARGET ${_exe} POST_BUILD
       BYPRODUCTS "${_groups_file}"
       COMMAND ${CMAKE_COMMAND}
