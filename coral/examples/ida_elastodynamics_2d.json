@@ -24,12 +24,12 @@
         "qualified_id": "ida_elastodynamics_run"
       },
       "3": {
-        "type": "ImmersX::IDAElastodynamics<2,2>::state_is_finite",
+        "type": "ImmersX::IDAElastodynamics<2,2>::state_is_finite::std::function<bool(const ImmersX::Coral::IDAElastodynamics2D&)>",
         "position": {"x": 1020, "y": 60},
         "qualified_id": "ida_elastodynamics_finite"
       },
       "4": {
-        "type": "ImmersX::IDAElastodynamics<2,2>::current_time",
+        "type": "ImmersX::IDAElastodynamics<2,2>::current_time::std::function<double(const ImmersX::Coral::IDAElastodynamics2D&)>",
         "position": {"x": 1020, "y": 140},
         "qualified_id": "ida_elastodynamics_time"
       }

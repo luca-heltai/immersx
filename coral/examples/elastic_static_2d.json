@@ -45,7 +45,7 @@
         "qualified_id": "elastic_static_solve"
       },
       "7": {
-        "type": "ImmersX::ElasticStatic<2,2>::output_results",
+        "type": "ImmersX::ElasticStatic<2,2>::output_results::std::function<void(ImmersX::ElasticStaticProblem<2, 2>&)>",
         "position": {"x": 1420, "y": 40},
         "qualified_id": "elastic_static_output"
       }
