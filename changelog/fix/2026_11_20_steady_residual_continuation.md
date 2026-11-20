@@ -1,4 +1,4 @@
-PR: pending
+PR: #480
 
 - Before: coupled steady initialization made one KINSOL attempt from the initial
   state. After: an opt-in residual continuation rolls back and reduces eta after
