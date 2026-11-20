@@ -444,9 +444,8 @@ namespace ImmersX::Coral
                                         "ScalarTestExpressionGradient>");
     // A parsed-function RHS and a generic scalar known source produce the
     // same C++ type. Keep one Coral type identity so their graph edges match.
-    coral::detail::set_type_alias<ParsedWeakTerm>("ImmersX::KnownTerm<" +
-                                                  dimensions(dim, spacedim) +
-                                                  ",Scalar>");
+    coral::detail::set_type_alias<ParsedWeakTerm>(
+      "ImmersX::KnownTerm<" + dimensions(dim, spacedim) + ",Scalar>");
     coral::detail::set_type_alias<StaticWeakTerm>(
       "ImmersX::WeakTerm<" + dimensions(dim, spacedim) +
       ",ScalarStaticFieldRhs,ScalarTestExpression>");
