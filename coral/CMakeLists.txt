@@ -88,11 +88,11 @@ foreach(_build_type ${_d2_build_types})
     # GCC 12 reports a false positive in libstdc++'s _Rb_tree while
     # optimizing Coral's nlohmann::json registry construction. Keep the
     # workaround limited to optimized Coral plugins.
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+    if(_build_type STREQUAL "Release" AND
+       CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
        CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12 AND
        CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
-      target_compile_options(${_plugin} PRIVATE
-        $<$<CONFIG:Release>:-Wno-array-bounds>)
+      target_compile_options(${_plugin} PRIVATE -Wno-array-bounds)
     endif()
 
     set_target_properties(${_plugin} PROPERTIES
