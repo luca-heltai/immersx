@@ -13,9 +13,11 @@
 #include <kinsol/kinsol.h>
 
 #include <cmath>
+#include <exception>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 #if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
 #  include <kinsol/kinsol_ls.h>
@@ -28,6 +30,17 @@
 
 namespace ImmersX::metric_flow_x_app_detail
 {
+  inline bool
+  kinsol_stage_can_retry(const int status)
+  {
+    return status == KIN_STEP_LT_STPTOL || status == KIN_MAXITER_REACHED ||
+           status == KIN_LINESEARCH_NONCONV || status == KIN_MXNEWT_5X_EXCEEDED
+#if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
+           || status == KIN_LINESEARCH_BCFAIL
+#endif
+      ;
+  }
+
   // Installed deal.II 9.8 N_Vectors lack the constraint operations required by
   // KINSOL. Use the complete compatibility vectors, retaining native KINSOL and
   // the same public adapter callbacks. The backend owns the borrowed context.
@@ -44,7 +57,10 @@ namespace ImmersX::metric_flow_x_app_detail
                        const double        function_tolerance,
                        const double        step_tolerance,
                        const int           strategy          = KIN_NONE,
-                       const bool          print_diagnostics = false)
+                       const bool          print_diagnostics = false,
+                       const GlobalVector *residual_offset   = nullptr,
+                       const double        offset_eta        = 1.,
+                       const MPI_Comm      communicator      = MPI_COMM_WORLD)
   {
     namespace Native     = Compatibility::SUNDIALS;
     auto      &backend   = adapter.solver();
@@ -66,7 +82,36 @@ namespace ImmersX::metric_flow_x_app_detail
       std::exception_ptr                        pending;
       bool                                      initial_factor_available;
       std::optional<typename Adapter::Operator> matrix_view;
-    } callbacks{adapter, time, zero, nullptr, true, adapter.current_jacobian()};
+      const GlobalVector                       *residual_offset;
+      double                                    offset_eta;
+      MPI_Comm                                  communicator;
+      int
+      agree_status(const int local_status)
+      {
+        if (residual_offset == nullptr)
+          return local_status;
+        const int minimum =
+          dealii::Utilities::MPI::min(local_status, communicator);
+        const int maximum =
+          dealii::Utilities::MPI::max(local_status, communicator);
+        if (minimum < 0)
+          {
+            if (local_status >= 0)
+              pending = std::make_exception_ptr(std::runtime_error(
+                "KINSOL continuation callback failed on another MPI rank."));
+            return -1;
+          }
+        return maximum > 0 ? 1 : 0;
+      }
+    } callbacks{adapter,
+                time,
+                zero,
+                nullptr,
+                true,
+                adapter.current_jacobian(),
+                residual_offset,
+                offset_eta,
+                communicator};
     SUNMatrix       matrix = nullptr;
     SUNLinearSolver linear = nullptr;
 #if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
@@ -96,18 +141,22 @@ namespace ImmersX::metric_flow_x_app_detail
         auto      &c        = *static_cast<Callbacks *>(user);
         const auto function = [&](const auto &src, auto &dst) {
           c.adapter.solver().residual(c.time, src, c.zero, dst);
+          // At eta=1 use the original residual without a zero-vector update.
+          if (c.residual_offset != nullptr && c.offset_eta != 1.)
+            dst.add(-(1. - c.offset_eta), *c.residual_offset);
         };
-        return Native::Utilities::call_and_possibly_capture_exception(
-          function,
-          c.pending,
-          *Native::internal::unwrap_nvector_const<GlobalVector>(state),
-          *Native::internal::unwrap_nvector<GlobalVector>(residual));
+        return c.agree_status(
+          Native::Utilities::call_and_possibly_capture_exception(
+            function,
+            c.pending,
+            *Native::internal::unwrap_nvector_const<GlobalVector>(state),
+            *Native::internal::unwrap_nvector<GlobalVector>(residual)));
       },
       y));
     check(KINSetPrintLevel(memory,
                            print_diagnostics &&
                                dealii::Utilities::MPI::this_mpi_process(
-                                 MPI_COMM_WORLD) == 0 ?
+                                 communicator) == 0 ?
                              1 :
                              0));
     check(KINSetNumMaxIters(memory, max_iterations));
@@ -147,12 +196,13 @@ namespace ImmersX::metric_flow_x_app_detail
                       "KINSOL matrix view is zero/unpopulated."));
         c.adapter.solver().solve_with_jacobian(rhs, dst, tol);
       };
-      return Native::Utilities::call_and_possibly_capture_exception(
-        solve,
-        c.pending,
-        *Native::internal::unwrap_nvector_const<GlobalVector>(b),
-        *Native::internal::unwrap_nvector<GlobalVector>(x),
-        tolerance);
+      return c.agree_status(
+        Native::Utilities::call_and_possibly_capture_exception(
+          solve,
+          c.pending,
+          *Native::internal::unwrap_nvector_const<GlobalVector>(b),
+          *Native::internal::unwrap_nvector<GlobalVector>(x),
+          tolerance));
     };
     matrix->content   = &callbacks;
     matrix->ops->zero = [](SUNMatrix handle) -> int {
@@ -167,11 +217,12 @@ namespace ImmersX::metric_flow_x_app_detail
         else
           dst = 0.;
       };
-      return Native::Utilities::call_and_possibly_capture_exception(
-        action,
-        c.pending,
-        *Native::internal::unwrap_nvector_const<GlobalVector>(x),
-        *Native::internal::unwrap_nvector<GlobalVector>(y));
+      return c.agree_status(
+        Native::Utilities::call_and_possibly_capture_exception(
+          action,
+          c.pending,
+          *Native::internal::unwrap_nvector_const<GlobalVector>(x),
+          *Native::internal::unwrap_nvector<GlobalVector>(y)));
     };
     matrix->ops->getid   = [](SUNMatrix) { return SUNMATRIX_CUSTOM; };
     matrix->ops->destroy = SUNMatFreeEmpty;
@@ -185,30 +236,79 @@ namespace ImmersX::metric_flow_x_app_detail
         // first solve despite noInitSetup. J0 was already prepared for scales.
         if (c.initial_factor_available)
           {
-            c.matrix_view = c.adapter.current_jacobian();
-            return 0;
+            const auto reuse = [&]() {
+              c.matrix_view = c.adapter.current_jacobian();
+            };
+            return c.agree_status(
+              Native::Utilities::call_and_possibly_capture_exception(
+                reuse, c.pending));
           }
         const auto setup = [&](const auto &src) {
           c.adapter.setup_steady_jacobian(c.time, src, c.zero);
           c.matrix_view = c.adapter.current_jacobian();
         };
-        return Native::Utilities::call_and_possibly_capture_exception(
-          setup,
-          c.pending,
-          *Native::internal::unwrap_nvector_const<GlobalVector>(state));
+        return c.agree_status(
+          Native::Utilities::call_and_possibly_capture_exception(
+            setup,
+            c.pending,
+            *Native::internal::unwrap_nvector_const<GlobalVector>(state)));
       }));
     const int status = KINSol(memory, y, strategy, u_scale, f_scale);
-    if (callbacks.pending)
-      try
-        {
-          std::rethrow_exception(std::exchange(callbacks.pending, nullptr));
-        }
-      catch (const dealii::RecoverableUserCallbackError &)
-        {
-          if (status != KIN_SUCCESS)
-            throw;
-        }
-    check(status);
+    if (residual_offset == nullptr)
+      {
+        if (callbacks.pending)
+          try
+            {
+              std::rethrow_exception(std::exchange(callbacks.pending, nullptr));
+            }
+          catch (const dealii::RecoverableUserCallbackError &)
+            {
+              if (status != KIN_SUCCESS)
+                throw;
+            }
+        check(status);
+      }
+    else
+      {
+        int pending_kind = 0;
+        if (callbacks.pending)
+          try
+            {
+              std::rethrow_exception(callbacks.pending);
+            }
+          catch (const dealii::RecoverableUserCallbackError &)
+            {
+              pending_kind = 1;
+            }
+          catch (...)
+            {
+              pending_kind = 2;
+            }
+        const bool failed_callback =
+          pending_kind == 2 || (pending_kind == 1 && status != KIN_SUCCESS);
+        const auto any_failed_callback =
+          dealii::Utilities::MPI::max(failed_callback ? 1u : 0u, communicator);
+        if (any_failed_callback)
+          {
+            if (callbacks.pending)
+              std::rethrow_exception(callbacks.pending);
+            AssertThrow(
+              false,
+              dealii::ExcMessage(
+                "KINSOL continuation callback failed on another MPI rank."));
+          }
+        const int minimum_status =
+          dealii::Utilities::MPI::min(status, communicator);
+        const int maximum_status =
+          dealii::Utilities::MPI::max(status, communicator);
+        AssertThrow(
+          minimum_status == maximum_status,
+          dealii::ExcMessage(
+            "KINSOL returned different statuses on different MPI ranks."));
+        AssertThrow(status >= 0 || kinsol_stage_can_retry(status),
+                    dealii::ExcMessage("Native KINSOL returned status " +
+                                       std::to_string(status)));
+      }
     long iterations = 0;
     check(KINGetNumNonlinSolvIters(memory, &iterations));
     return {static_cast<unsigned int>(iterations), status};

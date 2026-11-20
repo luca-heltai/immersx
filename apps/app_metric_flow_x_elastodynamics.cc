@@ -271,10 +271,20 @@ namespace
     double            displacement_characteristic = 1.e-3,
            solid_velocity_characteristic = 1.e-3, velocity_characteristic = 1.,
            pressure_characteristic = 1.e4, steady_function_tolerance = 1.e-8,
-           steady_step_tolerance           = 1.e-12;
-    unsigned int steady_maximum_iterations = 50;
+           steady_step_tolerance                      = 1.e-12;
+    unsigned int steady_maximum_iterations            = 50;
+    bool         steady_residual_continuation         = false;
+    double       steady_initial_eta_increment         = .05,
+           steady_maximum_eta_increment               = .25,
+           steady_minimum_eta_increment               = 1.e-4;
+    unsigned int steady_maximum_continuation_attempts = 100,
+                 steady_maximum_stage_iterations      = 12;
     steady_parameters.add_parameter("Initialize equilibrium",
                                     initialize_steady);
+    steady_parameters.add_parameter(
+      "Use residual continuation",
+      steady_residual_continuation,
+      "Ramp the original coupled steady residual from its initial value to zero; failed stages roll back and retry with a smaller eta increment.");
     steady_parameters.add_parameter("Displacement characteristic",
                                     displacement_characteristic);
     steady_parameters.add_parameter(
@@ -291,6 +301,36 @@ namespace
                                     steady_step_tolerance);
     steady_parameters.add_parameter("Maximum nonlinear iterations",
                                     steady_maximum_iterations);
+    steady_parameters.add_parameter(
+      "Initial continuation increment",
+      steady_initial_eta_increment,
+      "Initial step in the dimensionless residual continuation parameter eta.",
+      ParameterAcceptor::prm,
+      Patterns::Double(0.));
+    steady_parameters.add_parameter(
+      "Maximum continuation increment",
+      steady_maximum_eta_increment,
+      "Upper bound for successful eta step growth.",
+      ParameterAcceptor::prm,
+      Patterns::Double(0.));
+    steady_parameters.add_parameter(
+      "Minimum continuation increment",
+      steady_minimum_eta_increment,
+      "Stop continuation after a failed stage cannot be halved without crossing this bound.",
+      ParameterAcceptor::prm,
+      Patterns::Double(0.));
+    steady_parameters.add_parameter(
+      "Maximum continuation attempts",
+      steady_maximum_continuation_attempts,
+      "Bound total accepted and retried residual-continuation stages.",
+      ParameterAcceptor::prm,
+      Patterns::Integer(1));
+    steady_parameters.add_parameter(
+      "Maximum iterations per continuation stage",
+      steady_maximum_stage_iterations,
+      "Bound each native KINSOL solve before a failed eta stage is retried.",
+      ParameterAcceptor::prm,
+      Patterns::Integer(1));
 
     bool remove_fictitious_modes = false;
     coupling.add_parameter(
@@ -1309,6 +1349,10 @@ namespace
     adapter.solver().get_constraint_vector =
       [state_constraints]() -> GlobalVector & { return *state_constraints; };
 
+    AssertThrow(
+      !steady_residual_continuation || initialize_steady,
+      ExcMessage(
+        "Steady residual continuation requires Initialize equilibrium = true."));
     if (initialize_steady)
       {
         AssertThrow(linear_solver == "mumps" || linear_solver == "umfpack",
@@ -1330,6 +1374,18 @@ namespace
               "Steady characteristics and tolerances must be finite and positive."));
         AssertThrow(steady_maximum_iterations > 0,
                     ExcMessage("Steady iteration limit must be positive."));
+        if (steady_residual_continuation)
+          {
+            AssertThrow(
+              steady_initial_eta_increment > 0. &&
+                steady_initial_eta_increment <= steady_maximum_eta_increment &&
+                steady_maximum_eta_increment <= 1. &&
+                steady_minimum_eta_increment > 0. &&
+                steady_minimum_eta_increment <= steady_initial_eta_increment &&
+                steady_maximum_continuation_attempts > 0 &&
+                steady_maximum_stage_iterations > 0,
+              ExcMessage("Invalid steady residual continuation limits."));
+          }
         state_dot            = 0.;
         auto candidate       = state;
         auto characteristics = adapter.make_state();
@@ -1355,19 +1411,162 @@ namespace
         for (const auto index : solution_scaling.locally_owned_elements())
           solution_scaling[index] = 1. / characteristics[index];
         solution_scaling.compress(VectorOperation::insert);
-        const auto result =
-          solve_coupled_kinsol(adapter,
-                               flow_time.initial_time,
-                               candidate,
-                               state_dot,
-                               solution_scaling,
-                               function_scaling,
-                               *state_constraints,
-                               steady_maximum_iterations,
-                               steady_function_tolerance,
-                               steady_step_tolerance,
-                               KIN_LINESEARCH,
-                               ida_parameters.print_nonlinear_diagnostics);
+        std::pair<unsigned int, int> result;
+        if (!steady_residual_continuation)
+          result =
+            solve_coupled_kinsol(adapter,
+                                 flow_time.initial_time,
+                                 candidate,
+                                 state_dot,
+                                 solution_scaling,
+                                 function_scaling,
+                                 *state_constraints,
+                                 steady_maximum_iterations,
+                                 steady_function_tolerance,
+                                 steady_step_tolerance,
+                                 KIN_LINESEARCH,
+                                 ida_parameters.print_nonlinear_diagnostics,
+                                 static_cast<const GlobalVector *>(nullptr),
+                                 1.,
+                                 MPI_COMM_WORLD);
+        else
+          {
+            auto initial_residual = adapter.make_state();
+            adapter.solver().residual(flow_time.initial_time,
+                                      candidate,
+                                      state_dot,
+                                      initial_residual);
+            bool finite = true;
+            for (const auto index : initial_residual.locally_owned_elements())
+              finite = finite && std::isfinite(initial_residual[index]) &&
+                       std::isfinite(candidate[index]) &&
+                       state_dot[index] == 0.;
+            AssertThrow(
+              Utilities::MPI::min(finite ? 1u : 0u, MPI_COMM_WORLD) == 1,
+              ExcMessage(
+                "Steady residual continuation requires finite initial state and residual."));
+
+            auto         accepted = candidate;
+            double       eta = 0., increment = steady_initial_eta_increment;
+            unsigned int attempts = 0, total_iterations = 0;
+            while (eta < 1.)
+              {
+                AssertThrow(
+                  attempts < steady_maximum_continuation_attempts,
+                  ExcMessage(
+                    "Steady residual continuation exhausted its attempt limit."));
+                ++attempts;
+                const double stage_increment =
+                  std::min(increment, steady_maximum_eta_increment);
+                const double target = std::min(1., eta + stage_increment);
+                AssertThrow(
+                  target > eta,
+                  ExcMessage(
+                    "Steady residual continuation made no eta progress."));
+
+                auto trial = accepted;
+                // The continuation offset is constant, so the Jacobian is the
+                // original state Jacobian. Rebuild it at each checkpoint;
+                // immutable assembled operators remain cached by the adapter.
+                if (attempts != 1)
+                  adapter.setup_steady_jacobian(flow_time.initial_time,
+                                                trial,
+                                                state_dot);
+                const auto stage = solve_coupled_kinsol(
+                  adapter,
+                  flow_time.initial_time,
+                  trial,
+                  state_dot,
+                  solution_scaling,
+                  function_scaling,
+                  *state_constraints,
+                  steady_maximum_stage_iterations,
+                  steady_function_tolerance,
+                  steady_step_tolerance,
+                  KIN_LINESEARCH,
+                  ida_parameters.print_nonlinear_diagnostics,
+                  &initial_residual,
+                  target,
+                  MPI_COMM_WORLD);
+                total_iterations += stage.first;
+
+                bool valid = true;
+                for (const auto index : trial.locally_owned_elements())
+                  valid =
+                    valid && std::isfinite(trial[index]) &&
+                    state_dot[index] == 0. &&
+                    ((*state_constraints)[index] != 2. || trial[index] > 0.);
+                valid =
+                  Utilities::MPI::min(valid ? 1u : 0u, MPI_COMM_WORLD) == 1;
+                if (valid)
+                  valid = flow_problem.has_admissible_wall_states(
+                    adapter.field(trial, flow_fields.fields().state));
+                AssertThrow(
+                  valid,
+                  ExcMessage(
+                    "Steady continuation produced an invalid or inadmissible trial state."));
+
+                auto physical_residual = adapter.make_state();
+                adapter.solver().residual(flow_time.initial_time,
+                                          trial,
+                                          state_dot,
+                                          physical_residual);
+                auto shifted_residual = physical_residual;
+                if (target != 1.)
+                  shifted_residual.add(-(1. - target), initial_residual);
+
+                double shifted_scaled_inf = 0.;
+                finite                    = true;
+                for (const auto index : trial.locally_owned_elements())
+                  {
+                    const double scaled = std::abs(shifted_residual[index]) *
+                                          function_scaling[index];
+                    finite = finite && std::isfinite(scaled) &&
+                             std::isfinite(physical_residual[index]);
+                    if (std::isfinite(scaled))
+                      shifted_scaled_inf = std::max(shifted_scaled_inf, scaled);
+                  }
+                AssertThrow(
+                  Utilities::MPI::min(finite ? 1u : 0u, MPI_COMM_WORLD) == 1,
+                  ExcMessage("Steady continuation residual became nonfinite."));
+                shifted_scaled_inf =
+                  Utilities::MPI::max(shifted_scaled_inf, MPI_COMM_WORLD);
+                const bool stage_pass =
+                  stage.second >= 0 &&
+                  shifted_scaled_inf <= steady_function_tolerance;
+                if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+                  std::cout << "Steady continuation attempt " << attempts
+                            << ": eta=" << std::setprecision(8) << target
+                            << ", increment=" << stage_increment
+                            << ", KINSOL status=" << stage.second
+                            << ", iterations=" << stage.first
+                            << ", shifted scaled residual=" << std::scientific
+                            << shifted_scaled_inf
+                            << (stage_pass ? " accepted" : " rejected")
+                            << std::defaultfloat << std::endl;
+                if (stage_pass)
+                  {
+                    accepted  = std::move(trial);
+                    eta       = target;
+                    increment = std::min(steady_maximum_eta_increment,
+                                         stage_increment * 1.5);
+                    result    = {total_iterations, stage.second};
+                  }
+                else
+                  {
+                    AssertThrow(
+                      kinsol_stage_can_retry(stage.second),
+                      ExcMessage(
+                        "KINSOL reported success without satisfying the independent continuation residual gate."));
+                    increment = stage_increment * .5;
+                    AssertThrow(
+                      increment >= steady_minimum_eta_increment,
+                      ExcMessage(
+                        "Steady residual continuation exhausted its minimum eta increment."));
+                  }
+              }
+            candidate = std::move(accepted);
+          }
         check_coupled_steady_state(adapter,
                                    flow_time.initial_time,
                                    candidate,
