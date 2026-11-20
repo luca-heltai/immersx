@@ -324,14 +324,32 @@ namespace ImmersX
    * normal flux; see the deal.II function documentation for the exact
    * constraint meaning.)
    *
-   * Neumann boundary ids:
-   * - On boundary ids in `ElasticityProblemParameters::neumann_ids`, the code
-   *   adds a scalar traction-like load computed as
-   *   \f$t_n(x)=\frac{1}{spacedim}\,(\texttt{Neumann\_bc}(x)\cdot n(x))\f$ and
-   *   assembled as
-   * \f[
-   *   f_i \mathrel{+}= -\int_{\Gamma_N} t_n\, \varphi_i\,ds.
-   * \f]
+   * Neumann boundary ids (traction \f$t\f$):
+   * - On boundary ids in `ElasticityProblemParameters::neumann_ids`, the
+   *   vector function `ElasticityProblemParameters::Neumann_bc` is the
+   *   traction \f$t(x)\f$ and is assembled as
+   *   \f[
+   *     f_i \mathrel{+}= \int_{\Gamma_N} t\cdot\varphi_i\,ds.
+   *   \f]
+   *   Time-dependent runs scale it with the modulation factor of the function.
+   *
+   * Pressure boundary ids (traction \f$p\,n\f$):
+   * - On boundary ids in `ElasticityProblemParameters::pressure_ids`, the
+   *   scalar function `ElasticityProblemParameters::pressure_bc` is a pressure
+   *   \f$p(x)\f$ acting along the outward unit normal \f$n\f$ of the
+   *   domain, i.e. the traction is \f$t = p\,n\f$:
+   *   \f[
+   *     f_i \mathrel{+}= \int_{\Gamma_P} p\,(n\cdot\varphi_i)\,ds.
+   *   \f]
+   *   Unlike `Neumann_bc`, the direction follows the face normal, so the same
+   *   function works on curved boundaries. With this sign convention a
+   *   positive \f$p\f$ pulls the boundary outward; a fluid pressure that
+   *   pushes the body inward is a negative \f$p\f$.
+   *
+   * The Neumann and pressure id sets, as well as all other boundary id sets,
+   * must be disjoint: a face carries one boundary condition only.
+   * `ElasticityProblemParameters::check_model_consistency()` throws if a
+   * boundary id appears in more than one set.
    *
    * Weak Dirichlet ids (penalty term):
    * - For cells that have at least one boundary face with id in

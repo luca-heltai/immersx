@@ -38,6 +38,7 @@ namespace ImmersX
     , initial_velocity("/Functions/Initial velocity", spacedim)
     , bc("/Functions/Dirichlet boundary conditions", spacedim)
     , Neumann_bc("/Functions/Neumann boundary conditions", spacedim)
+    , pressure_bc("/Functions/Pressure boundary conditions", 1)
     , robin_coefficient("/Functions/Robin coefficient", 1)
     , robin_bc("/Functions/Robin boundary conditions", spacedim)
     , displacement_solver_control("/Solvers/Displacement")
@@ -78,7 +79,16 @@ namespace ImmersX
     add_parameter("Dirichlet boundary ids", dirichlet_ids);
     add_parameter("Weak Dirichlet boundary ids", weak_dirichlet_ids);
     add_parameter("Weak Dirichlet penalty coefficient", penalty_term);
-    add_parameter("Neumann boundary ids", neumann_ids);
+    add_parameter("Neumann boundary ids",
+                  neumann_ids,
+                  "Faces loaded with the traction t given by "
+                  "\"/Functions/Neumann boundary conditions\".");
+    add_parameter("Pressure boundary ids",
+                  pressure_ids,
+                  "Faces loaded with the traction p n, where p is the scalar "
+                  "function \"/Functions/Pressure boundary conditions\" and n "
+                  "is the outward unit normal. These ids must not appear in "
+                  "\"Neumann boundary ids\".");
     add_parameter("Normal flux boundary ids", normal_flux_ids);
     add_parameter("Robin boundary ids", robin_ids);
     add_parameter("Rhs material ids", rhs_material_ids);
@@ -259,7 +269,8 @@ namespace ImmersX
          &copy_modulated_function_entries](const auto        &ids,
                                            auto              &map,
                                            const auto        &base_function,
-                                           const std::string &prefix) {
+                                           const std::string &prefix,
+                                           const unsigned int n_components) {
           for (const auto id : ids)
             {
               const auto override_section =
@@ -269,7 +280,7 @@ namespace ImmersX
                 {
                   auto ptr =
                     std::make_shared<ModulatedParsedFunction<spacedim>>(
-                      override_section, spacedim);
+                      override_section, n_components);
                   ptr->set_fallback_configuration_source(&base_function);
                   ptr->enter_my_subsection(this->prm);
                   ptr->declare_parameters(this->prm);
@@ -291,7 +302,8 @@ namespace ImmersX
         ensure_function_overrides(rhs_material_ids,
                                   rhs_by_material_id,
                                   rhs,
-                                  "/Functions/Right hand side");
+                                  "/Functions/Right hand side",
+                                  spacedim);
 
         std::set<types::boundary_id> dirichlet_bc_ids = dirichlet_ids;
         dirichlet_bc_ids.insert(weak_dirichlet_ids.begin(),
@@ -299,14 +311,22 @@ namespace ImmersX
         ensure_function_overrides(dirichlet_bc_ids,
                                   dirichlet_bc_by_id,
                                   bc,
-                                  "/Functions/Dirichlet boundary conditions");
+                                  "/Functions/Dirichlet boundary conditions",
+                                  spacedim);
 
         std::set<types::boundary_id> neumann_bc_ids = neumann_ids;
         neumann_bc_ids.insert(normal_flux_ids.begin(), normal_flux_ids.end());
         ensure_function_overrides(neumann_bc_ids,
                                   neumann_bc_by_id,
                                   Neumann_bc,
-                                  "/Functions/Neumann boundary conditions");
+                                  "/Functions/Neumann boundary conditions",
+                                  spacedim);
+
+        ensure_function_overrides(pressure_ids,
+                                  pressure_bc_by_id,
+                                  pressure_bc,
+                                  "/Functions/Pressure boundary conditions",
+                                  1);
 
         this->enter_my_subsection(this->prm);
       }
@@ -400,6 +420,20 @@ namespace ImmersX
                    neumann_ids,
                    "normal flux ids",
                    normal_flux_ids);
+    check_disjoint("dirichlet ids",
+                   dirichlet_ids,
+                   "pressure ids",
+                   pressure_ids);
+    check_disjoint("weak dirichlet ids",
+                   weak_dirichlet_ids,
+                   "pressure ids",
+                   pressure_ids);
+    check_disjoint("neumann ids", neumann_ids, "pressure ids", pressure_ids);
+    check_disjoint("normal flux ids",
+                   normal_flux_ids,
+                   "pressure ids",
+                   pressure_ids);
+    check_disjoint("robin ids", robin_ids, "pressure ids", pressure_ids);
     check_disjoint("robin ids", robin_ids, "dirichlet ids", dirichlet_ids);
     check_disjoint("robin ids",
                    robin_ids,
@@ -501,6 +535,19 @@ namespace ImmersX
     return Neumann_bc;
   }
 
+
+
+  template <int dim, int spacedim>
+  const ModulatedParsedFunction<spacedim> &
+  ElasticityProblemParameters<dim, spacedim>::get_pressure_bc(
+    const types::boundary_id boundary_id) const
+  {
+    const auto it = pressure_bc_by_id.find(boundary_id);
+    if (it != pressure_bc_by_id.end())
+      return *it->second;
+    return pressure_bc;
+  }
+
   template <int dim, int spacedim>
   const Functions::ParsedFunction<spacedim> &
   ElasticityProblemParameters<dim, spacedim>::get_robin_coefficient(
@@ -571,6 +618,12 @@ namespace ImmersX
       }
 
     Neumann_bc.set_time(time);
+    pressure_bc.set_time(time);
+    for (const auto &[id, ptr] : pressure_bc_by_id)
+      {
+        (void)id;
+        ptr->set_time(time);
+      }
     for (const auto &[id, ptr] : neumann_bc_by_id)
       {
         (void)id;

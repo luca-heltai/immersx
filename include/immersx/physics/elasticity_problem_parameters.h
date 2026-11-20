@@ -108,6 +108,9 @@ namespace ImmersX
     const ModulatedParsedFunction<spacedim> &
     get_neumann_bc(const types::boundary_id boundary_id) const;
 
+    const ModulatedParsedFunction<spacedim> &
+    get_pressure_bc(const types::boundary_id boundary_id) const;
+
     const Functions::ParsedFunction<spacedim> &
     get_robin_coefficient(const types::boundary_id boundary_id) const;
 
@@ -164,7 +167,8 @@ namespace ImmersX
     unsigned int initial_refinement   = 5;         ///< Global refinements.
     std::set<types::boundary_id> dirichlet_ids{0}; ///< Strong Dirichlet ids.
     std::set<types::boundary_id> weak_dirichlet_ids{}; ///< Weak Dirichlet ids.
-    std::set<types::boundary_id> neumann_ids{};        ///< Neumann ids.
+    std::set<types::boundary_id> neumann_ids{};        ///< Traction ids.
+    std::set<types::boundary_id> pressure_ids{};       ///< Pressure ids.
     std::set<types::boundary_id> normal_flux_ids{};    ///< Flux-constraint ids.
     std::set<types::boundary_id> robin_ids{}; ///< Full-vector Robin faces.
 
@@ -268,6 +272,12 @@ namespace ImmersX
     std::map<types::boundary_id,
              std::shared_ptr<ModulatedParsedFunction<spacedim>>>
       neumann_bc_by_id;
+
+    mutable ModulatedParsedFunction<spacedim>
+      pressure_bc; ///< Scalar pressure p, applied as traction p n.
+    std::map<types::boundary_id,
+             std::shared_ptr<ModulatedParsedFunction<spacedim>>>
+      pressure_bc_by_id;
     mutable ParameterAcceptorProxy<Functions::ParsedFunction<spacedim>>
       robin_coefficient;
     std::map<types::boundary_id,
