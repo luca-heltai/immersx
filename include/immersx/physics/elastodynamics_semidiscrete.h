@@ -18,6 +18,10 @@
 #include <immersx/core/semidiscrete_pde_models.h>
 #include <immersx/physics/elastodynamics.h>
 
+#include <memory>
+#include <optional>
+#include <utility>
+
 namespace ImmersX
 {
   template <int dim, int spacedim = dim>
@@ -74,6 +78,102 @@ namespace ImmersX
       ImmersX::matrix_operator<VectorType>(problem.stiffness_matrix());
     const auto damping =
       ImmersX::matrix_operator<VectorType>(problem.damping_matrix());
+
+    using MatrixOperator     = typename Builder::Model::MatrixOperator;
+    using MatrixFactory      = typename Builder::Model::MatrixOperatorFactory;
+    const auto freeze_matrix = [](const MatrixOperator &source) {
+      auto result      = ImmersX::matrix_operator<VectorType>(source.matrix());
+      result.immutable = true;
+      return result;
+    };
+
+    // Constraint membership is fixed within a spatial setup; time-dependent
+    // inhomogeneities belong to the residual, not these matrix row masks.
+    // Apply each mask before sharing its owner: constrained materializers
+    // modify their destination and must not mutate an already shared matrix.
+    struct SpatialMatrixVersions
+    {
+      std::optional<unsigned long> revision;
+      MatrixOperator               mass;
+      MatrixOperator               kinematic_mass;
+      MatrixOperator               kinematic_velocity;
+      MatrixOperator               kinematic_identity;
+      MatrixOperator               damping;
+    };
+    const auto spatial_versions = std::make_shared<SpatialMatrixVersions>();
+    const auto spatial_matrices = [&problem,
+                                   spatial_versions,
+                                   freeze_matrix,
+                                   mass,
+                                   kinematic_mass,
+                                   damping]() -> const SpatialMatrixVersions & {
+      const auto revision = problem.assembly_statistics().spatial_operators;
+      if (!spatial_versions->revision ||
+          *spatial_versions->revision != revision)
+        {
+          spatial_versions->mass =
+            freeze_matrix(semidiscrete_detail::constrained_matrix_operator(
+              mass, problem.velocity_constraints()));
+          spatial_versions->kinematic_mass =
+            freeze_matrix(semidiscrete_detail::constrained_matrix_operator(
+              kinematic_mass, problem.constraints()));
+          spatial_versions->kinematic_velocity =
+            -1. * spatial_versions->kinematic_mass;
+          spatial_versions->kinematic_identity = freeze_matrix(
+            semidiscrete_detail::constrained_matrix_identity_operator(
+              kinematic_mass, problem.constraints()));
+          spatial_versions->damping = freeze_matrix(
+            semidiscrete_detail::constrained_matrix_operator_with_identity(
+              damping, problem.velocity_constraints()));
+          spatial_versions->revision = revision;
+        }
+      return *spatial_versions;
+    };
+    const MatrixFactory mass_factory = [spatial_matrices](const auto &) {
+      return spatial_matrices().mass;
+    };
+    const MatrixFactory kinematic_mass_factory =
+      [spatial_matrices](const auto &) {
+        return spatial_matrices().kinematic_mass;
+      };
+    const MatrixFactory kinematic_velocity_factory =
+      [spatial_matrices](const auto &) {
+        return spatial_matrices().kinematic_velocity;
+      };
+    const MatrixFactory kinematic_identity_factory =
+      [spatial_matrices](const auto &) {
+        return spatial_matrices().kinematic_identity;
+      };
+    const MatrixFactory damping_factory = [spatial_matrices](const auto &) {
+      return spatial_matrices().damping;
+    };
+
+    struct StiffnessMatrixVersion
+    {
+      std::optional<std::pair<unsigned long, unsigned long>> revision;
+      MatrixOperator                                         matrix;
+    };
+    const auto stiffness_version = std::make_shared<StiffnessMatrixVersion>();
+    const MatrixFactory stiffness_factory = [&problem,
+                                             stiffness_version,
+                                             freeze_matrix,
+                                             stiffness](const auto &context) {
+      problem.update_boundary_operators(context.time());
+      const auto &statistics = problem.assembly_statistics();
+      const auto  revision   = std::make_pair(statistics.spatial_operators,
+                                           statistics.robin_operators);
+      if (!stiffness_version->revision ||
+          *stiffness_version->revision != revision)
+        {
+          // Keep only the current version here. Snapshots own older versions
+          // for exactly as long as they are needed by retained Jacobians.
+          stiffness_version->matrix =
+            freeze_matrix(semidiscrete_detail::constrained_matrix_operator(
+              stiffness, problem.velocity_constraints()));
+          stiffness_version->revision = revision;
+        }
+      return stiffness_version->matrix;
+    };
     builder.preconditioner(displacement_id,
                            [](const auto &linearized_matrix,
                               const auto &prototype) {
@@ -147,15 +247,9 @@ namespace ImmersX
           context.state(displacement_id),
           problem.constraints());
       })
-      .state(velocity_id,
-             semidiscrete_detail::constrained_matrix_operator(
-               -1. * kinematic_mass, problem.constraints()))
-      .state(displacement_id,
-             semidiscrete_detail::constrained_matrix_identity_operator(
-               kinematic_mass, problem.constraints()))
-      .derivative(displacement_id,
-                  semidiscrete_detail::constrained_matrix_operator(
-                    kinematic_mass, problem.constraints()));
+      .state(velocity_id, kinematic_velocity_factory)
+      .state(displacement_id, kinematic_identity_factory)
+      .derivative(displacement_id, kinematic_mass_factory);
 
     auto dynamics = builder.term(velocity_id, "dynamics");
     dynamics
@@ -186,15 +280,9 @@ namespace ImmersX
             context.state(velocity_id),
             problem.velocity_constraints());
         })
-      .state(displacement_id,
-             semidiscrete_detail::constrained_matrix_operator(
-               stiffness, problem.velocity_constraints()))
-      .state(velocity_id,
-             semidiscrete_detail::constrained_matrix_operator_with_identity(
-               damping, problem.velocity_constraints()))
-      .derivative(velocity_id,
-                  semidiscrete_detail::constrained_matrix_operator(
-                    mass, problem.velocity_constraints()));
+      .state(displacement_id, stiffness_factory)
+      .state(velocity_id, damping_factory)
+      .derivative(velocity_id, mass_factory);
 
     return {displacement, velocity, std::move(space)};
   }
