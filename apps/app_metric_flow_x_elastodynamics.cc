@@ -1411,6 +1411,59 @@ namespace
         for (const auto index : solution_scaling.locally_owned_elements())
           solution_scaling[index] = 1. / characteristics[index];
         solution_scaling.compress(VectorOperation::insert);
+        const auto report_initial_steady_residual =
+          [&](const GlobalVector &residual) {
+            const auto report_field = [&](const std::string &name,
+                                          const auto        &semantic_field) {
+              const auto &field_residual =
+                adapter.field(residual, semantic_field);
+              const auto &field_scaling =
+                adapter.field(function_scaling, semantic_field);
+              double local_squared_norm   = 0.;
+              double local_maximum        = 0.;
+              double local_scaled_maximum = 0.;
+              bool   local_finite         = true;
+              for (const auto index : field_residual.locally_owned_elements())
+                {
+                  const double value  = field_residual[index];
+                  const double scale  = field_scaling[index];
+                  const double scaled = std::abs(value) * scale;
+                  const bool   finite = std::isfinite(value) &&
+                                      std::isfinite(scale) && scale > 0. &&
+                                      std::isfinite(scaled);
+                  local_finite = local_finite && finite;
+                  if (finite)
+                    {
+                      local_squared_norm += value * value;
+                      local_maximum = std::max(local_maximum, std::abs(value));
+                      local_scaled_maximum =
+                        std::max(local_scaled_maximum, scaled);
+                    }
+                }
+              local_finite = local_finite && std::isfinite(local_squared_norm);
+              const double global_squared_norm =
+                Utilities::MPI::sum(local_squared_norm, MPI_COMM_WORLD);
+              const double l2_norm = std::sqrt(global_squared_norm);
+              const auto   finite  = Utilities::MPI::min(
+                local_finite && std::isfinite(global_squared_norm) ? 1u : 0u,
+                MPI_COMM_WORLD);
+              const double maximum =
+                Utilities::MPI::max(local_maximum, MPI_COMM_WORLD);
+              const double scaled_inf =
+                Utilities::MPI::max(local_scaled_maximum, MPI_COMM_WORLD);
+              if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+                std::cout << "Steady initial residual " << name
+                          << ": L2=" << std::scientific << std::setprecision(8)
+                          << l2_norm << "; max=" << maximum
+                          << "; scaled_inf=" << scaled_inf
+                          << "; finite=" << finite << std::defaultfloat
+                          << std::endl;
+            };
+            report_field("displacement", solid_fields.fields().displacement);
+            report_field("velocity", solid_fields.fields().velocity);
+            report_field("flow", flow_fields.fields().state);
+            report_field("multiplier", coupling_fields.fields().multiplier);
+          };
         std::pair<unsigned int, int> result;
         if (!steady_residual_continuation)
           result =
@@ -1428,7 +1481,9 @@ namespace
                                  ida_parameters.print_nonlinear_diagnostics,
                                  static_cast<const GlobalVector *>(nullptr),
                                  1.,
-                                 MPI_COMM_WORLD);
+                                 MPI_COMM_WORLD,
+                                 std::function<void(const GlobalVector &)>(
+                                   report_initial_steady_residual));
         else
           {
             auto initial_residual = adapter.make_state();
@@ -1445,6 +1500,7 @@ namespace
               Utilities::MPI::min(finite ? 1u : 0u, MPI_COMM_WORLD) == 1,
               ExcMessage(
                 "Steady residual continuation requires finite initial state and residual."));
+            report_initial_steady_residual(initial_residual);
 
             auto         accepted = candidate;
             double       eta = 0., increment = steady_initial_eta_increment;

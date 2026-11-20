@@ -14,6 +14,7 @@
 
 #include <cmath>
 #include <exception>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -46,21 +47,23 @@ namespace ImmersX::metric_flow_x_app_detail
   // the same public adapter callbacks. The backend owns the borrowed context.
   template <class Adapter, class GlobalVector>
   std::pair<unsigned int, int>
-  solve_coupled_kinsol(Adapter            &adapter,
-                       const double        time,
-                       GlobalVector       &candidate,
-                       const GlobalVector &zero,
-                       GlobalVector       &solution_scaling,
-                       GlobalVector       &function_scaling,
-                       GlobalVector       &constraints,
-                       const unsigned int  max_iterations,
-                       const double        function_tolerance,
-                       const double        step_tolerance,
-                       const int           strategy          = KIN_NONE,
-                       const bool          print_diagnostics = false,
-                       const GlobalVector *residual_offset   = nullptr,
-                       const double        offset_eta        = 1.,
-                       const MPI_Comm      communicator      = MPI_COMM_WORLD)
+  solve_coupled_kinsol(
+    Adapter                                  &adapter,
+    const double                              time,
+    GlobalVector                             &candidate,
+    const GlobalVector                       &zero,
+    GlobalVector                             &solution_scaling,
+    GlobalVector                             &function_scaling,
+    GlobalVector                             &constraints,
+    const unsigned int                        max_iterations,
+    const double                              function_tolerance,
+    const double                              step_tolerance,
+    const int                                 strategy          = KIN_NONE,
+    const bool                                print_diagnostics = false,
+    const GlobalVector                       *residual_offset   = nullptr,
+    const double                              offset_eta        = 1.,
+    const MPI_Comm                            communicator = MPI_COMM_WORLD,
+    std::function<void(const GlobalVector &)> initial_residual_observer = {})
   {
     namespace Native     = Compatibility::SUNDIALS;
     auto      &backend   = adapter.solver();
@@ -85,6 +88,8 @@ namespace ImmersX::metric_flow_x_app_detail
       const GlobalVector                       *residual_offset;
       double                                    offset_eta;
       MPI_Comm                                  communicator;
+      std::function<void(const GlobalVector &)> initial_residual_observer;
+      bool                                      initial_residual_observed;
       int
       agree_status(const int local_status)
       {
@@ -111,7 +116,9 @@ namespace ImmersX::metric_flow_x_app_detail
                 adapter.current_jacobian(),
                 residual_offset,
                 offset_eta,
-                communicator};
+                communicator,
+                std::move(initial_residual_observer),
+                false};
     SUNMatrix       matrix = nullptr;
     SUNLinearSolver linear = nullptr;
 #if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
@@ -141,6 +148,14 @@ namespace ImmersX::metric_flow_x_app_detail
         auto      &c        = *static_cast<Callbacks *>(user);
         const auto function = [&](const auto &src, auto &dst) {
           c.adapter.solver().residual(c.time, src, c.zero, dst);
+          if (!c.initial_residual_observed)
+            {
+              if (c.initial_residual_observer)
+                c.initial_residual_observer(dst);
+              c.initial_residual_observed = true;
+            }
+          // Observe the original residual before applying any continuation
+          // offset.
           // At eta=1 use the original residual without a zero-vector update.
           if (c.residual_offset != nullptr && c.offset_eta != 1.)
             dst.add(-(1. - c.offset_eta), *c.residual_offset);
