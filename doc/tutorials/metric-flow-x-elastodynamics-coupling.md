@@ -122,6 +122,33 @@ and native pressure terms together. The generic symmetric constraint would
 add transpose reactions to displacement and area residuals, which are not the momentum
 rows of this first-order system.
 
+## Steady initialization with residual continuation
+
+The optional `MetricFlowX coupling/Steady solver/Initialize equilibrium`
+setting solves the coupled steady equations at the initial time before IDA
+starts. Its existing direct KINSOL solve remains the default. For an initial
+state that needs a gentler nonlinear path, enable
+`MetricFlowX coupling/Steady solver/Use residual continuation`.
+
+Continuation solves
+
+$$
+  F_\eta(y)=F(y)-(1-\eta)F(y_0)=0,\qquad 0\leq\eta\leq1,
+$$
+
+where $y_0$ is the unmodified initial state and $F$ is the original coupled
+steady residual. The constant offset adds no Jacobian term. KINSOL still
+reassembles the nonlinear Jacobian as the trial state changes, and each new
+continuation checkpoint starts with a Jacobian assembled at that accepted
+state. Immutable assembled operators stay in the adapter's existing cache. A
+retryable KINSOL nonconvergence discards that stage's trial state and halves
+the eta increment. Attempts and the minimum increment are bounded by the
+`Steady solver` parameters. A state is passed to IDA only after the eta-one
+residual, positive-area constraints, wall admissibility, and the existing full
+coupled steady-state check pass. Continuation requires
+`Initialize equilibrium = true`; the steady initialization still uses MUMPS or
+UMFPACK.
+
 The executable requires MetricFlowX, deal.II with SUNDIALS, and MPI. The
 application and its build requirements are listed in the
 [application reference](../reference/applications).
