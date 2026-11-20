@@ -138,7 +138,9 @@ namespace ImmersX
     unsigned int second_order_maximum_iterations = 1000;
     double       second_order_relative_tolerance = 1.e-2;
     /** MUMPS: residual check with the retained Jacobian and the number of
-     * correction backsolves with the same factorization to reach it.
+     * correction backsolves with the same factorization to reach it. The
+     * check never requires a defect below the rounding level of evaluating
+     * J x - b.
      */
     double       mumps_relative_tolerance  = 1.e-8;
     unsigned int mumps_maximum_corrections = 3;
@@ -360,7 +362,8 @@ namespace ImmersX
       prm.add_parameter(
         "Relative tolerance",
         c.mumps_relative_tolerance,
-        "A MUMPS backsolve fails unless |J x - rhs| <= this * |rhs|.",
+        "A MUMPS backsolve fails unless |J x - rhs| <= this * |rhs|, or "
+        "the defect is at the rounding level of evaluating J x - rhs.",
         dealii::Patterns::Double(0., 1.));
       prm.add_parameter(
         "Maximum corrections",

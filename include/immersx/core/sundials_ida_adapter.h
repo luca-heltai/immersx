@@ -137,6 +137,85 @@ namespace ImmersX
       return iterations;
     }
 
+    /** Size of a materialized Jacobian for the MUMPS residual gate. */
+    struct MumpsDefectBound
+    {
+      /** Upper bound of ||J||_2: sqrt(||J||_1 ||J||_inf), where each norm is
+       * bounded by summing the norms of the blocks of a block row or column.
+       */
+      double jacobian_norm = 0.;
+      /** Largest number of stored entries in one row of J. */
+      unsigned int row_entries = 0;
+    };
+
+    template <typename BlockMatrixType>
+    MumpsDefectBound
+    mumps_defect_bound(const BlockMatrixType &jacobian,
+                       const MPI_Comm         communicator)
+    {
+      MumpsDefectBound bound;
+      double           linfty = 0., l1 = 0.;
+      for (unsigned int i = 0; i < jacobian.n_block_rows(); ++i)
+        {
+          double row_sum = 0.;
+          for (unsigned int j = 0; j < jacobian.n_block_cols(); ++j)
+            row_sum += jacobian.block(i, j).linfty_norm();
+          linfty = std::max(linfty, row_sum);
+        }
+      for (unsigned int j = 0; j < jacobian.n_block_cols(); ++j)
+        {
+          double column_sum = 0.;
+          for (unsigned int i = 0; i < jacobian.n_block_rows(); ++i)
+            column_sum += jacobian.block(i, j).l1_norm();
+          l1 = std::max(l1, column_sum);
+        }
+      bound.jacobian_norm      = std::sqrt(l1 * linfty);
+      unsigned int row_entries = 0;
+      if (jacobian.n_block_cols() > 0)
+        for (unsigned int i = 0; i < jacobian.n_block_rows(); ++i)
+          {
+#  ifdef IMMERSX_USE_PETSC_LA
+            // PETSc rows are owned in one contiguous range.
+            const auto       range = jacobian.block(i, 0).local_range();
+            dealii::IndexSet rows(jacobian.block(i, 0).m());
+            rows.add_range(range.first, range.second);
+#  else
+            const auto rows =
+              jacobian.block(i, 0).locally_owned_range_indices();
+#  endif
+            for (const auto row : rows)
+              {
+                unsigned int entries = 0;
+                for (unsigned int j = 0; j < jacobian.n_block_cols(); ++j)
+                  entries += jacobian.block(i, j).row_length(row);
+                row_entries = std::max(row_entries, entries);
+              }
+          }
+      bound.row_entries =
+        dealii::Utilities::MPI::max(row_entries, communicator);
+      return bound;
+    }
+
+    /** Largest accepted ||J x - b||_2 of a MUMPS solve.
+     * The relative target cannot be verified below the rounding error of
+     * evaluating J x - b in double precision, about
+     * gamma (||J|| ||x|| + ||b||) with gamma = n eps / (1 - n eps) for n
+     * terms per row. A default (zero) bound leaves the relative target.
+     */
+    inline double
+    mumps_defect_target(const double            relative_tolerance,
+                        const double            rhs_norm,
+                        const MumpsDefectBound &bound,
+                        const double            solution_norm)
+    {
+      const double terms = bound.row_entries + 1.;
+      const double unit  = terms * std::numeric_limits<double>::epsilon();
+      const double gamma = unit < 1. ? unit / (1. - unit) :
+                                       std::numeric_limits<double>::infinity();
+      return std::max(relative_tolerance * rhs_norm,
+                      gamma * (bound.jacobian_norm * solution_norm + rhs_norm));
+    }
+
     /** Solve in native IDA error-weight coordinates and verify both norms.
      * The caller supplies the weighted L2 target. No scaled matrix is stored.
      */
@@ -1680,14 +1759,25 @@ namespace ImmersX
                 double              defect_norm = 0.;
                 unsigned int        refinement  = 0;
                 std::vector<double> defect_history(max_refinements + 1);
+                // The target follows the current solution: below the rounding
+                // level of evaluating J x - b the relative target cannot be
+                // verified. A zero correction leaves ||J x - b|| = ||b||, above
+                // every target.
+                const auto defect_target = [&]() {
+                  return detail::mumps_defect_target(relative_target,
+                                                     rhs_norm,
+                                                     mumps_defect_bound_,
+                                                     dst.l2_norm());
+                };
+                double target = 0.;
                 for (;; ++refinement)
                   {
                     current_jacobian_->vmult(defect, dst);
                     defect -= original_rhs;
                     defect_norm                = defect.l2_norm();
                     defect_history[refinement] = defect_norm;
-                    if (!std::isfinite(defect_norm) ||
-                        defect_norm <= relative_target * rhs_norm ||
+                    target                     = defect_target();
+                    if (!std::isfinite(defect_norm) || defect_norm <= target ||
                         refinement == max_refinements)
                       break;
                     GlobalVectorType correction;
@@ -1697,8 +1787,7 @@ namespace ImmersX
                     dst.compress(dealii::VectorOperation::insert);
                   }
                 unsigned int krylov_corrections = 0;
-                if (std::isfinite(defect_norm) &&
-                    defect_norm > relative_target * rhs_norm &&
+                if (std::isfinite(defect_norm) && defect_norm > target &&
                     controls.mumps_maximum_krylov_corrections > 0)
                   {
                     krylov_corrections =
@@ -1708,16 +1797,17 @@ namespace ImmersX
                         original_rhs,
                         dst,
                         controls.mumps_maximum_krylov_corrections,
-                        relative_target * rhs_norm);
+                        target);
                     current_jacobian_->vmult(defect, dst);
                     defect -= original_rhs;
                     defect_norm = defect.l2_norm();
+                    target      = defect_target();
                     std::ostringstream recovery_message;
                     recovery_message
                       << "IDAAdapter: MUMPS Krylov recovery used "
                       << krylov_corrections << " iteration(s), true residual "
                       << std::scientific << std::setprecision(17) << defect_norm
-                      << ", target " << relative_target * rhs_norm;
+                      << ", target " << target;
                     pcout << recovery_message.str() << std::endl;
                   }
                 if (ida_parameters_.print_nonlinear_diagnostics)
@@ -1727,18 +1817,24 @@ namespace ImmersX
                   }
                 // Some supported deal.II MUMPS wrappers do not report failed
                 // factorizations. Do not let a zero correction freeze the DAE.
-                if (!(std::isfinite(defect_norm) &&
-                      defect_norm <= relative_target * rhs_norm))
+                if (!(std::isfinite(defect_norm) && defect_norm <= target))
                   {
                     std::ostringstream message;
-                    message << std::scientific << std::setprecision(17)
-                            << "MUMPS backsolve failed the retained-Jacobian "
-                               "residual check. RHS L2 norm = "
-                            << rhs_norm << ", defect L2 norm = " << defect_norm
-                            << ", required defect L2 norm <= "
-                            << relative_target * rhs_norm
-                            << ", relative target = " << relative_target
-                            << ", relative defect = ";
+                    message
+                      << std::scientific << std::setprecision(17)
+                      << "MUMPS backsolve failed the retained-Jacobian "
+                         "residual check. RHS L2 norm = "
+                      << rhs_norm << ", defect L2 norm = " << defect_norm
+                      << ", required defect L2 norm <= " << target
+                      << " (largest of relative target * RHS L2 norm = "
+                      << relative_target * rhs_norm
+                      << " and the rounding level of J x - b, with "
+                         "Jacobian norm bound = "
+                      << mumps_defect_bound_.jacobian_norm
+                      << ", row entries = " << mumps_defect_bound_.row_entries
+                      << ", solution L2 norm = " << dst.l2_norm()
+                      << "), relative target = " << relative_target
+                      << ", relative defect = ";
                     if (rhs_norm > 0.)
                       message << defect_norm / rhs_norm;
                     else
@@ -2491,6 +2587,9 @@ namespace ImmersX
           dealii::TimerOutput::Scope direct_timer(computing_timer,
                                                   "Materialize Jacobian");
           condensation_ = composition_.second_order_condensation(blocks);
+          if (linear_solver_ == LinearSolver::mumps)
+            mumps_defect_bound_ =
+              detail::mumps_defect_bound(blocks, composition_.communicator());
           std::shared_ptr<MatrixType> monolithic;
           if (!condensation_)
             {
@@ -2754,6 +2853,8 @@ namespace ImmersX
     LinearSolver        linear_solver_            = LinearSolver::iterative;
     BlockPreconditioner block_preconditioner_ = BlockPreconditioner::automatic;
     DirectFactorization direct_solver_;
+    /** Size of the factorized Jacobian, for the MUMPS residual gate. */
+    detail::MumpsDefectBound mumps_defect_bound_;
     std::shared_ptr<const typename Composition::SecondOrderCondensation>
                                                             condensation_;
     std::vector<std::shared_ptr<const DirectFactorization>> kinematic_solvers_;
