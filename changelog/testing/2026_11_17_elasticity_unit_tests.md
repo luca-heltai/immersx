@@ -1,0 +1,12 @@
+PR: #455
+
+- Added unit tests of `ElasticityProblem` to `gtests/elasticity_03.cc`: body
+  force and Neumann loads against exact integrals, time modulation of the
+  forcing terms, affine solutions with hanging nodes and with weak Dirichlet
+  (Nitsche) data, time-mode inference, Rayleigh and Kelvin-Voigt damping, the
+  Newmark operator and Newmark value constraints.
+- Added tests of `make_vessel_index_of_a_cell()`, `run_timestep0()` and
+  `run_timestep()` for tensor-product coupling to
+  `gtests/coupled_elasticity_03.cc`: vessel ids of reduced cells, the
+  multiplier block size, the pressure file, repeated steps with unchanged
+  data, and the `inclusions` refinement strategy.

@@ -135,6 +135,17 @@ namespace
     return dst;
   }
 
+  // Set every locally owned entry that `constraints` constrains to zero.
+  void
+  clear_constrained_entries(const AffineConstraints<double> &constraints,
+                            LA::MPI::Vector                 &vector)
+  {
+    for (const auto i : vector.locally_owned_elements())
+      if (constraints.is_constrained(i))
+        vector[i] = 0.0;
+    vector.compress(VectorOperation::insert);
+  }
+
   std::string
   per_run_output_name(const std::string &name)
   {
@@ -755,6 +766,310 @@ TEST(ElasticityProblem, BOTH_RobinNormalFluxTranslation)
 {
   check_newmark_robin_translation(false, false, true);
   check_newmark_robin_translation(false, true, true);
+}
+
+
+
+TEST(ElasticityProblem, BOTH_BodyForceLoadMatchesExactIntegrals)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, R"(
+    subsection Functions
+      subsection Right hand side
+        set Function expression = 1 - y; 2 + x
+      end
+    end
+  )");
+  setup_system(problem);
+  problem.assemble_elasticity_system();
+
+  // Without constraints, r . f equals int_Omega f . r for every rigid mode r.
+  const auto &f = problem.system_rhs.block(0);
+  EXPECT_NEAR(rigid_body_mode(problem, 0) * f, 4.0, 1e-12);
+  EXPECT_NEAR(rigid_body_mode(problem, 1) * f, 8.0, 1e-12);
+  EXPECT_NEAR(rigid_body_mode(problem, 2) * f, 8.0 / 3.0, 1e-12);
+}
+
+
+
+TEST(ElasticityProblem, BOTH_NeumannTractionLoadMatchesBoundaryIntegral)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, R"(
+    subsection Immersed Problem
+      set Neumann boundary ids = 1
+    end
+    subsection Functions
+      subsection Neumann boundary conditions
+        set Function expression = 3; 1 + y
+      end
+    end
+  )");
+  setup_system(problem);
+  problem.assemble_elasticity_system();
+
+  // Traction t = (3, 1 + y) on x = 1: int t . r ds for each rigid mode r.
+  const auto &f = problem.system_rhs.block(0);
+  EXPECT_NEAR(rigid_body_mode(problem, 0) * f, 6.0, 1e-12);
+  EXPECT_NEAR(rigid_body_mode(problem, 1) * f, 2.0, 1e-12);
+  EXPECT_NEAR(rigid_body_mode(problem, 2) * f, 2.0, 1e-12);
+}
+
+
+
+TEST(ElasticityProblem, BOTH_ForcingTermsAreModulatedInTime)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, R"(
+    subsection Functions
+      subsection Right hand side
+        set Function expression  = 1; 2
+        set Modulation frequency = 0.25
+      end
+    end
+  )");
+  setup_system(problem);
+
+  // sin(2 pi * 0.25 * t) = 0.5 at t = 1/3.
+  problem.assemble_forcing_terms(1.0 / 3.0);
+  const auto &f = problem.force_rhs.block(0);
+  EXPECT_NEAR(rigid_body_mode(problem, 0) * f, 0.5 * 4.0, 1e-12);
+  EXPECT_NEAR(rigid_body_mode(problem, 1) * f, 0.5 * 8.0, 1e-12);
+
+  LA::MPI::Vector sum(problem.force_rhs.block(0));
+  sum += problem.bc_rhs.block(0);
+  sum += problem.neumann_bc_rhs.block(0);
+  EXPECT_LT(max_difference(problem.system_rhs.block(0), sum), 1e-14);
+}
+
+
+
+TEST(ElasticityProblem, BOTH_AffineSolutionIsReproducedWithHangingNodes)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  const std::string                exact = "1 + x + 2*y; -0.5 + 3*x - y";
+  parse_parameters(par,
+                   R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 0, 1, 2, 3
+    end
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = )" +
+                     exact + R"(
+      end
+    end
+  )");
+  setup_system(problem, true);
+  problem.assemble_elasticity_system();
+  problem.assemble_coupling();
+  problem.solve_static();
+
+  // Affine fields have divergence-free stress, so Q1 reproduces them exactly.
+  EXPECT_FALSE(problem.has_immersed_coupling());
+  EXPECT_LT(max_difference(problem.solution.block(0),
+                           interpolate(problem, exact)),
+            1e-9);
+}
+
+
+
+// The Nitsche right-hand side pairs sigma(phi_i) n with the full boundary data
+// vector. With only its own component the method is inconsistent: the error
+// decays like 1/penalty and is nonzero even for a constant translation.
+TEST(ElasticityProblem, BOTH_WeakDirichletReproducesAffineSolution)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  const std::string                exact = "1 + x + 2*y; -0.5 + 3*x - y";
+  parse_parameters(par,
+                   R"(
+    subsection Immersed Problem
+      set Weak Dirichlet boundary ids        = 0, 1, 2, 3
+      set Weak Dirichlet penalty coefficient = 10
+    end
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = )" +
+                     exact + R"(
+      end
+    end
+  )");
+  setup_system(problem);
+  problem.assemble_elasticity_system();
+  problem.assemble_coupling();
+  problem.solve_static();
+
+  // A consistent Nitsche formulation reproduces fields in the FE space.
+  EXPECT_LT(max_difference(problem.solution.block(0),
+                           interpolate(problem, exact)),
+            1e-9);
+}
+
+
+
+TEST(ElasticityProblem, BOTH_TimeModeIsInferredFromTimeIntervalAndDensity)
+{
+  const auto inferred_mode = [](const std::string &time_parameters) {
+    ParameterAcceptor::clear();
+    ElasticityProblemParameters<dim> par;
+    parse_parameters(par, time_parameters);
+    return par.time_mode;
+  };
+
+  EXPECT_EQ(inferred_mode(""), TimeMode::Static);
+  EXPECT_EQ(inferred_mode(R"(
+    subsection Immersed Problem
+      subsection Time parameters
+        set Final time = 1
+      end
+    end
+  )"),
+            TimeMode::QuasiStatic);
+  EXPECT_EQ(inferred_mode(R"(
+    subsection Immersed Problem
+      subsection Time parameters
+        set Final time = 1
+      end
+      subsection Material properties
+        subsection default
+          set Density = 1
+        end
+      end
+    end
+  )"),
+            TimeMode::Dynamic);
+}
+
+
+
+TEST(ElasticityProblem, BOTH_DynamicOperatorsCombineMassStiffnessAndDamping)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, R"(
+    subsection Immersed Problem
+      subsection Time parameters
+        set Final time    = 1
+        set Time step     = 0.01
+        set Newmark beta  = 0.25
+        set Newmark gamma = 0.5
+      end
+      subsection Material properties
+        subsection default
+          set Density        = 2
+          set Rayleigh alpha = 0.3
+          set Rayleigh beta  = 0.1
+        end
+      end
+    end
+  )");
+  ASSERT_EQ(par.time_mode, TimeMode::Dynamic);
+  ASSERT_EQ(par.elasticity_model, ElasticityModel::LinearElasticity);
+  setup_system(problem);
+  problem.assemble_elasticity_system();
+
+  // r^T C r = rho int |r|^2: 4 rho for a translation, 8/3 rho for a rotation.
+  const auto &C           = problem.mass_matrix;
+  const auto  translation = rigid_body_mode(problem, 0);
+  const auto  rotation    = rigid_body_mode(problem, 2);
+  EXPECT_NEAR(vmult(C, translation) * translation, 2.0 * 4.0, 1e-12);
+  EXPECT_NEAR(vmult(C, rotation) * rotation, 2.0 * 8.0 / 3.0, 1e-12);
+
+  const auto x  = interpolate(problem, "sin(x) + y*y; x*y - cos(y)");
+  const auto Ax = vmult(problem.stiffness_matrix, x);
+  const auto Cx = vmult(C, x);
+  const auto Dx = vmult(problem.damping_matrix, x);
+
+  // Rayleigh damping: D = beta A + alpha C.
+  LA::MPI::Vector expected_Dx(Ax);
+  expected_Dx *= 0.1;
+  expected_Dx.add(0.3, Cx);
+  EXPECT_LT(max_difference(Dx, expected_Dx), 1e-12 * Dx.linfty_norm());
+
+  // Newmark matrix: N = C + beta_N dt^2 A + gamma_N dt D.
+  LA::MPI::Vector expected_Nx(Cx);
+  expected_Nx.add(0.25 * 0.01 * 0.01, Ax, 0.5 * 0.01, Dx);
+  EXPECT_LT(max_difference(vmult(problem.newmark_matrix, x), expected_Nx),
+            1e-12 * expected_Nx.linfty_norm());
+}
+
+
+
+TEST(ElasticityProblem, BOTH_KelvinVoigtDampingScalesSymmetricGradientForm)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, R"(
+    subsection Immersed Problem
+      subsection Time parameters
+        set Final time = 1
+      end
+      subsection Material properties
+        subsection default
+          set Lame mu       = 2
+          set Lame lambda   = 0
+          set Density       = 1
+          set Viscosity eta = 0.5
+        end
+      end
+    end
+  )");
+  ASSERT_EQ(par.elasticity_model, ElasticityModel::KelvinVoigt);
+  setup_system(problem);
+  problem.assemble_elasticity_system();
+
+  // With lambda = 0, A = 2 mu (eps, eps) and D = eta (eps, eps).
+  const auto      x = interpolate(problem, "sin(x) + y*y; x*y - cos(y)");
+  LA::MPI::Vector expected_Dx = vmult(problem.stiffness_matrix, x);
+  expected_Dx *= 0.5 / (2.0 * 2.0);
+  const auto Dx = vmult(problem.damping_matrix, x);
+  EXPECT_GT(Dx.linfty_norm(), 0.0);
+  EXPECT_LT(max_difference(Dx, expected_Dx), 1e-12 * Dx.linfty_norm());
+}
+
+
+
+TEST(ElasticityProblem, BOTH_NewmarkValueConstraintsReproduceGivenValues)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids = 1
+    end
+    subsection Functions
+      subsection Dirichlet boundary conditions
+        set Function expression = 1 + y; 2*x
+      end
+    end
+  )");
+  setup_system(problem, true);
+
+  // Values that violate both the hanging-node and the Dirichlet constraints.
+  const auto values = interpolate(problem, "sin(3*x) + y; cos(2*y) - x*y");
+
+  AffineConstraints<double> value_constraints;
+  problem.make_newmark_value_constraints(values,
+                                         problem.constraints,
+                                         value_constraints);
+
+  LA::MPI::Vector reconstructed(values);
+  clear_constrained_entries(problem.constraints, reconstructed);
+  value_constraints.distribute(reconstructed);
+  EXPECT_LT(max_difference(reconstructed, values), 1e-12);
 }
 
 // In dynamic runs the matrices have homogeneous essential columns, and
