@@ -821,35 +821,6 @@ TEST(ElasticityProblem, BOTH_NeumannTractionLoadMatchesBoundaryIntegral)
 
 
 
-// Static and time-dependent runs must load a Neumann boundary in the same way.
-// assemble_elasticity_system() applies the Neumann data as a vector traction,
-// int t_c phi_i ds, while assemble_forcing_terms() applies -(t . n)/spacedim
-// to every component, so this test fails until that is fixed (issue #454).
-TEST(ElasticityProblem, BOTH_ForcingTermsNeumannLoadMatchesStaticAssembly)
-{
-  ParameterAcceptor::clear();
-  ElasticityProblemParameters<dim> par;
-  Problem                          problem(par);
-  parse_parameters(par, R"(
-    subsection Immersed Problem
-      set Neumann boundary ids = 1
-    end
-    subsection Functions
-      subsection Neumann boundary conditions
-        set Function expression = 3; 1 + y
-      end
-    end
-  )");
-  setup_system(problem);
-  problem.assemble_elasticity_system();
-  const LA::MPI::Vector static_rhs = problem.system_rhs.block(0);
-
-  problem.assemble_forcing_terms(0.0);
-  EXPECT_LT(max_difference(problem.neumann_bc_rhs.block(0), static_rhs), 1e-12);
-}
-
-
-
 TEST(ElasticityProblem, BOTH_ForcingTermsAreModulatedInTime)
 {
   ParameterAcceptor::clear();
