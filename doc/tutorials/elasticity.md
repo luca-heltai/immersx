@@ -15,7 +15,10 @@ and `ElasticStaticProblem`. The canonical input is
 The square uses a vector `FE_Q` space. Three faces have prescribed displacement
 and the remaining face has a Neumann load. The Neumann function is a traction
 vector `t`, one component per spatial dimension, and the load is
-`int t . phi_i ds` in static and time-dependent runs alike. The `Material properties` subsection
+`int t . phi_i ds` in static and time-dependent runs alike. A pressure load
+`p n` is set with `Pressure boundary ids` and the scalar function
+`Pressure boundary conditions`; `n` is the outward unit normal, so a positive
+`p` pulls the boundary outward. Neumann and pressure ids must be disjoint. The `Material properties` subsection
 defines Lamé coefficients; the function expressions have one component per
 spatial dimension.
 

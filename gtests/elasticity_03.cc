@@ -329,6 +329,77 @@ TEST(ElasticityProblem, BOTH_ForcingTermsNeumannLoadMatchesStaticAssembly)
   EXPECT_LT(max_difference(problem.neumann_bc_rhs.block(0), static_rhs), 1e-12);
 }
 
+// A pressure p on the face x = 1 (outward normal (1, 0)) is the traction
+// (p, 0). Assembled through "Pressure boundary ids" it must give the same
+// right-hand side as the traction given through "Neumann boundary ids", in the
+// static and in the time-dependent assembly.
+TEST(ElasticityProblem, BOTH_PressureLoadMatchesNormalTraction)
+{
+  const auto assemble = [](const std::string &boundary_parameters,
+                           LA::MPI::Vector   &static_rhs,
+                           LA::MPI::Vector   &forcing_rhs) {
+    ParameterAcceptor::clear();
+    ElasticityProblemParameters<dim> par;
+    Problem                          problem(par);
+    parse_parameters(par, boundary_parameters);
+    setup_system(problem, true);
+    problem.assemble_elasticity_system();
+    static_rhs.reinit(problem.system_rhs.block(0));
+    static_rhs = problem.system_rhs.block(0);
+    problem.assemble_forcing_terms(0.);
+    forcing_rhs.reinit(problem.neumann_bc_rhs.block(0));
+    forcing_rhs = problem.neumann_bc_rhs.block(0);
+  };
+
+  LA::MPI::Vector pressure_static, pressure_forcing, traction_static,
+    traction_forcing;
+  assemble(R"(
+    subsection Immersed Problem
+      set Pressure boundary ids = 1
+    end
+    subsection Functions
+      subsection Pressure boundary conditions
+        set Function expression = 2 + y
+      end
+    end
+  )",
+           pressure_static,
+           pressure_forcing);
+  assemble(R"(
+    subsection Immersed Problem
+      set Neumann boundary ids = 1
+    end
+    subsection Functions
+      subsection Neumann boundary conditions
+        set Function expression = 2 + y; 0
+      end
+    end
+  )",
+           traction_static,
+           traction_forcing);
+
+  ASSERT_GT(pressure_static.linfty_norm(), 1.);
+  EXPECT_LT(max_difference(pressure_static, traction_static), 1e-12);
+  EXPECT_LT(max_difference(pressure_forcing, traction_forcing), 1e-12);
+}
+
+
+
+// A face carries one boundary condition: Neumann and pressure ids must not
+// intersect.
+TEST(ElasticityProblem, BOTH_PressureAndNeumannIdsMustBeDisjoint)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  EXPECT_THROW(parse_parameters(par, R"(
+    subsection Immersed Problem
+      set Neumann boundary ids  = 1, 2
+      set Pressure boundary ids = 2, 3
+    end
+  )"),
+               dealii::ExceptionBase);
+}
+
 TEST(ElasticityProblem, BOTH_SaddlePointSolutionSatisfiesBothEquations)
 {
   ParameterAcceptor::clear();

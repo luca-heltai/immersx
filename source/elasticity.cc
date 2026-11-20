@@ -297,7 +297,9 @@ namespace ImmersX
           << "   Weak Dirichlet boundary ids: "
           << Patterns::Tools::to_string(par.weak_dirichlet_ids) << std::endl
           << "   Neumann boundary ids: "
-          << Patterns::Tools::to_string(par.neumann_ids) << std::endl;
+          << Patterns::Tools::to_string(par.neumann_ids) << std::endl
+          << "   Pressure boundary ids: "
+          << Patterns::Tools::to_string(par.pressure_ids) << std::endl;
   }
 
 
@@ -768,6 +770,30 @@ namespace ImmersX
                             const auto un = neumann_bc.value(
                               fe_face_values.quadrature_point(q), comp_i);
                             cell_rhs(i) += un *
+                                           fe_face_values.shape_value(i, q) *
+                                           fe_face_values.JxW(q);
+                          }
+                      }
+                  }
+                // Pressure boundary conditions: traction p n.
+                else if (par.pressure_ids.find(cell->face(f)->boundary_id()) !=
+                         par.pressure_ids.end())
+                  {
+                    const auto &pressure_bc =
+                      par.get_pressure_bc(cell->face(f)->boundary_id());
+                    fe_face_values.reinit(cell, f);
+                    for (unsigned int q = 0;
+                         q < fe_face_values.n_quadrature_points;
+                         ++q)
+                      {
+                        const double p =
+                          pressure_bc.value(fe_face_values.quadrature_point(q));
+                        const auto n = fe_face_values.normal_vector(q);
+                        for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                          {
+                            const auto comp_i =
+                              fe->system_to_component_index(i).first;
+                            cell_rhs(i) += p * n[comp_i] *
                                            fe_face_values.shape_value(i, q) *
                                            fe_face_values.JxW(q);
                           }
@@ -1311,6 +1337,33 @@ namespace ImmersX
                                 fe_face_values.quadrature_point(q), comp_i);
                             cell_neumann_bc_rhs(i) +=
                               un * fe_face_values.shape_value(i, q) *
+                              fe_face_values.JxW(q);
+                          }
+                      }
+                  }
+                // Pressure boundary conditions: traction p n.
+                else if (par.pressure_ids.find(cell->face(f)->boundary_id()) !=
+                         par.pressure_ids.end())
+                  {
+                    const auto &pressure_bc =
+                      par.get_pressure_bc(cell->face(f)->boundary_id());
+                    const auto pressure_scale =
+                      pressure_bc.scale(evaluation_time);
+                    fe_face_values.reinit(cell, f);
+                    for (unsigned int q = 0;
+                         q < fe_face_values.n_quadrature_points;
+                         ++q)
+                      {
+                        const double p =
+                          pressure_scale *
+                          pressure_bc.value(fe_face_values.quadrature_point(q));
+                        const auto n = fe_face_values.normal_vector(q);
+                        for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                          {
+                            const auto comp_i =
+                              fe->system_to_component_index(i).first;
+                            cell_neumann_bc_rhs(i) +=
+                              p * n[comp_i] * fe_face_values.shape_value(i, q) *
                               fe_face_values.JxW(q);
                           }
                       }
