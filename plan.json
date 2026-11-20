@@ -212,8 +212,6 @@
   },
   "harness_sha": "4c4233ca489b3badec6c52ba66389caa59702682",
   "schema_version": 1,
-  "selected": [
-    "4c4233ca489b3badec6c52ba66389caa59702682"
-  ],
+  "selected": [],
   "source_sha": "4c4233ca489b3badec6c52ba66389caa59702682"
 }
