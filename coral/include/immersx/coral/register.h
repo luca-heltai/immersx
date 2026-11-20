@@ -50,7 +50,6 @@
 #include <immersx/physics/poisson_residual.h>
 #include <nlohmann/json.hpp>
 
-#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <functional>
@@ -721,9 +720,6 @@ namespace ImmersX::Coral
                                 dealii::FEValuesExtractors::Vector>("Vector");
   }
 
-  inline auto
-  parameter_acceptor_derived_types() -> std::vector<std::string> &;
-
   inline void
   register_common_types()
   {
@@ -734,7 +730,6 @@ namespace ImmersX::Coral
     coral::detail::set_type_alias<dealii::ParameterAcceptor>(
       "dealii::ParameterAcceptor");
 
-    parameter_acceptor_derived_types().clear();
     coral::NodeObject::register_abstract_type<dealii::ParameterAcceptor>();
 
     coral::NodeObject::register_elementary_type<std::string>();
@@ -861,13 +856,6 @@ namespace ImmersX::Coral
     const ImmersX::PoissonSolver<dim, spacedim> &problem)
   {
     return problem.solution_is_finite();
-  }
-
-  inline auto
-  parameter_acceptor_derived_types() -> std::vector<std::string> &
-  {
-    static std::vector<std::string> types;
-    return types;
   }
 
   inline void
@@ -998,25 +986,9 @@ namespace ImmersX::Coral
                   "Coral parameter types must derive from ParameterAcceptor.");
 
     coral::detail::set_type_alias<Parameters>(type_name);
-    auto &initializer =
-      coral::NodeObject::register_derived_type<dealii::ParameterAcceptor,
-                                               Parameters,
-                                               const std::string &>(
-        "subsection");
-
-    const auto derived_type =
-      initializer.json_serializer.at("type").template get<std::string>();
-    auto &known_derived_types = parameter_acceptor_derived_types();
-    // Coral reinitializes the abstract base when registering a derived type.
-    // Restore the complete derived-type list after each registration.
-    if (std::find(known_derived_types.begin(),
-                  known_derived_types.end(),
-                  derived_type) == known_derived_types.end())
-      known_derived_types.push_back(derived_type);
-
-    auto &base_initializer =
-      coral::NodeObject::register_abstract_type<dealii::ParameterAcceptor>();
-    base_initializer.json_serializer["derived"] = known_derived_types;
+    coral::NodeObject::register_type<Parameters, const std::string &>(
+      "subsection");
+    coral::NodeObject::register_base<Parameters, dealii::ParameterAcceptor>();
   }
 
   inline void
