@@ -74,8 +74,10 @@ namespace ImmersX::Coral
     const std::string operation_prefix =
       field_kind == "Vector" ? "Vector " : "";
 
+    // KnownSource is parameterized by its value and spacedim, not field dim.
+    // Keep its Coral identity stable across field-dimension registrations.
     coral::detail::set_type_alias<Source>("ImmersX::KnownSource<" +
-                                          dimensions(dim, spacedim) + "," +
+                                          dimensions(spacedim, spacedim) + "," +
                                           field_kind + ">");
     coral::detail::set_type_alias<Term>("ImmersX::KnownTerm<" +
                                         dimensions(dim, spacedim) + "," +
