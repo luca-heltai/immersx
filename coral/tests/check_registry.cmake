@@ -18,6 +18,28 @@ if(NOT EXISTS "${REGISTRY}")
   message(FATAL_ERROR "Coral did not produce registry '${REGISTRY}'.")
 endif()
 file(READ "${REGISTRY}" _registry)
+
+function(_registry_has_base registry_json derived_type expected_base result_var)
+  string(JSON _base_count ERROR_VARIABLE _bases_error
+    LENGTH "${registry_json}" "${derived_type}" bases)
+  if(_bases_error OR _base_count LESS 1)
+    set(${result_var} FALSE PARENT_SCOPE)
+    return()
+  endif()
+
+  set(_found FALSE)
+  math(EXPR _last_base "${_base_count} - 1")
+  foreach(_base_index RANGE 0 ${_last_base})
+    string(JSON _registered_base GET "${registry_json}" "${derived_type}"
+      bases ${_base_index})
+    if("${_registered_base}" STREQUAL "${expected_base}")
+      set(_found TRUE)
+      break()
+    endif()
+  endforeach()
+  set(${result_var} "${_found}" PARENT_SCOPE)
+endfunction()
+
 include("${CMAKE_CURRENT_LIST_DIR}/check_co_refinement_registry.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/check_lifted_elasticity_registry.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/check_lifted_poisson_registry.cmake")
@@ -303,10 +325,9 @@ foreach(_dim RANGE 1 ${SPACEDIM})
   foreach(_family Poisson ElasticStatic Elastodynamics)
     set(_parameter_type
       "ImmersX::${_family}Parameters<${_dim},${SPACEDIM}>")
-    string(JSON _parameter_base ERROR_VARIABLE _parameter_base_error
-      GET "${_registry}" "${_parameter_type}" base)
-    if(_parameter_base_error OR
-       NOT _parameter_base STREQUAL "${_parameter_acceptor_hash}")
+    _registry_has_base("${_registry}" "${_parameter_type}"
+      "${_parameter_acceptor_hash}" _parameter_has_base)
+    if(NOT _parameter_has_base)
       message(FATAL_ERROR
         "${_parameter_type} is not registered as a ParameterAcceptor derived type.")
     endif()
@@ -322,7 +343,7 @@ if(SPACEDIM EQUAL 2)
       "ImmersX::StaticScalarField<2,2>"
       "ImmersX::TestExpression<2,2,Scalar>"
       "ImmersX::TestExpression<2,2,Scalar,gradient>"
-      "ImmersX::KnownTerm<2,2,ScalarParsedFunctionRhs>"
+      "ImmersX::KnownTerm<2,2,Scalar>"
       "ImmersX::WeakTerm<2,2,ScalarStaticFieldRhs,ScalarTestExpression>"
       "ImmersX::WeakTerm<2,2,ScalarGradient,ScalarTestExpressionGradient>"
       "ImmersX::KnownSource<2,2,Vector>"
@@ -387,10 +408,9 @@ if(SPACEDIM EQUAL 2)
       "ImmersX::FiniteElementSpaceParameters<1,2>"
       "ImmersX::LinearAdapterParameters"
       "ImmersX::OutputHandlerParameters")
-    string(JSON _parameter_base ERROR_VARIABLE _parameter_base_error
-      GET "${_registry}" "${_parameter_type}" base)
-    if(_parameter_base_error OR
-       NOT _parameter_base STREQUAL "${_parameter_acceptor_hash}")
+    _registry_has_base("${_registry}" "${_parameter_type}"
+      "${_parameter_acceptor_hash}" _parameter_has_base)
+    if(NOT _parameter_has_base)
       message(FATAL_ERROR
         "${_parameter_type} is not registered as a ParameterAcceptor derived type.")
     endif()

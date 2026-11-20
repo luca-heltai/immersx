@@ -14,8 +14,9 @@ foreach(_dim RANGE 1 ${SPACEDIM})
   foreach(_type
       "ImmersX::DomainParameters<${_dim},${SPACEDIM}>"
       "ImmersX::RefinementParameters<${_dim}>")
-    string(JSON _base GET "${_registry}" "${_type}" base)
-    if(NOT _base STREQUAL _co_parameter_base)
+    _registry_has_base("${_registry}" "${_type}" "${_co_parameter_base}"
+      _has_parameter_base)
+    if(NOT _has_parameter_base)
       message(FATAL_ERROR "${_type} must derive from ParameterAcceptor.")
     endif()
   endforeach()

@@ -85,6 +85,16 @@ foreach(_build_type ${_d2_build_types})
       coral::core)
     DEAL_II_SETUP_TARGET(${_plugin} ${_build_type_upper})
 
+    # GCC 12 reports a false positive in libstdc++'s _Rb_tree while
+    # optimizing Coral's nlohmann::json registry construction. Keep the
+    # workaround limited to optimized Coral plugins.
+    if(_build_type STREQUAL "Release" AND
+       CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+       CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12 AND
+       CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
+      target_compile_options(${_plugin} PRIVATE -Wno-array-bounds)
+    endif()
+
     set_target_properties(${_plugin} PROPERTIES
       OUTPUT_NAME "coral_backend_immersx_${_spacedim}${_postfix}"
       INSTALL_RPATH_USE_LINK_PATH TRUE)

@@ -74,8 +74,10 @@ namespace ImmersX::Coral
     const std::string operation_prefix =
       field_kind == "Vector" ? "Vector " : "";
 
+    // KnownSource is parameterized by its value and spacedim, not field dim.
+    // Keep its Coral identity stable across field-dimension registrations.
     coral::detail::set_type_alias<Source>("ImmersX::KnownSource<" +
-                                          dimensions(dim, spacedim) + "," +
+                                          dimensions(spacedim, spacedim) + "," +
                                           field_kind + ">");
     coral::detail::set_type_alias<Term>("ImmersX::KnownTerm<" +
                                         dimensions(dim, spacedim) + "," +
@@ -442,9 +444,10 @@ namespace ImmersX::Coral
                                         dimensions(dim, spacedim) +
                                         ",ScalarGradient,"
                                         "ScalarTestExpressionGradient>");
-    coral::detail::set_type_alias<ParsedWeakTerm>("ImmersX::KnownTerm<" +
-                                                  dimensions(dim, spacedim) +
-                                                  ",ScalarParsedFunctionRhs>");
+    // A parsed-function RHS and a generic scalar known source produce the
+    // same C++ type. Keep one Coral type identity so their graph edges match.
+    coral::detail::set_type_alias<ParsedWeakTerm>(
+      "ImmersX::KnownTerm<" + dimensions(dim, spacedim) + ",Scalar>");
     coral::detail::set_type_alias<StaticWeakTerm>(
       "ImmersX::WeakTerm<" + dimensions(dim, spacedim) +
       ",ScalarStaticFieldRhs,ScalarTestExpression>");
