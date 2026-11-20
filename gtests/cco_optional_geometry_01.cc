@@ -67,7 +67,7 @@ namespace
 #endif
   }
   vi::GrowthCandidateContext
-  context()
+  make_growth_context()
   {
     vi::GrowthCandidateContext c;
     vi::GrowthPathBranch       b;
@@ -159,7 +159,7 @@ TEST(VascularCCO, BOTH_UncheckedSkipsGeometricPredicate)
     ++calls;
     return false;
   };
-  const auto c = context();
+  const auto c = make_growth_context();
   const auto proposal =
     vi::propose_growth(c,
                        p,
@@ -203,7 +203,7 @@ TEST(VascularCCO, BOTH_UncheckedPreservesNativeReferenceFlow)
   unchecked(p);
   output("input", initial_network());
   const auto proposal =
-    vi::propose_growth(context(),
+    vi::propose_growth(make_growth_context(),
                        p,
                        Point<3>(.5, .5, .5),
                        Point<3>(.5, .8, .5),
@@ -316,7 +316,7 @@ TEST(VascularCCO, BOTH_UncheckedRejectsNonphysicalSegments)
     ++calls;
     return true;
   };
-  const auto c    = context();
+  const auto c    = make_growth_context();
   const auto zero = vi::propose_growth(c,
                                        p,
                                        Point<3>(.2, .5, .5),
