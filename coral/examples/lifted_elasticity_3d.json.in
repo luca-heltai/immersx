@@ -500,7 +500,7 @@
         "value": "0"
       },
       "93": {
-        "type": "OutputHandler::write_output",
+        "type": "OutputHandler::write_output::std::function<void (const std::shared_ptr<ImmersX::OutputHandler<3, 3, dealii::TrilinosWrappers::MPI::Vector>> &, const std::shared_ptr<ImmersX::LinearAdapter<dealii::TrilinosWrappers::MPI::Vector, dealii::TrilinosWrappers::MPI::BlockVector>> &, const dealii::TrilinosWrappers::MPI::BlockVector &, const double &)>",
         "name": "OutputHandler::write_output",
         "qualified_id": "elasticity.93"
       },
