@@ -137,12 +137,15 @@ $$
 $$
 
 where $y_0$ is the unmodified initial state and $F$ is the original coupled
-steady residual. The constant offset adds no Jacobian term. KINSOL still
-reassembles the nonlinear Jacobian as the trial state changes, and each new
-continuation checkpoint starts with a Jacobian assembled at that accepted
-state. Immutable assembled operators stay in the adapter's existing cache. A
-retryable KINSOL nonconvergence discards that stage's trial state and halves
-the eta increment. Attempts and the minimum increment are bounded by the
+steady residual. The constant offset adds no Jacobian term. Each continuation
+checkpoint starts with a Jacobian assembled at its accepted state, and
+immutable assembled operators stay in the adapter's existing cache. The
+`Maximum Jacobian setup interval` defaults to `1`, preserving a fresh Jacobian
+setup on every nonlinear iteration. Larger values allow KINSOL to reuse the
+current Jacobian and factorization across more iterations. Use `1` or a
+positive multiple of `5`; residual monitoring may still request an earlier
+setup. A retryable KINSOL nonconvergence discards that stage's trial state and
+halves the eta increment. Attempts and the minimum increment are bounded by the
 `Steady solver` parameters. A state is passed to IDA only after the eta-one
 residual, positive-area constraints, wall admissibility, and the existing full
 coupled steady-state check pass. Continuation requires

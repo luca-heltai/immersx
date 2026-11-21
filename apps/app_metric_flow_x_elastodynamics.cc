@@ -272,14 +272,15 @@ namespace
     double            displacement_characteristic = 1.e-3,
            solid_velocity_characteristic = 1.e-3, velocity_characteristic = 1.,
            pressure_characteristic = 1.e4, steady_function_tolerance = 1.e-8,
-           steady_step_tolerance                      = 1.e-12;
-    unsigned int steady_maximum_iterations            = 50;
-    bool         steady_residual_continuation         = false;
-    double       steady_initial_eta_increment         = .05,
-           steady_maximum_eta_increment               = .25,
-           steady_minimum_eta_increment               = 1.e-4;
-    unsigned int steady_maximum_continuation_attempts = 100,
-                 steady_maximum_stage_iterations      = 12;
+           steady_step_tolerance                        = 1.e-12;
+    unsigned int steady_maximum_iterations              = 50;
+    bool         steady_residual_continuation           = false;
+    double       steady_initial_eta_increment           = .05,
+           steady_maximum_eta_increment                 = .25,
+           steady_minimum_eta_increment                 = 1.e-4;
+    unsigned int steady_maximum_continuation_attempts   = 100,
+                 steady_maximum_stage_iterations        = 12,
+                 steady_maximum_jacobian_setup_interval = 1;
     steady_parameters.add_parameter("Initialize equilibrium",
                                     initialize_steady);
     steady_parameters.add_parameter(
@@ -330,6 +331,12 @@ namespace
       "Maximum iterations per continuation stage",
       steady_maximum_stage_iterations,
       "Bound each native KINSOL solve before a failed eta stage is retried.",
+      ParameterAcceptor::prm,
+      Patterns::Integer(1));
+    steady_parameters.add_parameter(
+      "Maximum Jacobian setup interval",
+      steady_maximum_jacobian_setup_interval,
+      "Maximum nonlinear iterations between KINSOL Jacobian setups. Use 1 to refresh every iteration or a positive multiple of 5 to allow reuse; residual monitoring may request an earlier refresh.",
       ParameterAcceptor::prm,
       Patterns::Integer(1));
 
@@ -440,6 +447,8 @@ namespace
     DomainParameters<1, 3> flow_domain_parameters("/MetricFlowX domain/");
 
     initialize_parameters(parameter_file);
+    metric_flow_x_app_detail::validate_kinsol_maximum_jacobian_setup_interval(
+      steady_maximum_jacobian_setup_interval);
     AssertThrow(Utilities::MPI::min(static_cast<unsigned int>(parse_only),
                                     MPI_COMM_WORLD) ==
                   Utilities::MPI::max(static_cast<unsigned int>(parse_only),
@@ -1537,7 +1546,8 @@ namespace
                                  1.,
                                  MPI_COMM_WORLD,
                                  std::function<void(const GlobalVector &)>(
-                                   report_initial_steady_residual));
+                                   report_initial_steady_residual),
+                                 steady_maximum_jacobian_setup_interval);
         else
           {
             auto initial_residual = adapter.make_state();
@@ -1640,7 +1650,9 @@ namespace
                   ida_parameters.print_nonlinear_diagnostics,
                   &initial_residual,
                   target,
-                  MPI_COMM_WORLD);
+                  MPI_COMM_WORLD,
+                  std::function<void(const GlobalVector &)>{},
+                  steady_maximum_jacobian_setup_interval);
                 total_iterations += stage.first;
 
                 AssertThrow(
