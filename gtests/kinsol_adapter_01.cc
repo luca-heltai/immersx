@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/compatibility/dealii_9_9/ida.h>
+#include <immersx/core/sundials_ida_adapter.h>
 #include <immersx/core/sundials_kinsol_adapter.h>
 #ifdef DEAL_II_WITH_SUNDIALS
 #  include <deal.II/sundials/n_vector.h>
