@@ -50,6 +50,28 @@ namespace ImmersX::metric_flow_x_app_detail
     return mumps_failure && status == KIN_LSOLVE_FAIL;
   }
 
+  template <class GlobalVector>
+  void
+  predict_steady_continuation_state(GlobalVector       &prediction,
+                                    const GlobalVector &previous_accepted,
+                                    const GlobalVector &latest_accepted,
+                                    const double        previous_eta,
+                                    const double        latest_eta,
+                                    const double        target_eta)
+  {
+    AssertThrow(std::isfinite(previous_eta) && std::isfinite(latest_eta) &&
+                  std::isfinite(target_eta) && previous_eta < latest_eta &&
+                  latest_eta < target_eta,
+                dealii::ExcMessage(
+                  "Invalid eta values for steady continuation prediction."));
+
+    auto secant = latest_accepted;
+    secant -= previous_accepted;
+    prediction = latest_accepted;
+    prediction.add((target_eta - latest_eta) / (latest_eta - previous_eta),
+                   secant);
+  }
+
   // Installed deal.II 9.8 N_Vectors lack the constraint operations required by
   // KINSOL. Use the complete compatibility vectors, retaining native KINSOL and
   // the same public adapter callbacks. The backend owns the borrowed context.

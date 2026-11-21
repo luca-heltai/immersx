@@ -9,6 +9,8 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/lac/vector.h>
+
 #include <gtest/gtest.h>
 #include <immersx/algebra/linear_algebra.h>
 #include <immersx/compatibility/dealii_9_9/ida.h>
@@ -17,6 +19,7 @@
 #  include <deal.II/sundials/n_vector.h>
 
 #  include <kinsol/kinsol.h>
+#  include <metric_flow_x_kinsol.h>
 #endif
 
 #include <cmath>
@@ -113,6 +116,22 @@ namespace
       "quadratic");
   }
 } // namespace
+
+TEST(KINSOLAdapter, SecantPredictsLinearContinuation)
+{
+  dealii::Vector<double> previous(2), latest(2), prediction;
+  previous[0] = 1.;
+  previous[1] = -2.;
+  latest[0]   = 3.;
+  latest[1]   = 2.;
+
+  ImmersX::metric_flow_x_app_detail::predict_steady_continuation_state(
+    prediction, previous, latest, 0.2, 0.4, 0.5);
+
+  // The secant extrapolation is exact for a linear solution branch.
+  EXPECT_DOUBLE_EQ(prediction[0], 4.);
+  EXPECT_DOUBLE_EQ(prediction[1], 4.);
+}
 
 TEST(KINSOLAdapter, MPI_NonlinearScalarSolve) // NOLINT
 {
