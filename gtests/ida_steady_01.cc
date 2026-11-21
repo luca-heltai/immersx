@@ -519,6 +519,7 @@ TEST(DistributedIDA, BOTH_FourFieldSteadyUsesCondensationAndFullResidualScales)
   for (const auto index : u_scale.locally_owned_elements())
     u_scale[index] = 1. / c[index];
   u_scale.compress(dealii::VectorOperation::insert);
+  const auto setups_before_default_solve = adapter.statistics().jacobian_setups;
   const auto result =
     metric_flow_x_app_detail::solve_coupled_kinsol(adapter,
                                                    0.,
@@ -531,8 +532,11 @@ TEST(DistributedIDA, BOTH_FourFieldSteadyUsesCondensationAndFullResidualScales)
                                                    1e-10,
                                                    1e-14,
                                                    KIN_LINESEARCH);
+  const auto default_setup_calls =
+    adapter.statistics().jacobian_setups - setups_before_default_solve;
   EXPECT_GE(result.first, 2u);
   EXPECT_GE(result.second, 0);
+  EXPECT_EQ(default_setup_calls, static_cast<unsigned long>(result.first - 1));
   const std::array<double, 4> solution{{2., 0., 3., 1.}};
   for (unsigned int i = 0; i < 4; ++i)
     for (const auto index :
@@ -549,6 +553,83 @@ TEST(DistributedIDA, BOTH_FourFieldSteadyUsesCondensationAndFullResidualScales)
       EXPECT_NEAR(adapter.field(scaling, fields[i])[index],
                   1. / row_sums[i],
                   1e-15);
+  dealii::ParameterAcceptor::clear();
+}
+
+TEST(DistributedIDA, BOTH_KINSOLMaximumJacobianSetupInterval)
+{
+  dealii::ParameterAcceptor::clear();
+  TimeIntervalParameters time("/", false);
+  IDAParameters          parameters("/", &time);
+  Adapter                adapter(time, parameters, MPI_COMM_WORLD);
+  adapter.set_linear_solver(Adapter::LinearSolver::mumps);
+  (void)add_pair(adapter);
+  auto state          = adapter.make_state();
+  auto zero           = adapter.make_state();
+  auto characteristic = adapter.make_state();
+  auto scaling        = adapter.make_state();
+  auto constraints    = adapter.make_state();
+  state               = .5;
+  zero                = 0.;
+  characteristic      = 1.;
+  constraints         = 0.;
+
+  const auto solve_with_interval = [&](const unsigned int interval) {
+    return metric_flow_x_app_detail::solve_coupled_kinsol(
+      adapter,
+      0.,
+      state,
+      zero,
+      characteristic,
+      scaling,
+      constraints,
+      50,
+      1e-10,
+      1e-14,
+      KIN_LINESEARCH,
+      false,
+      static_cast<const decltype(state) *>(nullptr),
+      1.,
+      MPI_COMM_WORLD,
+      {},
+      interval);
+  };
+
+  adapter.setup_steady_jacobian(0., state, zero, &characteristic, &scaling);
+  const auto setups_before_default_solve = adapter.statistics().jacobian_setups;
+  using ImmersX::metric_flow_x_app_detail::
+    validate_kinsol_maximum_jacobian_setup_interval;
+  EXPECT_THROW(validate_kinsol_maximum_jacobian_setup_interval(0),
+               dealii::ExceptionBase);
+  EXPECT_THROW(validate_kinsol_maximum_jacobian_setup_interval(3),
+               dealii::ExceptionBase);
+  const auto default_result = solve_with_interval(1);
+  const auto default_setups =
+    adapter.statistics().jacobian_setups - setups_before_default_solve;
+  EXPECT_GE(default_result.first, 2u);
+  EXPECT_GE(default_result.second, 0);
+  EXPECT_EQ(default_setups,
+            static_cast<unsigned long>(default_result.first - 1));
+  for (const auto index : state.locally_owned_elements())
+    EXPECT_NEAR(state[index], 0., 1e-8);
+  auto residual = adapter.make_state();
+  adapter.solver().residual(0., state, zero, residual);
+  EXPECT_LT(residual.linfty_norm(), 1e-8);
+
+  state = .5;
+  adapter.setup_steady_jacobian(0., state, zero, &characteristic, &scaling);
+  const auto setups_before_reuse_solve = adapter.statistics().jacobian_setups;
+  const auto reuse_result              = solve_with_interval(10);
+  const auto reused_setups =
+    adapter.statistics().jacobian_setups - setups_before_reuse_solve;
+  EXPECT_GE(reuse_result.first, 2u);
+  EXPECT_GE(reuse_result.second, 0);
+  EXPECT_LT(reused_setups, default_setups);
+  for (const auto index : state.locally_owned_elements())
+    EXPECT_NEAR(state[index], 0., 1e-8);
+  adapter.solver().residual(0., state, zero, residual);
+  EXPECT_LT(residual.linfty_norm(), 1e-8);
+
   dealii::ParameterAcceptor::clear();
 }
 

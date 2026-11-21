@@ -50,6 +50,18 @@ namespace ImmersX::metric_flow_x_app_detail
     return mumps_failure && status == KIN_LSOLVE_FAIL;
   }
 
+  // SUNDIALS' default residual-monitor interval is five iterations. Keep the
+  // existing one-iteration exact-Newton setting as a compatibility exception;
+  // larger setup intervals must be multiples of the residual-monitor interval.
+  inline void
+  validate_kinsol_maximum_jacobian_setup_interval(const unsigned int interval)
+  {
+    AssertThrow(interval == 1 || (interval >= 5 && interval % 5 == 0),
+                dealii::ExcMessage(
+                  "The KINSOL maximum Jacobian setup interval must be 1 or "
+                  "a positive multiple of 5."));
+  }
+
   template <class GlobalVector>
   void
   predict_steady_continuation_state(GlobalVector       &prediction,
@@ -93,8 +105,11 @@ namespace ImmersX::metric_flow_x_app_detail
     const GlobalVector                       *residual_offset   = nullptr,
     const double                              offset_eta        = 1.,
     const MPI_Comm                            communicator = MPI_COMM_WORLD,
-    std::function<void(const GlobalVector &)> initial_residual_observer = {})
+    std::function<void(const GlobalVector &)> initial_residual_observer = {},
+    const unsigned int maximum_jacobian_setup_interval                  = 1)
   {
+    validate_kinsol_maximum_jacobian_setup_interval(
+      maximum_jacobian_setup_interval);
     namespace Native     = Compatibility::SUNDIALS;
     auto      &backend   = adapter.solver();
     const auto make_view = [&](auto &vector) {
@@ -207,7 +222,8 @@ namespace ImmersX::metric_flow_x_app_detail
     check(KINSetNumMaxIters(memory, max_iterations));
     check(KINSetFuncNormTol(memory, function_tolerance));
     check(KINSetScaledStepTol(memory, step_tolerance));
-    check(KINSetMaxSetupCalls(memory, 1));
+    check(KINSetMaxSetupCalls(
+      memory, static_cast<long int>(maximum_jacobian_setup_interval)));
     check(KINSetNoInitSetup(memory, SUNTRUE));
     check(KINSetConstraints(memory, bounds));
 #if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
@@ -277,8 +293,10 @@ namespace ImmersX::metric_flow_x_app_detail
       [](N_Vector state, N_Vector, SUNMatrix, void *user, N_Vector, N_Vector)
         -> int {
         auto &c = *static_cast<Callbacks *>(user);
-        // With maxSetupCalls=1, native KINSOL may request setup before its
-        // first solve despite noInitSetup. J0 was already prepared for scales.
+        // KINSOL may request setup before its first solve despite
+        // noInitSetup. J0 was already prepared for scales and is still the
+        // correct initial factorization; the configured interval applies to
+        // subsequent setup requests.
         if (c.initial_factor_available)
           {
             const auto reuse = [&]() {
