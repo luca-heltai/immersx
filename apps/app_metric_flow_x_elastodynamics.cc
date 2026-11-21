@@ -41,6 +41,7 @@
 #  include <immersx/vascularization/metric_flow_x.h>
 
 #  include <algorithm>
+#  include <array>
 #  include <cmath>
 #  include <filesystem>
 #  include <fstream>
@@ -1464,6 +1465,59 @@ namespace
             report_field("flow", flow_fields.fields().state);
             report_field("multiplier", coupling_fields.fields().multiplier);
           };
+        const auto report_flow_residual_components =
+          [&](const GlobalVector &residual, const double eta) {
+            const auto &flow_residual =
+              adapter.field(residual, flow_fields.fields().state);
+            const auto &flow_scaling =
+              adapter.field(function_scaling, flow_fields.fields().state);
+            const std::array<FlowProblem::Component, 5> components = {
+              {FlowProblem::Component::area,
+               FlowProblem::Component::velocity,
+               FlowProblem::Component::area_trace,
+               FlowProblem::Component::velocity_trace,
+               FlowProblem::Component::capacitor_pressure}};
+            const std::array<const char *, 5> names = {{"area",
+                                                        "velocity",
+                                                        "area_trace",
+                                                        "velocity_trace",
+                                                        "capacitor_pressure"}};
+
+            for (std::size_t component = 0; component < components.size();
+                 ++component)
+              {
+                const auto &component_dofs =
+                  flow_problem.component_dofs(components[component]);
+                double local_squared_norm = 0.;
+                double local_maximum      = 0.;
+                for (const auto index : flow_residual.locally_owned_elements())
+                  if (component_dofs.is_element(index))
+                    {
+                      const double scaled =
+                        std::abs(flow_residual[index] * flow_scaling[index]);
+                      local_squared_norm += scaled * scaled;
+                      local_maximum = std::max(local_maximum, scaled);
+                    }
+
+                const double global_squared_norm =
+                  Utilities::MPI::sum(local_squared_norm, MPI_COMM_WORLD);
+                const double global_maximum =
+                  Utilities::MPI::max(local_maximum, MPI_COMM_WORLD);
+                const auto   count = component_dofs.n_elements();
+                const double rms =
+                  count == 0 ?
+                    0. :
+                    std::sqrt(global_squared_norm / static_cast<double>(count));
+                if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+                  std::cout << "Steady shifted flow residual eta="
+                            << std::setprecision(8) << eta
+                            << " component=" << names[component]
+                            << " scaled_rms=" << std::scientific << rms
+                            << " scaled_inf=" << global_maximum
+                            << " dofs=" << count << std::defaultfloat
+                            << std::endl;
+              }
+          };
         std::pair<unsigned int, int> result;
         if (!steady_residual_continuation)
           result =
@@ -1619,6 +1673,8 @@ namespace
                   ExcMessage("Steady continuation residual became nonfinite."));
                 shifted_scaled_inf =
                   Utilities::MPI::max(shifted_scaled_inf, MPI_COMM_WORLD);
+                if (ida_parameters.print_nonlinear_diagnostics)
+                  report_flow_residual_components(shifted_residual, target);
                 const bool stage_pass =
                   stage.second >= 0 &&
                   shifted_scaled_inf <= steady_function_tolerance;
