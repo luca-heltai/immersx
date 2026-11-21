@@ -88,3 +88,8 @@ if(REQUIRE_STEADY_INITIALIZATION)
     endif()
   endforeach()
 endif()
+
+if(REQUIRE_STEADY_CONTINUATION AND
+   NOT _stdout MATCHES "predictor=secant, KINSOL status=[0-9]+, iterations=[0-9]+, shifted scaled residual=[^ \r\n]+ accepted")
+  message(FATAL_ERROR "Steady continuation did not accept a secant-predicted stage")
+endif()

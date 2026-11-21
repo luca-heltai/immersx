@@ -1502,9 +1502,33 @@ namespace
                 "Steady residual continuation requires finite initial state and residual."));
             report_initial_steady_residual(initial_residual);
 
-            auto         accepted = candidate;
-            double       eta = 0., increment = steady_initial_eta_increment;
+            auto   accepted          = candidate;
+            auto   previous_accepted = candidate;
+            double eta = 0., previous_eta = 0.,
+                   increment      = steady_initial_eta_increment;
             unsigned int attempts = 0, total_iterations = 0;
+            bool         has_previous_accepted_state = false;
+            const auto   is_admissible_steady_state =
+              [&](const GlobalVector &trial_state) {
+                bool locally_valid = true;
+                for (const auto index : trial_state.locally_owned_elements())
+                  locally_valid = locally_valid &&
+                                  std::isfinite(trial_state[index]) &&
+                                  state_dot[index] == 0. &&
+                                  ((*state_constraints)[index] != 2. ||
+                                   trial_state[index] > 0.);
+                const bool globally_valid =
+                  Utilities::MPI::min(locally_valid ? 1u : 0u,
+                                      MPI_COMM_WORLD) == 1;
+                if (!globally_valid)
+                  return false;
+
+                const bool admissible_wall_state =
+                  flow_problem.has_admissible_wall_states(
+                    adapter.field(trial_state, flow_fields.fields().state));
+                return Utilities::MPI::min(admissible_wall_state ? 1u : 0u,
+                                           MPI_COMM_WORLD) == 1;
+              };
             while (eta < 1.)
               {
                 AssertThrow(
@@ -1520,7 +1544,26 @@ namespace
                   ExcMessage(
                     "Steady residual continuation made no eta progress."));
 
-                auto trial = accepted;
+                auto        trial     = accepted;
+                const char *predictor = "previous";
+                if (has_previous_accepted_state)
+                  {
+                    metric_flow_x_app_detail::predict_steady_continuation_state(
+                      trial,
+                      previous_accepted,
+                      accepted,
+                      previous_eta,
+                      eta,
+                      target);
+                    trial.compress(VectorOperation::insert);
+                    if (is_admissible_steady_state(trial))
+                      predictor = "secant";
+                    else
+                      {
+                        trial     = accepted;
+                        predictor = "previous-fallback";
+                      }
+                  }
                 // The continuation offset is constant, so the Jacobian is the
                 // original state Jacobian. Rebuild it at each checkpoint;
                 // immutable assembled operators remain cached by the adapter.
@@ -1546,19 +1589,8 @@ namespace
                   MPI_COMM_WORLD);
                 total_iterations += stage.first;
 
-                bool valid = true;
-                for (const auto index : trial.locally_owned_elements())
-                  valid =
-                    valid && std::isfinite(trial[index]) &&
-                    state_dot[index] == 0. &&
-                    ((*state_constraints)[index] != 2. || trial[index] > 0.);
-                valid =
-                  Utilities::MPI::min(valid ? 1u : 0u, MPI_COMM_WORLD) == 1;
-                if (valid)
-                  valid = flow_problem.has_admissible_wall_states(
-                    adapter.field(trial, flow_fields.fields().state));
                 AssertThrow(
-                  valid,
+                  is_admissible_steady_state(trial),
                   ExcMessage(
                     "Steady continuation produced an invalid or inadmissible trial state."));
 
@@ -1594,6 +1626,7 @@ namespace
                   std::cout << "Steady continuation attempt " << attempts
                             << ": eta=" << std::setprecision(8) << target
                             << ", increment=" << stage_increment
+                            << ", predictor=" << predictor
                             << ", KINSOL status=" << stage.second
                             << ", iterations=" << stage.first
                             << ", shifted scaled residual=" << std::scientific
@@ -1602,8 +1635,11 @@ namespace
                             << std::defaultfloat << std::endl;
                 if (stage_pass)
                   {
-                    accepted  = std::move(trial);
-                    eta       = target;
+                    previous_accepted           = accepted;
+                    previous_eta                = eta;
+                    has_previous_accepted_state = true;
+                    accepted                    = std::move(trial);
+                    eta                         = target;
                     increment = std::min(steady_maximum_eta_increment,
                                          stage_increment * 1.5);
                     result    = {total_iterations, stage.second};

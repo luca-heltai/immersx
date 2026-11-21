@@ -522,7 +522,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           endif()
           if(_case STREQUAL "CoupledSteady")
             file(APPEND "${_coupled_input}"
-              "\nsubsection Elastodynamics\n subsection Functions\n  subsection Body force\n   set Function expression = 0;0;1\n  end\n end\nend\nsubsection MetricFlowX coupling\n subsection Steady solver\n  set Initialize equilibrium = true\n end\nend\nsubsection MetricFlowSystem<1, 3>\n subsection IDA parameters\n  subsection Initial condition correction parameters\n   set Correction type at initial time = none\n  end\n  subsection Tolerance ramp\n   set Enabled = true\n   set Initial relative factor = 2\n   set Initial absolute factor = 3\n   set Hold duration = 0\n   set End time = 0.01\n  end\n end\nend\n")
+              "\nsubsection Elastodynamics\n subsection Functions\n  subsection Body force\n   set Function expression = 0;0;1\n  end\n end\nend\nsubsection MetricFlowX coupling\n subsection Steady solver\n  set Initialize equilibrium = true\n  set Use residual continuation = true\n end\nend\nsubsection MetricFlowSystem<1, 3>\n subsection IDA parameters\n  subsection Initial condition correction parameters\n   set Correction type at initial time = none\n  end\n  subsection Tolerance ramp\n   set Enabled = true\n   set Initial relative factor = 2\n   set Initial absolute factor = 3\n   set Hold duration = 0\n   set End time = 0.01\n  end\n end\nend\n")
           endif()
           set(TEST_OUTPUT_DIR "${_saved_output_dir}")
           set(_coupled_mpiexec "")
@@ -554,6 +554,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "-DMPI_RANKS=${_coupled_ranks}"
               "-DREQUIRE_GENERATED_RESPONSE=$<STREQUAL:${_case},Generated>"
               "-DREQUIRE_STEADY_INITIALIZATION=$<STREQUAL:${_case},CoupledSteady>"
+              "-DREQUIRE_STEADY_CONTINUATION=$<STREQUAL:${_case},CoupledSteady>"
               ${_particle_check_arguments}
               ${_mumps_workspace_check_arguments}
               "-DAPPLICATION_TIMEOUT=${_coupled_application_timeout}"
