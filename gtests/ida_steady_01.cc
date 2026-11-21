@@ -551,4 +551,15 @@ TEST(DistributedIDA, BOTH_FourFieldSteadyUsesCondensationAndFullResidualScales)
                   1e-15);
   dealii::ParameterAcceptor::clear();
 }
+
+TEST(DistributedIDA, BOTH_MumpsBacksolveFailureRetryClassification)
+{
+  using namespace ImmersX::metric_flow_x_app_detail;
+  EXPECT_TRUE(kinsol_stage_can_retry(KIN_LSOLVE_FAIL));
+  EXPECT_TRUE(kinsol_mumps_backsolve_failure_can_retry(KIN_LSOLVE_FAIL, true));
+  EXPECT_FALSE(
+    kinsol_mumps_backsolve_failure_can_retry(KIN_LSOLVE_FAIL, false));
+  EXPECT_FALSE(
+    kinsol_mumps_backsolve_failure_can_retry(KIN_MAXITER_REACHED, true));
+}
 #endif

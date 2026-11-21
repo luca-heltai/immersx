@@ -35,11 +35,19 @@ namespace ImmersX::metric_flow_x_app_detail
   kinsol_stage_can_retry(const int status)
   {
     return status == KIN_STEP_LT_STPTOL || status == KIN_MAXITER_REACHED ||
-           status == KIN_LINESEARCH_NONCONV || status == KIN_MXNEWT_5X_EXCEEDED
+           status == KIN_LINESEARCH_NONCONV ||
+           status == KIN_MXNEWT_5X_EXCEEDED || status == KIN_LSOLVE_FAIL
 #if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
            || status == KIN_LINESEARCH_BCFAIL
 #endif
       ;
+  }
+
+  inline bool
+  kinsol_mumps_backsolve_failure_can_retry(const int  status,
+                                           const bool mumps_failure)
+  {
+    return mumps_failure && status == KIN_LSOLVE_FAIL;
   }
 
   // Installed deal.II 9.8 N_Vectors lack the constraint operations required by
@@ -285,11 +293,17 @@ namespace ImmersX::metric_flow_x_app_detail
       }
     else
       {
-        int pending_kind = 0;
+        int         pending_kind = 0;
+        std::string mumps_backsolve_error;
         if (callbacks.pending)
           try
             {
               std::rethrow_exception(callbacks.pending);
+            }
+          catch (const ImmersX::detail::MumpsBacksolveResidualError &error)
+            {
+              pending_kind          = 3;
+              mumps_backsolve_error = error.what();
             }
           catch (const dealii::RecoverableUserCallbackError &)
             {
@@ -299,8 +313,14 @@ namespace ImmersX::metric_flow_x_app_detail
             {
               pending_kind = 2;
             }
+        const bool local_mumps_backsolve_failure =
+          kinsol_mumps_backsolve_failure_can_retry(status, pending_kind == 3);
+        const auto every_rank_mumps_backsolve_failure =
+          dealii::Utilities::MPI::min(local_mumps_backsolve_failure ? 1u : 0u,
+                                      communicator);
         const bool failed_callback =
-          pending_kind == 2 || (pending_kind == 1 && status != KIN_SUCCESS);
+          pending_kind == 2 || (pending_kind == 1 && status != KIN_SUCCESS) ||
+          (pending_kind == 3 && every_rank_mumps_backsolve_failure == 0);
         const auto any_failed_callback =
           dealii::Utilities::MPI::max(failed_callback ? 1u : 0u, communicator);
         if (any_failed_callback)
@@ -320,7 +340,13 @@ namespace ImmersX::metric_flow_x_app_detail
           minimum_status == maximum_status,
           dealii::ExcMessage(
             "KINSOL returned different statuses on different MPI ranks."));
-        AssertThrow(status >= 0 || kinsol_stage_can_retry(status),
+        if (every_rank_mumps_backsolve_failure == 1 &&
+            dealii::Utilities::MPI::this_mpi_process(communicator) == 0)
+          std::cerr << "KINSOL continuation rejected a trial after "
+                    << mumps_backsolve_error << std::endl;
+        AssertThrow(status >= 0 || (kinsol_stage_can_retry(status) &&
+                                    (status != KIN_LSOLVE_FAIL ||
+                                     every_rank_mumps_backsolve_failure == 1)),
                     dealii::ExcMessage("Native KINSOL returned status " +
                                        std::to_string(status)));
       }

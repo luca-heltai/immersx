@@ -38,6 +38,7 @@
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -52,6 +53,15 @@ namespace ImmersX
 {
   namespace detail
   {
+    /** Identify a failed strict MUMPS backsolve so a coupled steady
+     * continuation can reject only that trial and reduce its eta increment.
+     */
+    class MumpsBacksolveResidualError : public std::runtime_error
+    {
+    public:
+      using std::runtime_error::runtime_error;
+    };
+
     /** Minimize a stalled direct-solve defect using the existing backsolve.
      * The caller must independently check the original Jacobian residual:
      * FGMRES's projected residual is not an acceptance criterion.
@@ -1750,7 +1760,7 @@ namespace ImmersX
                     message
                       << "]. Inspect native diagnostics and the workspace "
                          "relaxation.";
-                    AssertThrow(false, dealii::ExcMessage(message.str()));
+                    throw detail::MumpsBacksolveResidualError(message.str());
                   }
               }
           }
