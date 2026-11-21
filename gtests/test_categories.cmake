@@ -114,6 +114,7 @@ set(IMMERSX_VALIDATION_TEST_SUITES
     LaplacianValidation
     ReducedPoissonValidation
     ElasticityTensorProductCouplingValidation
+    VesselMultiplierValidation
     TriangulationBackendsValidation/*
     ElastodynamicsValidation
     ElastodynamicsExecutionValidation

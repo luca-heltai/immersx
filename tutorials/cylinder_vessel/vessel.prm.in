@@ -1,0 +1,78 @@
+# Cylinder of radius re = 2 and half length 2 around the x axis with an
+# immersed vessel of radius ri = 0.2 on its axis. The tensor-product coupling
+# imposes the radial displacement di = 0.1 on the vessel wall (modes 3 and 7),
+# the hull (boundary id 0) is fixed, and the end faces (ids 1 and 2) get the
+# exact field, whose axial component is zero: plane strain, as for the
+# resolved hole.
+set dimension               = 3
+set space dimension         = 3
+set reduced dimension       = 1
+set cross section dimension = 2
+subsection Immersed Problem
+  set Coupling type                          = TensorProduct
+  set Dirichlet boundary ids                 = 0, 1, 2
+  set FE degree                              = 1
+  set Initial refinement                     = 1
+  set Output directory                       = @TEST_OUTPUT_DIR@/tutorial-output/cylinder-vessel
+  set Output name                            = vessel
+  set Output pressure                        = true
+  set Remove interior stress from pressure   = true
+  subsection Grid generation
+    set Domain type              = generate
+    set Grid generator           = subdivided_cylinder
+    # axial subdivisions : radius : half length
+    set Grid generator arguments = 4: 2: 2
+  end
+  subsection Material properties
+    subsection default
+      set Lame lambda = 1
+      set Lame mu     = 1
+    end
+  end
+  subsection Refinement and remeshing
+    set Number of refinement cycles = 1
+    set Strategy                    = global
+  end
+end
+subsection Functions
+  # Exact radial Lame field around the x axis: u_r = A (re^2 / r - r) in the
+  # tissue, A = ri di / (re^2 - ri^2), and the dilation u_r = di r / ri inside
+  # the vessel. It is zero on the hull.
+  subsection Dirichlet boundary conditions
+    set Function constants  = ri=0.2, re=2, di=0.1
+    set Function expression = 0; if(y*y+z*z > ri*ri, ri*di/(re*re-ri*ri)*(re*re/(y*y+z*z)-1)*y, di*y/ri); if(y*y+z*z > ri*ri, ri*di/(re*re-ri*ri)*(re*re/(y*y+z*z)-1)*z, di*z/ri)
+    set Variable names      = x,y,z,t
+  end
+end
+subsection Tensor product coupling
+  subsection Cross section
+    set Geometry type        = hyper_ball
+    set Maximum basis degree = 1
+    set Refinement level     = 3
+    set Selected modes       = 3, 7
+  end
+  subsection Particle coupling
+    set RTree extraction level = 1
+  end
+  subsection Representative domain
+    set Finite element degree            = 1
+    set Input file fields                = vessel_id
+    set Number of quadrature points      = 3
+    set Number of quadrature repetitions = 16
+    set Reduced grid name                = @TEST_DATA_DIR@/tests/cylinder_vessel_x.vtk
+    set Reduced right hand side          = 0.1; 0.1
+    set Thickness                        = 0.2
+  end
+end
+subsection Solvers
+  subsection Augmented Lagrange
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+  subsection Displacement
+    set Max steps = 10000
+    set Reduction = 1.e-10
+    set Tolerance = 1.e-12
+  end
+end

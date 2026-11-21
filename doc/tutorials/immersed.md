@@ -9,6 +9,8 @@ Introduce reduced spaces, nonmatching meshes, and coupled Problems.
 reduced-poisson
 coupled-poisson
 coupled-poisson-elasticity
+cylinder-vessel-vs-hole
+vessel-multiplier-convergence
 ../how-to/vascular-tree-elasticity
 vascular-generation
 liver-vascularization

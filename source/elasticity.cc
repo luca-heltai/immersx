@@ -2413,6 +2413,10 @@ namespace ImmersX
 
     std::map<types::boundary_id, Tensor<1, spacedim>> boundary_stress;
     std::map<types::boundary_id, double>              u_dot_n;
+    // Mean normal stress n . sigma n per boundary id. The mean traction
+    // vector averages to about zero on a closed curved boundary, such as the
+    // inner face of a cylinder shell; this one does not.
+    std::map<types::boundary_id, double> normal_stress;
 
     auto                                 all_ids = tria->get_boundary_ids();
     std::map<types::boundary_id, double> perimeter;
@@ -2422,6 +2426,7 @@ namespace ImmersX
         boundary_stress[id] = 0.0;
         perimeter[id]       = 0.0;
         u_dot_n[id]         = 0.0;
+        normal_stress[id]   = 0.0;
       }
     double internal_area = 0.;
     //   // FEValues<spacedim>               fe_values(geometry_mapping(), *fe,
@@ -2515,11 +2520,16 @@ namespace ImmersX
                        ++q)
                     {
                       perimeter[boundary_index] += fe_face_values.JxW(q);
-                      boundary_stress[boundary_index] +=
+                      const Tensor<1, spacedim> traction =
                         (2 * mp.Lame_mu * displacement_strain[q] +
                          mp.Lame_lambda * displacement_divergence[q] *
                            identity) *
-                        fe_face_values.JxW(q) * fe_face_values.normal_vector(q);
+                        fe_face_values.normal_vector(q);
+                      boundary_stress[boundary_index] +=
+                        traction * fe_face_values.JxW(q);
+                      normal_stress[boundary_index] +=
+                        (traction * fe_face_values.normal_vector(q)) *
+                        fe_face_values.JxW(q);
                       u_dot_n[boundary_index] +=
                         (displacement_values[q] *
                          fe_face_values.normal_vector(q)) *
@@ -2545,8 +2555,11 @@ namespace ImmersX
           Utilities::MPI::sum(boundary_stress[id], mpi_communicator);
         perimeter[id] = Utilities::MPI::sum(perimeter[id], mpi_communicator);
         u_dot_n[id]   = Utilities::MPI::sum(u_dot_n[id], mpi_communicator);
+        normal_stress[id] =
+          Utilities::MPI::sum(normal_stress[id], mpi_communicator);
         Assert(perimeter[id] > 0, ExcInternalError());
         boundary_stress[id] /= perimeter[id];
+        normal_stress[id] /= perimeter[id];
       }
 
     const unsigned int output_index =
@@ -2568,7 +2581,7 @@ namespace ImmersX
                 for (auto id : all_ids)
                   forces_file // << " perimeter" << id
                     << " boundaryStressX_" << id << " boundaryStressY_" << id
-                    << " uDotN_" << id;
+                    << " uDotN_" << id << " sigmaNN_" << id;
                 forces_file << std::endl;
               }
             else
@@ -2577,7 +2590,7 @@ namespace ImmersX
                 for (auto id : all_ids)
                   forces_file // << " perimeter" << id
                     << " sigmanX_" << id << " sigmanY_" << id << " sigmanZ_"
-                    << id << " uDotN_" << id;
+                    << id << " uDotN_" << id << " sigmaNN_" << id;
                 forces_file << std::endl;
               }
           }
@@ -2589,7 +2602,8 @@ namespace ImmersX
             forces_file << output_index << " " << internal_area << " ";
             for (auto id : all_ids)
               forces_file // << perimeter[id] << " "
-                << boundary_stress[id] << " " << u_dot_n[id] << " ";
+                << boundary_stress[id] << " " << u_dot_n[id] << " "
+                << normal_stress[id] << " ";
             forces_file << std::endl;
           }
         else // spacedim = 3
@@ -2597,7 +2611,8 @@ namespace ImmersX
             forces_file << output_index << " ";
             for (auto id : all_ids)
               forces_file // << perimeter[id] << " "
-                << boundary_stress[id] << " " << u_dot_n[id] << " ";
+                << boundary_stress[id] << " " << u_dot_n[id] << " "
+                << normal_stress[id] << " ";
             forces_file << std::endl;
           }
         forces_file.close();
