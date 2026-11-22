@@ -371,6 +371,34 @@ TEST(CoupledElasticityNewmark, BOTH_StartsAtStaticEquilibriumTensorProduct)
   check_equilibrium_start(false);
 }
 
+// A static solve evaluates a time-dependent wall data expression at the solve
+// time: 0.1*t at t = 0.5 gives the same solution as the constant 0.05.
+TEST(CoupledElasticityNewmark, BOTH_StaticWallDataAtSolveTimeTensorProduct)
+{
+  const auto solve = [](const std::string &wall_data) {
+    State state;
+    with_problem(parameters(false,
+                            false,
+                            {{"Reduced right hand side", wall_data}}),
+                 [&](auto &problem) {
+                   ASSERT_EQ(problem.par.time_mode, TimeMode::Static);
+                   problem.run_timestep0();
+                   problem.run_timestep(0.5);
+                   state.displacement = problem.solution.block(0);
+                   state.pressure     = vessel_pressure(problem);
+                 });
+    return state;
+  };
+  const auto timed    = solve("0.1*t; 0.1*t");
+  const auto constant = solve("0.05; 0.05");
+  ASSERT_NE(constant.pressure, 0.);
+  EXPECT_LT(relative_difference(timed.displacement, constant.displacement),
+            1.e-8);
+  EXPECT_NEAR(timed.pressure,
+              constant.pressure,
+              1.e-8 * std::abs(constant.pressure));
+}
+
 // Refinement around the inclusions creates hanging nodes.
 TEST(CoupledElasticityNewmark, BOTH_ConstantDataKeepsEquilibriumPoint)
 {
