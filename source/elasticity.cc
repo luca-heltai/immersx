@@ -946,9 +946,11 @@ namespace ImmersX
       if (par.time_mode != TimeMode::Dynamic)
         {
           auto parameter_list_A = amg_parameter_list;
+          // ML reads the null space through a raw pointer during
+          // initialize(), so the modes must outlive that call.
+          std::unique_ptr<Epetra_MultiVector> ptr_operator_modes;
           if (!uses_tensor_product_coupling())
             {
-              std::unique_ptr<Epetra_MultiVector> ptr_operator_modes;
               UtilitiesAL::set_null_space<spacedim, VectorType>(
                 parameter_list_A,
                 ptr_operator_modes,
