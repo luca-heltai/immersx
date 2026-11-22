@@ -1065,6 +1065,15 @@ namespace ImmersX
         this->par.set_boundary_condition_times(physical_time);
         this->setup_constraints();
       }
+    // Evaluate the tensor-product wall data expression at the solve time.
+    // Rebuilding the coupling after refinement resets its time to zero, so
+    // this runs before every coupling assembly.
+    const auto set_wall_data_time = [&]() {
+#ifdef DEAL_II_WITH_VTK
+      if (this->uses_tensor_product_coupling())
+        this->tensor_product_coupling->set_time(physical_time);
+#endif
+    };
     if (this->cycle == 0) // at first timestep we refine
       {
         if (this->par.refinement_strategy == "inclusions")
@@ -1073,6 +1082,7 @@ namespace ImmersX
             // this->pcout << "refining around inclusions" << std::endl;
 
             this->assemble_elasticity_system(); // we need to refine A too
+            set_wall_data_time();
             this->assemble_coupling();
             this->solve();
           }
@@ -1084,7 +1094,8 @@ namespace ImmersX
               {
                 this->assemble_elasticity_system(); // questo mi serve perche
                                                     // sto raffinando
-                this->assemble_coupling();
+                set_wall_data_time();
+            this->assemble_coupling();
                 this->solve();
                 if (ref_cycle != this->par.n_refinement_cycles - 1)
                   {
@@ -1100,6 +1111,7 @@ namespace ImmersX
         // cached essential columns cannot supply a new affine lifting.
         if (time_changed)
           this->assemble_elasticity_system();
+        set_wall_data_time();
         this->assemble_coupling();
         this->solve();
       }

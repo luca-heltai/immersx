@@ -9,3 +9,7 @@ PR: #449
   and Newmark, is now preconditioned with the AMG of the stiffness or Newmark
   matrix. Without a preconditioner its iterations doubled with each mesh
   refinement (about 900 per solve at 620k dofs, 47 with AMG).
+- Static solves of `VesselElasticityProblem` with tensor-product coupling now
+  evaluate a time-dependent `Reduced right hand side` at the solve time. Before,
+  the expression was always evaluated at `t = 0`, so a static
+  `coupled_elasticity` run without a 1D input imposed zero wall data.
