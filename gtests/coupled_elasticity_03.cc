@@ -1401,12 +1401,12 @@ namespace
     problem.setup_dofs();
   }
 
-  // Reduced grid of three_cell_grid() with vessel ids 0, 1, 0.
+  // Reduced grid of three_cell_grid() with vessel ids 0, 0, 1.
   std::string
   tensor_parameters(const std::string &fields    = "displacement, vessel_id",
                     const Overrides   &overrides = {})
   {
-    return parameters(false, three_cell_grid({0, 1, 0}), fields, overrides);
+    return parameters(false, three_cell_grid({0, 0, 1}), fields, overrides);
   }
 
   // Serial runs write the pressure as text, parallel runs as HDF5.
@@ -1647,7 +1647,7 @@ TEST(CoupledElasticity, BOTH_RunTimestepInclusionsStrategyTensorProduct)
 // "vessel_id" is not listed in the input file fields, and the error says so.
 TEST(CoupledElasticity, BOTH_MakeVesselIndexOfACellRequiresVesselIdField)
 {
-  with_problem(parameters(false, three_cell_grid({0, 1, 0}), "displacement"),
+  with_problem(parameters(false, three_cell_grid({0, 0, 1}), "displacement"),
                [](auto &problem) {
                  setup_tensor_product(problem);
                  try
@@ -1663,12 +1663,12 @@ TEST(CoupledElasticity, BOTH_MakeVesselIndexOfACellRequiresVesselIdField)
                });
 }
 
-// Cells have vessel ids 0, 1, 0, so vessel 1 holds one third of the cells,
+// Cells have vessel ids 0, 0, 1, so vessel 1 holds one third of the cells,
 // also after uniform refinement of the reduced grid.
 TEST(CoupledElasticity, BOTH_VesselIndexOfACellTwoVessels)
 {
   with_problem(parameters(false,
-                          three_cell_grid({0, 1, 0}),
+                          three_cell_grid({0, 0, 1}),
                           "displacement, vessel_id"),
                [](auto &problem) {
                  setup_tensor_product(problem);
@@ -1689,11 +1689,11 @@ TEST(CoupledElasticity, BOTH_VesselIndexOfACellTwoVessels)
                });
 }
 
-// Cells have vessel ids 0, 2, 0: id 1 is missing.
+// Cells have vessel ids 0, 0, 2: id 1 is missing.
 TEST(CoupledElasticity, BOTH_VesselIndexOfACellRejectsGap)
 {
   with_problem(parameters(false,
-                          three_cell_grid({0, 2, 0}),
+                          three_cell_grid({0, 0, 2}),
                           "displacement, vessel_id"),
                [](auto &problem) {
                  setup_tensor_product(problem);
