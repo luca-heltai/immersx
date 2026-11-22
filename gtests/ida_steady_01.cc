@@ -663,6 +663,27 @@ TEST(DistributedIDA, BOTH_KINSOLMaximumJacobianSetupInterval)
   dealii::ParameterAcceptor::clear();
 }
 
+TEST(DistributedIDA, BOTH_SteadyContinuationStepGrowth)
+{
+  using ImmersX::metric_flow_x_app_detail::next_steady_continuation_increment;
+
+  constexpr double stage_increment   = 0.00439453125;
+  constexpr double maximum_increment = 0.25;
+
+  EXPECT_DOUBLE_EQ(next_steady_continuation_increment(stage_increment,
+                                                      maximum_increment,
+                                                      true),
+                   stage_increment);
+  EXPECT_DOUBLE_EQ(next_steady_continuation_increment(stage_increment,
+                                                      maximum_increment,
+                                                      false),
+                   stage_increment * 1.5);
+  EXPECT_DOUBLE_EQ(next_steady_continuation_increment(0.2,
+                                                      maximum_increment,
+                                                      false),
+                   maximum_increment);
+}
+
 TEST(DistributedIDA, BOTH_MumpsBacksolveFailureRetryClassification)
 {
   using namespace ImmersX::metric_flow_x_app_detail;
