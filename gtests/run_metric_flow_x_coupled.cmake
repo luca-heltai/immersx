@@ -90,6 +90,16 @@ if(REQUIRE_STEADY_INITIALIZATION)
 endif()
 
 if(REQUIRE_STEADY_CONTINUATION AND
-   NOT _stdout MATCHES "predictor=secant, KINSOL status=[0-9]+, iterations=[0-9]+, shifted scaled residual=[^ \r\n]+ accepted")
-  message(FATAL_ERROR "Steady continuation did not accept a secant-predicted stage")
+   NOT _stdout MATCHES "predictor=(secant|previous), KINSOL status=[0-9]+, iterations=[0-9]+, shifted scaled residual=[^ \r\n]+ accepted")
+  message(FATAL_ERROR "Steady continuation did not accept a predictor stage")
+endif()
+
+if(REQUIRE_STEADY_PREVIOUS_PREDICTOR)
+  if(NOT _stdout MATCHES
+      "Steady continuation attempt ([2-9]|[1-9][0-9]+): eta=[^,]+, increment=[^,]+, predictor=previous, KINSOL status=[0-9]+, iterations=[0-9]+, shifted scaled residual=[^ \r\n]+ accepted")
+    message(FATAL_ERROR "Steady continuation did not accept a previous-state-predicted stage")
+  endif()
+  if(_stdout MATCHES "predictor=secant")
+    message(FATAL_ERROR "Previous-state predictor mode unexpectedly used secant extrapolation")
+  endif()
 endif()

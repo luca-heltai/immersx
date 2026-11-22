@@ -275,6 +275,7 @@ namespace
            steady_step_tolerance                        = 1.e-12;
     unsigned int steady_maximum_iterations              = 50;
     bool         steady_residual_continuation           = false;
+    bool         steady_use_secant_predictor            = true;
     double       steady_initial_eta_increment           = .05,
            steady_maximum_eta_increment                 = .25,
            steady_minimum_eta_increment                 = 1.e-4;
@@ -287,6 +288,10 @@ namespace
       "Use residual continuation",
       steady_residual_continuation,
       "Ramp the original coupled steady residual from its initial value to zero; failed stages roll back and retry with a smaller eta increment.");
+    steady_parameters.add_parameter(
+      "Use secant predictor",
+      steady_use_secant_predictor,
+      "Extrapolate each continuation stage from the two latest accepted states; when false, start from the latest accepted state.");
     steady_parameters.add_parameter("Displacement characteristic",
                                     displacement_characteristic);
     steady_parameters.add_parameter(
@@ -1610,7 +1615,7 @@ namespace
 
                 auto        trial     = accepted;
                 const char *predictor = "previous";
-                if (has_previous_accepted_state)
+                if (has_previous_accepted_state && steady_use_secant_predictor)
                   {
                     metric_flow_x_app_detail::predict_steady_continuation_state(
                       trial,
