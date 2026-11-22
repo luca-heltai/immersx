@@ -428,7 +428,17 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           set_property(TEST ${_vascular_name} APPEND PROPERTY LABELS mpi)
         endif()
       endforeach()
-      foreach(_case Coupled CoupledSteady Generated MMS MMSNeumann RCRDefault RCRImmersed RCRSimplexDefault RCRSimplexImmersed)
+      foreach(_case
+          Coupled
+          CoupledSteady
+          CoupledSteadyPreviousPredictor
+          Generated
+          MMS
+          MMSNeumann
+          RCRDefault
+          RCRImmersed
+          RCRSimplexDefault
+          RCRSimplexImmersed)
         set(_coupled_modes Serial MPI)
         if(_case STREQUAL "MMS")
           list(APPEND _coupled_modes SerialBlockDiagonal MPIBlockTriangular)
@@ -445,7 +455,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             list(APPEND _coupled_modes MPI4MUMPS)
           endif()
         endif()
-        if(_case STREQUAL "CoupledSteady")
+        if(_case MATCHES "^CoupledSteady")
           set(_coupled_modes)
           if(DEAL_II_WITH_MUMPS AND DEAL_II_WITH_TRILINOS)
             set(_coupled_modes SerialMUMPS MPIMUMPS)
@@ -520,9 +530,13 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             file(APPEND "${_coupled_input}"
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Block preconditioner = block triangular\n    end\n  end\nend\n")
           endif()
-          if(_case STREQUAL "CoupledSteady")
+          if(_case MATCHES "^CoupledSteady")
+            set(_secant_predictor_setting true)
+            if(_case STREQUAL "CoupledSteadyPreviousPredictor")
+              set(_secant_predictor_setting false)
+            endif()
             file(APPEND "${_coupled_input}"
-              "\nsubsection Elastodynamics\n subsection Functions\n  subsection Body force\n   set Function expression = 0;0;1\n  end\n end\nend\nsubsection MetricFlowX coupling\n subsection Steady solver\n  set Initialize equilibrium = true\n  set Use residual continuation = true\n end\nend\nsubsection MetricFlowSystem<1, 3>\n subsection IDA parameters\n  subsection Initial condition correction parameters\n   set Correction type at initial time = none\n  end\n  subsection Tolerance ramp\n   set Enabled = true\n   set Initial relative factor = 2\n   set Initial absolute factor = 3\n   set Hold duration = 0\n   set End time = 0.01\n  end\n end\nend\n")
+              "\nsubsection Elastodynamics\n subsection Functions\n  subsection Body force\n   set Function expression = 0;0;1\n  end\n end\nend\nsubsection MetricFlowX coupling\n subsection Steady solver\n  set Initialize equilibrium = true\n  set Use residual continuation = true\n  set Use secant predictor = ${_secant_predictor_setting}\n end\nend\nsubsection MetricFlowSystem<1, 3>\n subsection IDA parameters\n  subsection Initial condition correction parameters\n   set Correction type at initial time = none\n  end\n  subsection Tolerance ramp\n   set Enabled = true\n   set Initial relative factor = 2\n   set Initial absolute factor = 3\n   set Hold duration = 0\n   set End time = 0.01\n  end\n end\nend\n")
           endif()
           set(TEST_OUTPUT_DIR "${_saved_output_dir}")
           set(_coupled_mpiexec "")
@@ -538,6 +552,16 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           set(_coupled_timeout 115)
           set(_coupled_application_timeout 110)
           set(_particle_check_arguments)
+          set(_require_steady_initialization FALSE)
+          set(_require_steady_continuation FALSE)
+          set(_require_steady_previous_predictor FALSE)
+          if(_case MATCHES "^CoupledSteady")
+            set(_require_steady_initialization TRUE)
+            set(_require_steady_continuation TRUE)
+          endif()
+          if(_case STREQUAL "CoupledSteadyPreviousPredictor")
+            set(_require_steady_previous_predictor TRUE)
+          endif()
           if(_case STREQUAL "Coupled" AND IMMERSX_PYTHON_EXECUTABLE)
             list(APPEND _particle_check_arguments
               "-DPARTICLE_CHECKER=${CMAKE_SOURCE_DIR}/scripts/lifted_particle_output_checks.py"
@@ -553,8 +577,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "-DMPIEXEC=${_coupled_mpiexec}"
               "-DMPI_RANKS=${_coupled_ranks}"
               "-DREQUIRE_GENERATED_RESPONSE=$<STREQUAL:${_case},Generated>"
-              "-DREQUIRE_STEADY_INITIALIZATION=$<STREQUAL:${_case},CoupledSteady>"
-              "-DREQUIRE_STEADY_CONTINUATION=$<STREQUAL:${_case},CoupledSteady>"
+              "-DREQUIRE_STEADY_INITIALIZATION=${_require_steady_initialization}"
+              "-DREQUIRE_STEADY_CONTINUATION=${_require_steady_continuation}"
+              "-DREQUIRE_STEADY_PREVIOUS_PREDICTOR=${_require_steady_previous_predictor}"
               ${_particle_check_arguments}
               ${_mumps_workspace_check_arguments}
               "-DAPPLICATION_TIMEOUT=${_coupled_application_timeout}"

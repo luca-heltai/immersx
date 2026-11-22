@@ -319,6 +319,13 @@ all absolute tolerances and the relative tolerance together in a separate
 output directory. It is a tolerance-sensitivity control, not a spatial
 convergence test.
 
+When steady residual continuation is enabled, `Use secant predictor` defaults
+to `true`: each stage starts from a secant extrapolation of the two latest
+accepted states, falling back to the latest accepted state if the extrapolation
+is inadmissible. Set it to `false` to start every stage from the latest accepted
+state. This is a solver comparison control; the iCard11 runs have not yet
+established which predictor gives the most reliable full physiological solve.
+
 The recipe stops IDA at every requested output time, retaining its BDF
 history. This keeps saved states at internal step endpoints, where the
 nonlinear algebraic constraints are solved. Output cadence therefore
