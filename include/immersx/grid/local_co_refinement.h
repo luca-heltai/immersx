@@ -13,7 +13,9 @@
 #include <immersx/coupling/immersed_repartitioner.h>
 #include <immersx/grid/local_co_refinement_parameters.h>
 
+#include <algorithm>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <vector>
@@ -37,14 +39,25 @@ namespace ImmersX
     }
   };
 
+  /** Smallest and largest thickness (cross-section radius) on an embedded
+   * cell. Used to pair space cells with the surface where the lifted points
+   * lie instead of with the embedded cell itself.
+   */
+  template <int dim, int spacedim>
+  using EmbeddedCellThickness = std::function<std::pair<double, double>(
+    const typename dealii::Triangulation<dim, spacedim>::active_cell_iterator
+      &)>;
+
   namespace internal
   {
     template <int d1, int d2, int spacedim>
     LocalCoRefinementReport
-    co_refine_meshes(dealii::Triangulation<d1, spacedim> &space,
-                     dealii::Triangulation<d2, spacedim> &embedded,
-                     const RefinementParameters<d2>      &parameters,
-                     const MPI_Comm                       communicator)
+    co_refine_meshes(
+      dealii::Triangulation<d1, spacedim>         &space,
+      dealii::Triangulation<d2, spacedim>         &embedded,
+      const RefinementParameters<d2>              &parameters,
+      const MPI_Comm                               communicator,
+      const EmbeddedCellThickness<d2, spacedim>   &embedded_thickness = {})
     {
       namespace bgi = boost::geometry::index;
       using namespace dealii;
@@ -86,11 +99,43 @@ namespace ImmersX
           {
             const auto &[e0, e1] = embedded_box.get_boundary_points();
             const double he      = e0.distance(e1);
+            if (!embedded_thickness)
+              {
+                for (const auto &[space_box, space_cell] :
+                     tree |
+                       bgi::adaptors::queried(bgi::intersects(embedded_box)))
+                  {
+                    const auto &[s0, s1] = space_box.get_boundary_points();
+                    visit(space_cell, embedded_cell, s0.distance(s1), he);
+                  }
+                continue;
+              }
+            // The coupling points lie at the thickness distance from the
+            // embedded cell, not on it. Enlarge the query box by the largest
+            // thickness and, for a curve, keep only the space cells whose
+            // bounding sphere can reach the tube surface around the segment.
+            const auto [t_min, t_max] = embedded_thickness(embedded_cell);
+            const auto query_box      = embedded_box.create_extended(t_max);
             for (const auto &[space_box, space_cell] :
-                 tree | bgi::adaptors::queried(bgi::intersects(embedded_box)))
+                 tree | bgi::adaptors::queried(bgi::intersects(query_box)))
               {
                 const auto &[s0, s1] = space_box.get_boundary_points();
-                visit(space_cell, embedded_cell, s0.distance(s1), he);
+                const double hs      = s0.distance(s1);
+                if constexpr (d2 == 1)
+                  {
+                    const Point<spacedim> center = s0 + (s1 - s0) / 2.;
+                    const auto            p0     = embedded_cell->vertex(0);
+                    const auto axis   = embedded_cell->vertex(1) - p0;
+                    const double norm = axis.norm_square();
+                    const double s =
+                      norm > 0. ?
+                        std::clamp((center - p0) * axis / norm, 0., 1.) :
+                        0.;
+                    const double d = center.distance(p0 + s * axis);
+                    if (d + hs / 2. < t_min || d - hs / 2. > t_max)
+                      continue;
+                  }
+                visit(space_cell, embedded_cell, hs, he);
               }
           }
       };
@@ -317,12 +362,19 @@ namespace ImmersX
   /** Compatibility entry point for existing raw-triangulation coupling code.
    * Transfer hooks must already be attached to these meshes. New applications
    * should use LocalCoRefinement::run() so Domain owns the full lifecycle.
+   *
+   * With `embedded_thickness`, a space cell is paired with an embedded cell
+   * when it can intersect the surface at the thickness distance from it (the
+   * tube around a curve), so all passes refine around the lifted points of a
+   * tensor-product coupling. h_embedded stays the embedded cell diagonal.
    */
   template <int reduced_dim, int spacedim>
   LocalCoRefinementReport
-  adjust_grids(dealii::Triangulation<spacedim>              &space,
-               dealii::Triangulation<reduced_dim, spacedim> &embedded,
-               const RefinementParameters<reduced_dim>      &parameters)
+  adjust_grids(
+    dealii::Triangulation<spacedim>                    &space,
+    dealii::Triangulation<reduced_dim, spacedim>       &embedded,
+    const RefinementParameters<reduced_dim>            &parameters,
+    const EmbeddedCellThickness<reduced_dim, spacedim> &embedded_thickness = {})
   {
     AssertThrow(
       (dynamic_cast<dealii::parallel::fullydistributed::Triangulation<spacedim>
@@ -332,7 +384,8 @@ namespace ImmersX
     return internal::co_refine_meshes(space,
                                       embedded,
                                       parameters,
-                                      space.get_mpi_communicator());
+                                      space.get_mpi_communicator(),
+                                      embedded_thickness);
   }
 } // namespace ImmersX
 #endif

@@ -941,3 +941,42 @@ TEST(LocalCoRefinement, BOTH_ImmersedPartitionOfObservedDomain)
   EXPECT_EQ(ownership_mismatches(space, embedded), 0u);
   check_fields(embedded, 3.5, 7);
 }
+
+TEST(LocalCoRefinement, ThicknessRefinesAroundTheTube)
+{
+  // A segment on the x axis of [-1, 1]^2 with thickness a. The lifted points
+  // lie on y = +-a, so the space post-refinement passes must refine there,
+  // and not only around the segment itself.
+  const double a = 0.3;
+  const auto   level_at = [](const Triangulation<2> &tria, const Point<2> &p) {
+    return GridTools::find_active_cell_around_point(tria, p)->level();
+  };
+  for (const bool use_thickness : {false, true})
+    {
+      Triangulation<2> space;
+      GridGenerator::hyper_cube(space, -1, 1);
+      space.refine_global(3);
+      Triangulation<1, 2> embedded;
+      GridGenerator::hyper_cube(embedded, -1, 1);
+      RefinementParameters<1> parameters;
+      parameters.refinement_strategy          = "space";
+      parameters.space_post_refinement_cycles = 3;
+      EmbeddedCellThickness<1, 2> thickness;
+      if (use_thickness)
+        thickness = [a](const auto &) { return std::make_pair(a, a); };
+      adjust_grids(space, embedded, parameters, thickness);
+
+      if (use_thickness)
+        {
+          EXPECT_EQ(level_at(space, Point<2>(0.05, a)), 6);
+          EXPECT_EQ(level_at(space, Point<2>(0.55, -a)), 6);
+          // Cells away from the tube surface are not refined by the passes.
+          EXPECT_LT(level_at(space, Point<2>(0.05, 0.01)), 6);
+        }
+      else
+        {
+          EXPECT_EQ(level_at(space, Point<2>(0.05, 0.01)), 6);
+          EXPECT_LT(level_at(space, Point<2>(0.05, a)), 6);
+        }
+    }
+}
