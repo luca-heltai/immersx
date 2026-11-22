@@ -1095,7 +1095,7 @@ namespace ImmersX
                 this->assemble_elasticity_system(); // questo mi serve perche
                                                     // sto raffinando
                 set_wall_data_time();
-            this->assemble_coupling();
+                this->assemble_coupling();
                 this->solve();
                 if (ref_cycle != this->par.n_refinement_cycles - 1)
                   {
