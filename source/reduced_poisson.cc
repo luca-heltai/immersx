@@ -153,11 +153,12 @@ namespace ImmersX
             };
         else if constexpr (reduced_dim > 0)
           reduced_coupling.preprocess_serial_triangulation =
-            [this, finalize_background](auto &embedded) {
+            [this, finalize_background](auto &embedded, const auto &thickness) {
               adjust_grids(
                 domain.refinement_triangulation(),
                 embedded,
-                this->par.reduced_coupling_parameters.refinement_parameters);
+                this->par.reduced_coupling_parameters.refinement_parameters,
+                thickness);
               finalize_background();
             };
       }

@@ -73,10 +73,12 @@ background_tria.get_mpi_communicator()
     if constexpr (reduced_dim > 0)
       {
         this->preprocess_serial_triangulation =
-          [&](Triangulation<reduced_dim, spacedim> &tria) {
+          [&](Triangulation<reduced_dim, spacedim> &tria,
+              const auto                           &thickness) {
             adjust_grids(*(this->background_tria),
                          tria,
-                         par.refinement_parameters);
+                         par.refinement_parameters,
+                         thickness);
           };
         this->set_partitioner = [&](auto &tria) {
           tria.set_partitioner(immersed_partitioner.value,

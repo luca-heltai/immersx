@@ -217,9 +217,18 @@ namespace ImmersX
 
     /**
      * Preprocess serial triangulation before setting up the partitioner.
+     *
+     * The second argument returns the smallest and largest Thickness on a
+     * cell of this serial triangulation, evaluated at its vertices and
+     * center at the current time. It stays valid while the hook refines the
+     * mesh, and only during the call.
      */
-    std::function<void(Triangulation<reduced_dim, spacedim> &)>
-      preprocess_serial_triangulation = [](auto &) {};
+    using SerialCellThickness = std::function<std::pair<double, double>(
+      const typename Triangulation<reduced_dim, spacedim>::active_cell_iterator
+        &)>;
+    std::function<void(Triangulation<reduced_dim, spacedim> &,
+                       const SerialCellThickness &)>
+      preprocess_serial_triangulation = [](auto &, const auto &) {};
 
     /**
      * Modify the partitioner for the triangulation.

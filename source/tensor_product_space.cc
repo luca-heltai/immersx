@@ -27,6 +27,8 @@
 #include <deal.II/particles/data_out.h>
 #include <deal.II/particles/utilities.h>
 
+#include <immersx/compatibility/reference_cell.h>
+#include <immersx/core/integration_support.h>
 #include <immersx/core/reduced_field_utils.h>
 #include <immersx/coupling/immersed_repartitioner.h>
 #include <immersx/coupling/legacy_inclusions.h>
@@ -350,8 +352,57 @@ namespace ImmersX
         properties_transfer.reset();
       });
 
+    // Thickness range on a serial cell, from the transferred properties, so
+    // that the hook can refine around the lifted points.
+    const auto serial_reference = detail::uniform_reference_cell(serial_tria);
+    const SerialCellThickness serial_cell_thickness =
+      [&](const auto &cell) -> std::pair<double, double> {
+      if (thickness_expression.empty())
+        return {constant_thickness, constant_thickness};
+      AssertThrow(serial_reference.has_value(),
+                  ExcMessage("The reduced grid has no cells."));
+      std::vector<Point<reduced_dim>> unit_points;
+      for (const auto v : serial_reference->vertex_indices())
+        unit_points.push_back(serial_reference->template vertex<reduced_dim>(v));
+      Point<reduced_dim> center;
+      for (const auto &p : unit_points)
+        center += p / static_cast<double>(unit_points.size());
+      unit_points.push_back(center);
+      const Quadrature<reduced_dim> quadrature(unit_points);
+      const auto                   &mapping =
+        compatibility::linear_mapping<reduced_dim, spacedim>(
+          *serial_reference);
+      std::vector<Point<spacedim>> qpoints;
+      for (const auto &p : unit_points)
+        qpoints.push_back(mapping.transform_unit_to_real_cell(cell, p));
+      std::vector<double> bound_values(quadrature.size() *
+                                       properties_bindings.size());
+      const auto property_cell = cell->as_dof_handler_iterator(
+        serial_properties_dh);
+      if (!properties_bindings.empty())
+        {
+          ReducedFieldValues<reduced_dim, spacedim, Vector<double>>
+            field_values(serial_properties_dh,
+                         quadrature,
+                         serial_properties,
+                         properties_bindings);
+          field_values.extract(property_cell, bound_values);
+        }
+      std::vector<double> values(quadrature.size());
+      evaluate_thickness_values<reduced_dim, spacedim>(thickness_evaluator,
+                                                       thickness_expression,
+                                                       property_cell,
+                                                       qpoints,
+                                                       bound_values,
+                                                       constant_thickness,
+                                                       evaluation_time,
+                                                       values);
+      const auto [min, max] = std::minmax_element(values.begin(), values.end());
+      return {*min, *max};
+    };
+
     // Preprocess the serial triangulation
-    preprocess_serial_triangulation(serial_tria);
+    preprocess_serial_triangulation(serial_tria, serial_cell_thickness);
 
     // Then make sure the partitioner is what the user wants
     set_partitioner(triangulation);

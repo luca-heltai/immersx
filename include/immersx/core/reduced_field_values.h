@@ -28,7 +28,9 @@ namespace ImmersX
    * once.  Calling extract() only reinitializes FEValues and copies numeric
    * values; it never performs a field-name lookup.
    */
-  template <int dim, int spacedim>
+  template <int dim,
+            int spacedim,
+            typename VectorType = dealii::LinearAlgebra::distributed::Vector<double>>
   class ReducedFieldValues
   {
   public:
@@ -38,7 +40,7 @@ namespace ImmersX
     ReducedFieldValues(
       const dealii::DoFHandler<dim, spacedim>                  &dof_handler,
       const dealii::Quadrature<dim>                            &quadrature,
-      const dealii::LinearAlgebra::distributed::Vector<double> &properties,
+      const VectorType                                         &properties,
       const std::vector<InputFieldBinding>                     &bindings)
       : properties(properties)
       , fe_values(dof_handler.get_fe(), quadrature, dealii::update_values)
@@ -87,8 +89,8 @@ namespace ImmersX
     }
 
   private:
-    const dealii::LinearAlgebra::distributed::Vector<double> &properties;
-    dealii::FEValues<dim, spacedim>                           fe_values;
+    const VectorType               &properties;
+    dealii::FEValues<dim, spacedim> fe_values;
     unsigned int                                    n_quadrature_points;
     std::vector<dealii::FEValuesExtractors::Scalar> extractors;
     std::vector<unsigned int>                       component_slots;
