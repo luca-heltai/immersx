@@ -12,6 +12,7 @@
 #include <immersx/compatibility/dealii_9_9/utilities.h>
 #include <kinsol/kinsol.h>
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <functional>
@@ -82,6 +83,15 @@ namespace ImmersX::metric_flow_x_app_detail
     prediction = latest_accepted;
     prediction.add((target_eta - latest_eta) / (latest_eta - previous_eta),
                    secant);
+  }
+
+  inline double
+  next_steady_continuation_increment(const double stage_increment,
+                                     const double maximum_increment,
+                                     const bool   stage_recovered_after_retry)
+  {
+    const double growth = stage_recovered_after_retry ? 1. : 1.5;
+    return std::min(maximum_increment, stage_increment * growth);
   }
 
   // Installed deal.II 9.8 N_Vectors lack the constraint operations required by
