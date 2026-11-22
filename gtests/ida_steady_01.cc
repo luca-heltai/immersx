@@ -98,16 +98,17 @@ namespace
 
   template <class Check>
   void
-  with_pair(Check check,
-            bool  zero      = false,
-            bool  nonfinite = false,
-            bool  empty     = false)
+  with_pair(Check                       check,
+            bool                        zero      = false,
+            bool                        nonfinite = false,
+            bool                        empty     = false,
+            const Adapter::LinearSolver solver = Adapter::LinearSolver::mumps)
   {
     dealii::ParameterAcceptor::clear();
     TimeIntervalParameters time("/", false);
     IDAParameters          parameters("/", &time);
     Adapter                adapter(time, parameters, MPI_COMM_WORLD);
-    adapter.set_linear_solver(Adapter::LinearSolver::mumps);
+    adapter.set_linear_solver(solver);
     const auto field    = add_pair(adapter, zero, nonfinite, empty);
     auto       state    = adapter.make_state();
     state               = .5;
@@ -151,6 +152,35 @@ TEST(DistributedIDA, BOTH_SteadyAbsoluteRowScalingAndFreshSetup)
       EXPECT_DOUBLE_EQ(scaling[index], .5);
   });
 }
+
+#  if defined(DEAL_II_WITH_TRILINOS)
+TEST(DistributedIDA, BOTH_SteadyScalingWithMUMPSBLR)
+{
+  with_pair(
+    [](auto       &adapter,
+       const auto &field,
+       auto       &state,
+       auto       &dot,
+       auto       &characteristic,
+       auto       &scaling) {
+      adapter.setup_steady_jacobian(0., state, dot, &characteristic, &scaling);
+      EXPECT_TRUE(adapter.has_current_preconditioner());
+      for (const auto index : scaling.locally_owned_elements())
+        EXPECT_DOUBLE_EQ(scaling[index], .5);
+      auto source = characteristic;
+      auto action = adapter.make_state();
+      adapter.current_jacobian().vmult(action, source);
+      for (const auto index :
+           adapter.field(action, field).locally_owned_elements())
+        EXPECT_DOUBLE_EQ(adapter.field(action, field)[index],
+                         index == 0 ? 0. : 2.);
+    },
+    false,
+    false,
+    false,
+    Adapter::LinearSolver::mumps_blr_fgmres);
+}
+#  endif
 
 TEST(DistributedIDA, BOTH_SteadyRowViewsUseImportedColumnCharacteristics)
 {

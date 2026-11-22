@@ -702,12 +702,12 @@ namespace ImmersX
     }
 
     /** Prepare a fresh steady Jacobian F_y(t,y,y') for an external Newton
-     * solve. This uses the configured materialized direct solver and does not
-     * initialize or advance IDA. Optionally fill positive function scaling
+     * solve. This prepares the configured direct or iterative solver and does
+     * not initialize or advance IDA. Optionally fill positive function scaling
      * 1 / sum_j |J_ij| c_j from supplied positive state characteristics c.
      * Call with scaling outputs once, then keep them fixed during the solve.
-     * Uses the existing second-order condensation when available. The PETSc
-     * backend is not supported here.
+     * MUMPS and MUMPS BLR reuse the existing second-order condensation when
+     * available. The PETSc backend is not supported here.
      */
     void
     setup_steady_jacobian(const double            time,
@@ -716,11 +716,6 @@ namespace ImmersX
                           const GlobalVectorType *characteristics  = nullptr,
                           GlobalVectorType       *function_scaling = nullptr)
     {
-      AssertThrow(
-        linear_solver_ == LinearSolver::mumps ||
-          linear_solver_ == LinearSolver::umfpack,
-        dealii::ExcMessage(
-          "Steady Newton requires a materialized MUMPS or UMFPACK solver."));
       AssertThrow(
         (characteristics == nullptr) == (function_scaling == nullptr),
         dealii::ExcMessage(
@@ -1772,7 +1767,7 @@ namespace ImmersX
             pcout << "IDAAdapter: configured linear solver finished."
                   << std::endl;
           }
-        else if (ida_ && ida_->get_ida_memory())
+        else if (!current_jacobian_is_steady_ && ida_ && ida_->get_ida_memory())
           {
             // A restart may resize native vectors without changing field
             // registration. Follow the current IDA callback map, not that
@@ -1892,15 +1887,25 @@ namespace ImmersX
             dst = 0.;
             // Small physical loads still need a correction. An absolute floor
             // can accept the initial zero iterate and stall the DAE solve.
-            const auto &controls = ida_parameters_.linear_solver_controls;
-            dealii::SolverControl control(
-              controls.krylov_maximum_iterations,
-              std::min(tolerance,
-                       controls.krylov_relative_tolerance * rhs.l2_norm()));
-            const auto target = [&control, tolerance]() {
+            const auto  &controls = ida_parameters_.linear_solver_controls;
+            const double relative_target =
+              controls.krylov_relative_tolerance * rhs.l2_norm();
+            // KINSOL calls this callback during steady initialization too,
+            // but its nonlinear forcing tolerance is not IDA's weighted
+            // linear-solve target. Use the configured relative Krylov target
+            // for the steady Jacobian and reserve IDA weights for DAE steps.
+            const double          solve_target = current_jacobian_is_steady_ ?
+                                                   relative_target :
+                                                   std::min(tolerance, relative_target);
+            dealii::SolverControl control(controls.krylov_maximum_iterations,
+                                          solve_target);
+            const auto            target = [this, &control, tolerance]() {
               std::ostringstream text;
-              text << ", target " << control.tolerance() << " (IDA "
-                   << tolerance << ")";
+              text << ", target " << control.tolerance();
+              if (current_jacobian_is_steady_)
+                text << " (steady relative Krylov target)";
+              else
+                text << " (IDA " << tolerance << ")";
               return text.str();
             };
             // Avoid division by zero at exact Krylov breakdown in deal.II 9.7.
@@ -2414,6 +2419,7 @@ namespace ImmersX
                 << std::endl;
           return;
         }
+      current_jacobian_is_steady_ = steady_setup;
       ++jacobian_setups_;
       diagnostic_time_ = time;
       if (ida_parameters_.print_nonlinear_diagnostics)
@@ -2461,22 +2467,30 @@ namespace ImmersX
       current_jacobian_ = std::move(stable);
       current_preconditioner_.reset();
       current_solver_is_flexible_ = false;
-      if (linear_solver_ == LinearSolver::umfpack ||
-          linear_solver_ == LinearSolver::mumps)
+      const bool direct_solver    = linear_solver_ == LinearSolver::umfpack ||
+                                 linear_solver_ == LinearSolver::mumps;
+      typename Composition::BlockMatrixType blocks;
+      if (direct_solver || linear_solver_ == LinearSolver::mumps_blr_fgmres ||
+          function_scaling != nullptr)
         {
-          dealii::TimerOutput::Scope direct_timer(computing_timer,
-                                                  "Materialize Jacobian");
-          const auto                 blocks =
-            composition_.block_matrix(snapshot->state_storage,
-                                      &snapshot->derivative_storage,
-                                      alpha,
-                                      time,
-                                      &snapshot->linearization);
-          condensation_ = composition_.second_order_condensation(blocks);
+          dealii::TimerOutput::Scope block_timer(computing_timer,
+                                                 "Materialize Jacobian");
+          composition_.block_matrix(blocks,
+                                    snapshot->state_storage,
+                                    &snapshot->derivative_storage,
+                                    alpha,
+                                    time,
+                                    &snapshot->linearization);
           if (function_scaling != nullptr)
             make_steady_function_scaling(blocks,
                                          *characteristics,
                                          *function_scaling);
+        }
+      if (direct_solver)
+        {
+          dealii::TimerOutput::Scope direct_timer(computing_timer,
+                                                  "Materialize Jacobian");
+          condensation_ = composition_.second_order_condensation(blocks);
           std::shared_ptr<MatrixType> monolithic;
           if (!condensation_)
             {
@@ -2555,12 +2569,6 @@ namespace ImmersX
           };
           if (linear_solver_ == LinearSolver::mumps_blr_fgmres)
             {
-              auto blocks =
-                composition_.block_matrix(snapshot->state_storage,
-                                          &snapshot->derivative_storage,
-                                          alpha,
-                                          time,
-                                          &snapshot->linearization);
               current_preconditioner_ =
                 make_mumps_blr_preconditioner(*current_jacobian_, blocks);
               current_solver_is_flexible_ = true;
@@ -2768,6 +2776,7 @@ namespace ImmersX
     RestartFunction                     solver_should_restart_;
     GlobalVectorType                   *current_state_              = nullptr;
     bool                                current_solver_is_flexible_ = false;
+    bool                                current_jacobian_is_steady_ = false;
     bool                                solved_since_residual_      = false;
     std::optional<double>               initial_condition_jacobian_time_;
     unsigned long                       diagnostic_residuals_          = 0;
