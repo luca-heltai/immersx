@@ -1370,9 +1370,6 @@ namespace
         "Steady residual continuation requires Initialize equilibrium = true."));
     if (initialize_steady)
       {
-        AssertThrow(linear_solver == "mumps" || linear_solver == "umfpack",
-                    ExcMessage(
-                      "Steady initialization requires MUMPS or UMFPACK."));
         AssertThrow(
           ida_parameters.correction_type_at_initial_time == "none",
           ExcMessage(

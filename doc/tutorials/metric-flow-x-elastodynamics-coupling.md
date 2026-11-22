@@ -149,8 +149,16 @@ halves the eta increment. Attempts and the minimum increment are bounded by the
 `Steady solver` parameters. A state is passed to IDA only after the eta-one
 residual, positive-area constraints, wall admissibility, and the existing full
 coupled steady-state check pass. Continuation requires
-`Initialize equilibrium = true`; the steady initialization still uses MUMPS or
-UMFPACK.
+`Initialize equilibrium = true`. Steady initialization uses the selected IDA
+linear solver and block preconditioner: direct MUMPS or UMFPACK, MUMPS BLR
+FGMRES, or the configured iterative block preconditioner. UMFPACK requires one
+MPI rank; MUMPS and MUMPS BLR support MPI, and MUMPS BLR requires the Trilinos
+vector backend. The initial residual scaling is computed from the full
+assembled steady Jacobian. The external steady KINSOL solve uses the
+configured relative Krylov tolerance; IDA's native error weights are used
+for time integration only.
+Relative performance and robustness on the full physiological iCard11 inputs
+remain under comparison.
 
 The executable requires MetricFlowX, deal.II with SUNDIALS, and MPI. The
 application and its build requirements are listed in the

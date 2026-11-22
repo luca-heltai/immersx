@@ -546,6 +546,23 @@ namespace ImmersX::detail
                  const double            time           = 0.,
                  const Model            *prepared_model = nullptr) const
     {
+      BlockMatrixType result;
+      block_matrix(result, state, state_dot, alpha, time, prepared_model);
+      return result;
+    }
+
+    /** Assemble the block Jacobian into an existing matrix object. This is
+     * useful for block matrices whose internal blocks retain observer pointers
+     * to their owning object, so the assembled matrix must not be moved.
+     */
+    void
+    block_matrix(BlockMatrixType        &result,
+                 const GlobalVectorType &state,
+                 const GlobalVectorType *state_dot      = nullptr,
+                 const double            alpha          = 0.,
+                 const double            time           = 0.,
+                 const Model            *prepared_model = nullptr) const
+    {
       finalize();
       validate_state(state);
       if (state_dot != nullptr)
@@ -562,7 +579,7 @@ namespace ImmersX::detail
         }
       else
         context.emplace(time, state_view, nullptr);
-      return make_block_matrix(*context, alpha, prepared_model);
+      make_block_matrix(*context, alpha, prepared_model, result);
     }
 
     /** Convert a block matrix to its concatenated monolithic sparse matrix. */
@@ -3128,6 +3145,17 @@ namespace ImmersX::detail
                       const double                              alpha,
                       const Model *prepared_model = nullptr) const
     {
+      BlockMatrixType result;
+      make_block_matrix(context, alpha, prepared_model, result);
+      return result;
+    }
+
+    void
+    make_block_matrix(const EvaluationContext<FieldVectorType> &context,
+                      const double                              alpha,
+                      const Model                              *prepared_model,
+                      BlockMatrixType                          &result) const
+    {
       AssertThrow(can_materialize_matrix(context, alpha, prepared_model),
                   dealii::ExcMessage(
                     "The current execution linearization is not completely "
@@ -3135,7 +3163,6 @@ namespace ImmersX::detail
 
       const auto         partitions = field_layout_.block_partitions();
       const unsigned int n          = field_layout_.n_blocks();
-      BlockMatrixType    result;
       result.reinit(n, n);
       for (unsigned int i = 0; i < n; ++i)
         for (unsigned int j = 0; j < n; ++j)
@@ -3165,7 +3192,6 @@ namespace ImmersX::detail
               }
           }
       result.collect_sizes();
-      return result;
     }
 
     void

@@ -78,15 +78,29 @@ endif()
 
 if(REQUIRE_STEADY_INITIALIZATION)
   if(NOT _stdout MATCHES "Steady KINSOL post-gate scaled F max: [^;]+; target: [^;]+; finite/positive/zero-rate: 1" OR
-     NOT _stdout MATCHES "Steady initialization KINSOL status: [0-9]+; iterations: [1-9][0-9]*" OR
-     NOT _stdout MATCHES "rows after second-order condensation")
-    message(FATAL_ERROR "Missing accepted nontrivial four-field condensed steady initialization")
+     NOT _stdout MATCHES "Steady initialization KINSOL status: [0-9]+; iterations: [1-9][0-9]*")
+    message(FATAL_ERROR "Missing accepted nontrivial four-field steady initialization")
   endif()
   foreach(_field displacement velocity flow multiplier)
     if(NOT _stdout MATCHES "Steady initial residual ${_field}: L2=[^;]+; max=[^;]+; scaled_inf=[^;]+; finite=1")
       message(FATAL_ERROR "Missing finite steady initial residual diagnostics for ${_field}")
     endif()
   endforeach()
+endif()
+
+if(REQUIRE_STEADY_DIRECT AND
+   NOT _stdout MATCHES "rows after second-order condensation")
+  message(FATAL_ERROR "Steady initialization did not use the direct condensed solver")
+endif()
+
+if(REQUIRE_STEADY_ITERATIVE AND
+   NOT _stdout MATCHES "IDAAdapter: (FGMRES|GMRES) converged")
+  message(FATAL_ERROR "Steady initialization did not use the configured iterative solver")
+endif()
+
+if(REQUIRE_STEADY_MUMPS_BLR AND
+   NOT _stdout MATCHES "MUMPS BLR preconditioner has [0-9]+ rows after second-order condensation")
+  message(FATAL_ERROR "Steady initialization did not use the condensed MUMPS BLR preconditioner")
 endif()
 
 if(REQUIRE_STEADY_CONTINUATION AND

@@ -459,6 +459,10 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           set(_coupled_modes)
           if(DEAL_II_WITH_MUMPS AND DEAL_II_WITH_TRILINOS)
             set(_coupled_modes SerialMUMPS MPIMUMPS)
+            if(_case STREQUAL "CoupledSteady")
+              list(APPEND _coupled_modes
+                SerialMUMPSBLR MPIMUMPSBLR SerialSchur MPISchur)
+            endif()
           endif()
         endif()
         foreach(_mode IN LISTS _coupled_modes)
@@ -523,12 +527,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Type = mumps-blr-fgmres\n      subsection MUMPS BLR\n        set Output details = true\n      end\n    end\n  end\nend\nsubsection MetricFlowX coupling\n  set MUMPS workspace relaxation = 73\nend\n")
             list(APPEND _mumps_workspace_check_arguments
               "-DEXPECTED_MUMPS_WORKSPACE=73")
-          elseif(_mode STREQUAL "SerialBlockDiagonal")
+          elseif(_mode STREQUAL "SerialSchur" OR _mode STREQUAL "MPISchur")
             file(APPEND "${_coupled_input}"
-              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Block preconditioner = block diagonal\n    end\n  end\nend\n")
-          elseif(_mode STREQUAL "MPIBlockTriangular")
-            file(APPEND "${_coupled_input}"
-              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Block preconditioner = block triangular\n    end\n  end\nend\n")
+              "\nsubsection MetricFlowSystem<1, 3>\n  subsection IDA parameters\n    subsection Linear solver\n      set Block preconditioner = schur\n    end\n  end\nend\n")
           endif()
           if(_case MATCHES "^CoupledSteady")
             set(_secant_predictor_setting true)
@@ -555,9 +556,20 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           set(_require_steady_initialization FALSE)
           set(_require_steady_continuation FALSE)
           set(_require_steady_previous_predictor FALSE)
+          set(_require_steady_direct FALSE)
+          set(_require_steady_iterative FALSE)
+          set(_require_steady_mumps_blr FALSE)
           if(_case MATCHES "^CoupledSteady")
             set(_require_steady_initialization TRUE)
             set(_require_steady_continuation TRUE)
+            if(_mode MATCHES "MUMPSBLR")
+              set(_require_steady_iterative TRUE)
+              set(_require_steady_mumps_blr TRUE)
+            elseif(_mode MATCHES "Schur")
+              set(_require_steady_iterative TRUE)
+            elseif(_mode MATCHES "MUMPS")
+              set(_require_steady_direct TRUE)
+            endif()
           endif()
           if(_case STREQUAL "CoupledSteadyPreviousPredictor")
             set(_require_steady_previous_predictor TRUE)
@@ -580,6 +592,9 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "-DREQUIRE_STEADY_INITIALIZATION=${_require_steady_initialization}"
               "-DREQUIRE_STEADY_CONTINUATION=${_require_steady_continuation}"
               "-DREQUIRE_STEADY_PREVIOUS_PREDICTOR=${_require_steady_previous_predictor}"
+              "-DREQUIRE_STEADY_DIRECT=${_require_steady_direct}"
+              "-DREQUIRE_STEADY_ITERATIVE=${_require_steady_iterative}"
+              "-DREQUIRE_STEADY_MUMPS_BLR=${_require_steady_mumps_blr}"
               ${_particle_check_arguments}
               ${_mumps_workspace_check_arguments}
               "-DAPPLICATION_TIMEOUT=${_coupled_application_timeout}"
