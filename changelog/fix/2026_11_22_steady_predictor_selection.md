@@ -1,4 +1,4 @@
-PR: #N
+PR: #488
 
 - Before: steady residual continuation always used secant extrapolation after
   the first accepted stage. After: Use secant predictor chooses secant
