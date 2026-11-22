@@ -111,7 +111,7 @@ namespace ImmersX::metric_flow_x_app_detail
     const double                              function_tolerance,
     const double                              step_tolerance,
     const int                                 strategy          = KIN_NONE,
-    const bool                                print_diagnostics = false,
+    [[maybe_unused]] const bool print_diagnostics = false,
     const GlobalVector                       *residual_offset   = nullptr,
     const double                              offset_eta        = 1.,
     const MPI_Comm                            communicator = MPI_COMM_WORLD,
@@ -223,12 +223,16 @@ namespace ImmersX::metric_flow_x_app_detail
             *Native::internal::unwrap_nvector<GlobalVector>(residual)));
       },
       y));
+#if !DEAL_II_SUNDIALS_VERSION_GTE(7, 0, 0)
+    // SUNDIALS 7 removed KINSetPrintLevel in favor of SUNLogger; the
+    // diagnostics flag has no effect there.
     check(KINSetPrintLevel(memory,
                            print_diagnostics &&
                                dealii::Utilities::MPI::this_mpi_process(
                                  communicator) == 0 ?
                              1 :
                              0));
+#endif
     check(KINSetNumMaxIters(memory, max_iterations));
     check(KINSetFuncNormTol(memory, function_tolerance));
     check(KINSetScaledStepTol(memory, step_tolerance));
@@ -258,7 +262,7 @@ namespace ImmersX::metric_flow_x_app_detail
                             SUNMatrix,
                             N_Vector x,
                             N_Vector b,
-                            realtype tolerance) -> int {
+                            dealii::SUNDIALS::realtype tolerance) -> int {
       auto &c                    = *static_cast<Callbacks *>(handle->content);
       c.initial_factor_available = false;
       const auto solve = [&](const auto &rhs, auto &dst, const double tol) {
@@ -278,7 +282,11 @@ namespace ImmersX::metric_flow_x_app_detail
     matrix->content   = &callbacks;
     matrix->ops->zero = [](SUNMatrix handle) -> int {
       static_cast<Callbacks *>(handle->content)->matrix_view.reset();
+#if DEAL_II_SUNDIALS_VERSION_GTE(7, 0, 0)
+      return SUN_SUCCESS;
+#else
       return SUNMAT_SUCCESS;
+#endif
     };
     matrix->ops->matvec = [](SUNMatrix handle, N_Vector x, N_Vector y) -> int {
       auto      &c      = *static_cast<Callbacks *>(handle->content);
