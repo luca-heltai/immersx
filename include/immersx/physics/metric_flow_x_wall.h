@@ -168,19 +168,26 @@ namespace ImmersX
           if constexpr (detail::has_external_pressure_state_jacobian<
                           std::decay_t<decltype(flow_problem)>>::value)
             {
-              typename std::decay_t<decltype(builder)>::Model::
-                MatrixOperatorFactory pressure_state_jacobian =
-                  [&flow_problem, pressure_projection, pressure, flow_id, id](
-                    const auto &context) {
-                    return metric_flow_x_pressure_state_operator(
-                      flow_problem,
-                      pressure,
-                      context.state(id),
-                      context.state(flow_id),
-                      context.time(),
-                      pressure_projection);
-                  };
-              pressure_term.state(flow_id, std::move(pressure_state_jacobian));
+              if (detail::needs_external_pressure_state_jacobian(flow_problem))
+                {
+                  typename std::decay_t<decltype(builder)>::Model::
+                    MatrixOperatorFactory pressure_state_jacobian =
+                      [&flow_problem,
+                       pressure_projection,
+                       pressure,
+                       flow_id,
+                       id](const auto &context) {
+                        return metric_flow_x_pressure_state_operator(
+                          flow_problem,
+                          pressure,
+                          context.state(id),
+                          context.state(flow_id),
+                          context.time(),
+                          pressure_projection);
+                      };
+                  pressure_term.state(flow_id,
+                                      std::move(pressure_state_jacobian));
+                }
             }
         }
 
