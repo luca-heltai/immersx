@@ -21,7 +21,3 @@ tutorials
 *.a
 *.so
 *.log
-_deps
-docker/tutorial-ssh/
-docker/shared-data/
-docker/platform-userdata/

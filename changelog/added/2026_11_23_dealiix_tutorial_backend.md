@@ -1,5 +1,5 @@
 PR: #497
 
-- Add a multi-architecture dealiiX tutorial container with Coral, the ImmersX
-  plugins, MetricFlowX with Trilinos, and Slurm/SSH. The tutorial Compose file
-  uses images published by Coral Visualizer and dealiiX Platform.
+- Publish the ImmersX Coral plugin image with Debug and Release builds against
+  the published Coral and Trilinos MetricFlowX SDK images. The backend includes
+  SSH and Slurm for remote execution.

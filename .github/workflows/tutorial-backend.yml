@@ -7,8 +7,6 @@ on:
       - '.github/workflows/tutorial-backend.yml'
       - 'Dockerfile'
       - 'docker/**'
-      - 'docker-compose.yml'
-      - 'scripts/tutorial-init.sh'
       - 'CMakeLists.txt'
       - 'cmake/**'
       - 'coral/**'
@@ -24,8 +22,6 @@ on:
       - '.github/workflows/tutorial-backend.yml'
       - 'Dockerfile'
       - 'docker/**'
-      - 'docker-compose.yml'
-      - 'scripts/tutorial-init.sh'
       - 'CMakeLists.txt'
       - 'cmake/**'
       - 'coral/**'
@@ -34,7 +30,18 @@ on:
       - 'apps/**'
       - 'parameters/**'
       - 'third_party/**'
+  schedule:
+    - cron: '0 6 * * *'
   workflow_dispatch:
+    inputs:
+      coral_tag:
+        description: Tag of the published Coral CLI and SDK image
+        default: main
+        type: string
+      metric_flow_x_tag:
+        description: Tag of the published MetricFlowX SDK image
+        default: main
+        type: string
 
 permissions:
   contents: read
@@ -45,9 +52,33 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/luca-heltai/immersx-tutorial
+  CORAL_TAG: ${{ inputs.coral_tag || 'main' }}
+  METRIC_FLOW_X_TAG: ${{ inputs.metric_flow_x_tag || 'main' }}
 
 jobs:
+  upstream:
+    runs-on: ubuntu-24.04
+    outputs:
+      coral: ${{ steps.images.outputs.coral }}
+      metric_flow_x: ${{ steps.images.outputs.metric_flow_x }}
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - name: Resolve published SDK tags for both architectures
+        id: images
+        run: |
+          resolve() {
+            local tag=$1 digest
+            digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+            printf '%s@%s' "$tag" "$digest"
+          }
+          coral=$(resolve "ghcr.io/2listic/coral:$CORAL_TAG")
+          metric_flow_x=$(resolve "ghcr.io/luca-heltai/metric-flow-x:$METRIC_FLOW_X_TAG")
+          echo "coral=$coral" >> "$GITHUB_OUTPUT"
+          echo "metric_flow_x=$metric_flow_x" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: upstream
     strategy:
       fail-fast: false
       matrix:
@@ -62,30 +93,9 @@ jobs:
       contents: read
       packages: write
     env:
-      TAG: sha-${{ github.sha }}-${{ matrix.arch }}
+      TAG: run-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
-      - name: Read SDK source revisions
-        id: refs
-        run: |
-          source docker/tutorial-sources.env
-          echo "coral=$CORAL_REF" >> "$GITHUB_OUTPUT"
-          echo "metric_flow_x=$METRIC_FLOW_X_REF" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: 2listic/coral
-          ref: ${{ steps.refs.outputs.coral }}
-          path: _deps/coral
-          submodules: recursive
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: luca-heltai/metric-flow-x
-          ref: ${{ steps.refs.outputs.metric_flow_x }}
-          path: _deps/metric-flow-x
-          persist-credentials: false
-      - name: Validate the Compose configuration
-        run: docker compose config --quiet
       - name: Reserve space for the deal.II SDK image
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
@@ -95,13 +105,14 @@ jobs:
         with:
           context: .
           file: docker/coral.Dockerfile
-          build-contexts: |
-            coral=./_deps/coral
-            metric_flow_x=./_deps/metric-flow-x
+          pull: true
           load: true
           platforms: linux/${{ matrix.arch }}
           tags: ${{ env.IMAGE }}:${{ env.TAG }}
-          build-args: VCS_REF=${{ github.sha }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            CORAL_IMAGE=${{ needs.upstream.outputs.coral }}
+            METRIC_FLOW_X_IMAGE=${{ needs.upstream.outputs.metric_flow_x }}
           cache-from: type=gha,scope=tutorial-backend-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=tutorial-backend-${{ matrix.arch }}
       - name: Run the installed Coral plugins and check VTK output
@@ -141,17 +152,17 @@ jobs:
           done
           exit 1
       - uses: docker/login-action@v3
-        if: github.repository == 'luca-heltai/immersx' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        if: github.repository == 'luca-heltai/immersx' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && (inputs.coral_tag || 'main') == 'main' && (inputs.metric_flow_x_tag || 'main') == 'main'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push tested architecture
-        if: github.repository == 'luca-heltai/immersx' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        if: github.repository == 'luca-heltai/immersx' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && (inputs.coral_tag || 'main') == 'main' && (inputs.metric_flow_x_tag || 'main') == 'main'
         run: docker push "$IMAGE:$TAG"
 
   publish:
-    if: github.repository == 'luca-heltai/immersx' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    if: github.repository == 'luca-heltai/immersx' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && (inputs.coral_tag || 'main') == 'main' && (inputs.metric_flow_x_tag || 'main') == 'main'
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -165,8 +176,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish multi-architecture tags and verify public access
         run: |
-          digest_tag="$IMAGE:sha-$GITHUB_SHA"
-          docker buildx imagetools create --tag "$digest_tag" --tag "$IMAGE:master" \
-            "$digest_tag-amd64" "$digest_tag-arm64"
-          docker buildx imagetools inspect "$digest_tag"
-          DOCKER_CONFIG=$(mktemp -d) docker manifest inspect "$digest_tag" >/dev/null
+          run_tag="$IMAGE:run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker buildx imagetools create --tag "$IMAGE:main" \
+            "$run_tag-amd64" "$run_tag-arm64"
+          docker buildx imagetools inspect "$IMAGE:main"
+          DOCKER_CONFIG=$(mktemp -d) docker manifest inspect "$IMAGE:main" >/dev/null
