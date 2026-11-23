@@ -573,15 +573,27 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   void
-  ElasticityProblem<dim, spacedim>::assemble_elasticity_system()
+  ElasticityProblem<dim, spacedim>::assemble_elasticity_system(
+    const bool assemble_matrices)
   {
-    TimerOutput::Scope t(computing_timer, "Assemble matrices and rhs");
-    robin_matrix_time = current_time;
-    stiffness_matrix  = 0;
+    AssertThrow(assemble_matrices ||
+                  ((par.time_mode == TimeMode::Static ||
+                    par.time_mode == TimeMode::QuasiStatic) &&
+                   par.robin_ids.empty()),
+                ExcMessage("Only static and quasi-static solves without Robin "
+                           "faces can keep the stiffness matrix."));
+    TimerOutput::Scope t(computing_timer,
+                         assemble_matrices ? "Assemble matrices and rhs" :
+                                             "Assemble rhs (matrix kept)");
+    if (assemble_matrices)
+      {
+        robin_matrix_time = current_time;
+        stiffness_matrix  = 0;
+      }
     // Its assembler owns the multiplier load matrix and geometry/constraint
     // cache.
     system_rhs = 0;
-    if (par.time_mode != TimeMode::Static)
+    if (assemble_matrices && par.time_mode != TimeMode::Static)
       {
         newmark_matrix = 0;
         damping_matrix = 0;
@@ -663,29 +675,42 @@ namespace ImmersX
           fe_values.reinit(cell);
           par.rhs.vector_value_list(fe_values.get_quadrature_points(),
                                     rhs_values);
+          cell->get_dof_indices(local_dof_indices);
+
+          // Without matrix assembly, the cell matrix is needed only to lift
+          // inhomogeneous constraint values into the right hand side.
+          const bool cell_matrix_needed =
+            assemble_matrices ||
+            std::any_of(local_dof_indices.begin(),
+                        local_dof_indices.end(),
+                        [&](const types::global_dof_index i) {
+                          return constraints.is_inhomogeneously_constrained(i);
+                        });
 
           // Assemble bulk contributions, no constants yet
           for (unsigned int q = 0; q < n_q_points; ++q)
             {
-              for (unsigned int k = 0; k < dofs_per_cell; ++k)
-                {
-                  grad_phi_u[k] =
-                    fe_values[displacement].symmetric_gradient(k, q);
-                  div_phi_u[k] = fe_values[displacement].divergence(k, q);
-                  phi_u[k]     = fe_values[displacement].value(k, q);
-                }
+              if (cell_matrix_needed)
+                for (unsigned int k = 0; k < dofs_per_cell; ++k)
+                  {
+                    grad_phi_u[k] =
+                      fe_values[displacement].symmetric_gradient(k, q);
+                    div_phi_u[k] = fe_values[displacement].divergence(k, q);
+                    phi_u[k]     = fe_values[displacement].value(k, q);
+                  }
               for (unsigned int i = 0; i < dofs_per_cell; ++i)
                 {
-                  for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                    {
-                      cell_grad(i, j) +=
-                        scalar_product(grad_phi_u[i], grad_phi_u[j]) *
-                        fe_values.JxW(q);
-                      cell_div(i, j) +=
-                        div_phi_u[i] * div_phi_u[j] * fe_values.JxW(q);
-                      cell_value(i, j) +=
-                        phi_u[i] * phi_u[j] * fe_values.JxW(q);
-                    }
+                  if (cell_matrix_needed)
+                    for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                      {
+                        cell_grad(i, j) +=
+                          scalar_product(grad_phi_u[i], grad_phi_u[j]) *
+                          fe_values.JxW(q);
+                        cell_div(i, j) +=
+                          div_phi_u[i] * div_phi_u[j] * fe_values.JxW(q);
+                        cell_value(i, j) +=
+                          phi_u[i] * phi_u[j] * fe_values.JxW(q);
+                      }
                   const auto comp_i = fe->system_to_component_index(i).first;
                   cell_rhs(i) += fe_values.shape_value(i, q) *
                                  rhs_values[q](comp_i) * fe_values.JxW(q);
@@ -801,8 +826,6 @@ namespace ImmersX
                   }
               }
 
-          cell->get_dof_indices(local_dof_indices);
-
           cell_stiffness.equ(2 * mp.Lame_mu,
                              cell_grad,
                              mp.Lame_lambda,
@@ -861,8 +884,18 @@ namespace ImmersX
 
           cell_rhs += cell_penalty_value_rhs;
 
-          if (par.time_mode == TimeMode::Static ||
-              par.time_mode == TimeMode::QuasiStatic)
+          if (!assemble_matrices)
+            {
+              // Same right hand side as the matrix and vector call below: the
+              // local matrix only supplies the lifting of inhomogeneous
+              // constraints, and constrained rows receive nothing.
+              constraints.distribute_local_to_global(cell_rhs,
+                                                     local_dof_indices,
+                                                     system_rhs.block(0),
+                                                     cell_stiffness);
+            }
+          else if (par.time_mode == TimeMode::Static ||
+                   par.time_mode == TimeMode::QuasiStatic)
             {
               // Static and quasi-static solves operate on the fully constrained
               // system: constrained rows become identity rows and constrained
@@ -902,6 +935,11 @@ namespace ImmersX
         }
     robin_detail::assert_valid_boundary_data(invalid_robin_data,
                                              mpi_communicator);
+    // The multiplier RHS has its own insert/add protocol in assemble_coupling.
+    system_rhs.block(0).compress(VectorOperation::add);
+    if (!assemble_matrices)
+      return;
+
     stiffness_matrix.compress(VectorOperation::add);
     if (par.time_mode != TimeMode::Static)
       {
@@ -909,9 +947,6 @@ namespace ImmersX
         damping_matrix.compress(VectorOperation::add);
         newmark_matrix.compress(VectorOperation::add);
       }
-
-    // The multiplier RHS has its own insert/add protocol in assemble_coupling.
-    system_rhs.block(0).compress(VectorOperation::add);
 
     {
       Teuchos::ParameterList amg_parameter_list;

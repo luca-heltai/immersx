@@ -560,6 +560,14 @@ namespace
         EXPECT_NEAR(vessel_pressure(problem),
                     reference.pressure,
                     1.e-8 * std::abs(reference.pressure));
+
+        // The steps after the first keep the stiffness matrix and rebuild
+        // only the load; it must equal a full reassembly at the same time.
+        const LA::MPI::Vector kept_matrix_rhs = problem.system_rhs.block(0);
+        problem.assemble_elasticity_system();
+        EXPECT_LT(relative_difference(kept_matrix_rhs,
+                                      problem.system_rhs.block(0)),
+                  1.e-12);
       });
   }
 } // namespace
