@@ -26,7 +26,7 @@
 
 cmake_minimum_required(VERSION 3.18)
 
-project(ImmersX VERSION 0.3.0 LANGUAGES CXX)
+project(ImmersX VERSION 1.0.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
