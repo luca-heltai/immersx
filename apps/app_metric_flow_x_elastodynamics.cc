@@ -1436,11 +1436,22 @@ namespace
           pressure_characteristic);
         characteristics.compress(VectorOperation::insert);
         auto function_scaling = adapter.make_state();
-        adapter.setup_steady_jacobian(flow_time.initial_time,
-                                      candidate,
-                                      state_dot,
-                                      &characteristics,
-                                      &function_scaling);
+        if (use_initial_consistency)
+          {
+            // Keep the existing alpha=0 row scaling without preparing a
+            // disposable steady solver matrix before the BE Jacobian.
+            adapter.steady_function_scaling(flow_time.initial_time,
+                                            candidate,
+                                            state_dot,
+                                            characteristics,
+                                            function_scaling);
+          }
+        else
+          adapter.setup_steady_jacobian(flow_time.initial_time,
+                                        candidate,
+                                        state_dot,
+                                        &characteristics,
+                                        &function_scaling);
         std::optional<GlobalVector> initial_consistency_reference;
         double                      initial_consistency_alpha = 0.;
         if (use_initial_consistency)
