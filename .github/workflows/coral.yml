@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 2listic/coral
-          ref: dealiix-tutorial
+          ref: 3ae319cc87638a17860054b69bba80267041decf
           path: coral-upstream
           submodules: recursive
 
@@ -149,7 +149,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 2listic/coral
-          ref: dealiix-tutorial
+          ref: 3ae319cc87638a17860054b69bba80267041decf
           path: coral-upstream
           submodules: recursive
 

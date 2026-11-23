@@ -58,3 +58,6 @@ for dependencies, configuration, and the first runnable example.
 ## License
 
 See `LICENSE.md`.
+
+The [dealiiX tutorial container guide](docs/dealiix-tutorial-docker.md)
+covers the Coral plugin backend, Slurm/SSH, and the Compose stack.
