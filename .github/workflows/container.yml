@@ -49,11 +49,11 @@ jobs:
           version=${GITHUB_REF_NAME#v}
           grep -Fx "project(ImmersX VERSION $version LANGUAGES CXX)" CMakeLists.txt
           git merge-base --is-ancestor HEAD origin/master
-      - name: Look for the tested image from this exact revision
+      - name: Look for this already published release
         id: release
         if: github.ref_type == 'tag'
         run: |
-          digest=$(bash scripts/find_tested_container.sh ghcr.io/luca-heltai/immersx "$(git rev-parse HEAD)")
+          digest=$(bash scripts/find_tested_container.sh ghcr.io/luca-heltai/immersx "$GITHUB_REF_NAME" "$(git rev-parse HEAD)")
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - name: Select container validation
         id: selection
@@ -82,8 +82,14 @@ jobs:
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
             printf '%s@%s' "$image" "$digest"
           }
-          coral=$(resolve CORAL_IMAGE)
-          metric_flow_x=$(resolve METRIC_FLOW_X_IMAGE)
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            coral=$(python3 scripts/resolve_container_release.py 2listic/coral)
+            metric_flow_x=$(python3 scripts/resolve_container_release.py luca-heltai/metric-flow-x)
+          else
+            coral=$(resolve CORAL_IMAGE)
+            metric_flow_x=$(resolve METRIC_FLOW_X_IMAGE)
+          fi
+          printf 'Coral: `%s`\n\nMetricFlowX: `%s`\n' "$coral" "$metric_flow_x" >> "$GITHUB_STEP_SUMMARY"
           source_inputs=$(python3 scripts/container_inputs.py)
           fingerprint=$(printf '%s\n' "$source_inputs" "$coral" "$metric_flow_x" | sha256sum | cut -d ' ' -f 1)
           echo "coral=$coral" >> "$GITHUB_OUTPUT"
@@ -308,10 +314,15 @@ jobs:
             docker buildx imagetools create "${tags[@]}" "$IMAGE@$RELEASE_DIGEST"
             digest=$RELEASE_DIGEST
           else
-            tags+=(--tag "$IMAGE:sha-$GITHUB_SHA" --tag "$IMAGE:inputs-$FINGERPRINT")
+            if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+              tag=$GITHUB_REF_NAME
+            else
+              tag=sha-$GITHUB_SHA
+              tags+=(--tag "$IMAGE:$tag" --tag "$IMAGE:inputs-$FINGERPRINT")
+            fi
             docker buildx imagetools create "${tags[@]}" \
               "$IMAGE:run-$GITHUB_RUN_ID-amd64" "$IMAGE:run-$GITHUB_RUN_ID-arm64"
-            digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{.Manifest.Digest}}')
+            digest=$(docker buildx imagetools inspect "$IMAGE:$tag" --format '{{.Manifest.Digest}}')
           fi
           printf '%s@%s\n' "$IMAGE" "$digest" > container-image.txt
           sed "s|ghcr.io/luca-heltai/immersx:master|$IMAGE@$digest|g" \

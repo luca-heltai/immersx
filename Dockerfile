@@ -7,8 +7,12 @@ FROM ${METRIC_FLOW_X_IMAGE} AS metric-flow-x-sdk
 FROM ${CORAL_IMAGE} AS build
 USER root
 COPY --from=metric-flow-x-sdk /opt/metric-flow-x /opt/metric-flow-x
-RUN test -x /opt/metric-flow-x/bin/blood_flow_debug \
-    && grep -Eq '^#define METRIC_FLOW_X_WITH_TRILINOS +1' /opt/metric-flow-x/include/metric_flow_x/config.h
+ARG METRIC_FLOW_X_IMAGE
+RUN if ! test -x /opt/metric-flow-x/bin/blood_flow_debug || \
+       ! grep -Eq '^#define METRIC_FLOW_X_WITH_TRILINOS +1' /opt/metric-flow-x/include/metric_flow_x/config.h; then \
+      printf '%s must contain the Debug and Release Trilinos SDK.\n' "$METRIC_FLOW_X_IMAGE" >&2; \
+      exit 1; \
+    fi
 WORKDIR /src
 COPY CMakeLists.txt LICENSE.md README.md ./
 COPY apps/ apps/
@@ -46,12 +50,16 @@ COPY --from=build /opt/immersx /opt/immersx
 COPY --from=build /opt/immersx-debug /opt/immersx-debug
 COPY --from=metric-flow-x-sdk /opt/metric-flow-x /opt/metric-flow-x
 COPY --chmod=755 scripts/container_entrypoint.sh /opt/immersx/bin/immersx
+ARG CORAL_IMAGE
+ARG METRIC_FLOW_X_IMAGE
 ARG VCS_REF=unknown
 ARG VERSION=master
 LABEL org.opencontainers.image.title="ImmersX" \
       org.opencontainers.image.source="https://github.com/luca-heltai/immersx" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${VCS_REF}"
+      org.opencontainers.image.revision="${VCS_REF}" \
+      io.github.luca-heltai.immersx.coral-image="${CORAL_IMAGE}" \
+      io.github.luca-heltai.immersx.metric-flow-x-image="${METRIC_FLOW_X_IMAGE}"
 ENV PATH="/opt/immersx/bin:/opt/metric-flow-x/bin:${PATH}" \
     CMAKE_PREFIX_PATH="/opt/immersx:/opt/metric-flow-x:/opt/dealiix/coral/Release" \
     OMP_NUM_THREADS=1 \

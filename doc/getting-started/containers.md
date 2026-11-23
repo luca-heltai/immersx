@@ -141,6 +141,10 @@ for the Debug plugin. The build consumes the published Coral and MetricFlowX
 SDK images. The dealii-X integration repository provides the Compose stack
 and the SSH/Slurm execution service built on top of this image.
 
-Pushing a stable Git tag such as `v1.2.3` on `master` promotes the tested
-image for that revision, building and testing it first when needed, before publishing `ghcr.io/luca-heltai/immersx:v1.2.3`. The
-`latest` tag follows the highest tested stable release published to GHCR.
+Development builds consume the Coral and MetricFlowX `main` images. For a
+stable ImmersX Git tag such as `v1.2.3`, the workflow selects the highest
+published stable `vX.Y.Z` tag for each SDK. Both selected tags must contain
+Linux AMD64 and ARM64. The workflow uses the same resolved image digests for
+both builds and records the dependency references on the image. A retry can
+reuse the existing image for that same ImmersX release. The `latest` tag
+follows the highest tested stable ImmersX release published to GHCR.
