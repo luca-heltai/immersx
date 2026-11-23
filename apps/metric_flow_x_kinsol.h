@@ -111,7 +111,7 @@ namespace ImmersX::metric_flow_x_app_detail
     const double                              function_tolerance,
     const double                              step_tolerance,
     const int                                 strategy          = KIN_NONE,
-    [[maybe_unused]] const bool print_diagnostics = false,
+    [[maybe_unused]] const bool               print_diagnostics = false,
     const GlobalVector                       *residual_offset   = nullptr,
     const double                              offset_eta        = 1.,
     const MPI_Comm                            communicator = MPI_COMM_WORLD,
@@ -260,8 +260,8 @@ namespace ImmersX::metric_flow_x_app_detail
     };
     linear->ops->solve = [](SUNLinearSolver handle,
                             SUNMatrix,
-                            N_Vector x,
-                            N_Vector b,
+                            N_Vector                   x,
+                            N_Vector                   b,
                             dealii::SUNDIALS::realtype tolerance) -> int {
       auto &c                    = *static_cast<Callbacks *>(handle->content);
       c.initial_factor_available = false;
