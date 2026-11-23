@@ -1,0 +1,35 @@
+services:
+  coral-ssh-slurm:
+    image: ${IMMERSX_TUTORIAL_IMAGE:-ghcr.io/luca-heltai/immersx-tutorial:master}
+    hostname: slurm
+    ports:
+      - '127.0.0.1:${CORAL_SSH_PORT:-2222}:22'
+    volumes:
+      - ./docker/shared-data:/app/shared-data
+      - ./docker/tutorial-ssh:/tutorial-ssh
+    healthcheck:
+      test: [CMD-SHELL, 'test -s /root/.ssh/authorized_keys && scontrol ping | grep -q UP']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  coral-visualizer:
+    image: ${CORAL_VISUALIZER_IMAGE:-ghcr.io/2listic/coral-visualizer:main}
+    ports:
+      - '127.0.0.1:${VISUALIZER_PORT:-8008}:8080'
+    volumes:
+      - ./docker/shared-data:/deploy/data
+
+  dealiix-platform:
+    image: ${DEALIIX_PLATFORM_IMAGE:-ghcr.io/2listic/dealiix-platform:main}
+    ports:
+      - '127.0.0.1:${PLATFORM_PORT:-6080}:6080'
+    volumes:
+      - ./docker/tutorial-ssh:/run/tutorial-ssh:ro
+      - ./docker/platform-userdata:/var/lib/dealiix-platform
+      - ./coral/examples:/opt/dealiix/immersx/coral/examples:ro
+    depends_on:
+      coral-ssh-slurm:
+        condition: service_healthy
+      coral-visualizer:
+        condition: service_started

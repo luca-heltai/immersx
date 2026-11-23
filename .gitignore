@@ -106,3 +106,8 @@ __pycache__/
 !changelog/
 !changelog/**/
 !changelog/**/*.md
+
+# Local tutorial container state
+docker/tutorial-ssh/
+docker/shared-data/
+docker/platform-userdata/
