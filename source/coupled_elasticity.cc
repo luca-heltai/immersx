@@ -946,6 +946,18 @@ namespace ImmersX
   void
   CoupledElasticityProblem<dim, spacedim>::run_timestep0()
   {
+    // A quasi-static tissue would go through solve_quasistatic(), which applies
+    // the wall data as a pressure instead of imposing the wall displacement.
+    // For a linear elastic tissue, static solves at the exchange times already
+    // give the quasi-static solution.
+    AssertThrow(this->par.time_mode == TimeMode::Static ||
+                  this->par.time_mode == TimeMode::Dynamic,
+                ExcMessage(
+                  "The coupled tissue must be static (Initial time = Final "
+                  "time) or dynamic (Initial time < Final time and a positive "
+                  "Density). Density = 0 with Initial time < Final time "
+                  "selects a quasi-static tissue, which does not impose the "
+                  "wall displacement."));
     this->print_parameters();
     this->make_grid();
     this->setup_fe();

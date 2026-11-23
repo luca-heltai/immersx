@@ -191,6 +191,12 @@ later call must advance `t` by `Time step`. Damping comes from
 file, a dynamic tissue runs from the equilibrium at `Initial time` to
 `Final time`.
 
+The static model needs `Initial time` equal to `Final time`. A quasi-static
+tissue (`Density` 0 with `Initial time` before `Final time`) is rejected: its
+solver applies the wall data as a pressure instead of imposing the wall
+displacement. For a linear elastic tissue, the static solves at the exchange
+times already give the quasi-static solution.
+
 The exchange is explicit: each pressure enters the next 1D step, without
 iterations within a step. With strong damping or inertia the pressure
 response of the tissue to a wall velocity or acceleration can exceed what the

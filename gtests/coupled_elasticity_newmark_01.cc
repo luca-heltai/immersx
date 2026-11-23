@@ -485,6 +485,26 @@ TEST(CoupledElasticityNewmark,
                });
 }
 
+// Density 0 with a time interval selects a quasi-static tissue, which would
+// apply the wall data as a pressure. The coupled problem rejects it.
+TEST(CoupledElasticityNewmark, BOTH_RejectsQuasiStaticTissuePoint)
+{
+  with_problem(parameters(true, false, {{"Final time", "1"}}),
+               [](auto &problem) {
+                 EXPECT_EQ(problem.par.time_mode, TimeMode::QuasiStatic);
+                 EXPECT_THROW(problem.run_timestep0(), std::exception);
+               });
+}
+
+TEST(CoupledElasticityNewmark, BOTH_RejectsQuasiStaticTissueTensorProduct)
+{
+  with_problem(parameters(false, false, {{"Final time", "1"}}),
+               [](auto &problem) {
+                 EXPECT_EQ(problem.par.time_mode, TimeMode::QuasiStatic);
+                 EXPECT_THROW(problem.run_timestep0(), std::exception);
+               });
+}
+
 // A coupled Newmark step must advance the tissue by exactly one time step.
 TEST(CoupledElasticityNewmark, BOTH_RejectsStepOfWrongSizePoint)
 {
