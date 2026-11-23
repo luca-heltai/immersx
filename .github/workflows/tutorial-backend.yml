@@ -123,6 +123,23 @@ jobs:
                 find /tmp/poisson/output -name "*.vtu" -size +0c | grep -q .
               ' bash "$config"
           done
+      - name: Check SSH and Slurm in the running backend
+        run: |
+          backend=$(docker run -d --hostname slurm "$IMAGE:$TAG")
+          trap 'docker logs "$backend"; docker rm -f "$backend" >/dev/null' EXIT
+          for attempt in {1..30}; do
+            if docker exec "$backend" ssh -i /tutorial-ssh/id_ed25519 \
+              -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=2 \
+              root@localhost 'scontrol ping | grep -q UP'; then
+              timeout 60 docker exec "$backend" srun --mpi=none -n 1 /bin/true
+              exit
+            fi
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$backend")" == false ]]; then
+              exit 1
+            fi
+            sleep 2
+          done
+          exit 1
       - uses: docker/login-action@v3
         if: github.repository == 'luca-heltai/immersx' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
         with:
