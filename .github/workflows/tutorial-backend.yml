@@ -68,7 +68,10 @@ jobs:
         run: |
           resolve() {
             local tag=$1 digest
-            digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')
+            if ! digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}'); then
+              printf 'Cannot read the upstream image tag %s from GHCR.\n' "$tag" >&2
+              return 1
+            fi
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
             printf '%s@%s' "$tag" "$digest"
           }
@@ -93,7 +96,7 @@ jobs:
       contents: read
       packages: write
     env:
-      TAG: run-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+      TAG: run-${{ github.run_id }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
       - name: Reserve space for the deal.II SDK image
@@ -176,7 +179,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish multi-architecture tags and verify public access
         run: |
-          run_tag="$IMAGE:run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          run_tag="$IMAGE:run-$GITHUB_RUN_ID"
           docker buildx imagetools create --tag "$IMAGE:main" \
             "$run_tag-amd64" "$run_tag-arm64"
           docker buildx imagetools inspect "$IMAGE:main"
