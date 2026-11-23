@@ -50,8 +50,7 @@ namespace
     par.output_directory =
       TestPaths::output_directory("elasticity-normal-flux");
     ElasticityProblem<3> problem(par);
-    initialize_parameters_from_string(
-      std::string(R"(
+    initialize_parameters_from_string(std::string(R"(
       subsection Functions
         subsection Dirichlet boundary conditions
           set Function constants  = ri=0.2, re=2, di=0.1
@@ -72,12 +71,11 @@ namespace
           set Strategy                    = fixed_number
           set Refinement fraction         = 0.3
         end
-      )") +
-      (normal_flux_end_faces ? R"(
+      )") + (normal_flux_end_faces ? R"(
         set Dirichlet boundary ids   = 0, 1
         set Normal flux boundary ids = 2, 3
       end)" :
-                               R"(
+                                     R"(
         set Dirichlet boundary ids   = 0, 1, 2, 3
         set Normal flux boundary ids =
       end)"));
@@ -94,7 +92,7 @@ namespace
     LA::MPI::Vector ghosted(problem.dh.locally_owned_dofs(),
                             DoFTools::extract_locally_relevant_dofs(problem.dh),
                             MPI_COMM_WORLD);
-    ghosted = u;
+    ghosted       = u;
     const auto l2 = [&](const Function<3> &reference) {
       Vector<float> cell_errors(
         problem.dh.get_triangulation().n_active_cells());
