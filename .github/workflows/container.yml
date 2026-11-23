@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       fingerprint: ${{ steps.inputs.outputs.fingerprint }}
+      release_digest: ${{ steps.release.outputs.digest }}
       coral: ${{ steps.inputs.outputs.coral }}
       metric_flow_x: ${{ steps.inputs.outputs.metric_flow_x }}
       build: ${{ steps.registry.outputs.build }}
@@ -43,7 +44,17 @@ jobs:
           fetch-depth: ${{ github.ref_type == 'tag' && '0' || '2' }}
       - name: Verify release tag is on master
         if: github.ref_type == 'tag'
-        run: git merge-base --is-ancestor HEAD origin/master
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          version=${GITHUB_REF_NAME#v}
+          grep -Fx "project(ImmersX VERSION $version LANGUAGES CXX)" CMakeLists.txt
+          git merge-base --is-ancestor HEAD origin/master
+      - name: Look for the tested image from this exact revision
+        id: release
+        if: github.ref_type == 'tag'
+        run: |
+          digest=$(bash scripts/find_tested_container.sh ghcr.io/luca-heltai/immersx "$(git rev-parse HEAD)")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - name: Select container validation
         id: selection
         run: |
@@ -55,10 +66,10 @@ jobs:
           fi
           echo "build=$build" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
-        if: steps.selection.outputs.build == 'true'
+        if: steps.selection.outputs.build == 'true' && steps.release.outputs.digest == ''
       - name: Resolve SDK image tags and fingerprint build inputs
         id: inputs
-        if: steps.selection.outputs.build == 'true'
+        if: steps.selection.outputs.build == 'true' && steps.release.outputs.digest == ''
         run: |
           resolve() {
             local name=$1 image digest
@@ -80,7 +91,7 @@ jobs:
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
       - name: Check whether a tested image already exists
         id: registry
-        if: steps.selection.outputs.build == 'true'
+        if: steps.selection.outputs.build == 'true' && steps.release.outputs.digest == ''
         env:
           FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
@@ -89,11 +100,6 @@ jobs:
             exit 0
           fi
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            # Release tags must build their exact source revision, even if an
-            # equivalent nightly input fingerprint is already published.
-            [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-            version=${GITHUB_REF_NAME#v}
-            grep -Fx "project(ImmersX VERSION $version LANGUAGES CXX)" CMakeLists.txt
             echo 'build=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -124,7 +130,7 @@ jobs:
 
   reuse:
     needs: prepare
-    if: needs.prepare.outputs.build == 'false' && github.event_name != 'pull_request'
+    if: needs.prepare.outputs.build == 'false' && github.ref_type != 'tag' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       packages: write
@@ -269,7 +275,9 @@ jobs:
 
   publish:
     needs: [prepare, build]
-    if: needs.prepare.outputs.build == 'true' && github.event_name != 'pull_request'
+    if: >-
+      ${{ !cancelled() && github.event_name != 'pull_request' &&
+      (needs.build.result == 'success' || needs.prepare.outputs.release_digest != '') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -277,6 +285,7 @@ jobs:
     env:
       IMAGE: ghcr.io/luca-heltai/immersx
       FINGERPRINT: ${{ needs.prepare.outputs.fingerprint }}
+      RELEASE_DIGEST: ${{ needs.prepare.outputs.release_digest }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -287,7 +296,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish the tested multi-architecture index
         run: |
-          tags=(--tag "$IMAGE:sha-$GITHUB_SHA" --tag "$IMAGE:inputs-$FINGERPRINT")
+          tags=()
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version=${GITHUB_REF_NAME#v}
             tags+=(--tag "$IMAGE:$GITHUB_REF_NAME" --tag "$IMAGE:$version"
@@ -295,9 +304,15 @@ jobs:
           else
             tags+=(--tag "$IMAGE:main" --tag "$IMAGE:master")
           fi
-          docker buildx imagetools create "${tags[@]}" \
-            "$IMAGE:run-$GITHUB_RUN_ID-amd64" "$IMAGE:run-$GITHUB_RUN_ID-arm64"
-          digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{.Manifest.Digest}}')
+          if [[ -n "$RELEASE_DIGEST" ]]; then
+            docker buildx imagetools create "${tags[@]}" "$IMAGE@$RELEASE_DIGEST"
+            digest=$RELEASE_DIGEST
+          else
+            tags+=(--tag "$IMAGE:sha-$GITHUB_SHA" --tag "$IMAGE:inputs-$FINGERPRINT")
+            docker buildx imagetools create "${tags[@]}" \
+              "$IMAGE:run-$GITHUB_RUN_ID-amd64" "$IMAGE:run-$GITHUB_RUN_ID-arm64"
+            digest=$(docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{.Manifest.Digest}}')
+          fi
           printf '%s@%s\n' "$IMAGE" "$digest" > container-image.txt
           sed "s|ghcr.io/luca-heltai/immersx:master|$IMAGE@$digest|g" \
             scripts/run_container.sh > run_container.sh
@@ -307,7 +322,9 @@ jobs:
         run: |
           # Verify package access independently of repository visibility. A private
           # package requires its administrator to enable public access in settings.
-          DOCKER_CONFIG=$(mktemp -d) docker manifest inspect "$IMAGE:sha-$GITHUB_SHA" > /dev/null
+          tag=sha-$GITHUB_SHA
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag=$GITHUB_REF_NAME; fi
+          DOCKER_CONFIG=$(mktemp -d) docker manifest inspect "$IMAGE:$tag" >/dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: container-launcher

@@ -141,6 +141,6 @@ for the Debug plugin. The build consumes the published Coral and MetricFlowX
 SDK images. The dealii-X integration repository provides the Compose stack
 and the SSH/Slurm execution service built on top of this image.
 
-Pushing a stable Git tag such as `v1.2.3` on `master` builds and tests that
-revision before publishing `ghcr.io/luca-heltai/immersx:v1.2.3`. The
+Pushing a stable Git tag such as `v1.2.3` on `master` promotes the tested
+image for that revision, building and testing it first when needed, before publishing `ghcr.io/luca-heltai/immersx:v1.2.3`. The
 `latest` tag follows the highest tested stable release published to GHCR.
