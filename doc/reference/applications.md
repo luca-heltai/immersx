@@ -191,11 +191,16 @@ later call must advance `t` by `Time step`. Damping comes from
 file, a dynamic tissue runs from the equilibrium at `Initial time` to
 `Final time`.
 
-The static model needs `Initial time` equal to `Final time`. A quasi-static
-tissue (`Density` 0 with `Initial time` before `Final time`) is rejected: its
-solver applies the wall data as a pressure instead of imposing the wall
-displacement. For a linear elastic tissue, the static solves at the exchange
-times already give the quasi-static solution.
+A static tissue (`Initial time` equal to `Final time`) is also solved again
+at each exchange time `t`. With `Density` 0 and `Initial time` before
+`Final time`, the tissue is quasi-static: each `run_timestep(t)` is a static
+solve that imposes the wall data at `t`, and without the 1D input file
+`coupled_elasticity` steps from `Initial time` to `Final time` by
+`Time step`. In both models, the Dirichlet, Neumann and Robin data, the
+body force and the wall data expressions (the inclusion `Boundary data`
+with point coupling and no data file, or `Reduced right hand side` with
+tensor-product coupling) are evaluated at `t`. Wall data read from a file
+or received from the 1D model are used as given.
 
 The exchange is explicit: each pressure enters the next 1D step, without
 iterations within a step. With strong damping or inertia the pressure

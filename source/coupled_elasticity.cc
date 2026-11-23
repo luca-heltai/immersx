@@ -946,18 +946,6 @@ namespace ImmersX
   void
   CoupledElasticityProblem<dim, spacedim>::run_timestep0()
   {
-    // A quasi-static tissue would go through solve_quasistatic(), which applies
-    // the wall data as a pressure instead of imposing the wall displacement.
-    // For a linear elastic tissue, static solves at the exchange times already
-    // give the quasi-static solution.
-    AssertThrow(this->par.time_mode == TimeMode::Static ||
-                  this->par.time_mode == TimeMode::Dynamic,
-                ExcMessage(
-                  "The coupled tissue must be static (Initial time = Final "
-                  "time) or dynamic (Initial time < Final time and a positive "
-                  "Density). Density = 0 with Initial time < Final time "
-                  "selects a quasi-static tissue, which does not impose the "
-                  "wall displacement."));
     this->print_parameters();
     this->make_grid();
     this->setup_fe();
@@ -969,8 +957,10 @@ namespace ImmersX
 
     this->cycle        = 0;
     this->current_time = this->par.time_parameters.initial_time;
-    // Dynamic runs impose the wall data from the flow model at each step.
-    this->newmark_wall_constraint = this->par.time_mode == TimeMode::Dynamic;
+    // Time-dependent runs impose the wall data at each step, as static runs
+    // do.
+    this->wall_displacement_constraint =
+      this->par.time_mode != TimeMode::Static;
     this->setup_dofs();
     if (this->uses_tensor_product_coupling())
       {
@@ -1077,12 +1067,14 @@ namespace ImmersX
         this->par.set_boundary_condition_times(physical_time);
         this->setup_constraints();
       }
-    // Evaluate the tensor-product wall data expression at the solve time.
-    // Rebuilding the coupling after refinement resets its time to zero, so
+    // Evaluate the wall data expression at the solve time. Rebuilding the
+    // tensor-product coupling after refinement resets its time to zero, so
     // this runs before every coupling assembly.
     const auto set_wall_data_time = [&]() {
+      if (!this->uses_tensor_product_coupling())
+        this->inclusions.inclusions_rhs.set_time(physical_time);
 #ifdef DEAL_II_WITH_VTK
-      if (this->uses_tensor_product_coupling())
+      else
         this->tensor_product_coupling->set_time(physical_time);
 #endif
     };

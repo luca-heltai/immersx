@@ -626,21 +626,24 @@ namespace ImmersX
      * Whether the multiplier imposes the wall displacement data.
      *
      * This holds in static runs without `Pressure coupling`, and in dynamic
-     * runs when newmark_wall_constraint is also set. Otherwise the data are
-     * applied as a vessel pressure, @f$\lambda = M^{-1}g@f$.
+     * and quasi-static runs when wall_displacement_constraint is also set.
+     * Otherwise the data are applied as a vessel pressure,
+     * @f$\lambda = M^{-1}g@f$.
      */
     bool
     imposes_wall_displacement() const;
 
     /**
-     * Impose the wall displacement with the multiplier in dynamic runs too.
+     * Impose the wall displacement with the multiplier in dynamic and
+     * quasi-static runs too.
      *
-     * By default a dynamic run applies the wall data as a vessel pressure.
-     * VesselElasticityProblem sets this flag when it advances the tissue with
-     * Newmark steps between exchanges with a 1D flow model. Without effect
+     * By default these runs apply the wall data as a vessel pressure.
+     * VesselElasticityProblem sets this flag for a time-dependent tissue: a
+     * dynamic tissue then takes constrained Newmark steps, and a quasi-static
+     * tissue takes a static saddle point solve at each time. Without effect
      * with `Pressure coupling = true`.
      */
-    bool newmark_wall_constraint = false;
+    bool wall_displacement_constraint = false;
 
     /**
      * Solve the saddle point problem

@@ -1597,7 +1597,12 @@ namespace ImmersX
           solve_static();
           break;
         case TimeMode::QuasiStatic:
-          solve_quasistatic();
+          // Without inertia, imposing the wall displacement at the current
+          // time is the static saddle point problem.
+          if (imposes_wall_displacement())
+            solve_static();
+          else
+            solve_quasistatic();
           break;
         case TimeMode::Dynamic:
           solve_newmark();
@@ -1886,10 +1891,9 @@ namespace ImmersX
       return false;
     if (par.time_mode == TimeMode::Static)
       return true;
-    else if (par.time_mode == TimeMode::Dynamic)
-      return newmark_wall_constraint;
-    else if (par.time_mode == TimeMode::QuasiStatic)
-      return false;
+    else if (par.time_mode == TimeMode::Dynamic ||
+             par.time_mode == TimeMode::QuasiStatic)
+      return wall_displacement_constraint;
     AssertThrow(false, ExcInternalError());
     return false;
   }
