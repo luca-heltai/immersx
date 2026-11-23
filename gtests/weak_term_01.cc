@@ -571,6 +571,12 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
   residual -= expected;
   EXPECT_LT(residual.l2_norm(), 1.e-12);
 
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  const auto sparsity_builds_before =
+    detail::weak_term_sparsity_pattern_builds.load();
+  const auto matrix_initializations_before =
+    detail::weak_term_matrix_initializations.load();
+#endif
   const auto jacobian =
     model.state_operator(target.field_id(), source.field_id(), context);
   Vector action(state.size());
@@ -612,6 +618,42 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
   jacobian.vmult(jacobian_action, state);
   finite_difference -= jacobian_action;
   EXPECT_LT(finite_difference.l2_norm(), 1.e-6);
+
+  Vector second_state(state.size());
+  for (unsigned int i = 0; i < second_state.size(); ++i)
+    second_state[i] = 0.5 + 0.125 * i;
+  StateView<Vector> second_state_view(layout, 0.);
+  second_state_view.bind(source.field_id(), second_state);
+  second_state_view.bind(target.field_id(), target_state);
+  const EvaluationContext<Vector> second_context(0., second_state_view);
+  const auto                      second_jacobian =
+    model.state_operator(target.field_id(), source.field_id(), second_context);
+
+  Vector second_perturbed = second_state;
+  second_perturbed.add(epsilon, second_state);
+  StateView<Vector> second_perturbed_view(layout, 0.);
+  second_perturbed_view.bind(source.field_id(), second_perturbed);
+  second_perturbed_view.bind(target.field_id(), target_state);
+  const EvaluationContext<Vector> second_perturbed_context(
+    0., second_perturbed_view);
+  Vector second_residual(residual.size());
+  model.evaluate_row(target.field_id(), second_context, second_residual);
+  Vector second_finite_difference(residual.size());
+  model.evaluate_row(target.field_id(),
+                     second_perturbed_context,
+                     second_finite_difference);
+  second_finite_difference -= second_residual;
+  second_finite_difference *= 1. / epsilon;
+  Vector second_jacobian_action(second_state.size());
+  second_jacobian.vmult(second_jacobian_action, second_state);
+  second_finite_difference -= second_jacobian_action;
+  EXPECT_LT(second_finite_difference.l2_norm(), 1.e-6);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_sparsity_pattern_builds.load(),
+            sparsity_builds_before + 1);
+  EXPECT_EQ(detail::weak_term_matrix_initializations.load(),
+            matrix_initializations_before + 2);
+#endif
 }
 
 TEST(WeakTerm, ActiveAndFrozenObservablesUseTheirOwnFiniteElements)

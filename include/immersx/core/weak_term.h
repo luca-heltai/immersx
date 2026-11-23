@@ -55,6 +55,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <type_traits>
@@ -158,6 +159,7 @@ namespace ImmersX
 #ifdef IMMERSX_WEAK_TERM_TESTING
     inline std::atomic<unsigned int> weak_term_nonmatching_preparations = 0;
     inline std::atomic<unsigned int> weak_term_matrix_initializations   = 0;
+    inline std::atomic<unsigned int> weak_term_sparsity_pattern_builds  = 0;
     inline std::atomic<unsigned int> weak_term_affine_cells             = 0;
 #endif
 
@@ -175,6 +177,69 @@ namespace ImmersX
         std::declval<MPI_Comm>(),
         false))>> : std::true_type
     {};
+
+    /** Cache the structural sparsity of one nonlinear weak-term Jacobian.
+     * The cache is owned by the state-operator factory for a fixed term,
+     * support, and row/column field pair. Rebuild the term/model after changing
+     * the DoF layout, constraint graph, or selected support cells. Matrix
+     * values remain state dependent and are assembled into a fresh matrix on
+     * every Jacobian evaluation.
+     */
+    class WeakTermSparsityPatternCache
+    {
+    public:
+      template <typename Builder>
+      void
+      get_or_build(const std::size_t       rows,
+                   const std::size_t       columns,
+                   const dealii::IndexSet &locally_relevant,
+                   Builder               &&builder)
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (dynamic_sparsity_ == nullptr && serial_sparsity_ == nullptr)
+          {
+            auto sparsity = std::make_shared<dealii::DynamicSparsityPattern>(
+              rows, columns, locally_relevant);
+            std::forward<Builder>(builder)(*sparsity);
+            dynamic_sparsity_ = std::move(sparsity);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+            ++weak_term_sparsity_pattern_builds;
+#endif
+          }
+      }
+
+      const dealii::DynamicSparsityPattern &
+      dynamic_sparsity_pattern() const
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        AssertThrow(
+          dynamic_sparsity_ != nullptr,
+          dealii::ExcMessage(
+            "The weak-term dynamic sparsity pattern is unavailable."));
+        return *dynamic_sparsity_;
+      }
+
+      std::shared_ptr<dealii::SparsityPattern>
+      serial_sparsity_pattern()
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        AssertThrow(dynamic_sparsity_ != nullptr || serial_sparsity_ != nullptr,
+                    dealii::ExcMessage(
+                      "The weak-term sparsity pattern has not been built."));
+        if (serial_sparsity_ == nullptr)
+          {
+            serial_sparsity_ = std::make_shared<dealii::SparsityPattern>();
+            serial_sparsity_->copy_from(*dynamic_sparsity_);
+            dynamic_sparsity_.reset();
+          }
+        return serial_sparsity_;
+      }
+
+    private:
+      mutable std::mutex                              mutex_;
+      std::shared_ptr<dealii::DynamicSparsityPattern> dynamic_sparsity_;
+      std::shared_ptr<dealii::SparsityPattern>        serial_sparsity_;
+    };
 
     template <typename MatrixType, typename = void>
     struct has_matrix_compress : std::false_type
@@ -208,6 +273,34 @@ namespace ImmersX
         {
           auto serial_sparsity = std::make_shared<dealii::SparsityPattern>();
           serial_sparsity->copy_from(sparsity);
+          matrix.reinit(*serial_sparsity);
+          return serial_sparsity;
+        }
+    }
+
+    template <typename MatrixType>
+    std::shared_ptr<dealii::SparsityPattern>
+    initialize_weak_matrix(MatrixType                   &matrix,
+                           const dealii::IndexSet       &row_partition,
+                           const dealii::IndexSet       &column_partition,
+                           WeakTermSparsityPatternCache &sparsity,
+                           const MPI_Comm                communicator)
+    {
+#ifdef IMMERSX_WEAK_TERM_TESTING
+      ++weak_term_matrix_initializations;
+#endif
+      if constexpr (has_distributed_matrix_reinit<MatrixType>::value)
+        {
+          matrix.reinit(row_partition,
+                        column_partition,
+                        sparsity.dynamic_sparsity_pattern(),
+                        communicator,
+                        false);
+          return {};
+        }
+      else
+        {
+          auto serial_sparsity = sparsity.serial_sparsity_pattern();
           matrix.reinit(*serial_sparsity);
           return serial_sparsity;
         }
@@ -3360,11 +3453,13 @@ namespace ImmersX
                 typename Context,
                 typename Support = InferredIntegrationSupport>
       static MatrixStorage<MatrixType>
-      jacobian(const ObservableType   &observable,
-               const TargetExpression &target,
-               const FieldId           field,
-               const Context          &context,
-               const Support          &support = {})
+      jacobian(
+        const ObservableType                         &observable,
+        const TargetExpression                       &target,
+        const FieldId                                 field,
+        const Context                                &context,
+        const Support                                &support        = {},
+        std::shared_ptr<WeakTermSparsityPatternCache> sparsity_cache = nullptr)
       {
         const auto &source        = observable.source();
         const auto &column_source = observable.source_for(field);
@@ -3382,58 +3477,63 @@ namespace ImmersX
 
         const auto input_states =
           read_input_states<VectorType>(observable, context);
+        if (sparsity_cache == nullptr)
+          sparsity_cache = std::make_shared<WeakTermSparsityPatternCache>();
 
         if constexpr (uses_support_quadratures<Support>())
           {
             const auto cell_quadratures =
               make_support_quadratures(support, source, target_field);
-            dealii::DynamicSparsityPattern sparsity(
+            sparsity_cache->get_or_build(
               target_field.locally_owned_dofs().size(),
               column_source.locally_owned_dofs().size(),
-              target_field.locally_relevant_dofs());
-            for (const auto &[cell_id, cell_quadrature] : cell_quadratures)
-              {
-                (void)cell_id;
-                const auto target_cell =
-                  cell_quadrature.cell->as_dof_handler_iterator(
-                    target_field.dof_handler());
-                const auto column_cell =
-                  cell_quadrature.cell->as_dof_handler_iterator(
-                    column_source.dof_handler());
-                std::vector<dealii::types::global_dof_index> target_indices(
-                  target_cell->get_fe().n_dofs_per_cell());
-                std::vector<dealii::types::global_dof_index> column_indices(
-                  column_cell->get_fe().n_dofs_per_cell());
-                target_cell->get_dof_indices(target_indices);
-                column_cell->get_dof_indices(column_indices);
-                std::vector<dealii::types::global_dof_index>
-                  target_execution_indices;
-                std::vector<dealii::types::global_dof_index>
-                  column_execution_indices;
-                for (const auto index : target_indices)
-                  if (target_field.has_execution_index(index))
-                    target_execution_indices.push_back(
-                      target_field.execution_index(index));
-                for (const auto index : column_indices)
-                  if (column_source.has_execution_index(index))
-                    column_execution_indices.push_back(
-                      column_source.execution_index(index));
-                target_field.constraints().add_entries_local_to_global(
-                  target_execution_indices,
-                  column_source.constraints(),
-                  column_execution_indices,
-                  sparsity,
-                  true);
-              }
+              target_field.locally_relevant_dofs(),
+              [&](dealii::DynamicSparsityPattern &sparsity) {
+                for (const auto &[cell_id, cell_quadrature] : cell_quadratures)
+                  {
+                    (void)cell_id;
+                    const auto target_cell =
+                      cell_quadrature.cell->as_dof_handler_iterator(
+                        target_field.dof_handler());
+                    const auto column_cell =
+                      cell_quadrature.cell->as_dof_handler_iterator(
+                        column_source.dof_handler());
+                    std::vector<dealii::types::global_dof_index> target_indices(
+                      target_cell->get_fe().n_dofs_per_cell());
+                    std::vector<dealii::types::global_dof_index> column_indices(
+                      column_cell->get_fe().n_dofs_per_cell());
+                    target_cell->get_dof_indices(target_indices);
+                    column_cell->get_dof_indices(column_indices);
+                    std::vector<dealii::types::global_dof_index>
+                      target_execution_indices;
+                    std::vector<dealii::types::global_dof_index>
+                      column_execution_indices;
+                    for (const auto index : target_indices)
+                      if (target_field.has_execution_index(index))
+                        target_execution_indices.push_back(
+                          target_field.execution_index(index));
+                    for (const auto index : column_indices)
+                      if (column_source.has_execution_index(index))
+                        column_execution_indices.push_back(
+                          column_source.execution_index(index));
+                    target_field.constraints().add_entries_local_to_global(
+                      target_execution_indices,
+                      column_source.constraints(),
+                      column_execution_indices,
+                      sparsity,
+                      true);
+                  }
 
-            if (dynamic_cast<
-                  const dealii::parallel::TriangulationBase<dim, spacedim> *>(
-                  &target_field.dof_handler().get_triangulation()) != nullptr)
-              dealii::SparsityTools::distribute_sparsity_pattern(
-                sparsity,
-                target_field.locally_owned_dofs(),
-                target_field.space().mpi_communicator(),
-                target_field.locally_relevant_dofs());
+                if (dynamic_cast<
+                      const dealii::parallel::TriangulationBase<dim, spacedim>
+                        *>(&target_field.dof_handler().get_triangulation()) !=
+                    nullptr)
+                  dealii::SparsityTools::distribute_sparsity_pattern(
+                    sparsity,
+                    target_field.locally_owned_dofs(),
+                    target_field.space().mpi_communicator(),
+                    target_field.locally_relevant_dofs());
+              });
 
             MatrixStorage<MatrixType> result;
             result.matrix = std::make_shared<MatrixType>();
@@ -3441,7 +3541,7 @@ namespace ImmersX
               initialize_weak_matrix(*result.matrix,
                                      target_field.locally_owned_dofs(),
                                      column_source.locally_owned_dofs(),
-                                     sparsity,
+                                     *sparsity_cache,
                                      target_field.space().mpi_communicator());
 
             for (const auto &[cell_id, cell_quadrature] : cell_quadratures)
@@ -3555,58 +3655,62 @@ namespace ImmersX
                            dealii::update_quadrature_points |
                            observable.update_flags() | target.update_flags();
 
-        dealii::DynamicSparsityPattern sparsity(
-          target_field.locally_owned_dofs().size(),
-          column_source.locally_owned_dofs().size(),
-          target_field.locally_relevant_dofs());
         std::vector<dealii::types::global_dof_index> target_indices(
           target_field.space().finite_element().n_dofs_per_cell());
         std::vector<dealii::types::global_dof_index> column_indices(
           column_source.space().finite_element().n_dofs_per_cell());
-        for (const auto &source_cell :
-             source.dof_handler().active_cell_iterators())
-          if (source_cell->is_locally_owned())
-            {
-              if (!support_includes(support, source_cell))
-                continue;
-              const auto target_cell = source_cell->as_dof_handler_iterator(
-                target_field.dof_handler());
-              if (!target_cell->is_locally_owned())
-                continue;
-              const auto column_cell = source_cell->as_dof_handler_iterator(
-                column_source.dof_handler());
-              target_indices.resize(target_cell->get_fe().n_dofs_per_cell());
-              target_cell->get_dof_indices(target_indices);
-              column_indices.resize(column_cell->get_fe().n_dofs_per_cell());
-              column_cell->get_dof_indices(column_indices);
-              std::vector<dealii::types::global_dof_index>
-                target_execution_indices;
-              std::vector<dealii::types::global_dof_index>
-                column_execution_indices;
-              for (const auto index : target_indices)
-                if (target_field.has_execution_index(index))
-                  target_execution_indices.push_back(
-                    target_field.execution_index(index));
-              for (const auto index : column_indices)
-                if (column_source.has_execution_index(index))
-                  column_execution_indices.push_back(
-                    column_source.execution_index(index));
-              target_field.constraints().add_entries_local_to_global(
-                target_execution_indices,
-                column_source.constraints(),
-                column_execution_indices,
-                sparsity,
-                true);
-            }
+        sparsity_cache->get_or_build(
+          target_field.locally_owned_dofs().size(),
+          column_source.locally_owned_dofs().size(),
+          target_field.locally_relevant_dofs(),
+          [&](dealii::DynamicSparsityPattern &sparsity) {
+            for (const auto &source_cell :
+                 source.dof_handler().active_cell_iterators())
+              if (source_cell->is_locally_owned())
+                {
+                  if (!support_includes(support, source_cell))
+                    continue;
+                  const auto target_cell = source_cell->as_dof_handler_iterator(
+                    target_field.dof_handler());
+                  if (!target_cell->is_locally_owned())
+                    continue;
+                  const auto column_cell = source_cell->as_dof_handler_iterator(
+                    column_source.dof_handler());
+                  target_indices.resize(
+                    target_cell->get_fe().n_dofs_per_cell());
+                  target_cell->get_dof_indices(target_indices);
+                  column_indices.resize(
+                    column_cell->get_fe().n_dofs_per_cell());
+                  column_cell->get_dof_indices(column_indices);
+                  std::vector<dealii::types::global_dof_index>
+                    target_execution_indices;
+                  std::vector<dealii::types::global_dof_index>
+                    column_execution_indices;
+                  for (const auto index : target_indices)
+                    if (target_field.has_execution_index(index))
+                      target_execution_indices.push_back(
+                        target_field.execution_index(index));
+                  for (const auto index : column_indices)
+                    if (column_source.has_execution_index(index))
+                      column_execution_indices.push_back(
+                        column_source.execution_index(index));
+                  target_field.constraints().add_entries_local_to_global(
+                    target_execution_indices,
+                    column_source.constraints(),
+                    column_execution_indices,
+                    sparsity,
+                    true);
+                }
 
-        if (dynamic_cast<
-              const dealii::parallel::TriangulationBase<dim, spacedim> *>(
-              &target_field.dof_handler().get_triangulation()) != nullptr)
-          dealii::SparsityTools::distribute_sparsity_pattern(
-            sparsity,
-            target_field.locally_owned_dofs(),
-            target_field.space().mpi_communicator(),
-            target_field.locally_relevant_dofs());
+            if (dynamic_cast<
+                  const dealii::parallel::TriangulationBase<dim, spacedim> *>(
+                  &target_field.dof_handler().get_triangulation()) != nullptr)
+              dealii::SparsityTools::distribute_sparsity_pattern(
+                sparsity,
+                target_field.locally_owned_dofs(),
+                target_field.space().mpi_communicator(),
+                target_field.locally_relevant_dofs());
+          });
 
         MatrixStorage<MatrixType> result;
         result.matrix = std::make_shared<MatrixType>();
@@ -3614,7 +3718,7 @@ namespace ImmersX
           initialize_weak_matrix(*result.matrix,
                                  target_field.locally_owned_dofs(),
                                  column_source.locally_owned_dofs(),
-                                 sparsity,
+                                 *sparsity_cache,
                                  target_field.space().mpi_communicator());
 
         const dealii::hp::MappingCollection<dim, spacedim> source_mappings(
@@ -3734,14 +3838,21 @@ namespace ImmersX
                 typename Context,
                 typename Support = InferredIntegrationSupport>
       static MaterializedOperator<VectorType, MatrixType>
-      linearize_matrix(const ObservableType   &observable,
-                       const TargetExpression &target,
-                       const FieldId           field,
-                       const Context          &context,
-                       const Support          &support = {})
+      linearize_matrix(
+        const ObservableType                         &observable,
+        const TargetExpression                       &target,
+        const FieldId                                 field,
+        const Context                                &context,
+        const Support                                &support        = {},
+        std::shared_ptr<WeakTermSparsityPatternCache> sparsity_cache = nullptr)
       {
-        const auto storage = jacobian<VectorType, MatrixType>(
-          observable, target, field, context, support);
+        const auto storage =
+          jacobian<VectorType, MatrixType>(observable,
+                                           target,
+                                           field,
+                                           context,
+                                           support,
+                                           std::move(sparsity_cache));
         const auto matrix   = storage.matrix;
         const auto sparsity = storage.sparsity;
         const auto matrix_view =
@@ -3787,14 +3898,21 @@ namespace ImmersX
                 typename Context,
                 typename Support = InferredIntegrationSupport>
       static dealii::LinearOperator<VectorType, VectorType>
-      linearize(const ObservableType   &observable,
-                const TargetExpression &target,
-                const FieldId           field,
-                const Context          &context,
-                const Support          &support = {})
+      linearize(
+        const ObservableType                         &observable,
+        const TargetExpression                       &target,
+        const FieldId                                 field,
+        const Context                                &context,
+        const Support                                &support        = {},
+        std::shared_ptr<WeakTermSparsityPatternCache> sparsity_cache = nullptr)
       {
-        return linearize_matrix<VectorType, MatrixType>(
-                 observable, target, field, context, support)
+        return linearize_matrix<VectorType, MatrixType>(observable,
+                                                        target,
+                                                        field,
+                                                        context,
+                                                        support,
+                                                        std::move(
+                                                          sparsity_cache))
           .view;
       }
     };
@@ -3936,11 +4054,13 @@ namespace ImmersX
                 typename Context,
                 typename Support = InferredIntegrationSupport>
       static MatrixStorage<MatrixType>
-      jacobian(const ObservableType   &observable,
-               const TargetExpression &target,
-               const FieldId           field,
-               const Context          &context,
-               const Support          &support = {})
+      jacobian(
+        const ObservableType                         &observable,
+        const TargetExpression                       &target,
+        const FieldId                                 field,
+        const Context                                &context,
+        const Support                                &support        = {},
+        std::shared_ptr<WeakTermSparsityPatternCache> sparsity_cache = nullptr)
       {
         const auto &source        = observable.source();
         const auto &column_source = observable.source_for(field);
@@ -3955,10 +4075,8 @@ namespace ImmersX
             "A lifted weak-term derivative requires matching representative "
             "meshes."));
 
-        dealii::DynamicSparsityPattern sparsity(
-          target_field.locally_owned_dofs().size(),
-          column_source.locally_owned_dofs().size(),
-          target_field.locally_relevant_dofs());
+        if (sparsity_cache == nullptr)
+          sparsity_cache = std::make_shared<WeakTermSparsityPatternCache>();
         const auto        &points        = observable.lifted_points();
         const auto         point_indices = index_points(points, support);
         const unsigned int n_columns =
@@ -3966,43 +4084,50 @@ namespace ImmersX
         std::vector<dealii::types::global_dof_index> target_indices(
           target_field.space().finite_element().n_dofs_per_cell());
         std::vector<dealii::types::global_dof_index> column_indices(n_columns);
-        for (const auto &cell :
-             target_field.dof_handler().active_cell_iterators())
-          if (cell->is_locally_owned())
-            {
-              target_indices.resize(cell->get_fe().n_dofs_per_cell());
-              cell->get_dof_indices(target_indices);
-              const auto column_cell =
-                cell->as_dof_handler_iterator(column_source.dof_handler());
-              column_indices.resize(column_cell->get_fe().n_dofs_per_cell());
-              column_cell->get_dof_indices(column_indices);
-              std::vector<dealii::types::global_dof_index> rows;
-              rows.reserve(target_indices.size());
-              for (const auto index : target_indices)
+        sparsity_cache->get_or_build(
+          target_field.locally_owned_dofs().size(),
+          column_source.locally_owned_dofs().size(),
+          target_field.locally_relevant_dofs(),
+          [&](dealii::DynamicSparsityPattern &sparsity) {
+            for (const auto &cell :
+                 target_field.dof_handler().active_cell_iterators())
+              if (cell->is_locally_owned())
                 {
-                  const auto row = target_field.execution_index(index);
-                  if (row != std::numeric_limits<
-                               dealii::types::global_dof_index>::max())
-                    rows.push_back(row);
+                  target_indices.resize(cell->get_fe().n_dofs_per_cell());
+                  cell->get_dof_indices(target_indices);
+                  const auto column_cell =
+                    cell->as_dof_handler_iterator(column_source.dof_handler());
+                  column_indices.resize(
+                    column_cell->get_fe().n_dofs_per_cell());
+                  column_cell->get_dof_indices(column_indices);
+                  std::vector<dealii::types::global_dof_index> rows;
+                  rows.reserve(target_indices.size());
+                  for (const auto index : target_indices)
+                    {
+                      const auto row = target_field.execution_index(index);
+                      if (row != std::numeric_limits<
+                                   dealii::types::global_dof_index>::max())
+                        rows.push_back(row);
+                    }
+                  std::vector<dealii::types::global_dof_index> columns;
+                  columns.reserve(column_indices.size());
+                  for (const auto index : column_indices)
+                    if (column_source.has_execution_index(index))
+                      columns.push_back(column_source.execution_index(index));
+                  target_field.constraints().add_entries_local_to_global(
+                    rows, column_source.constraints(), columns, sparsity, true);
                 }
-              std::vector<dealii::types::global_dof_index> columns;
-              columns.reserve(column_indices.size());
-              for (const auto index : column_indices)
-                if (column_source.has_execution_index(index))
-                  columns.push_back(column_source.execution_index(index));
-              target_field.constraints().add_entries_local_to_global(
-                rows, column_source.constraints(), columns, sparsity, true);
-            }
 
-        if (dynamic_cast<const dealii::parallel::TriangulationBase<
-              TargetField::dimension(),
-              TargetField::spacedimension()> *>(
-              &target_field.dof_handler().get_triangulation()) != nullptr)
-          dealii::SparsityTools::distribute_sparsity_pattern(
-            sparsity,
-            target_field.locally_owned_dofs(),
-            target_field.space().mpi_communicator(),
-            target_field.locally_relevant_dofs());
+            if (dynamic_cast<const dealii::parallel::TriangulationBase<
+                  TargetField::dimension(),
+                  TargetField::spacedimension()> *>(
+                  &target_field.dof_handler().get_triangulation()) != nullptr)
+              dealii::SparsityTools::distribute_sparsity_pattern(
+                sparsity,
+                target_field.locally_owned_dofs(),
+                target_field.space().mpi_communicator(),
+                target_field.locally_relevant_dofs());
+          });
 
         MatrixStorage<MatrixType> result;
         result.matrix = std::make_shared<MatrixType>();
@@ -4010,7 +4135,7 @@ namespace ImmersX
           initialize_weak_matrix(*result.matrix,
                                  target_field.locally_owned_dofs(),
                                  column_source.locally_owned_dofs(),
-                                 sparsity,
+                                 *sparsity_cache,
                                  target_field.space().mpi_communicator());
 
         for (const auto &cell :
@@ -4082,14 +4207,21 @@ namespace ImmersX
                 typename Context,
                 typename Support = InferredIntegrationSupport>
       static MaterializedOperator<VectorType, MatrixType>
-      linearize_matrix(const ObservableType   &observable,
-                       const TargetExpression &target,
-                       const FieldId           field,
-                       const Context          &context,
-                       const Support          &support = {})
+      linearize_matrix(
+        const ObservableType                         &observable,
+        const TargetExpression                       &target,
+        const FieldId                                 field,
+        const Context                                &context,
+        const Support                                &support        = {},
+        std::shared_ptr<WeakTermSparsityPatternCache> sparsity_cache = nullptr)
       {
-        const auto storage = jacobian<VectorType, MatrixType>(
-          observable, target, field, context, support);
+        const auto storage =
+          jacobian<VectorType, MatrixType>(observable,
+                                           target,
+                                           field,
+                                           context,
+                                           support,
+                                           std::move(sparsity_cache));
         const auto matrix   = storage.matrix;
         const auto sparsity = storage.sparsity;
         const auto matrix_view =
@@ -4135,14 +4267,21 @@ namespace ImmersX
                 typename Context,
                 typename Support = InferredIntegrationSupport>
       static dealii::LinearOperator<VectorType, VectorType>
-      linearize(const ObservableType   &observable,
-                const TargetExpression &target,
-                const FieldId           field,
-                const Context          &context,
-                const Support          &support = {})
+      linearize(
+        const ObservableType                         &observable,
+        const TargetExpression                       &target,
+        const FieldId                                 field,
+        const Context                                &context,
+        const Support                                &support        = {},
+        std::shared_ptr<WeakTermSparsityPatternCache> sparsity_cache = nullptr)
       {
-        return linearize_matrix<VectorType, MatrixType>(
-                 observable, target, field, context, support)
+        return linearize_matrix<VectorType, MatrixType>(observable,
+                                                        target,
+                                                        field,
+                                                        context,
+                                                        support,
+                                                        std::move(
+                                                          sparsity_cache))
           .view;
       }
     };
@@ -4972,24 +5111,39 @@ namespace ImmersX
           });
           using MatrixOperatorFactory = typename Model::MatrixOperatorFactory;
           for (const auto field : observable_.dependencies())
-            term.state(
-              field,
-              MatrixOperatorFactory([observable = observable_,
-                                     target     = target_,
-                                     field,
-                                     support = support_](const auto &context) {
-                if constexpr (detail::is_lifted_observable<
-                                TrialExpression>::value)
-                  {
+            {
+              auto sparsity_cache =
+                std::make_shared<detail::WeakTermSparsityPatternCache>();
+              term.state(
+                field,
+                MatrixOperatorFactory([observable = observable_,
+                                       target     = target_,
+                                       field,
+                                       support = support_,
+                                       sparsity_cache](const auto &context) {
+                  if constexpr (detail::is_lifted_observable<
+                                  TrialExpression>::value)
+                    {
+                      return Assembly::template linearize_matrix<VectorType,
+                                                                 MatrixType>(
+                        observable,
+                        target,
+                        field,
+                        context,
+                        support,
+                        sparsity_cache);
+                    }
+                  else
                     return Assembly::template linearize_matrix<VectorType,
                                                                MatrixType>(
-                      observable, target, field, context, support);
-                  }
-                else
-                  return Assembly::template linearize_matrix<VectorType,
-                                                             MatrixType>(
-                    observable, target, field, context, support);
-              }));
+                      observable,
+                      target,
+                      field,
+                      context,
+                      support,
+                      sparsity_cache);
+                }));
+            }
         }
       else if (observable_.is_frozen())
         {
@@ -5087,6 +5241,12 @@ namespace ImmersX
                                        decltype(multiplier_expression)>,
             detail::NonlinearWeakAssembly<TrialExpression,
                                           decltype(multiplier_expression)>>;
+          std::map<FieldId,
+                   std::shared_ptr<detail::WeakTermSparsityPatternCache>>
+            sparsity_caches;
+          for (const auto field : observable_.dependencies())
+            sparsity_caches.emplace(
+              field, std::make_shared<detail::WeakTermSparsityPatternCache>());
           auto multiplier_term =
             builder.term(multiplier, suffix + ".multiplier");
           multiplier_term.residual([observable = observable_,
@@ -5118,14 +5278,17 @@ namespace ImmersX
                                multiplier_expression,
                                field,
                                sign,
-                               support = support_](const auto &context) {
+                               support        = support_,
+                               sparsity_cache = sparsity_caches.at(field)](
+                                const auto &context) {
                 return sign *
                        Assembly::template linearize<VectorType, MatrixType>(
                          observable,
                          multiplier_expression,
                          field,
                          context,
-                         support);
+                         support,
+                         sparsity_cache);
               }));
 
           for (const auto field : observable_.dependencies())
@@ -5139,11 +5302,17 @@ namespace ImmersX
                                          multiplier,
                                          sign,
                                          participant_field,
-                                         support =
-                                           support_](const auto &context) {
+                                         support        = support_,
+                                         sparsity_cache = sparsity_caches.at(
+                                           field)](const auto &context) {
                 const auto jacobian =
                   Assembly::template linearize<VectorType, MatrixType>(
-                    observable, multiplier_expression, field, context, support);
+                    observable,
+                    multiplier_expression,
+                    field,
+                    context,
+                    support,
+                    sparsity_cache);
                 const auto  reaction = dealii::transpose_operator(jacobian);
                 const auto *multiplier_state = &context.state(multiplier);
                 typename Model::Operation result;
@@ -5194,14 +5363,17 @@ namespace ImmersX
                                  multiplier_expression,
                                  field,
                                  sign,
-                                 support = support_](const auto &context) {
+                                 support        = support_,
+                                 sparsity_cache = sparsity_caches.at(field)](
+                                  const auto &context) {
                   const auto jacobian =
                     Assembly::template linearize<VectorType, MatrixType>(
                       observable,
                       multiplier_expression,
                       field,
                       context,
-                      support);
+                      support,
+                      sparsity_cache);
                   return sign * dealii::transpose_operator(jacobian);
                 }));
             }
