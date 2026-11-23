@@ -460,6 +460,80 @@ TEST(ElasticityProblem, BOTH_SaddlePointSolutionSatisfiesBothEquations)
   EXPECT_GT(lambda.l2_norm(), 0.0);
 }
 
+// solve_quasistatic() applies the wall data as a pressure. With point coupling
+// it must reject a run that asks for the displacement constraint and accept
+// one with a prescribed vessel pressure.
+TEST(ElasticityProblem, BOTH_QuasistaticPointCouplingNeedsPrescribedPressure)
+{
+  const auto quasistatic_parameters = [](const bool prescribed_pressure) {
+    return std::string(R"(
+    subsection Immersed Problem
+      set Dirichlet boundary ids     = 0, 1, 2, 3
+      set Prescribed vessel pressure = )") +
+           (prescribed_pressure ? "true" : "false") + R"(
+      subsection Time parameters
+        set Final time = 1
+      end
+      subsection Immersed inclusions
+        set Inclusions                     = 0, 0, 0.5
+        set Number of fourier coefficients = 1
+        set Inclusions refinement          = 64
+        subsection Boundary data
+          set Function expression = 0.1; -0.2
+        end
+      end
+    end
+    subsection Functions
+      subsection Right hand side
+        set Function expression = 1; x
+      end
+    end
+  )";
+  };
+
+  {
+    ParameterAcceptor::clear();
+    ElasticityProblemParameters<dim> par;
+    Problem                          problem(par);
+    parse_parameters(par, quasistatic_parameters(false));
+    ASSERT_EQ(par.time_mode, TimeMode::QuasiStatic);
+    setup_system(problem);
+    problem.assemble_elasticity_system();
+    problem.assemble_coupling();
+    EXPECT_THROW(problem.solve_quasistatic(), dealii::ExceptionBase);
+  }
+
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, quasistatic_parameters(true));
+  ASSERT_EQ(par.time_mode, TimeMode::QuasiStatic);
+  setup_system(problem);
+  problem.assemble_elasticity_system();
+  problem.assemble_coupling();
+  problem.solve_quasistatic();
+
+  const auto &u      = problem.solution.block(0);
+  const auto &lambda = problem.solution.block(1);
+  const auto &f      = problem.system_rhs.block(0);
+  const auto &g      = problem.system_rhs.block(1);
+  EXPECT_GT(g.l2_norm(), 0.0);
+
+  // M lambda = g.
+  LA::MPI::Vector mass_residual = vmult(problem.inclusion_matrix, lambda);
+  mass_residual -= g;
+  EXPECT_LT(mass_residual.l2_norm(), 1e-8 * g.l2_norm());
+
+  // A u = f + B^T lambda.
+  LA::MPI::Vector Bt_lambda(u);
+  problem.multiplier_load_matrix().vmult(Bt_lambda, lambda);
+  LA::MPI::Vector momentum_residual = vmult(problem.stiffness_matrix, u);
+  momentum_residual -= Bt_lambda;
+  momentum_residual -= f;
+  EXPECT_LT(momentum_residual.l2_norm(),
+            1e-8 * (f.l2_norm() + Bt_lambda.l2_norm()));
+}
+
 
 TEST(ElasticityProblem, BOTH_RefinementTransfersAffineSolutionExactly)
 {
