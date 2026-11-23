@@ -1,4 +1,4 @@
-PR: pending
+PR: #501
 
 - Before: every nonlinear Jacobian evaluation rebuilt and distributed the
   global sparsity pattern, and serial matrices copied it again. After: each
