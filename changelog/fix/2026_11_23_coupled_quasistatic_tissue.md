@@ -1,4 +1,4 @@
-PR: pending
+PR: #498
 
 - `VesselElasticityProblem::run_timestep0()`, and so `coupled_elasticity`,
   rejects a quasi-static tissue (`Density` 0 with `Initial time` before
