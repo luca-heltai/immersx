@@ -17,7 +17,7 @@ Pass an application name followed by its arguments, usually a parameter file:
 
 Inputs and outputs belong in the mounted working directory. With no arguments,
 show this help. The standalone run_container.sh launcher also supports MPI.
-Optional MetricFlowX, Coral, and legacy 1dsolver integrations are not included.
+Coral and its ImmersX plugins are available through coral-release and coral-debug.
 
 Installed applications:
 USAGE
