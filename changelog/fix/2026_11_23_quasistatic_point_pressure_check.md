@@ -1,4 +1,4 @@
-PR: pending
+PR: #499
 
 - `ElasticityProblem::solve_quasistatic()` checked the point-coupling
   restriction the wrong way round: it rejected `Prescribed vessel pressure =
