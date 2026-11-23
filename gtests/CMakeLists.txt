@@ -540,7 +540,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             set(_initial_consistency_setting "")
             if(_case STREQUAL "CoupledSteadyBackwardEuler")
               set(_initial_consistency_setting
-                  "  set Initial consistency pseudo-step size = 0.001")
+                  "  set Initial consistency pseudo-step size = 0.001\n")
             endif()
             file(APPEND "${_coupled_input}"
               "\nsubsection Elastodynamics\n subsection Functions\n  subsection Body force\n   set Function expression = 0;0;1\n  end\n end\nend\nsubsection MetricFlowX coupling\n subsection Steady solver\n  set Initialize equilibrium = true\n  set Use residual continuation = true\n  set Use secant predictor = ${_secant_predictor_setting}\n${_initial_consistency_setting} end\nend\nsubsection MetricFlowSystem<1, 3>\n subsection IDA parameters\n  subsection Initial condition correction parameters\n   set Correction type at initial time = none\n  end\n  subsection Tolerance ramp\n   set Enabled = true\n   set Initial relative factor = 2\n   set Initial absolute factor = 3\n   set Hold duration = 0\n   set End time = 0.01\n  end\n end\nend\n")
