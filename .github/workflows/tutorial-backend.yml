@@ -51,7 +51,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/luca-heltai/immersx-tutorial
+  IMAGE: ghcr.io/luca-heltai/immersx-coral
   CORAL_TAG: ${{ inputs.coral_tag || 'main' }}
   METRIC_FLOW_X_TAG: ${{ inputs.metric_flow_x_tag || 'main' }}
 
