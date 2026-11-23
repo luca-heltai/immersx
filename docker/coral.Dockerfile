@@ -66,12 +66,13 @@ LABEL org.opencontainers.image.source="https://github.com/luca-heltai/immersx" \
 RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     sudo munge slurmd slurm-client slurmctld slurmdbd mariadb-server \
     openssh-server python3 python3-pip python3-venv less vim \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /etc/ssh/ssh_host_* /etc/munge/munge.key
 
 RUN mkdir -p /run/sshd /root/.ssh /var/log/slurm /var/spool/slurmctld \
     /var/spool/slurmd.slurmnode1
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config
+RUN printf '%s\n' 'PermitRootLogin prohibit-password' 'PasswordAuthentication no' \
+    > /etc/ssh/sshd_config.d/00-tutorial.conf
 
 COPY docker/slurm.conf /etc/slurm/slurm.conf
 COPY docker/slurmdbd.conf /etc/slurm/slurmdbd.conf

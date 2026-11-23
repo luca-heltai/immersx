@@ -16,6 +16,13 @@ chmod 644 /tutorial-ssh/id_ed25519.pub
 cp /tutorial-ssh/id_ed25519.pub /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 
+# Keep host identities and Slurm authentication keys local to the container.
+ssh-keygen -A
+if [ ! -s /etc/munge/munge.key ]; then
+  (umask 077; head -c 1024 /dev/urandom > /etc/munge/munge.key)
+  chown munge:munge /etc/munge/munge.key
+fi
+
 service munge start
 service mariadb start
 service slurmdbd start
