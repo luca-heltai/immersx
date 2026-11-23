@@ -118,11 +118,17 @@ The compiler also maps source and generated-file paths to `/immersx/source` and
 the worktree name. The prefixes can be changed with
 `IMMERSX_DEBUG_SOURCE_PREFIX` and `IMMERSX_DEBUG_BINARY_PREFIX`.
 
-For reuse checks across worktrees, keep the same relative layout between the
-source and build directories. ccache hashes preprocessor line markers, whose
-relative filenames remain distinct when that layout changes; compiler prefix
-maps normalize macros and debug information but do not rewrite those markers.
-Verify a real second-checkout hit rather than relying on a no-op rebuild.
+For cache reuse across compatible worktrees, keep the same relative layout
+between the source and build directories. ccache hashes preprocessor line
+markers, whose relative filenames remain distinct when that layout changes;
+compiler prefix maps normalize macros and debug information but do not rewrite
+those markers. For a build already required by the work, inspect the CMake
+cache, generated launcher, and compiler command to confirm ccache and path
+normalization are active. Compare `ccache --show-stats` before and after that
+build in the same environment, accounting for other workers sharing the cache.
+A no-op build produces no new cache statistics. Do not create a second checkout,
+run A/B builds, or force recompilation solely to demonstrate cache hits; report
+when the required build did not compile any C++ files.
 
 Disable the automatic setup with:
 
