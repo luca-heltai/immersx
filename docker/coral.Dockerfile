@@ -1,40 +1,15 @@
 # syntax=docker/dockerfile:1
-ARG DEAL_II_IMAGE=dealii/dealii:v9.7.1-noble@sha256:28a40c95e76879c717a96ea3f5c87cc00ec1d7a4ce9d250ab936fb723eab6995
-ARG CORAL_SDK=coral-source
-ARG METRIC_FLOW_X_SDK=metric-flow-x-source
+ARG CORAL_IMAGE=ghcr.io/2listic/coral:main
+ARG METRIC_FLOW_X_IMAGE=ghcr.io/luca-heltai/metric-flow-x:main
 
-FROM ${DEAL_II_IMAGE} AS coral-source
+FROM ${METRIC_FLOW_X_IMAGE} AS metric-flow-x-sdk
+
+FROM ${CORAL_IMAGE} AS build
 USER root
-COPY --from=coral / /src/coral
-WORKDIR /src/coral
-ARG BUILD_JOBS=2
-RUN set -eu; for config in Debug Release; do \
-      cmake -S . -B "/build/$config" -GNinja \
-        -DCMAKE_BUILD_TYPE="$config" -DCMAKE_INSTALL_PREFIX="/opt/dealiix/coral/$config" \
-        -DCMAKE_INSTALL_LIBDIR=lib -DCORAL_BUILD_BACKEND_DEALII=OFF \
-        -DCORAL_BUILD_SHARED_CORE=ON -DCORAL_BUILD_TESTS=OFF -DCORAL_INSTALL=ON; \
-      cmake --build "/build/$config" -j "$BUILD_JOBS"; \
-      cmake --install "/build/$config"; \
-    done
-
-FROM ${DEAL_II_IMAGE} AS metric-flow-x-source
-USER root
-COPY --from=metric_flow_x / /src/metric-flow-x
-WORKDIR /src/metric-flow-x
-ARG BUILD_JOBS=2
-RUN cmake -S . -B /build -GNinja -DCMAKE_BUILD_TYPE=DebugRelease \
-      -DCMAKE_INSTALL_PREFIX=/opt/metric-flow-x -DMETRIC_FLOW_X_BACKEND=Trilinos \
-    && cmake --build /build --target blood_flow blood_flow_debug -j "$BUILD_JOBS" \
-    && cmake --install /build
-
-# These stages can also select GHCR image digests with the same SDK layout.
-FROM ${CORAL_SDK} AS coral-sdk
-FROM ${METRIC_FLOW_X_SDK} AS metric-flow-x-sdk
-
-FROM ${DEAL_II_IMAGE} AS build
-USER root
-COPY --from=coral-sdk /opt/dealiix/coral /opt/dealiix/coral
 COPY --from=metric-flow-x-sdk /opt/metric-flow-x /opt/metric-flow-x
+# The installed SDK must match the Trilinos API used by ImmersX.
+RUN test -x /opt/metric-flow-x/bin/blood_flow_debug \
+    && grep -Eq '^#define METRIC_FLOW_X_WITH_TRILINOS +1' /opt/metric-flow-x/include/metric_flow_x/config.h
 COPY . /src/immersx
 WORKDIR /src/immersx
 ARG BUILD_JOBS=2
@@ -55,10 +30,10 @@ RUN set -eu; for config in Debug Release; do \
       cmake --install "/build/$config"; \
     done
 
-FROM ${DEAL_II_IMAGE}
+FROM ${CORAL_IMAGE}
 USER root
-COPY --from=build /opt/dealiix /opt/dealiix
-COPY --from=build /opt/metric-flow-x /opt/metric-flow-x
+COPY --from=build /opt/dealiix/immersx /opt/dealiix/immersx
+COPY --from=metric-flow-x-sdk /opt/metric-flow-x /opt/metric-flow-x
 ARG VCS_REF=unknown
 LABEL org.opencontainers.image.source="https://github.com/luca-heltai/immersx" \
       org.opencontainers.image.revision="${VCS_REF}"
