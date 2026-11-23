@@ -52,7 +52,7 @@ namespace
   }
 
   BlockMatrix
-  assemble(const MPI_Comm comm)
+  assemble(const MPI_Comm comm, const double scale = 1.)
   {
     const unsigned int rank  = dealii::Utilities::MPI::this_mpi_process(comm);
     const unsigned int ranks = dealii::Utilities::MPI::n_mpi_processes(comm);
@@ -78,7 +78,7 @@ namespace
             for (unsigned int j = 0; j < block_sizes[bj]; ++j)
               if (const double value = entry(offset(bi) + i, offset(bj) + j);
                   value != 0.)
-                block.set(i, j, value);
+                block.set(i, j, scale * value);
           block.compress(dealii::VectorOperation::insert);
         }
     matrix.collect_sizes();
@@ -148,6 +148,22 @@ TEST(DistributedIDA, BOTH_MumpsDefectBoundCoversTheJacobian)
     }
 }
 
+TEST(DistributedIDA, BOTH_MumpsDefectBoundHandlesExtremeMatrixScales)
+{
+  const auto comm = MPI_COMM_WORLD;
+  const auto unscaled =
+    ImmersX::detail::mumps_defect_bound(assemble(comm), comm);
+  ASSERT_GT(unscaled.jacobian_norm, 0.);
+  for (const double scale : {1.e155, 1.e-170})
+    {
+      const auto scaled =
+        ImmersX::detail::mumps_defect_bound(assemble(comm, scale), comm);
+      EXPECT_NEAR(scaled.jacobian_norm / scale,
+                  unscaled.jacobian_norm,
+                  1.e-12 * unscaled.jacobian_norm);
+    }
+}
+
 // The relative target stays in force for well-scaled solves and for a zero
 // correction; it is raised only to the rounding level of J x - b.
 TEST(DistributedIDA, BOTH_MumpsDefectTargetFloorsRoundingLevel)
@@ -182,5 +198,35 @@ TEST(DistributedIDA, BOTH_MumpsDefectTargetFloorsRoundingLevel)
   EXPECT_DOUBLE_EQ(mumps_defect_target(relative, rhs, bound, 0.),
                    relative * rhs);
   EXPECT_GT(rhs, mumps_defect_target(relative, rhs, bound, 0.));
+}
+
+TEST(DistributedIDA, BOTH_MumpsDefectTargetHandlesExtremeNorms)
+{
+  using ImmersX::detail::mumps_defect_target;
+  constexpr double                  relative = 1.e-8;
+  constexpr double                  rhs      = 1.e150;
+  ImmersX::detail::MumpsDefectBound bound{1.e155, 1};
+  const double unit  = 2. * std::numeric_limits<double>::epsilon();
+  const double gamma = unit / (1. - unit);
+
+  // The unscaled product would overflow, but the rounding target is finite.
+  const double expected = (gamma * 1.e300) * 1.e10;
+  EXPECT_NEAR(mumps_defect_target(relative, rhs, bound, 1.e155),
+              expected,
+              1.e-14 * expected);
+
+  // An unrepresentable estimate must leave the relative target in force.
+  EXPECT_DOUBLE_EQ(mumps_defect_target(relative, rhs, bound, 1.e200),
+                   relative * rhs);
+  bound.jacobian_norm = std::numeric_limits<double>::infinity();
+  EXPECT_DOUBLE_EQ(mumps_defect_target(relative, rhs, bound, 1.),
+                   relative * rhs);
+
+  // Scaling the tiny Jacobian norm first would underflow to zero.
+  bound.jacobian_norm        = 1.e-310;
+  const double tiny_expected = gamma * 1.e-160;
+  EXPECT_NEAR(mumps_defect_target(relative, 1.e-200, bound, 1.e150),
+              tiny_expected,
+              1.e-13 * tiny_expected);
 }
 #endif

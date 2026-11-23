@@ -204,6 +204,9 @@ matters when the right-hand side is much smaller than `||J|| ||x||`, for
 example at the first step from rest with a small inflow, where the relative
 target can lie below anything double precision can verify. A zero
 correction leaves the defect at `||b||_2`, which stays above both targets.
+If the rounding estimate is nonfinite, the check uses the relative target
+alone. The check requires both the measured defect and the active target to
+be finite.
 
 If the configured stationary refinement corrections do not reach this target,
 `Maximum Krylov corrections` permits up to eight FGMRES iterations using the

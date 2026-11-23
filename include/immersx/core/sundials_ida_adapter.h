@@ -169,7 +169,8 @@ namespace ImmersX
             column_sum += jacobian.block(i, j).l1_norm();
           l1 = std::max(l1, column_sum);
         }
-      bound.jacobian_norm      = std::sqrt(l1 * linfty);
+      // The product of the norms can overflow or underflow before the root.
+      bound.jacobian_norm      = std::sqrt(l1) * std::sqrt(linfty);
       unsigned int row_entries = 0;
       if (jacobian.n_block_cols() > 0)
         for (unsigned int i = 0; i < jacobian.n_block_rows(); ++i)
@@ -200,7 +201,8 @@ namespace ImmersX
      * The relative target cannot be verified below the rounding error of
      * evaluating J x - b in double precision, about
      * gamma (||J|| ||x|| + ||b||) with gamma = n eps / (1 - n eps) for n
-     * terms per row. A default (zero) bound leaves the relative target.
+     * terms per row. Use the relative target if the rounding estimate is
+     * nonfinite.
      */
     inline double
     mumps_defect_target(const double            relative_tolerance,
@@ -212,8 +214,17 @@ namespace ImmersX
       const double unit  = terms * std::numeric_limits<double>::epsilon();
       const double gamma = unit < 1. ? unit / (1. - unit) :
                                        std::numeric_limits<double>::infinity();
-      return std::max(relative_tolerance * rhs_norm,
-                      gamma * (bound.jacobian_norm * solution_norm + rhs_norm));
+      const double relative_target = relative_tolerance * rhs_norm;
+      // Scale the larger factor first to avoid overflow in the unscaled
+      // product and underflow when only one factor is tiny.
+      const double rhs_rounding = gamma * rhs_norm;
+      const double rounding_target =
+        bound.jacobian_norm < solution_norm ?
+          std::fma(gamma * solution_norm, bound.jacobian_norm, rhs_rounding) :
+          std::fma(gamma * bound.jacobian_norm, solution_norm, rhs_rounding);
+      return std::isfinite(rounding_target) ?
+               std::max(relative_target, rounding_target) :
+               relative_target;
     }
 
     /** Solve in native IDA error-weight coordinates and verify both norms.
@@ -1777,8 +1788,8 @@ namespace ImmersX
                     defect_norm                = defect.l2_norm();
                     defect_history[refinement] = defect_norm;
                     target                     = defect_target();
-                    if (!std::isfinite(defect_norm) || defect_norm <= target ||
-                        refinement == max_refinements)
+                    if (!std::isfinite(defect_norm) || !std::isfinite(target) ||
+                        defect_norm <= target || refinement == max_refinements)
                       break;
                     GlobalVectorType correction;
                     composition_.reinit(correction);
@@ -1787,7 +1798,8 @@ namespace ImmersX
                     dst.compress(dealii::VectorOperation::insert);
                   }
                 unsigned int krylov_corrections = 0;
-                if (std::isfinite(defect_norm) && defect_norm > target &&
+                if (std::isfinite(defect_norm) && std::isfinite(target) &&
+                    defect_norm > target &&
                     controls.mumps_maximum_krylov_corrections > 0)
                   {
                     krylov_corrections =
@@ -1817,7 +1829,8 @@ namespace ImmersX
                   }
                 // Some supported deal.II MUMPS wrappers do not report failed
                 // factorizations. Do not let a zero correction freeze the DAE.
-                if (!(std::isfinite(defect_norm) && defect_norm <= target))
+                if (!(std::isfinite(defect_norm) && std::isfinite(target) &&
+                      defect_norm <= target))
                   {
                     std::ostringstream message;
                     message
@@ -1826,9 +1839,9 @@ namespace ImmersX
                          "residual check. RHS L2 norm = "
                       << rhs_norm << ", defect L2 norm = " << defect_norm
                       << ", required defect L2 norm <= " << target
-                      << " (largest of relative target * RHS L2 norm = "
+                      << " (relative target * RHS L2 norm = "
                       << relative_target * rhs_norm
-                      << " and the rounding level of J x - b, with "
+                      << ", rounding estimate of J x - b uses "
                          "Jacobian norm bound = "
                       << mumps_defect_bound_.jacobian_norm
                       << ", row entries = " << mumps_defect_bound_.row_entries
