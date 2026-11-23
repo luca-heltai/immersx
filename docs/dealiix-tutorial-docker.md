@@ -1,6 +1,6 @@
 # ImmersX Coral plugin image
 
-The backend workflow publishes `ghcr.io/luca-heltai/immersx-tutorial:main` for
+The backend workflow publishes `ghcr.io/luca-heltai/immersx-coral:main` for
 Linux AMD64 and ARM64. The development image is built from the ImmersX default
 branch, `master`, with `ghcr.io/2listic/coral:main` as its base. It consumes the
 published Debug and Release Trilinos SDK from
@@ -17,7 +17,7 @@ The Compose stack is maintained in the
 docker buildx build --load -f docker/coral.Dockerfile \
   --build-arg CORAL_IMAGE=ghcr.io/2listic/coral:main \
   --build-arg METRIC_FLOW_X_IMAGE=ghcr.io/luca-heltai/metric-flow-x:main \
-  -t immersx-tutorial:local .
+  -t immersx-coral:local .
 ```
 
 Choose the SDK image tags with the two build arguments or the manual workflow
