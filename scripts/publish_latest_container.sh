@@ -30,7 +30,7 @@ while IFS= read -r tag; do
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
   docker buildx imagetools create --tag "$image:latest" "$image@$digest"
   DOCKER_CONFIG=$(mktemp -d "$scratch/anonymous.XXXXXX") docker manifest inspect "$image:latest" >/dev/null
-  printf '`%s:latest` points to `%s`.\n' "$image" "$tag" >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+  printf '`%s:latest` points to `%s`.\n' "$image" "$tag"
   exit 0
 done <<< "$versions"
 
