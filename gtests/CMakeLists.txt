@@ -431,6 +431,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
       foreach(_case
           Coupled
           CoupledSteady
+          CoupledSteadyBackwardEuler
           CoupledSteadyPreviousPredictor
           Generated
           MMS
@@ -536,8 +537,13 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             if(_case STREQUAL "CoupledSteadyPreviousPredictor")
               set(_secant_predictor_setting false)
             endif()
+            set(_initial_consistency_setting "")
+            if(_case STREQUAL "CoupledSteadyBackwardEuler")
+              set(_initial_consistency_setting
+                  "  set Initial consistency pseudo-step size = 0.001")
+            endif()
             file(APPEND "${_coupled_input}"
-              "\nsubsection Elastodynamics\n subsection Functions\n  subsection Body force\n   set Function expression = 0;0;1\n  end\n end\nend\nsubsection MetricFlowX coupling\n subsection Steady solver\n  set Initialize equilibrium = true\n  set Use residual continuation = true\n  set Use secant predictor = ${_secant_predictor_setting}\n end\nend\nsubsection MetricFlowSystem<1, 3>\n subsection IDA parameters\n  subsection Initial condition correction parameters\n   set Correction type at initial time = none\n  end\n  subsection Tolerance ramp\n   set Enabled = true\n   set Initial relative factor = 2\n   set Initial absolute factor = 3\n   set Hold duration = 0\n   set End time = 0.01\n  end\n end\nend\n")
+              "\nsubsection Elastodynamics\n subsection Functions\n  subsection Body force\n   set Function expression = 0;0;1\n  end\n end\nend\nsubsection MetricFlowX coupling\n subsection Steady solver\n  set Initialize equilibrium = true\n  set Use residual continuation = true\n  set Use secant predictor = ${_secant_predictor_setting}\n${_initial_consistency_setting} end\nend\nsubsection MetricFlowSystem<1, 3>\n subsection IDA parameters\n  subsection Initial condition correction parameters\n   set Correction type at initial time = none\n  end\n  subsection Tolerance ramp\n   set Enabled = true\n   set Initial relative factor = 2\n   set Initial absolute factor = 3\n   set Hold duration = 0\n   set End time = 0.01\n  end\n end\nend\n")
           endif()
           set(TEST_OUTPUT_DIR "${_saved_output_dir}")
           set(_coupled_mpiexec "")
@@ -559,6 +565,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
           set(_require_steady_direct FALSE)
           set(_require_steady_iterative FALSE)
           set(_require_steady_mumps_blr FALSE)
+          set(_require_backward_euler_consistency FALSE)
           if(_case MATCHES "^CoupledSteady")
             set(_require_steady_initialization TRUE)
             set(_require_steady_continuation TRUE)
@@ -570,6 +577,11 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
             elseif(_mode MATCHES "MUMPS")
               set(_require_steady_direct TRUE)
             endif()
+          endif()
+          if(_case STREQUAL "CoupledSteadyBackwardEuler")
+            set(_require_steady_initialization FALSE)
+            set(_require_steady_continuation FALSE)
+            set(_require_backward_euler_consistency TRUE)
           endif()
           if(_case STREQUAL "CoupledSteadyPreviousPredictor")
             set(_require_steady_previous_predictor TRUE)
@@ -591,6 +603,7 @@ if(IMMERSX_WITH_METRIC_FLOW_X)
               "-DREQUIRE_GENERATED_RESPONSE=$<STREQUAL:${_case},Generated>"
               "-DREQUIRE_STEADY_INITIALIZATION=${_require_steady_initialization}"
               "-DREQUIRE_STEADY_CONTINUATION=${_require_steady_continuation}"
+              "-DREQUIRE_BACKWARD_EULER_CONSISTENCY=${_require_backward_euler_consistency}"
               "-DREQUIRE_STEADY_PREVIOUS_PREDICTOR=${_require_steady_previous_predictor}"
               "-DREQUIRE_STEADY_DIRECT=${_require_steady_direct}"
               "-DREQUIRE_STEADY_ITERATIVE=${_require_steady_iterative}"

@@ -88,6 +88,20 @@ if(REQUIRE_STEADY_INITIALIZATION)
   endforeach()
 endif()
 
+if(REQUIRE_BACKWARD_EULER_CONSISTENCY)
+  if(NOT _stdout MATCHES "Backward-Euler initial consistency pseudo-step = 0.001; alpha=1000" OR
+     NOT _stdout MATCHES "Backward-Euler initial consistency attempt [0-9]+: eta=[^,]+, increment=[^,]+, predictor=(secant|previous|previous-fallback), KINSOL status=[0-9]+, iterations=[0-9]+, shifted scaled residual=[^ \r\n]+ accepted" OR
+     NOT _stdout MATCHES "Backward-Euler KINSOL post-gate scaled F max: [^;]+; target: [^;]+; finite/positive/valid-rate: 1" OR
+     NOT _stdout MATCHES "Backward-Euler initial consistency KINSOL status: [0-9]+; iterations: [1-9][0-9]*")
+    message(FATAL_ERROR "Backward-Euler initial consistency did not pass its residual and state gates")
+  endif()
+  string(REGEX MATCH "Backward-Euler initial consistency rate inf: ([^ \r\n]+)"
+         _rate_match "${_stdout}")
+  if(NOT _rate_match OR NOT CMAKE_MATCH_1 GREATER 0)
+    message(FATAL_ERROR "Backward-Euler initial consistency did not produce a nonzero initial rate")
+  endif()
+endif()
+
 if(REQUIRE_STEADY_DIRECT AND
    NOT _stdout MATCHES "rows after second-order condensation")
   message(FATAL_ERROR "Steady initialization did not use the direct condensed solver")

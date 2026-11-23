@@ -116,10 +116,21 @@ namespace ImmersX::metric_flow_x_app_detail
     const double                              offset_eta        = 1.,
     const MPI_Comm                            communicator = MPI_COMM_WORLD,
     std::function<void(const GlobalVector &)> initial_residual_observer = {},
-    const unsigned int maximum_jacobian_setup_interval                  = 1)
+    const unsigned int  maximum_jacobian_setup_interval                 = 1,
+    const GlobalVector *backward_euler_reference = nullptr,
+    const double        backward_euler_alpha     = 0.,
+    GlobalVector       *backward_euler_rate      = nullptr)
   {
     validate_kinsol_maximum_jacobian_setup_interval(
       maximum_jacobian_setup_interval);
+    AssertThrow((backward_euler_reference == nullptr &&
+                 backward_euler_alpha == 0. &&
+                 backward_euler_rate == nullptr) ||
+                  (backward_euler_reference != nullptr &&
+                   residual_offset != nullptr &&
+                   std::isfinite(backward_euler_alpha) &&
+                   backward_euler_alpha > 0. && backward_euler_rate != nullptr),
+                dealii::ExcMessage("Invalid backward-Euler consistency data."));
     namespace Native     = Compatibility::SUNDIALS;
     auto      &backend   = adapter.solver();
     const auto make_view = [&](auto &vector) {
@@ -145,6 +156,21 @@ namespace ImmersX::metric_flow_x_app_detail
       MPI_Comm                                  communicator;
       std::function<void(const GlobalVector &)> initial_residual_observer;
       bool                                      initial_residual_observed;
+      const GlobalVector                       *backward_euler_reference;
+      double                                    backward_euler_alpha;
+      GlobalVector                             *backward_euler_rate;
+
+      const GlobalVector &
+      rate_at(const GlobalVector &state)
+      {
+        if (backward_euler_rate == nullptr)
+          return zero;
+        *backward_euler_rate = state;
+        *backward_euler_rate -= *backward_euler_reference;
+        *backward_euler_rate *= backward_euler_alpha;
+        return *backward_euler_rate;
+      }
+
       int
       agree_status(const int local_status)
       {
@@ -173,7 +199,10 @@ namespace ImmersX::metric_flow_x_app_detail
                 offset_eta,
                 communicator,
                 std::move(initial_residual_observer),
-                false};
+                false,
+                backward_euler_reference,
+                backward_euler_alpha,
+                backward_euler_rate};
     SUNMatrix       matrix = nullptr;
     SUNLinearSolver linear = nullptr;
 #if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
@@ -202,7 +231,7 @@ namespace ImmersX::metric_flow_x_app_detail
       [](N_Vector state, N_Vector residual, void *user) -> int {
         auto      &c        = *static_cast<Callbacks *>(user);
         const auto function = [&](const auto &src, auto &dst) {
-          c.adapter.solver().residual(c.time, src, c.zero, dst);
+          c.adapter.solver().residual(c.time, src, c.rate_at(src), dst);
           if (!c.initial_residual_observed)
             {
               if (c.initial_residual_observer)
@@ -325,7 +354,13 @@ namespace ImmersX::metric_flow_x_app_detail
                 reuse, c.pending));
           }
         const auto setup = [&](const auto &src) {
-          c.adapter.setup_steady_jacobian(c.time, src, c.zero);
+          if (c.backward_euler_reference != nullptr)
+            c.adapter.solver().setup_jacobian(c.time,
+                                              src,
+                                              c.rate_at(src),
+                                              c.backward_euler_alpha);
+          else
+            c.adapter.setup_steady_jacobian(c.time, src, c.zero);
           c.matrix_view = c.adapter.current_jacobian();
         };
         return c.agree_status(
@@ -442,20 +477,21 @@ namespace ImmersX::metric_flow_x_app_detail
             class FieldVector,
             class AreaField>
   void
-  check_coupled_steady_state(Adapter            &adapter,
-                             const double        time,
-                             const GlobalVector &candidate,
-                             const GlobalVector &zero,
-                             const GlobalVector &function_scaling,
-                             const GlobalVector &constraints,
-                             const double        tolerance,
-                             Flow               &flow,
-                             const FieldVector  &flow_state,
-                             const AreaField    &area_field)
+  check_coupled_initial_state(Adapter            &adapter,
+                              const double        time,
+                              const GlobalVector &candidate,
+                              const GlobalVector &rate,
+                              const GlobalVector &function_scaling,
+                              const GlobalVector &constraints,
+                              const double        tolerance,
+                              Flow               &flow,
+                              const FieldVector  &flow_state,
+                              const AreaField    &area_field,
+                              const bool          require_zero_rate = true)
   {
     using namespace dealii;
     auto residual = adapter.make_state();
-    adapter.solver().residual(time, candidate, zero, residual);
+    adapter.solver().residual(time, candidate, rate, residual);
     bool   valid      = true;
     double scaled_max = 0.;
     for (const auto index : candidate.locally_owned_elements())
@@ -463,7 +499,8 @@ namespace ImmersX::metric_flow_x_app_detail
         const double scaled =
           std::abs(residual[index]) * function_scaling[index];
         valid = valid && std::isfinite(candidate[index]) &&
-                std::isfinite(scaled) && zero[index] == 0. &&
+                std::isfinite(scaled) && std::isfinite(rate[index]) &&
+                (!require_zero_rate || rate[index] == 0.) &&
                 (constraints[index] != 2. || candidate[index] > 0.);
         if (std::isfinite(scaled))
           scaled_max = std::max(scaled_max, scaled);
@@ -504,15 +541,19 @@ namespace ImmersX::metric_flow_x_app_detail
     trace_min  = Utilities::MPI::min(trace_min, MPI_COMM_WORLD);
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       std::cout << std::setprecision(17)
-                << "Steady KINSOL post-gate scaled F max: " << scaled_max
+                << (require_zero_rate ? "Steady" : "Backward-Euler")
+                << " KINSOL post-gate scaled F max: " << scaled_max
                 << "; target: " << tolerance
-                << "; finite/positive/zero-rate: " << valid
-                << "; min cell quadrature A: " << cell_min
+                << (require_zero_rate ? "; finite/positive/zero-rate: " :
+                                        "; finite/positive/valid-rate: ")
+                << valid << "; min cell quadrature A: " << cell_min
                 << "; min trace A: " << trace_min << std::endl;
     AssertThrow(
       valid && scaled_max <= tolerance,
       ExcMessage(
-        "Steady KINSOL post-gate failed; no accepted state output or checkpoint was written."));
+        require_zero_rate ?
+          "Steady KINSOL post-gate failed; no accepted state output or checkpoint was written." :
+          "Backward-Euler KINSOL post-gate failed; no accepted state output was written."));
   }
 } // namespace ImmersX::metric_flow_x_app_detail
 #endif
