@@ -40,7 +40,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: ${{ github.ref_type == 'tag' && '0' || '2' }}
+      - name: Verify release tag is on master
+        if: github.ref_type == 'tag'
+        run: git merge-base --is-ancestor HEAD origin/master
       - name: Select container validation
         id: selection
         run: |
@@ -88,7 +91,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             # Release tags must build their exact source revision, even if an
             # equivalent nightly input fingerprint is already published.
-            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
             version=${GITHUB_REF_NAME#v}
             grep -Fx "project(ImmersX VERSION $version LANGUAGES CXX)" CMakeLists.txt
             echo 'build=true' >> "$GITHUB_OUTPUT"
@@ -288,7 +291,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version=${GITHUB_REF_NAME#v}
             tags+=(--tag "$IMAGE:$GITHUB_REF_NAME" --tag "$IMAGE:$version"
-                   --tag "$IMAGE:${version%.*}" --tag "$IMAGE:${version%%.*}" --tag "$IMAGE:latest")
+                   --tag "$IMAGE:${version%.*}" --tag "$IMAGE:${version%%.*}")
           else
             tags+=(--tag "$IMAGE:main" --tag "$IMAGE:master")
           fi
@@ -312,3 +315,26 @@ jobs:
             run_container.sh
             container-image.txt
             container-SHA256SUMS
+
+  latest:
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: ghcr-release-latest
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Point latest at the highest published stable release
+        run: bash scripts/publish_latest_container.sh ghcr.io/luca-heltai/immersx
