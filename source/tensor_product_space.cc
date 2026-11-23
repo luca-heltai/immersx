@@ -363,22 +363,22 @@ namespace ImmersX
                   ExcMessage("The reduced grid has no cells."));
       std::vector<Point<reduced_dim>> unit_points;
       for (const auto v : serial_reference->vertex_indices())
-        unit_points.push_back(serial_reference->template vertex<reduced_dim>(v));
+        unit_points.push_back(
+          serial_reference->template vertex<reduced_dim>(v));
       Point<reduced_dim> center;
       for (const auto &p : unit_points)
         center += p / static_cast<double>(unit_points.size());
       unit_points.push_back(center);
       const Quadrature<reduced_dim> quadrature(unit_points);
       const auto                   &mapping =
-        compatibility::linear_mapping<reduced_dim, spacedim>(
-          *serial_reference);
+        compatibility::linear_mapping<reduced_dim, spacedim>(*serial_reference);
       std::vector<Point<spacedim>> qpoints;
       for (const auto &p : unit_points)
         qpoints.push_back(mapping.transform_unit_to_real_cell(cell, p));
       std::vector<double> bound_values(quadrature.size() *
                                        properties_bindings.size());
-      const auto property_cell = cell->as_dof_handler_iterator(
-        serial_properties_dh);
+      const auto          property_cell =
+        cell->as_dof_handler_iterator(serial_properties_dh);
       if (!properties_bindings.empty())
         {
           ReducedFieldValues<reduced_dim, spacedim, Vector<double>>

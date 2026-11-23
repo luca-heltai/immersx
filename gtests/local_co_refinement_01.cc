@@ -947,7 +947,7 @@ TEST(LocalCoRefinement, ThicknessRefinesAroundTheTube)
   // A segment on the x axis of [-1, 1]^2 with thickness a. The lifted points
   // lie on y = +-a, so the space post-refinement passes must refine there,
   // and not only around the segment itself.
-  const double a = 0.3;
+  const double a        = 0.3;
   const auto   level_at = [](const Triangulation<2> &tria, const Point<2> &p) {
     return GridTools::find_active_cell_around_point(tria, p)->level();
   };
