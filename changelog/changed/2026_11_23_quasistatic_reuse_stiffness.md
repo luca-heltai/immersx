@@ -1,4 +1,4 @@
-PR: pending
+PR: #503
 
 - In `coupled_elasticity`, static and quasi-static steps after the first
   keep the stiffness matrix and its AMG preconditioner and rebuild only the
