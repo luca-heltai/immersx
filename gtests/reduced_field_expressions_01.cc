@@ -224,7 +224,8 @@ TEST(TensorProductSpace, SerialCellThicknessFollowsRefinedFields)
   for (const std::string thickness : {"0.02", "radius"})
     {
       // A field-based Thickness is a symbolic expression.
-      if (thickness == "radius" && !ImmersX::SymbolicFieldEvaluator::available())
+      if (thickness == "radius" &&
+          !ImmersX::SymbolicFieldEvaluator::available())
         continue;
       ParameterAcceptor::clear();
       TensorProductSpaceParameters<1, 2, 3, 1> parameters;
@@ -235,14 +236,16 @@ TEST(TensorProductSpace, SerialCellThicknessFollowsRefinedFields)
 
       TensorProductSpace<1, 2, 3, 1> space(parameters);
       unsigned int                   n_checked = 0;
-      space.preprocess_serial_triangulation = [&](auto       &tria,
+      space.preprocess_serial_triangulation    = [&](auto       &tria,
                                                   const auto &cell_thickness) {
         tria.refine_global(2);
         for (const auto &cell : tria.active_cell_iterators())
           {
             const auto [t_min, t_max] = cell_thickness(cell);
-            const double z_min = std::min(cell->vertex(0)[2], cell->vertex(1)[2]);
-            const double z_max = std::max(cell->vertex(0)[2], cell->vertex(1)[2]);
+            const double z_min =
+              std::min(cell->vertex(0)[2], cell->vertex(1)[2]);
+            const double z_max =
+              std::max(cell->vertex(0)[2], cell->vertex(1)[2]);
             if (thickness == "radius")
               {
                 EXPECT_NEAR(t_min, 0.1 - 0.05 * z_max, 1e-12);

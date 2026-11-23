@@ -30,18 +30,18 @@ namespace ImmersX
    */
   template <int dim,
             int spacedim,
-            typename VectorType = dealii::LinearAlgebra::distributed::Vector<double>>
+            typename VectorType =
+              dealii::LinearAlgebra::distributed::Vector<double>>
   class ReducedFieldValues
   {
   public:
     using CellIterator =
       typename dealii::DoFHandler<dim, spacedim>::active_cell_iterator;
 
-    ReducedFieldValues(
-      const dealii::DoFHandler<dim, spacedim>                  &dof_handler,
-      const dealii::Quadrature<dim>                            &quadrature,
-      const VectorType                                         &properties,
-      const std::vector<InputFieldBinding>                     &bindings)
+    ReducedFieldValues(const dealii::DoFHandler<dim, spacedim> &dof_handler,
+                       const dealii::Quadrature<dim>           &quadrature,
+                       const VectorType                        &properties,
+                       const std::vector<InputFieldBinding>    &bindings)
       : properties(properties)
       , fe_values(dof_handler.get_fe(), quadrature, dealii::update_values)
       , n_quadrature_points(quadrature.size())
@@ -89,8 +89,8 @@ namespace ImmersX
     }
 
   private:
-    const VectorType               &properties;
-    dealii::FEValues<dim, spacedim> fe_values;
+    const VectorType                               &properties;
+    dealii::FEValues<dim, spacedim>                 fe_values;
     unsigned int                                    n_quadrature_points;
     std::vector<dealii::FEValuesExtractors::Scalar> extractors;
     std::vector<unsigned int>                       component_slots;

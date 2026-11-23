@@ -53,11 +53,11 @@ namespace ImmersX
     template <int d1, int d2, int spacedim>
     LocalCoRefinementReport
     co_refine_meshes(
-      dealii::Triangulation<d1, spacedim>         &space,
-      dealii::Triangulation<d2, spacedim>         &embedded,
-      const RefinementParameters<d2>              &parameters,
-      const MPI_Comm                               communicator,
-      const EmbeddedCellThickness<d2, spacedim>   &embedded_thickness = {})
+      dealii::Triangulation<d1, spacedim>       &space,
+      dealii::Triangulation<d2, spacedim>       &embedded,
+      const RefinementParameters<d2>            &parameters,
+      const MPI_Comm                             communicator,
+      const EmbeddedCellThickness<d2, spacedim> &embedded_thickness = {})
     {
       namespace bgi = boost::geometry::index;
       using namespace dealii;
@@ -125,12 +125,12 @@ namespace ImmersX
                   {
                     const Point<spacedim> center = s0 + (s1 - s0) / 2.;
                     const auto            p0     = embedded_cell->vertex(0);
-                    const auto axis   = embedded_cell->vertex(1) - p0;
-                    const double norm = axis.norm_square();
-                    const double s =
+                    const auto            axis = embedded_cell->vertex(1) - p0;
+                    const double          norm = axis.norm_square();
+                    const double          s =
                       norm > 0. ?
-                        std::clamp((center - p0) * axis / norm, 0., 1.) :
-                        0.;
+                                 std::clamp((center - p0) * axis / norm, 0., 1.) :
+                                 0.;
                     const double d = center.distance(p0 + s * axis);
                     if (d + hs / 2. < t_min || d - hs / 2. > t_max)
                       continue;
