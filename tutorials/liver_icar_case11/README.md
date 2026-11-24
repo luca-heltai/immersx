@@ -132,6 +132,13 @@ are prescribed by this tutorial.
 
 The `small` profile uses direct MUMPS. The historical `small-blr-diagnostic` run used MUMPS with block low-rank compression and FGMRES, 16 MPI ranks, an FGMRES limit of 100 iterations and workspace relaxation 20,000. Its isolated source snapshot predates the merged coupled IDA support in [PR #416](https://github.com/luca-heltai/immersx/pull/416). Current `master` exposes `mumps-blr-fgmres` under `/MetricFlowSystem<1, 3>/IDA parameters/Linear solver/Type`. Leave `Block preconditioner` at `automatic`; this solver supplies its own full-system preconditioner. It requires deal.II configured with MUMPS and the Trilinos vector backend. The old short run does not validate the merged implementation or establish a solver choice for the medium case. The `medium` profile uses an iterative solver, limits the replicated flow inverse to 2,048 DoFs and materializes the Schur operator only up to 512 DoFs. All profiles preserve the large tolerance ramp from the campaign; do not interpret process completion as physical validation. The checked-in parameter templates reproduce the supplied small and medium settings. The BLR-FGMRES overlay is recorded in issue #393's run artifacts.
 
+The coupled case11 profiles explicitly select `Interior transmission = flux`.
+MetricFlowX defaults to `state`; in the generated-network reproducer in
+[issue #481](https://github.com/luca-heltai/immersx/issues/481), changing only
+this setting to `flux` stopped the growing terminal circulation while keeping
+HLL unchanged. This result is specific to that reproducer and does not validate
+a complete case11 trajectory.
+
 The case11 exploratory campaign also produced runs that completed with return code 0 under fixed steps and very loose tolerances. That exit status only confirms that the executable finished. It does not establish physical validity. In particular, runs that disable geometric constraints or accept non-finite/negative physical states must not be presented as successful simulations.
 
 ## Vascular refinement and target sizes
