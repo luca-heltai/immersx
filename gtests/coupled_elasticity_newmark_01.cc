@@ -87,12 +87,14 @@ namespace
 
   // Parameters of the cylinder with point or tensor-product coupling. A
   // dynamic run goes from t = 0 to t = 100 with time step 0.1. Each
-  // "set <key> = ..." entry listed in `overrides` is replaced.
+  // "set <key> = ..." entry listed in `overrides` is replaced. `wall_data` is
+  // the inclusion `Boundary data`.
   std::string
   parameters(const bool         point_coupling,
              const bool         dynamic,
              const Overrides   &overrides = {},
-             const std::string &dirichlet = "0; 0; 0.01*t")
+             const std::string &dirichlet = "0; 0; 0.01*t",
+             const std::string &wall_data = "0; 0; 0")
   {
     const std::string name = std::string(point_coupling ? "point" : "tensor") +
                              (dynamic ? "_dynamic" : "_static");
@@ -136,7 +138,7 @@ namespace
           set Reference inclusion data          = @REFERENCE_DATA@
           set Selection of Fourier coefficients = @SELECTION@
           subsection Boundary data
-            set Function expression = 0; 0; 0
+            set Function expression = @WALL_DATA@
           end
         end
         subsection Material properties
@@ -219,6 +221,7 @@ namespace
     replace("@DENSITY@", dynamic ? "1" : "0");
     replace("@FINAL_TIME@", dynamic ? "100" : "0");
     replace("@DIRICHLET@", dirichlet);
+    replace("@WALL_DATA@", wall_data);
 
     for (const auto &[key, value] : overrides)
       {
@@ -483,6 +486,94 @@ TEST(CoupledElasticityNewmark,
                        << "step " << step;
                    }
                });
+}
+
+namespace
+{
+  // Density 0 with a time interval selects a quasi-static tissue. Each step
+  // is a static solve that imposes the wall data at the step time. After
+  // steps to t = 0.1, ..., 0.5 with time-dependent Dirichlet and wall data,
+  // the solution equals a static solve with the constant data of t = 0.5.
+  // With point coupling the wall data are the inclusion `Boundary data`,
+  // which is used only when the inclusions have no data line.
+  void
+  check_quasistatic_steps(const bool         point_coupling,
+                          const std::string &timed_wall_data,
+                          const std::string &constant_wall_data)
+  {
+    Overrides   timed{{"Final time", "0.5"}};
+    Overrides   constant;
+    std::string timed_point_data    = "0; 0; 0";
+    std::string constant_point_data = "0; 0; 0";
+    if (point_coupling)
+      {
+        timed.emplace_back("Reference inclusion data", "");
+        constant.emplace_back("Reference inclusion data", "");
+        timed_point_data    = timed_wall_data;
+        constant_point_data = constant_wall_data;
+      }
+    else
+      {
+        timed.emplace_back("Reduced right hand side", timed_wall_data);
+        constant.emplace_back("Reduced right hand side", constant_wall_data);
+      }
+
+    struct : State
+    {
+      double wall_data_norm = 0.;
+    } reference;
+    with_problem(parameters(point_coupling,
+                            false,
+                            constant,
+                            "0; 0; 0.005",
+                            constant_point_data),
+                 [&](auto &problem) {
+                   ASSERT_EQ(problem.par.time_mode, TimeMode::Static);
+                   problem.run_timestep0();
+                   problem.run_timestep(0.5);
+                   reference.displacement = problem.solution.block(0);
+                   reference.pressure     = vessel_pressure(problem);
+                   reference.wall_data_norm =
+                     problem.system_rhs.block(1).l2_norm();
+                 });
+    ASSERT_NE(reference.pressure, 0.);
+    ASSERT_GT(reference.wall_data_norm, 1.e-3);
+
+    with_problem(
+      parameters(
+        point_coupling, false, timed, "0; 0; 0.01*t", timed_point_data),
+      [&](auto &problem) {
+        ASSERT_EQ(problem.par.time_mode, TimeMode::QuasiStatic);
+        problem.run_timestep0();
+        LA::MPI::Vector previous = problem.solution.block(0);
+        for (const double time : {0.1, 0.2, 0.3, 0.4, 0.5})
+          {
+            problem.run_timestep(time);
+            EXPECT_GT(relative_difference(previous, problem.solution.block(0)),
+                      1.e-3);
+            EXPECT_LT(constraint_residual(problem), 1.e-6);
+            previous = problem.solution.block(0);
+          }
+        EXPECT_LT(relative_difference(problem.solution.block(0),
+                                      reference.displacement),
+                  1.e-8);
+        EXPECT_NEAR(vessel_pressure(problem),
+                    reference.pressure,
+                    1.e-8 * std::abs(reference.pressure));
+      });
+  }
+} // namespace
+
+TEST(CoupledElasticityNewmark, BOTH_QuasiStaticStepsImposeTimedWallDataPoint)
+{
+  // Radial wall displacement 0.1*t on the vessel of radius 0.2 along x.
+  check_quasistatic_steps(true, "0; 0.5*t*y; 0.5*t*z", "0; 0.25*y; 0.25*z");
+}
+
+TEST(CoupledElasticityNewmark,
+     BOTH_QuasiStaticStepsImposeTimedWallDataTensorProduct)
+{
+  check_quasistatic_steps(false, "0.1*t; 0.1*t", "0.05; 0.05");
 }
 
 // A coupled Newmark step must advance the tissue by exactly one time step.
