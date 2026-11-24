@@ -1063,17 +1063,17 @@ namespace
         if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
           std::cout << "Steady KINSOL native status: " << result.second
                     << std::endl;
-        check_coupled_steady_state(adapter,
-                                   flow_time.initial_time,
-                                   candidate,
-                                   state_dot,
-                                   function_scaling,
-                                   *state_constraints,
-                                   steady_function_tolerance,
-                                   flow_problem,
-                                   adapter.field(candidate,
-                                                 flow_fields.fields().state),
-                                   flow_fields.fields().area);
+        check_coupled_initial_state(adapter,
+                                    flow_time.initial_time,
+                                    candidate,
+                                    state_dot,
+                                    function_scaling,
+                                    *state_constraints,
+                                    steady_function_tolerance,
+                                    flow_problem,
+                                    adapter.field(candidate,
+                                                  flow_fields.fields().state),
+                                    flow_fields.fields().area);
         state = candidate;
         flow_problem.open_output_files();
         output_step(flow_time.initial_time, state, state_dot, 0);
