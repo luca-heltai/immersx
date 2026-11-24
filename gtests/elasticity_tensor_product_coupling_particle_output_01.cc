@@ -84,7 +84,7 @@ TEST(ElasticityCouplingParticleOutput, WritesTensorProductParticles)
   std::filesystem::create_directories(par.output_directory);
   const std::string filename =
     par.output_directory + "/" + par.output_name + "_particles.vtu";
-  ASSERT_NO_THROW(problem.output_immersed_particles(filename));
+  ASSERT_NO_THROW(problem.output_wall_particles(filename));
   EXPECT_TRUE(std::filesystem::exists(filename));
   const auto names = data_array_names(filename);
   EXPECT_TRUE(has(names, "id"));
@@ -127,7 +127,7 @@ TEST(ElasticityCouplingParticleOutput, EmptyPropertyListWritesNoFile)
     par.output_directory + "/" + par.output_name + "_particles.vtu";
   std::filesystem::remove(filename);
   MPI_Barrier(MPI_COMM_WORLD);
-  ASSERT_NO_THROW(problem.output_immersed_particles(filename));
+  ASSERT_NO_THROW(problem.output_wall_particles(filename));
   EXPECT_FALSE(std::filesystem::exists(filename));
 }
 
@@ -174,7 +174,7 @@ TEST(ElasticityCouplingParticleOutput, BOTH_SolvedStateCarriesMultiplierAndWall)
     par.output_directory + "/" + par.output_name + "_particles.vtu";
 
   // Without a computed pressure the column is omitted.
-  ASSERT_NO_THROW(problem.output_immersed_particles(filename));
+  ASSERT_NO_THROW(problem.output_wall_particles(filename));
   auto names = data_array_names(filename);
   EXPECT_TRUE(has(names, "lambda"));
   EXPECT_TRUE(has(names, "lambda_0"));
@@ -185,7 +185,7 @@ TEST(ElasticityCouplingParticleOutput, BOTH_SolvedStateCarriesMultiplierAndWall)
   problem.wall_point_pressure.assign(
     problem.tensor_product_coupling->get_locally_owned_qpoints().size(), 1.);
   problem.has_wall_point_pressure = true;
-  ASSERT_NO_THROW(problem.output_immersed_particles(filename));
+  ASSERT_NO_THROW(problem.output_wall_particles(filename));
   names = data_array_names(filename);
   EXPECT_TRUE(has(names, "lambda"));
   EXPECT_TRUE(has(names, "wall_pressure"));

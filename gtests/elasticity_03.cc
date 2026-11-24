@@ -266,6 +266,34 @@ TEST(ElasticityProblem, BOTH_PointCouplingQueriesReflectInclusions)
 
 
 
+TEST(ElasticityProblem, BOTH_PointCouplingWritesInclusionParticles)
+{
+  ParameterAcceptor::clear();
+  ElasticityProblemParameters<dim> par;
+  Problem                          problem(par);
+  parse_parameters(par, R"(
+    subsection Immersed Problem
+      subsection Immersed inclusions
+        set Inclusions                     = 0, 0, 0.5; 0.4, 0.4, 0.2
+        set Number of fourier coefficients = 3
+      end
+    end
+  )");
+  setup_system(problem);
+  ASSERT_FALSE(problem.uses_tensor_product_coupling());
+
+  const auto filename =
+    TestPaths::output_path("gtests/elasticity-03/point_particles.vtu");
+  if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+    {
+      std::filesystem::create_directories(filename.parent_path());
+      std::filesystem::remove(filename);
+    }
+  MPI_Barrier(MPI_COMM_WORLD);
+  ASSERT_NO_THROW(problem.output_wall_particles(filename.string()));
+  EXPECT_TRUE(std::filesystem::exists(filename));
+}
+
 TEST(ElasticityProblem, BOTH_PointCouplingAveragesDisplacementOverInclusion)
 {
   ParameterAcceptor::clear();

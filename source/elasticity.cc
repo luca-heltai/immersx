@@ -2510,8 +2510,8 @@ namespace ImmersX
             const std::string particles_filename =
               par.output_name + "_particles.vtu";
 
-            output_immersed_particles(par.output_directory + "/" +
-                                      particles_filename);
+            output_wall_particles(par.output_directory + "/" +
+                                  particles_filename);
             cycles_and_particles.push_back({output_time, particles_filename});
 
             std::ofstream pvd_particles(par.output_directory + "/" +
@@ -2529,8 +2529,8 @@ namespace ImmersX
                                << time_step << ".vtu";
 
             const std::string particles_filename_str = particles_filename.str();
-            output_immersed_particles(par.output_directory + "/" +
-                                      particles_filename_str);
+            output_wall_particles(par.output_directory + "/" +
+                                  particles_filename_str);
             particle_records.push_back({output_time, particles_filename_str});
 
             const std::string pvd_particles_name =
