@@ -950,14 +950,16 @@ namespace ImmersX
 
     // Dynamic runs build prec_A only for the equilibrium start.
     if (par.time_mode != TimeMode::Dynamic)
-      initialize_stiffness_preconditioner();
+      initialize_amg_with_rigid_body_modes(prec_A, stiffness_matrix);
   }
 
 
 
   template <int dim, int spacedim>
   void
-  ElasticityProblem<dim, spacedim>::initialize_stiffness_preconditioner()
+  ElasticityProblem<dim, spacedim>::initialize_amg_with_rigid_body_modes(
+    LA::MPI::PreconditionAMG    &preconditioner,
+    const LA::MPI::SparseMatrix &matrix)
   {
     Teuchos::ParameterList amg_parameter_list;
     amg_parameter_list.set("smoother: type", "Chebyshev");
@@ -988,15 +990,14 @@ namespace ImmersX
       }
 #endif
     // The parameter list keeps a raw pointer into operator_modes, so they
-    // must outlive prec_A.initialize().
+    // must outlive preconditioner.initialize().
     std::unique_ptr<Epetra_MultiVector> operator_modes;
-    UtilitiesAL::set_null_space<spacedim, VectorType>(
-      amg_parameter_list,
-      operator_modes,
-      stiffness_matrix.trilinos_matrix(),
-      rigid_body_modes);
-    prec_A.clear();
-    prec_A.initialize(stiffness_matrix, amg_parameter_list);
+    UtilitiesAL::set_null_space<spacedim, VectorType>(amg_parameter_list,
+                                                      operator_modes,
+                                                      matrix.trilinos_matrix(),
+                                                      rigid_body_modes);
+    preconditioner.clear();
+    preconditioner.initialize(matrix, amg_parameter_list);
   }
 
 
@@ -1951,16 +1952,8 @@ namespace ImmersX
     auto &lambda = solution.block(1);
     // prec_A is not built in dynamic runs. The equilibrium solve needs it,
     // and the Newmark steps need prec_newmark.
-    initialize_stiffness_preconditioner();
-    Teuchos::ParameterList amg_parameters;
-    amg_parameters.set("smoother: type", "Chebyshev");
-    amg_parameters.set("smoother: sweeps", 2);
-    amg_parameters.set("smoother: pre or post", "both");
-    amg_parameters.set("coarse: type", "Amesos-KLU");
-    amg_parameters.set("coarse: max size", 2000);
-    amg_parameters.set("aggregation: threshold", 0.02);
-    prec_newmark.clear();
-    prec_newmark.initialize(newmark_matrix, amg_parameters);
+    initialize_amg_with_rigid_body_modes(prec_A, stiffness_matrix);
+    initialize_amg_with_rigid_body_modes(prec_newmark, newmark_matrix);
 
     solve_wall_constrained_system(
       stiffness_matrix, 1., prec_A, rhs, system_rhs.block(1), u, lambda);
@@ -3119,19 +3112,7 @@ namespace ImmersX
         // mass_matrix and prec_C are no longer used after a0.
         prec_C.clear();
         mass_matrix.clear();
-        // make Prec_newmark with rbm
-        {
-          Teuchos::ParameterList parameter_list_newmark;
-          parameter_list_newmark.set("smoother: type", "Chebyshev");
-          parameter_list_newmark.set("smoother: sweeps", 2);
-          parameter_list_newmark.set("smoother: pre or post", "both");
-          parameter_list_newmark.set("coarse: type", "Amesos-KLU");
-          parameter_list_newmark.set("coarse: max size", 2000);
-          parameter_list_newmark.set("aggregation: threshold", 0.02);
-
-          prec_newmark.clear();
-          prec_newmark.initialize(newmark_matrix, parameter_list_newmark);
-        }
+        initialize_amg_with_rigid_body_modes(prec_newmark, newmark_matrix);
 
 
         for (time_step = 0, current_time = par.time_parameters.initial_time;
@@ -3237,19 +3218,9 @@ namespace ImmersX
     if (spring_changed)
       {
         if (dynamic)
-          {
-            Teuchos::ParameterList options;
-            options.set("smoother: type", "Chebyshev");
-            options.set("smoother: sweeps", 2);
-            options.set("smoother: pre or post", "both");
-            options.set("coarse: type", "Amesos-KLU");
-            options.set("coarse: max size", 2000);
-            options.set("aggregation: threshold", 0.02);
-            prec_newmark.clear();
-            prec_newmark.initialize(newmark_matrix, options);
-          }
+          initialize_amg_with_rigid_body_modes(prec_newmark, newmark_matrix);
         else
-          initialize_stiffness_preconditioner();
+          initialize_amg_with_rigid_body_modes(prec_A, stiffness_matrix);
       }
     assemble_forcing_terms(evaluation_time);
     double inclusion_scale = 1.0;

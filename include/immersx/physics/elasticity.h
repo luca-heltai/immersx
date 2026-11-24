@@ -937,11 +937,14 @@ namespace ImmersX
 
   private:
     /**
-     * Build prec_A from stiffness_matrix, with the rigid-body modes as the
-     * AMG near-null space.
+     * Build an AMG preconditioner for an elasticity operator on dh
+     * (stiffness_matrix or newmark_matrix), with the rigid-body modes as the
+     * near-null space.
      */
     void
-    initialize_stiffness_preconditioner();
+    initialize_amg_with_rigid_body_modes(
+      LA::MPI::PreconditionAMG    &preconditioner,
+      const LA::MPI::SparseMatrix &matrix);
 
     const Mapping<spacedim> &
     geometry_mapping() const
