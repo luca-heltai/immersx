@@ -402,6 +402,52 @@ TEST(CoupledElasticityNewmark, BOTH_StaticWallDataAtSolveTimeTensorProduct)
               1.e-8 * std::abs(constant.pressure));
 }
 
+// With no body force and no Dirichlet data a constrained Newmark run from rest
+// is linear in the wall data. Wall data 1e-9 t^3 must give 1e-9 times the
+// displacement and the multiplier of t^3. The constraint right-hand side of a
+// Newmark step is the small increment g - B u_pred. With an absolute
+// tolerance of `Reduced mass` the mass solves for it stopped at step 0, so
+// the test keeps the default tolerance.
+TEST(CoupledElasticityNewmark, BOTH_SmallWallDataScaleLinearlyTensorProduct)
+{
+  const auto solve = [](const std::string &wall_data) {
+    auto text = parameters(false,
+                           true,
+                           {{"Time step", "0.01"},
+                            {"Reduced right hand side", wall_data}},
+                           "0; 0; 0");
+
+    const std::string force = "set Function expression = 0; 0.05; 0.1";
+    const auto        pos   = text.find(force);
+    EXPECT_NE(pos, std::string::npos);
+    text.replace(pos, force.size(), "set Function expression = 0; 0; 0");
+    // Drop the Tolerance entry of `Reduced mass`.
+    const auto mass = text.find("subsection Reduced mass");
+    const auto tol  = text.find("set Tolerance", mass);
+    EXPECT_NE(mass, std::string::npos);
+    text.erase(tol, text.find('\n', tol) - tol);
+
+    std::pair<LA::MPI::Vector, LA::MPI::Vector> state;
+    with_problem(text, [&](auto &problem) {
+      ASSERT_EQ(problem.par.time_mode, TimeMode::Dynamic);
+      EXPECT_EQ(problem.par.reduced_mass_solver_control.tolerance(), 0.);
+      problem.run_timestep0();
+      problem.run_timestep(0.);
+      for (unsigned int step = 1; step <= 5; ++step)
+        problem.run_timestep(0.01 * step);
+      state = {problem.solution.block(0), problem.solution.block(1)};
+    });
+    return state;
+  };
+  const auto [u, lambda]       = solve("t^3; t^3");
+  auto [small_u, small_lambda] = solve("1e-9*t^3; 1e-9*t^3");
+  ASSERT_GT(lambda.l2_norm(), 0.);
+  small_u *= 1.e9;
+  small_lambda *= 1.e9;
+  EXPECT_LT(relative_difference(small_u, u), 1.e-6);
+  EXPECT_LT(relative_difference(small_lambda, lambda), 1.e-6);
+}
+
 // Refinement around the inclusions creates hanging nodes.
 TEST(CoupledElasticityNewmark, BOTH_ConstantDataKeepsEquilibriumPoint)
 {

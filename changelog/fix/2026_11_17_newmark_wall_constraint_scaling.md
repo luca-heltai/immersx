@@ -34,3 +34,7 @@ PR: #449
   Newmark matrix now use the rigid-body modes as near-null space, also with
   tensor-product coupling and wherever they are rebuilt (Newmark equilibrium
   start, Robin coefficient changes).
+- `Solvers/Reduced mass` now defaults to `Tolerance = 0`, so the mass solves
+  of the augmented Lagrangian stop on `Reduction` alone. With the absolute
+  default `1e-10` they stopped at step 0 for small wall data and returned a
+  wrong multiplier; the displacement was not affected.
