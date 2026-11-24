@@ -559,8 +559,7 @@ namespace ImmersX
      * Internal run implementations selected by `time_mode`.
      *
      * - `run_static()`: stationary solve with optional refinement cycles.
-     * - `run_quasistatic()`: time-dependent run without inertia
-     *   (currently `solve_quasistatic()` is not implemented).
+     * - `run_quasistatic()`: time-dependent run without inertia.
      * - `run_newmark()`: time-dependent run with inertia (Newmark).
      */
     void
@@ -597,7 +596,9 @@ namespace ImmersX
     solve_static();
 
     /**
-     * Solve one quasi-static step.
+     * Solve one quasi-static step. Wall data act as a pressure:
+     * \f$\lambda = M^{-1} g\f$ and \f$A u = f + B^T \lambda\f$. With point
+     * coupling this requires `Prescribed vessel pressure = true`.
      */
     void
     solve_quasistatic();

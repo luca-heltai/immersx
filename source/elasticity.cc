@@ -1959,10 +1959,13 @@ namespace ImmersX
   {
     TimerOutput::Scope t(computing_timer, "Solve (quasistatic)");
 
-    AssertThrow(par.uses_prescribed_vessel_pressure() == false ||
+    // The solve below applies the wall data as a pressure. Point coupling has
+    // no quasi-static displacement constraint, as in solve_newmark().
+    AssertThrow(par.uses_prescribed_vessel_pressure() == true ||
                   uses_tensor_product_coupling() || n_multiplier_dofs() == 0,
-                ExcNotImplemented("Quasi-static pressure coupling is not "
-                                  "implemented for point coupling."));
+                ExcNotImplemented(
+                  "Quasi-static solve without prescribed vessel pressure "
+                  "is not implemented for point coupling."));
 
     const auto A    = linear_operator<LA::MPI::Vector>(stiffness_matrix);
     const auto amgA = linear_operator(A, prec_A);
