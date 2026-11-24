@@ -936,6 +936,13 @@ namespace ImmersX
     class Postprocessor;
 
   private:
+    /**
+     * Build prec_A from stiffness_matrix, with the rigid-body modes as the
+     * AMG near-null space.
+     */
+    void
+    initialize_stiffness_preconditioner();
+
     const Mapping<spacedim> &
     geometry_mapping() const
     {
