@@ -553,6 +553,42 @@ namespace ImmersX
     return result;
   }
 
+  /** Build an operator retaining a const shared matrix owner.
+   * Explicit materialization returns a copy; immutable execution snapshots can
+   * retain the operator and its sparse entries without copying them.
+   */
+  template <typename VectorType, typename MatrixType>
+  MaterializedOperator<VectorType, MatrixType>
+  matrix_operator(std::shared_ptr<const MatrixType> matrix)
+  {
+    AssertThrow(matrix != nullptr,
+                dealii::ExcMessage(
+                  "An owned matrix operator requires a matrix."));
+    MaterializedOperator<VectorType, MatrixType> result;
+    const auto                                   view =
+      payload_free(dealii::linear_operator<VectorType, VectorType>(*matrix));
+    const auto retain = [matrix](const auto &operation) {
+      return [matrix, operation](auto &destination, const auto &source) {
+        operation(destination, source);
+      };
+    };
+    result.view.reinit_range_vector  = retain(view.reinit_range_vector);
+    result.view.reinit_domain_vector = retain(view.reinit_domain_vector);
+    result.view.vmult                = retain(view.vmult);
+    result.view.vmult_add            = retain(view.vmult_add);
+    result.view.Tvmult               = retain(view.Tvmult);
+    result.view.Tvmult_add           = retain(view.Tvmult_add);
+    result.materialize = [matrix]() { return detail::clone_matrix(*matrix); };
+    result.materialize_into = [matrix](MatrixType &destination) {
+      detail::copy_matrix(destination, *matrix);
+    };
+    result.observed_matrix = matrix.get();
+    result.observes_matrix = true;
+    result.direct_matrix   = true;
+    result.immutable       = true;
+    return result;
+  }
+
   /** Scale a matrix-backed operator without losing its matrix provenance. */
   template <typename VectorType, typename MatrixType>
   MaterializedOperator<VectorType, MatrixType>

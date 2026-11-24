@@ -125,14 +125,12 @@ namespace ImmersX
                 if (entry.matrix_factory)
                   {
                     auto op = entry.matrix_factory(context);
-                    if (op.is_materializable())
+                    if (op.is_materializable() && !op.immutable)
                       {
-                        const bool immutable = op.immutable;
-                        auto       matrix    = op.matrix();
-                        if (!immutable && matrix.use_count() > 1)
+                        auto matrix = op.matrix();
+                        if (matrix.use_count() > 1)
                           matrix = detail::clone_matrix(*matrix);
                         op = matrix_operator<VectorType>(std::move(matrix));
-                        op.immutable = immutable;
                       }
                     entry.factory = [op](const Context &) { return op.view; };
                     entry.matrix_factory = [op](const Context &) { return op; };
