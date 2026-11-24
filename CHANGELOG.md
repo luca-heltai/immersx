@@ -361,7 +361,7 @@ this historical file.
 
 ### Fixed
 
-- [PR #N](https://github.com/luca-heltai/immersx/pull/N) Set IRCAD11 interior transmission to flux, matching the setting that stopped the growing-circulation reproducer in issue #481.
+- [PR #509](https://github.com/luca-heltai/immersx/pull/509) Set IRCAD11 interior transmission to flux, matching the setting that stopped the growing-circulation reproducer in issue #481.
 
 - [PR #435](https://github.com/luca-heltai/immersx/pull/435) Own and release the linear solver and matrix borrowed by IDA, then free their SUNDIALS context after IDA memory on reset and destruction. Repeated IC-only resets retain corrected states and recover after setup failure without emitting output.
 
