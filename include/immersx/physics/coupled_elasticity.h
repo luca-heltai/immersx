@@ -139,9 +139,10 @@ namespace ImmersX
      * after the other. The samples are equally spaced from the beginning to
      * the end of the vessel and interpolated linearly in between. With point
      * coupling the vessel runs from its first to its last inclusion in the
-     * inclusions file. With tensor-product coupling it runs along the reduced
-     * grid, in arc length, from the end that lies in the first cell of the
-     * reduced grid file (see make_vessel_index_of_a_cell()).
+     * inclusions file. A vessel with a single inclusion
+     * gets the mean of its samples. With tensor-product coupling it runs along
+     * the reduced grid, in arc length, from the end that lies in the first cell
+     * of the reduced grid file (see make_vessel_index_of_a_cell()).
      */
     void
     update_vessel_radius_data(std::vector<double> new_data,

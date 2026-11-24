@@ -1018,6 +1018,12 @@ namespace ImmersX
 
     /**
      * Update inclusion data by vessel-wise sampled profiles.
+     *
+     * The samples of a vessel are equally spaced from its first to its last
+     * inclusion and interpolated linearly. A single sample is a constant
+     * value. A vessel with a single inclusion cannot hold a profile and gets
+     * the mean of its samples, the counterpart of the single value that
+     * CoupledElasticityProblem::split_pressure_over_dofs() returns for it.
      */
     void
     update_inclusions_data(std::vector<std::vector<double>> new_data)
@@ -1046,15 +1052,23 @@ namespace ImmersX
             N2 > 0,
             ExcMessage(
               "dimensions of new data for the update does not match the inclusions"));
-          AssertThrow(
-            N1 > 1,
-            ExcMessage(
-              "insufficient number of inclusion int the vessel for the update"));
+          AssertThrow(N1 > 0,
+                      ExcMessage("A vessel has no inclusions for the update."));
           if (N2 == 1)
             {
               for (const auto inclusion_id : current_inclusions)
                 update_single_inclusion_data_along_normal(inclusion_id,
                                                           current_new_data[0]);
+            }
+          else if (N1 == 1)
+            {
+              // The samples are equally spaced, so their mean is the mean over
+              // the vessel.
+              double mean = 0.;
+              for (const double sample : current_new_data)
+                mean += sample;
+              update_single_inclusion_data_along_normal(current_inclusions[0],
+                                                        mean / N2);
             }
           else
             {

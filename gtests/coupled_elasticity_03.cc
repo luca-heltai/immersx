@@ -842,6 +842,34 @@ TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataByCellsWrongSizePoint)
   });
 }
 
+// Vessel 1 has a single inclusion, which cannot hold a profile: it gets the
+// mean of the samples of its cells, whatever their number, and a single sample
+// is kept. Vessel 0 is interpolated as usual.
+TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataByCellsSingleInclusionPoint)
+{
+  with_problem(
+    point_parameters(
+      {{"Inclusions file", inclusions_file_with_single_inclusion_vessel()}}),
+    [](auto &problem) {
+      problem.run_timestep0();
+      ASSERT_EQ(problem.n_vessels(), 2u);
+      const std::vector<double> vessel_0 = {0.1, 0.5, 0.2};
+      ASSERT_NO_THROW(
+        problem.update_vessel_radius_data({0.1, 0.5, 0.2, 0.2, 0.4, 0.9, 0.3},
+                                          {3, 4}));
+      for (unsigned int k = 0; k < 49; ++k)
+        EXPECT_NEAR(problem.inclusions.inclusions_data[k][3],
+                    interpolated_sample(vessel_0, k, 49),
+                    1e-12)
+          << "inclusion " << k;
+      EXPECT_NEAR(problem.inclusions.inclusions_data[49][3], 0.45, 1e-12);
+
+      ASSERT_NO_THROW(
+        problem.update_vessel_radius_data({0.1, 0.5, 0.7}, {2, 1}));
+      EXPECT_DOUBLE_EQ(problem.inclusions.inclusions_data[49][3], 0.7);
+    });
+}
+
 // Vessels with different numbers of cells. Vessel 0 has three samples, so the
 // middle sample lies at inclusion 12 and the interpolation has a kink there.
 // Vessel 1 has four samples.
