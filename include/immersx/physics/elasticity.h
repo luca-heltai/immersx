@@ -502,9 +502,17 @@ namespace ImmersX
     /**
      * Assemble bulk operators (stiffness/mass/damping) and basic right-hand
      * side.
+     *
+     * With `assemble_matrices = false` only the displacement right-hand side
+     * is rebuilt, for the current constraints and data times; the stiffness
+     * matrix and its AMG preconditioner are kept. This is valid for static
+     * and quasi-static solves on unchanged DoFs and materials without Robin
+     * faces, whose matrices do not depend on time. Cell matrices are then
+     * computed only on cells with inhomogeneously constrained DoFs, to lift
+     * the constraint values into the right-hand side.
      */
     void
-    assemble_elasticity_system();
+    assemble_elasticity_system(const bool assemble_matrices = true);
     /**
      * Add inhomogeneous constraint corrections to a dynamic right-hand side.
      */

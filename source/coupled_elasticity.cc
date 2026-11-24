@@ -1111,10 +1111,11 @@ namespace ImmersX
       }
     else
       {
-        // Reassemble the constrained mechanical operator and load together:
-        // cached essential columns cannot supply a new affine lifting.
+        // The mesh and the materials are those of the first step, so only
+        // the load and the lifting of the new constraint values change.
+        // Robin coefficients may depend on time and change the matrix.
         if (time_changed)
-          this->assemble_elasticity_system();
+          this->assemble_elasticity_system(!this->par.robin_ids.empty());
         set_wall_data_time();
         this->assemble_coupling();
         this->solve();
