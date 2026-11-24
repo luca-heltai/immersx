@@ -39,6 +39,59 @@ namespace
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
 
+  struct PressureStateJacobianOptions
+  {
+    enum class NumericalFluxType
+    {
+      HLL,
+      HLL_HDG,
+      LAX_FRIEDRICHS,
+      UNKNOWN
+    };
+
+    enum class InteriorTransmission
+    {
+      state,
+      flux
+    };
+
+    using ExternalPressureProvider = int;
+
+    void
+    add_external_pressure_state_jacobian(double,
+                                         const FieldVector &,
+                                         const ExternalPressureProvider &,
+                                         MetricFlowX::MatrixType &) const
+    {}
+
+    NumericalFluxType
+    get_numerical_flux() const
+    {
+      return numerical_flux;
+    }
+
+    InteriorTransmission
+    get_interior_transmission() const
+    {
+      return interior_transmission;
+    }
+
+    NumericalFluxType    numerical_flux        = NumericalFluxType::HLL;
+    InteriorTransmission interior_transmission = InteriorTransmission::state;
+  };
+
+  struct LegacyPressureStateJacobian
+  {
+    using ExternalPressureProvider = int;
+
+    void
+    add_external_pressure_state_jacobian(double,
+                                         const FieldVector &,
+                                         const ExternalPressureProvider &,
+                                         MetricFlowX::MatrixType &) const
+    {}
+  };
+
   template <class Flow>
   auto
   initialize_native_parameters(Flow &flow, const std::string &filename, int)
@@ -1233,6 +1286,32 @@ TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
   expected *= .5;
   actual -= expected;
   EXPECT_LT(actual.l2_norm(), 1.e-11 * std::max(1., expected.l2_norm()));
+}
+
+
+TEST(MetricFlowX, PressureStateJacobianSelection)
+{
+  using NumericalFlux = PressureStateJacobianOptions::NumericalFluxType;
+  using Transmission  = PressureStateJacobianOptions::InteriorTransmission;
+
+  PressureStateJacobianOptions flow;
+  EXPECT_TRUE(ImmersX::detail::needs_external_pressure_state_jacobian(flow));
+
+  flow.interior_transmission = Transmission::flux;
+  EXPECT_FALSE(ImmersX::detail::needs_external_pressure_state_jacobian(flow));
+
+  flow.interior_transmission = Transmission::state;
+  flow.numerical_flux        = NumericalFlux::HLL_HDG;
+  EXPECT_FALSE(ImmersX::detail::needs_external_pressure_state_jacobian(flow));
+
+  flow.numerical_flux = NumericalFlux::LAX_FRIEDRICHS;
+  EXPECT_FALSE(ImmersX::detail::needs_external_pressure_state_jacobian(flow));
+
+  flow.numerical_flux = NumericalFlux::UNKNOWN;
+  EXPECT_TRUE(ImmersX::detail::needs_external_pressure_state_jacobian(flow));
+
+  EXPECT_TRUE(ImmersX::detail::needs_external_pressure_state_jacobian(
+    LegacyPressureStateJacobian{}));
 }
 
 

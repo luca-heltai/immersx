@@ -54,6 +54,46 @@ namespace ImmersX
                                std::declval<MetricFlowX::MatrixType &>()))>>
       : std::true_type
     {};
+
+    template <typename Flow, typename = void>
+    struct has_external_pressure_state_jacobian_controls : std::false_type
+    {};
+
+    template <typename Flow>
+    struct has_external_pressure_state_jacobian_controls<
+      Flow,
+      std::void_t<
+        decltype(std::declval<const Flow &>().get_numerical_flux()),
+        decltype(std::declval<const Flow &>().get_interior_transmission()),
+        typename Flow::NumericalFluxType,
+        typename Flow::InteriorTransmission>> : std::true_type
+    {};
+
+    /** Determine whether prescribed pressure depends on the native flow state.
+     * Legacy MetricFlowX packages exposing the derivative without flux
+     * controls retain the conservative behavior and register the operator.
+     */
+    template <typename Flow>
+    bool
+    needs_external_pressure_state_jacobian(const Flow &flow)
+    {
+      if constexpr (!has_external_pressure_state_jacobian<Flow>::value)
+        return false;
+      else if constexpr (has_external_pressure_state_jacobian_controls<
+                           Flow>::value)
+        {
+          using NumericalFlux        = typename Flow::NumericalFluxType;
+          using InteriorTransmission = typename Flow::InteriorTransmission;
+          const auto numerical_flux  = flow.get_numerical_flux();
+          if (numerical_flux == NumericalFlux::LAX_FRIEDRICHS ||
+              numerical_flux == NumericalFlux::HLL_HDG)
+            return false;
+          return flow.get_interior_transmission() != InteriorTransmission::flux;
+        }
+      else
+        return true;
+    }
+
     template <typename Flow, typename = void>
     struct has_external_pressure_jacobian_visitor : std::false_type
     {};

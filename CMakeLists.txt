@@ -26,7 +26,7 @@
 
 cmake_minimum_required(VERSION 3.18)
 
-project(ImmersX VERSION 0.3.0 LANGUAGES CXX)
+project(ImmersX VERSION 1.0.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -572,6 +572,32 @@ FOREACH(_build_type ${_d2_build_types})
       )
       
       DEAL_II_SETUP_TARGET(${_lib} ${_BUILD_TYPE})
+      # deal.II's imported shared library can be linked by absolute path
+      # without adding its directory to the linker search path. Recover the
+      # actual installed library directory for this build variant.
+      SET(_deal_ii_runtime_dirs)
+      SET(_deal_ii_target "${DEAL_II_TARGET_${_BUILD_TYPE}}")
+      IF(TARGET ${_deal_ii_target})
+        GET_TARGET_PROPERTY(_deal_ii_configs ${_deal_ii_target}
+          IMPORTED_CONFIGURATIONS)
+        FOREACH(_deal_ii_config ${_deal_ii_configs})
+          GET_TARGET_PROPERTY(_deal_ii_location ${_deal_ii_target}
+            IMPORTED_LOCATION_${_deal_ii_config})
+          IF(_deal_ii_location)
+            GET_FILENAME_COMPONENT(_deal_ii_dir "${_deal_ii_location}"
+              DIRECTORY)
+            LIST(APPEND _deal_ii_runtime_dirs "${_deal_ii_dir}")
+          ENDIF()
+        ENDFOREACH()
+        GET_TARGET_PROPERTY(_deal_ii_location ${_deal_ii_target}
+          IMPORTED_LOCATION)
+        IF(_deal_ii_location)
+          GET_FILENAME_COMPONENT(_deal_ii_dir "${_deal_ii_location}"
+            DIRECTORY)
+          LIST(APPEND _deal_ii_runtime_dirs "${_deal_ii_dir}")
+        ENDIF()
+        LIST(REMOVE_DUPLICATES _deal_ii_runtime_dirs)
+      ENDIF()
       IF(IMMERSX_WITH_METRIC_FLOW_X)
         # DEAL_II_SETUP_TARGET uses the legacy plain signature, so keep this
         # target's link declarations consistent with it.  Plain
@@ -591,6 +617,21 @@ FOREACH(_build_type ${_d2_build_types})
           ENDIF()
         ENDIF()
       ENDIF()
+      # Installed ImmersX libraries share the prefix libdir with MetricFlowX.
+      # Keep that lookup relative to the library and retain external link paths.
+      IF(NOT IMMERSX_BUILD_STATIC)
+        IF(APPLE)
+          SET_PROPERTY(TARGET ${_lib} APPEND PROPERTY INSTALL_RPATH "@loader_path")
+        ELSEIF(UNIX)
+          SET_PROPERTY(TARGET ${_lib} APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+        ENDIF()
+        SET_PROPERTY(TARGET ${_lib} PROPERTY INSTALL_RPATH_USE_LINK_PATH TRUE)
+        IF(_deal_ii_runtime_dirs)
+          SET_PROPERTY(TARGET ${_lib} APPEND PROPERTY INSTALL_RPATH
+            ${_deal_ii_runtime_dirs})
+        ENDIF()
+      ENDIF()
+
       SET(TEST_LIBRARIES_${_BUILD_TYPE} ${_lib})
 
       
@@ -635,6 +676,23 @@ FOREACH(_build_type ${_d2_build_types})
               TARGET_LINK_LIBRARIES(${_exe} ${_OPENMP_CXX_LINK_LIBS})
             ENDIF()
           ENDIF()
+        ENDIF()
+
+        # Installed applications find ImmersX and MetricFlowX in the prefix
+        # libdir and keep the runtime paths of external linked dependencies.
+        FILE(RELATIVE_PATH _library_relative_to_bin
+          "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}")
+        IF(APPLE)
+          SET_PROPERTY(TARGET ${_exe} APPEND PROPERTY INSTALL_RPATH
+            "@loader_path/${_library_relative_to_bin}")
+        ELSEIF(UNIX)
+          SET_PROPERTY(TARGET ${_exe} APPEND PROPERTY INSTALL_RPATH
+            "$ORIGIN/${_library_relative_to_bin}")
+        ENDIF()
+        SET_PROPERTY(TARGET ${_exe} PROPERTY INSTALL_RPATH_USE_LINK_PATH TRUE)
+        IF(_deal_ii_runtime_dirs)
+          SET_PROPERTY(TARGET ${_exe} APPEND PROPERTY INSTALL_RPATH
+            ${_deal_ii_runtime_dirs})
         ENDIF()
     ENDFOREACH()
   ENDIF()

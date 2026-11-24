@@ -287,7 +287,7 @@ namespace
     steady_parameters.add_parameter(
       "Use residual continuation",
       steady_residual_continuation,
-      "Ramp the original coupled steady residual from its initial value to zero; failed stages roll back and retry with a smaller eta increment.");
+      "Ramp the original coupled steady residual from its initial value to zero; failed stages roll back and retry with a smaller eta increment, and a recovered stage keeps that increment once before growth resumes.");
     steady_parameters.add_parameter(
       "Use secant predictor",
       steady_use_secant_predictor,
@@ -1574,6 +1574,7 @@ namespace
                    increment      = steady_initial_eta_increment;
             unsigned int attempts = 0, total_iterations = 0;
             bool         has_previous_accepted_state = false;
+            bool         stage_recovered_after_retry = false;
             const auto   is_admissible_steady_state =
               [&](const GlobalVector &trial_state) {
                 bool locally_valid = true;
@@ -1710,9 +1711,13 @@ namespace
                     has_previous_accepted_state = true;
                     accepted                    = std::move(trial);
                     eta                         = target;
-                    increment = std::min(steady_maximum_eta_increment,
-                                         stage_increment * 1.5);
-                    result    = {total_iterations, stage.second};
+                    increment                   = metric_flow_x_app_detail::
+                      next_steady_continuation_increment(
+                        stage_increment,
+                        steady_maximum_eta_increment,
+                        stage_recovered_after_retry);
+                    stage_recovered_after_retry = false;
+                    result = {total_iterations, stage.second};
                   }
                 else
                   {
@@ -1720,7 +1725,8 @@ namespace
                       kinsol_stage_can_retry(stage.second),
                       ExcMessage(
                         "KINSOL reported success without satisfying the independent continuation residual gate."));
-                    increment = stage_increment * .5;
+                    increment                   = stage_increment * .5;
+                    stage_recovered_after_retry = true;
                     AssertThrow(
                       increment >= steady_minimum_eta_increment,
                       ExcMessage(

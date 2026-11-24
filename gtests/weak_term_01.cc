@@ -571,6 +571,12 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
   residual -= expected;
   EXPECT_LT(residual.l2_norm(), 1.e-12);
 
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  const auto sparsity_builds_before =
+    detail::weak_term_sparsity_pattern_builds.load();
+  const auto matrix_initializations_before =
+    detail::weak_term_matrix_initializations.load();
+#endif
   const auto jacobian =
     model.state_operator(target.field_id(), source.field_id(), context);
   Vector action(state.size());
@@ -612,6 +618,42 @@ TEST(WeakTerm, NonlinearSquareLawResidualAndJacobian)
   jacobian.vmult(jacobian_action, state);
   finite_difference -= jacobian_action;
   EXPECT_LT(finite_difference.l2_norm(), 1.e-6);
+
+  Vector second_state(state.size());
+  for (unsigned int i = 0; i < second_state.size(); ++i)
+    second_state[i] = 0.5 + 0.125 * i;
+  StateView<Vector> second_state_view(layout, 0.);
+  second_state_view.bind(source.field_id(), second_state);
+  second_state_view.bind(target.field_id(), target_state);
+  const EvaluationContext<Vector> second_context(0., second_state_view);
+  const auto                      second_jacobian =
+    model.state_operator(target.field_id(), source.field_id(), second_context);
+
+  Vector second_perturbed = second_state;
+  second_perturbed.add(epsilon, second_state);
+  StateView<Vector> second_perturbed_view(layout, 0.);
+  second_perturbed_view.bind(source.field_id(), second_perturbed);
+  second_perturbed_view.bind(target.field_id(), target_state);
+  const EvaluationContext<Vector> second_perturbed_context(
+    0., second_perturbed_view);
+  Vector second_residual(residual.size());
+  model.evaluate_row(target.field_id(), second_context, second_residual);
+  Vector second_finite_difference(residual.size());
+  model.evaluate_row(target.field_id(),
+                     second_perturbed_context,
+                     second_finite_difference);
+  second_finite_difference -= second_residual;
+  second_finite_difference *= 1. / epsilon;
+  Vector second_jacobian_action(second_state.size());
+  second_jacobian.vmult(second_jacobian_action, second_state);
+  second_finite_difference -= second_jacobian_action;
+  EXPECT_LT(second_finite_difference.l2_norm(), 1.e-6);
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_sparsity_pattern_builds.load(),
+            sparsity_builds_before + 1);
+  EXPECT_EQ(detail::weak_term_matrix_initializations.load(),
+            matrix_initializations_before + 2);
+#endif
 }
 
 TEST(WeakTerm, ActiveAndFrozenObservablesUseTheirOwnFiniteElements)
@@ -2303,6 +2345,82 @@ TEST(WeakTerm, MPI_DistributedSameDoFHandler)
   matrix->view.vmult(action, state);
   action -= residual;
   EXPECT_LT(action.l2_norm(), 1.e-12);
+}
+
+TEST(WeakTerm, MPI_NonlinearSquareLawReusesDistributedSparsity)
+{
+  ASSERT_EQ(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD), 2u);
+  parallel::distributed::Triangulation<2> tria(MPI_COMM_WORLD);
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(2);
+  FE_Q<2>       fe(1);
+  DoFHandler<2> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  AffineConstraints<double> constraints;
+  constraints.close();
+
+  const auto V =
+    fe_space(dof_handler, StaticMappingQ1<2>::mapping, constraints);
+  StateLayout layout;
+  const auto  source = V.field(layout, "source");
+  const auto  target = V.field(layout, "target");
+  using Vector       = ImmersXLA::MPI::Vector;
+  using Matrix       = ImmersXLA::MPI::SparseMatrix;
+  using Model        = SemiDiscreteModel<Vector, Matrix>;
+
+  Model                               model;
+  SemidiscreteBuilder<Vector, Matrix> builder(layout, model);
+  weak_term(transform(value(source), SquareLaw{}), test(target)).add(builder);
+
+  Vector first_state;
+  first_state.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_WORLD);
+  first_state = 1.;
+  first_state.compress(VectorOperation::insert);
+  Vector second_state;
+  second_state.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_WORLD);
+  second_state = 0.5;
+  second_state.compress(VectorOperation::insert);
+  Vector target_state;
+  target_state.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_WORLD);
+  target_state = 0.;
+  target_state.compress(VectorOperation::insert);
+
+  StateView<Vector> first_view(layout, 0.);
+  first_view.bind(source.field_id(), first_state);
+  first_view.bind(target.field_id(), target_state);
+  const EvaluationContext<Vector> first_context(0., first_view);
+
+  StateView<Vector> second_view(layout, 0.);
+  second_view.bind(source.field_id(), second_state);
+  second_view.bind(target.field_id(), target_state);
+  const EvaluationContext<Vector> second_context(0., second_view);
+
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  const auto sparsity_builds_before =
+    detail::weak_term_sparsity_pattern_builds.load();
+  const auto matrix_initializations_before =
+    detail::weak_term_matrix_initializations.load();
+#endif
+  const auto first_jacobian =
+    model.state_operator(target.field_id(), source.field_id(), first_context);
+  const auto second_jacobian =
+    model.state_operator(target.field_id(), source.field_id(), second_context);
+
+  Vector first_action;
+  first_action.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_WORLD);
+  first_jacobian.vmult(first_action, first_state);
+  Vector second_action;
+  second_action.reinit(dof_handler.locally_owned_dofs(), MPI_COMM_WORLD);
+  second_jacobian.vmult(second_action, first_state);
+  second_action.add(-0.5, first_action);
+  EXPECT_LT(second_action.l2_norm(), 1.e-12);
+
+#ifdef IMMERSX_WEAK_TERM_TESTING
+  EXPECT_EQ(detail::weak_term_sparsity_pattern_builds.load(),
+            sparsity_builds_before + 1);
+  EXPECT_EQ(detail::weak_term_matrix_initializations.load(),
+            matrix_initializations_before + 2);
+#endif
 }
 
 TEST(WeakTerm, BOTH_AutomaticAffineUpdatesOnCellAndBoundarySupport)

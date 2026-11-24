@@ -146,7 +146,9 @@ current Jacobian and factorization across more iterations. Use `1` or a
 positive multiple of `5`; residual monitoring may still request an earlier
 setup. A retryable KINSOL nonconvergence discards that stage's trial state and
 halves the eta increment. Attempts and the minimum increment are bounded by the
-`Steady solver` parameters. A state is passed to IDA only after the eta-one
+`Steady solver` parameters. When a reduced-step retry is accepted, continuation
+keeps that increment for one more accepted stage before resuming the usual
+factor-1.5 growth. A state is passed to IDA only after the eta-one
 residual, positive-area constraints, wall admissibility, and the existing full
 coupled steady-state check pass. Continuation requires
 `Initialize equilibrium = true`. Steady initialization uses the selected IDA

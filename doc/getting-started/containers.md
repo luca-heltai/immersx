@@ -4,7 +4,7 @@ The OCI image contains precompiled Release applications and the matching
 deal.II libraries. Only a container runtime is needed on the host. The image
 targets Linux AMD64 and ARM64 and retains the deal.II SDK, so the first download
 is large (roughly 12 GB of image storage, plus simulation inputs and outputs).
-Optional MetricFlowX, Coral, and legacy `1dsolver` integrations are not included.
+The image also includes Coral, the ImmersX plugins, and the Trilinos MetricFlowX SDK.
 
 ## Select an application
 
@@ -122,3 +122,29 @@ docker build --build-arg BUILD_JOBS=2 -t immersx:local .
 bash scripts/run_container.sh --image immersx:local
 bash scripts/run_container.sh --image immersx:local --workdir /path/to/case poisson input.prm
 ```
+
+## Run Coral with ImmersX
+
+The development tags `main` and `master` point to the same image. Its
+default entry point continues to run the standalone applications. To run an
+ImmersX graph with Coral, mount the graph and parameters in the work directory:
+
+```sh
+docker run --rm -v "$PWD:/work" --entrypoint coral-release \
+  ghcr.io/luca-heltai/immersx:main \
+  --plugin /opt/immersx/lib/immersx/coral/libcoral_backend_immersx_2.so run graph.json
+```
+
+Use `coral-debug` with
+`/opt/immersx-debug/lib/immersx/coral/libcoral_backend_immersx_2_debug.so`
+for the Debug plugin. The build consumes the published Coral and MetricFlowX
+SDK images. The dealii-X integration repository provides the Compose stack
+and the SSH/Slurm execution service built on top of this image.
+
+Development builds consume the Coral and MetricFlowX `main` images. For a
+stable ImmersX Git tag such as `v1.2.3`, the workflow selects the highest
+published stable `vX.Y.Z` tag for each SDK. Both selected tags must contain
+Linux AMD64 and ARM64. The workflow uses the same resolved image digests for
+both builds and records the dependency references on the image. A retry can
+reuse the existing image for that same ImmersX release. The `latest` tag
+follows the highest tested stable ImmersX release published to GHCR.
