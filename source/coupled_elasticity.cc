@@ -268,7 +268,8 @@ namespace ImmersX
       {
 #ifdef DEAL_II_WITH_VTK
         // The coupling is rebuilt after mesh refinement.
-        if (parametrized_coupling != this->tensor_product_coupling.get())
+        if (parametrized_coupling_generation !=
+            this->tensor_product_coupling_generation)
           make_vessel_index_of_a_cell();
         AssertThrow(!vessel_index_of_a_cell.empty(),
                     ExcMessage("The reduced grid has no vessel identifiers."));
@@ -796,7 +797,7 @@ namespace ImmersX
             arc[0],
             arc[1]};
         }
-    parametrized_coupling = this->tensor_product_coupling.get();
+    parametrized_coupling_generation = this->tensor_product_coupling_generation;
   }
 
 
@@ -811,7 +812,8 @@ namespace ImmersX
     AssertThrow(this->tensor_product_coupling,
                 ExcMessage("Tensor-product coupling not initialized"));
     // The coupling is rebuilt after mesh refinement.
-    if (parametrized_coupling != this->tensor_product_coupling.get())
+    if (parametrized_coupling_generation !=
+        this->tensor_product_coupling_generation)
       make_vessel_index_of_a_cell();
     if (wall_displacement_samples.empty())
       {

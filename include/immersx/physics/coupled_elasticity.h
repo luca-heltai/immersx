@@ -246,8 +246,9 @@ namespace ImmersX
     /** Locally owned reduced cells, by global active cell index. */
     std::map<types::global_cell_index, ReducedCellArc> reduced_cell_arcs;
 
-    /** The coupling for which reduced_cell_arcs was computed. */
-    const void *parametrized_coupling = nullptr;
+    /** The tensor_product_coupling_generation for which reduced_cell_arcs was
+     * computed, 0 before the first computation. */
+    unsigned int parametrized_coupling_generation = 0;
 
     /** Wall displacement samples of each vessel for tensor-product coupling,
      * empty until update_vessel_radius_data() is called. */

@@ -789,6 +789,11 @@ namespace ImmersX
     /** Tensor-product coupling geometry and basis data. */
     std::unique_ptr<ReducedCoupling<1, 2, spacedim, spacedim>>
       tensor_product_coupling;
+
+    /** Incremented each time tensor_product_coupling is built, so that data
+     * derived from it can detect a rebuild. A pointer comparison cannot: the
+     * new object may reuse the address of the old one. */
+    unsigned int tensor_product_coupling_generation = 0;
 #endif
 
     /**

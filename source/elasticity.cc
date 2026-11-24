@@ -467,9 +467,12 @@ namespace ImmersX
     if (uses_tensor_product_coupling())
       {
         if (!tensor_product_coupling)
-          tensor_product_coupling =
-            std::make_unique<ReducedCoupling<1, 2, spacedim, spacedim>>(
-              *tria, par.tensor_product_coupling_parameters);
+          {
+            tensor_product_coupling =
+              std::make_unique<ReducedCoupling<1, 2, spacedim, spacedim>>(
+                *tria, par.tensor_product_coupling_parameters);
+            ++tensor_product_coupling_generation;
+          }
         if (tensor_product_coupling->get_dof_handler().n_dofs() == 0)
           {
             tensor_product_coupling->initialize(geometry_mapping());
