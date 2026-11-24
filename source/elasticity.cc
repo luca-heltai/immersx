@@ -948,69 +948,56 @@ namespace ImmersX
         newmark_matrix.compress(VectorOperation::add);
       }
 
-    {
-      Teuchos::ParameterList amg_parameter_list;
-      amg_parameter_list.set("smoother: type", "Chebyshev");
-      amg_parameter_list.set("smoother: sweeps", 2);
-      amg_parameter_list.set("smoother: pre or post", "both");
-      amg_parameter_list.set("coarse: type", "Amesos-KLU");
-      amg_parameter_list.set("coarse: max size", 2000);
-      amg_parameter_list.set("aggregation: threshold", 0.02);
+    // Dynamic runs build prec_A only for the equilibrium start.
+    if (par.time_mode != TimeMode::Dynamic)
+      initialize_amg_with_rigid_body_modes(prec_A, stiffness_matrix);
+  }
+
+
+
+  template <int dim, int spacedim>
+  void
+  ElasticityProblem<dim, spacedim>::initialize_amg_with_rigid_body_modes(
+    LA::MPI::PreconditionAMG    &preconditioner,
+    const LA::MPI::SparseMatrix &matrix)
+  {
+    Teuchos::ParameterList amg_parameter_list;
+    amg_parameter_list.set("smoother: type", "Chebyshev");
+    amg_parameter_list.set("smoother: sweeps", 2);
+    amg_parameter_list.set("smoother: pre or post", "both");
+    amg_parameter_list.set("coarse: type", "Amesos-KLU");
+    amg_parameter_list.set("coarse: max size", 2000);
+    amg_parameter_list.set("aggregation: threshold", 0.02);
 
 #if DEAL_II_VERSION_GTE(9, 7, 0)
-      using VectorType = std::vector<double>;
-      std::vector<std::vector<double>> rigid_body_modes =
-        DoFTools::extract_rigid_body_modes(geometry_mapping(), dh);
+    using VectorType = std::vector<double>;
+    std::vector<std::vector<double>> rigid_body_modes =
+      DoFTools::extract_rigid_body_modes(geometry_mapping(), dh);
 #else
-      using VectorType = LinearAlgebra::distributed::Vector<double>;
-      std::vector<VectorType> rigid_body_modes(spacedim == 3 ? 6 : 3);
-      auto locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
-      for (unsigned int i = 0; i < rigid_body_modes.size(); ++i)
-        {
-          rigid_body_modes[i].reinit(dh.locally_owned_dofs(),
-                                     locally_relevant_dofs,
-                                     mpi_communicator);
-          RigidBodyMotion<spacedim> rbm(i);
-          VectorTools::interpolate(geometry_mapping(),
-                                   dh,
-                                   rbm,
-                                   rigid_body_modes[i]);
-        }
+    using VectorType = LinearAlgebra::distributed::Vector<double>;
+    std::vector<VectorType> rigid_body_modes(spacedim == 3 ? 6 : 3);
+    auto locally_relevant_dofs = DoFTools::extract_locally_relevant_dofs(dh);
+    for (unsigned int i = 0; i < rigid_body_modes.size(); ++i)
+      {
+        rigid_body_modes[i].reinit(dh.locally_owned_dofs(),
+                                   locally_relevant_dofs,
+                                   mpi_communicator);
+        RigidBodyMotion<spacedim> rbm(i);
+        VectorTools::interpolate(geometry_mapping(),
+                                 dh,
+                                 rbm,
+                                 rigid_body_modes[i]);
+      }
 #endif
-      // Only make prec_A for static and quasi-static runs
-      if (par.time_mode != TimeMode::Dynamic)
-        {
-          auto parameter_list_A = amg_parameter_list;
-          // ML reads the null space through a raw pointer during
-          // initialize(), so the modes must outlive that call.
-          std::unique_ptr<Epetra_MultiVector> ptr_operator_modes;
-          if (!uses_tensor_product_coupling())
-            {
-              UtilitiesAL::set_null_space<spacedim, VectorType>(
-                parameter_list_A,
-                ptr_operator_modes,
-                stiffness_matrix.trilinos_matrix(),
-                rigid_body_modes);
-            }
-          prec_A.initialize(stiffness_matrix, parameter_list_A);
-        }
-
-      // only make prec_C and prec_newmark once when needed
-      // if (par.time_mode == TimeMode::Dynamic)
-      //   {
-      //     auto parameter_list_newmark = amg_parameter_list;
-      //     std::unique_ptr<Epetra_MultiVector> ptr_operator_modes;
-      //     UtilitiesAL::set_null_space<spacedim, VectorType>(
-      //       parameter_list_newmark,
-      //       ptr_operator_modes,
-      //       stiffness_matrix.trilinos_matrix(),
-      //       rigid_body_modes);
-      //     prec_newmark.initialize(newmark_matrix, parameter_list_newmark);
-
-      //     auto parameter_list_C = amg_parameter_list;
-      //     prec_C.initialize(mass_matrix, parameter_list_C);
-      //   }
-    }
+    // The parameter list keeps a raw pointer into operator_modes, so they
+    // must outlive preconditioner.initialize().
+    std::unique_ptr<Epetra_MultiVector> operator_modes;
+    UtilitiesAL::set_null_space<spacedim, VectorType>(amg_parameter_list,
+                                                      operator_modes,
+                                                      matrix.trilinos_matrix(),
+                                                      rigid_body_modes);
+    preconditioner.clear();
+    preconditioner.initialize(matrix, amg_parameter_list);
   }
 
 
@@ -1965,17 +1952,8 @@ namespace ImmersX
     auto &lambda = solution.block(1);
     // prec_A is not built in dynamic runs. The equilibrium solve needs it,
     // and the Newmark steps need prec_newmark.
-    Teuchos::ParameterList amg_parameters;
-    amg_parameters.set("smoother: type", "Chebyshev");
-    amg_parameters.set("smoother: sweeps", 2);
-    amg_parameters.set("smoother: pre or post", "both");
-    amg_parameters.set("coarse: type", "Amesos-KLU");
-    amg_parameters.set("coarse: max size", 2000);
-    amg_parameters.set("aggregation: threshold", 0.02);
-    prec_A.clear();
-    prec_A.initialize(stiffness_matrix, amg_parameters);
-    prec_newmark.clear();
-    prec_newmark.initialize(newmark_matrix, amg_parameters);
+    initialize_amg_with_rigid_body_modes(prec_A, stiffness_matrix);
+    initialize_amg_with_rigid_body_modes(prec_newmark, newmark_matrix);
 
     solve_wall_constrained_system(
       stiffness_matrix, 1., prec_A, rhs, system_rhs.block(1), u, lambda);
@@ -3134,19 +3112,7 @@ namespace ImmersX
         // mass_matrix and prec_C are no longer used after a0.
         prec_C.clear();
         mass_matrix.clear();
-        // make Prec_newmark with rbm
-        {
-          Teuchos::ParameterList parameter_list_newmark;
-          parameter_list_newmark.set("smoother: type", "Chebyshev");
-          parameter_list_newmark.set("smoother: sweeps", 2);
-          parameter_list_newmark.set("smoother: pre or post", "both");
-          parameter_list_newmark.set("coarse: type", "Amesos-KLU");
-          parameter_list_newmark.set("coarse: max size", 2000);
-          parameter_list_newmark.set("aggregation: threshold", 0.02);
-
-          prec_newmark.clear();
-          prec_newmark.initialize(newmark_matrix, parameter_list_newmark);
-        }
+        initialize_amg_with_rigid_body_modes(prec_newmark, newmark_matrix);
 
 
         for (time_step = 0, current_time = par.time_parameters.initial_time;
@@ -3251,23 +3217,10 @@ namespace ImmersX
     robin_matrix_time = evaluation_time;
     if (spring_changed)
       {
-        Teuchos::ParameterList options;
-        options.set("smoother: type", "Chebyshev");
-        options.set("smoother: sweeps", 2);
-        options.set("smoother: pre or post", "both");
-        options.set("coarse: type", "Amesos-KLU");
-        options.set("coarse: max size", 2000);
-        options.set("aggregation: threshold", 0.02);
         if (dynamic)
-          {
-            prec_newmark.clear();
-            prec_newmark.initialize(newmark_matrix, options);
-          }
+          initialize_amg_with_rigid_body_modes(prec_newmark, newmark_matrix);
         else
-          {
-            prec_A.clear();
-            prec_A.initialize(stiffness_matrix, options);
-          }
+          initialize_amg_with_rigid_body_modes(prec_A, stiffness_matrix);
       }
     assemble_forcing_terms(evaluation_time);
     double inclusion_scale = 1.0;
