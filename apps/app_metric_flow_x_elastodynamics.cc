@@ -279,6 +279,7 @@ namespace
     double       steady_initial_eta_increment           = .05,
            steady_maximum_eta_increment                 = .25,
            steady_minimum_eta_increment                 = 1.e-4;
+    double       initial_consistency_pseudo_step_size   = 0.;
     unsigned int steady_maximum_continuation_attempts   = 100,
                  steady_maximum_stage_iterations        = 12,
                  steady_maximum_jacobian_setup_interval = 1;
@@ -287,7 +288,7 @@ namespace
     steady_parameters.add_parameter(
       "Use residual continuation",
       steady_residual_continuation,
-      "Ramp the original coupled steady residual from its initial value to zero; failed stages roll back and retry with a smaller eta increment, and a recovered stage keeps that increment once before growth resumes.");
+      "Ramp the original coupled residual from its initial value to zero; failed stages roll back and retry with a smaller eta increment, and a recovered stage keeps that increment once before growth resumes. Required by the backward-Euler initial consistency mode.");
     steady_parameters.add_parameter(
       "Use secant predictor",
       steady_use_secant_predictor,
@@ -344,6 +345,12 @@ namespace
       "Maximum nonlinear iterations between KINSOL Jacobian setups. Use 1 to refresh every iteration or a positive multiple of 5 to allow reuse; residual monitoring may request an earlier refresh.",
       ParameterAcceptor::prm,
       Patterns::Integer(1));
+    steady_parameters.add_parameter(
+      "Initial consistency pseudo-step size",
+      initial_consistency_pseudo_step_size,
+      "A positive value solves F(t0, y, (y-y_ref)/h)=0 from the configured initial state. This is a pseudo-step for DAE consistency at t0, not a physical step to t0+h; it requires Initialize equilibrium and Use residual continuation. Zero keeps the existing steady initialization.",
+      ParameterAcceptor::prm,
+      Patterns::Double(0.));
 
     bool remove_fictitious_modes = false;
     coupling.add_parameter(
@@ -1365,9 +1372,24 @@ namespace
       [state_constraints]() -> GlobalVector & { return *state_constraints; };
 
     AssertThrow(
+      std::isfinite(initial_consistency_pseudo_step_size) &&
+        initial_consistency_pseudo_step_size >= 0.,
+      ExcMessage(
+        "Initial consistency pseudo-step size must be finite and nonnegative."));
+    const bool use_initial_consistency =
+      initial_consistency_pseudo_step_size > 0.;
+    AssertThrow(
       !steady_residual_continuation || initialize_steady,
       ExcMessage(
         "Steady residual continuation requires Initialize equilibrium = true."));
+    AssertThrow(
+      !use_initial_consistency || initialize_steady,
+      ExcMessage(
+        "Initial consistency requires Initialize equilibrium = true."));
+    AssertThrow(
+      !use_initial_consistency || steady_residual_continuation,
+      ExcMessage(
+        "Initial consistency requires Use residual continuation = true."));
     if (initialize_steady)
       {
         AssertThrow(
@@ -1414,11 +1436,45 @@ namespace
           pressure_characteristic);
         characteristics.compress(VectorOperation::insert);
         auto function_scaling = adapter.make_state();
-        adapter.setup_steady_jacobian(flow_time.initial_time,
-                                      candidate,
-                                      state_dot,
-                                      &characteristics,
-                                      &function_scaling);
+        if (use_initial_consistency)
+          {
+            // Keep the existing alpha=0 row scaling without preparing a
+            // disposable steady solver matrix before the BE Jacobian.
+            adapter.steady_function_scaling(flow_time.initial_time,
+                                            candidate,
+                                            state_dot,
+                                            characteristics,
+                                            function_scaling);
+          }
+        else
+          adapter.setup_steady_jacobian(flow_time.initial_time,
+                                        candidate,
+                                        state_dot,
+                                        &characteristics,
+                                        &function_scaling);
+        std::optional<GlobalVector> initial_consistency_reference;
+        double                      initial_consistency_alpha = 0.;
+        if (use_initial_consistency)
+          {
+            initial_consistency_reference.emplace(candidate);
+            initial_consistency_alpha =
+              1. / initial_consistency_pseudo_step_size;
+            AssertThrow(
+              std::isfinite(initial_consistency_alpha) &&
+                initial_consistency_alpha > 0.,
+              ExcMessage("Initial consistency pseudo-step size is too small."));
+            if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+              std::cout << "Backward-Euler initial consistency pseudo-step = "
+                        << std::setprecision(17)
+                        << initial_consistency_pseudo_step_size
+                        << "; alpha=" << initial_consistency_alpha << std::endl;
+            // The initial candidate and its zero rate anchor eta=0. Replace
+            // this factor with the BE Jacobian before the first KINSOL stage.
+            adapter.solver().setup_jacobian(flow_time.initial_time,
+                                            candidate,
+                                            state_dot,
+                                            initial_consistency_alpha);
+          }
         auto solution_scaling = characteristics;
         for (const auto index : solution_scaling.locally_owned_elements())
           solution_scaling[index] = 1. / characteristics[index];
@@ -1530,6 +1586,9 @@ namespace
               }
           };
         std::pair<unsigned int, int> result;
+        std::optional<GlobalVector>  trial_rate;
+        if (use_initial_consistency)
+          trial_rate.emplace(adapter.make_state());
         if (!steady_residual_continuation)
           result =
             solve_coupled_kinsol(adapter,
@@ -1552,9 +1611,12 @@ namespace
                                  steady_maximum_jacobian_setup_interval);
         else
           {
-            auto initial_residual = adapter.make_state();
+            auto        initial_residual = adapter.make_state();
+            const auto &initial_state_for_residual =
+              use_initial_consistency ? *initial_consistency_reference :
+                                        candidate;
             adapter.solver().residual(flow_time.initial_time,
-                                      candidate,
+                                      initial_state_for_residual,
                                       state_dot,
                                       initial_residual);
             bool finite = true;
@@ -1568,8 +1630,13 @@ namespace
                 "Steady residual continuation requires finite initial state and residual."));
             report_initial_steady_residual(initial_residual);
 
-            auto   accepted          = candidate;
-            auto   previous_accepted = candidate;
+            auto       accepted          = candidate;
+            auto       previous_accepted = candidate;
+            const auto set_trial_rate = [&](const GlobalVector &trial_state) {
+              *trial_rate = trial_state;
+              *trial_rate -= *initial_consistency_reference;
+              *trial_rate *= initial_consistency_alpha;
+            };
             double eta = 0., previous_eta = 0.,
                    increment      = steady_initial_eta_increment;
             unsigned int attempts = 0, total_iterations = 0;
@@ -1631,13 +1698,26 @@ namespace
                         predictor = "previous-fallback";
                       }
                   }
-                // The continuation offset is constant, so the Jacobian is the
-                // original state Jacobian. Rebuild it at each checkpoint;
-                // immutable assembled operators remain cached by the adapter.
+                // Rebuild the Jacobian at each continuation checkpoint. In
+                // consistency mode it includes alpha*dF/dydot at the current
+                // pseudo-step rate; the steady path uses the zero-rate
+                // Jacobian.
                 if (attempts != 1)
-                  adapter.setup_steady_jacobian(flow_time.initial_time,
-                                                trial,
-                                                state_dot);
+                  {
+                    if (use_initial_consistency)
+                      {
+                        set_trial_rate(trial);
+                        adapter.solver().setup_jacobian(
+                          flow_time.initial_time,
+                          trial,
+                          *trial_rate,
+                          initial_consistency_alpha);
+                      }
+                    else
+                      adapter.setup_steady_jacobian(flow_time.initial_time,
+                                                    trial,
+                                                    state_dot);
+                  }
                 const auto stage = solve_coupled_kinsol(
                   adapter,
                   flow_time.initial_time,
@@ -1655,8 +1735,15 @@ namespace
                   target,
                   MPI_COMM_WORLD,
                   std::function<void(const GlobalVector &)>{},
-                  steady_maximum_jacobian_setup_interval);
+                  steady_maximum_jacobian_setup_interval,
+                  use_initial_consistency ? &*initial_consistency_reference :
+                                            nullptr,
+                  initial_consistency_alpha,
+                  use_initial_consistency ? &*trial_rate : nullptr);
                 total_iterations += stage.first;
+
+                if (use_initial_consistency)
+                  set_trial_rate(trial);
 
                 AssertThrow(
                   is_admissible_steady_state(trial),
@@ -1666,7 +1753,9 @@ namespace
                 auto physical_residual = adapter.make_state();
                 adapter.solver().residual(flow_time.initial_time,
                                           trial,
-                                          state_dot,
+                                          use_initial_consistency ?
+                                            *trial_rate :
+                                            state_dot,
                                           physical_residual);
                 auto shifted_residual = physical_residual;
                 if (target != 1.)
@@ -1680,6 +1769,8 @@ namespace
                                           function_scaling[index];
                     finite = finite && std::isfinite(scaled) &&
                              std::isfinite(physical_residual[index]);
+                    if (use_initial_consistency)
+                      finite = finite && std::isfinite((*trial_rate)[index]);
                     if (std::isfinite(scaled))
                       shifted_scaled_inf = std::max(shifted_scaled_inf, scaled);
                   }
@@ -1694,16 +1785,19 @@ namespace
                   stage.second >= 0 &&
                   shifted_scaled_inf <= steady_function_tolerance;
                 if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-                  std::cout << "Steady continuation attempt " << attempts
-                            << ": eta=" << std::setprecision(8) << target
-                            << ", increment=" << stage_increment
-                            << ", predictor=" << predictor
-                            << ", KINSOL status=" << stage.second
-                            << ", iterations=" << stage.first
-                            << ", shifted scaled residual=" << std::scientific
-                            << shifted_scaled_inf
-                            << (stage_pass ? " accepted" : " rejected")
-                            << std::defaultfloat << std::endl;
+                  std::cout
+                    << (use_initial_consistency ?
+                          "Backward-Euler initial consistency attempt " :
+                          "Steady continuation attempt ")
+                    << attempts << ": eta=" << std::setprecision(8) << target
+                    << ", increment=" << stage_increment
+                    << ", predictor=" << predictor
+                    << ", KINSOL status=" << stage.second
+                    << ", iterations=" << stage.first
+                    << ", shifted scaled residual=" << std::scientific
+                    << shifted_scaled_inf
+                    << (stage_pass ? " accepted" : " rejected")
+                    << std::defaultfloat << std::endl;
                 if (stage_pass)
                   {
                     previous_accepted           = accepted;
@@ -1734,21 +1828,43 @@ namespace
                   }
               }
             candidate = std::move(accepted);
+            if (use_initial_consistency)
+              set_trial_rate(candidate);
           }
-        check_coupled_steady_state(adapter,
-                                   flow_time.initial_time,
-                                   candidate,
-                                   state_dot,
-                                   function_scaling,
-                                   *state_constraints,
-                                   steady_function_tolerance,
-                                   flow_problem,
-                                   adapter.field(candidate,
-                                                 flow_fields.fields().state),
-                                   flow_fields.fields().area);
+        const GlobalVector &initial_rate =
+          use_initial_consistency ? *trial_rate : state_dot;
+        check_coupled_initial_state(adapter,
+                                    flow_time.initial_time,
+                                    candidate,
+                                    initial_rate,
+                                    function_scaling,
+                                    *state_constraints,
+                                    steady_function_tolerance,
+                                    flow_problem,
+                                    adapter.field(candidate,
+                                                  flow_fields.fields().state),
+                                    flow_fields.fields().area,
+                                    !use_initial_consistency);
+        if (use_initial_consistency)
+          {
+            state_dot             = initial_rate;
+            double local_rate_inf = 0.;
+            for (const auto index : state_dot.locally_owned_elements())
+              local_rate_inf =
+                std::max(local_rate_inf, std::abs(state_dot[index]));
+            const double global_rate_inf =
+              Utilities::MPI::max(local_rate_inf, MPI_COMM_WORLD);
+            if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+              std::cout << "Backward-Euler initial consistency rate inf: "
+                        << std::setprecision(17) << global_rate_inf
+                        << std::endl;
+          }
         if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-          std::cout << "Steady initialization KINSOL status: " << result.second
-                    << "; iterations: " << result.first << std::endl;
+          std::cout << (use_initial_consistency ?
+                          "Backward-Euler initial consistency KINSOL status: " :
+                          "Steady initialization KINSOL status: ")
+                    << result.second << "; iterations: " << result.first
+                    << std::endl;
         state = candidate;
       }
     flow_problem.open_output_files();
