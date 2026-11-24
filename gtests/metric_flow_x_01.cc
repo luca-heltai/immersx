@@ -1307,6 +1307,8 @@ TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
     problem, -1. * value(field), coefficients, state, 0., projection);
   const auto full_state_operator = metric_flow_x_pressure_state_operator(
     problem, -1. * value(field), coefficients, state, 0.);
+  EXPECT_TRUE(projected_state_operator.immutable);
+  EXPECT_TRUE(full_state_operator.immutable);
   projected_state_operator.view.vmult(actual, dual);
   full_state_operator.view.vmult(expected, dual);
   EXPECT_GT(expected.l2_norm(), 1.e-12);

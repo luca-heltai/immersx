@@ -384,7 +384,8 @@ namespace ImmersX
 
   /** Linearize the native pressure contribution at fixed pressure coefficients.
    * HLL weights depend on the flow state even when pressure is prescribed.
-   * The returned actions retain the assembled matrix for their full lifetime.
+   * This matrix depends on the pressure coefficients, flow state, and time; a
+   * const shared owner avoids cloning it when that same snapshot is retained.
    */
   template <typename Flow, typename Pressure>
   MaterializedOperator<MetricFlowX::VectorType, MetricFlowX::MatrixType>
@@ -413,29 +414,8 @@ namespace ImmersX
         false,
         dealii::ExcMessage(
           "The installed MetricFlowX does not expose the prescribed-pressure state Jacobian."));
-    MaterializedOperator<Vector, Matrix> result;
-    result.view.reinit_range_vector = [&problem, matrix](Vector &dst,
-                                                         const bool) {
-      problem.reinit_state(dst);
-    };
-    result.view.reinit_domain_vector = result.view.reinit_range_vector;
-    result.view.vmult = [matrix](Vector &dst, const Vector &src) {
-      matrix->vmult(dst, src);
-    };
-    result.view.vmult_add = [matrix](Vector &dst, const Vector &src) {
-      matrix->vmult_add(dst, src);
-    };
-    result.view.Tvmult = [matrix](Vector &dst, const Vector &src) {
-      matrix->Tvmult(dst, src);
-    };
-    result.view.Tvmult_add = [matrix](Vector &dst, const Vector &src) {
-      matrix->Tvmult_add(dst, src);
-    };
-    result.materialize = [matrix]() { return detail::clone_matrix(*matrix); };
-    result.materialize_into = [matrix](Matrix &dst) {
-      detail::copy_matrix(dst, *matrix);
-    };
-    return result;
+    std::shared_ptr<const Matrix> owner = matrix;
+    return matrix_operator<Vector, Matrix>(owner);
   }
 
   /** Linearize native pressure with respect to its scalar coefficients.
