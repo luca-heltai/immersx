@@ -64,6 +64,7 @@ set(IMMERSX_INTEGRATION_TEST_SUITES
     ContributorPhysics
     CoupledElasticity
     CoupledElasticityRobin
+    CoupledElasticityNewmark
     FoundationalApplications
     TractionParameters
     DistributedIDA

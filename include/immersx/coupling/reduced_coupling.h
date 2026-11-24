@@ -264,6 +264,18 @@ namespace ImmersX
     void
     assemble_outside_mass_matrix(MatrixType &mass_matrix) const;
 
+    /**
+     * Modal wall data that replace the `Reduced right hand side` expression
+     * when set. The function receives the global active cell index of a
+     * locally owned reduced cell (the entity index for reduced_dim = 0) and a
+     * quadrature point of that cell, and returns one coefficient per selected
+     * mode. VesselElasticityProblem sets it to impose wall displacements
+     * received from a 1D flow model.
+     */
+    std::function<std::vector<double>(types::global_cell_index,
+                                      const Point<spacedim> &)>
+      modal_data;
+
     /** Source-owned membership, in get_locally_owned_qpoints() order. */
     const std::vector<bool> &
     source_point_membership() const

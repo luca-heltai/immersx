@@ -502,9 +502,17 @@ namespace ImmersX
     /**
      * Assemble bulk operators (stiffness/mass/damping) and basic right-hand
      * side.
+     *
+     * With `assemble_matrices = false` only the displacement right-hand side
+     * is rebuilt, for the current constraints and data times; the stiffness
+     * matrix and its AMG preconditioner are kept. This is valid for static
+     * and quasi-static solves on unchanged DoFs and materials without Robin
+     * faces, whose matrices do not depend on time. Cell matrices are then
+     * computed only on cells with inhomogeneously constrained DoFs, to lift
+     * the constraint values into the right-hand side.
      */
     void
-    assemble_elasticity_system();
+    assemble_elasticity_system(const bool assemble_matrices = true);
     /**
      * Add inhomogeneous constraint corrections to a dynamic right-hand side.
      */
@@ -559,8 +567,7 @@ namespace ImmersX
      * Internal run implementations selected by `time_mode`.
      *
      * - `run_static()`: stationary solve with optional refinement cycles.
-     * - `run_quasistatic()`: time-dependent run without inertia
-     *   (currently `solve_quasistatic()` is not implemented).
+     * - `run_quasistatic()`: time-dependent run without inertia.
      * - `run_newmark()`: time-dependent run with inertia (Newmark).
      */
     void
@@ -597,16 +604,85 @@ namespace ImmersX
     solve_static();
 
     /**
-     * Solve one quasi-static step.
+     * Solve one quasi-static step. Wall data act as a pressure:
+     * \f$\lambda = M^{-1} g\f$ and \f$A u = f + B^T \lambda\f$. With point
+     * coupling this requires `Prescribed vessel pressure = true`.
      */
     void
     solve_quasistatic();
 
     /**
      * Solve one dynamic Newmark step.
+     *
+     * With imposes_wall_displacement() and multiplier dofs, the step imposes
+     * the wall data at the new time with the multiplier. With the predictor
+     * \f$u^{pred}\f$ and \f$\delta u = \beta_N\Delta t^2 a^{n+1}\f$, it
+     * solves
+     * \f[
+     * \frac{1}{\beta_N\Delta t^2}A_n\,\delta u + B^T\lambda = r,
+     * \qquad
+     * B\,\delta u - O\lambda = g - B\,u^{pred},
+     * \f]
+     * where \f$A_n\f$ is the Newmark matrix, \f$r\f$ the acceleration
+     * right-hand side and \f$O\f$ the multiplier mass outside the bulk mesh.
+     * The second row is the constraint \f$Bu^{n+1} - O\lambda = g\f$ of the
+     * static solve.
      */
     void
     solve_newmark();
+
+    /**
+     * Whether the multiplier imposes the wall displacement data.
+     *
+     * This holds in static runs without `Pressure coupling`, and in dynamic
+     * and quasi-static runs when wall_displacement_constraint is also set.
+     * Otherwise the data are applied as a vessel pressure,
+     * @f$\lambda = M^{-1}g@f$.
+     */
+    bool
+    imposes_wall_displacement() const;
+
+    /**
+     * Impose the wall displacement with the multiplier in dynamic and
+     * quasi-static runs too.
+     *
+     * By default these runs apply the wall data as a vessel pressure.
+     * VesselElasticityProblem sets this flag for a time-dependent tissue: a
+     * dynamic tissue then takes constrained Newmark steps, and a quasi-static
+     * tissue takes a static saddle point solve at each time. Without effect
+     * with `Pressure coupling = true`.
+     */
+    bool wall_displacement_constraint = false;
+
+    /**
+     * Solve the saddle point problem
+     * @f$K u + B^T\lambda = f@f$, @f$B u - O\lambda = g@f$ with
+     * @f$K@f$ = `scale` `matrix`, using the augmented Lagrangian
+     * preconditioner of the static solve. `preconditioner` approximates the
+     * inverse of `matrix` and preconditions the inner solves with the
+     * augmented block. The initial guess is zero.
+     */
+    void
+    solve_wall_constrained_system(
+      const LA::MPI::SparseMatrix    &matrix,
+      const double                    scale,
+      const LA::MPI::PreconditionAMG &preconditioner,
+      const LA::MPI::Vector          &f,
+      const LA::MPI::Vector          &g,
+      LA::MPI::Vector                &u,
+      LA::MPI::Vector                &lambda);
+
+    /**
+     * Start a wall-constrained Newmark run at the static equilibrium.
+     *
+     * Solves @f$A u + B^T\lambda = f@f$ with the wall constraint at
+     * current_time and sets the velocity and the acceleration to zero. The
+     * acceleration is consistent: @f$C a = f - A u - B^T\lambda - D v@f$
+     * vanishes. Requires a dynamic run, imposes_wall_displacement(), and
+     * assembled stiffness and coupling matrices.
+     */
+    void
+    initialize_newmark_at_equilibrium();
 
     /**
      * Mark cells for refinement according to deal.ii routines fixed_number,
@@ -713,6 +789,11 @@ namespace ImmersX
     /** Tensor-product coupling geometry and basis data. */
     std::unique_ptr<ReducedCoupling<1, 2, spacedim, spacedim>>
       tensor_product_coupling;
+
+    /** Incremented each time tensor_product_coupling is built, so that data
+     * derived from it can detect a rebuild. A pointer comparison cannot: the
+     * new object may reuse the address of the old one. */
+    unsigned int tensor_product_coupling_generation = 0;
 #endif
 
     /**
@@ -860,6 +941,16 @@ namespace ImmersX
     class Postprocessor;
 
   private:
+    /**
+     * Build an AMG preconditioner for an elasticity operator on dh
+     * (stiffness_matrix or newmark_matrix), with the rigid-body modes as the
+     * near-null space.
+     */
+    void
+    initialize_amg_with_rigid_body_modes(
+      LA::MPI::PreconditionAMG    &preconditioner,
+      const LA::MPI::SparseMatrix &matrix);
+
     const Mapping<spacedim> &
     geometry_mapping() const
     {

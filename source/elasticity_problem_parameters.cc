@@ -183,6 +183,13 @@ namespace ImmersX
         reduction);
       reduced_mass_solver_control.declare_parameters_call_back.connect(
         reduction);
+      // In a Newmark step the constraint right-hand side is the small
+      // increment g - B u_pred. An absolute tolerance stops the mass solves
+      // for it at step 0 and leaves a wrong multiplier, so stop on the
+      // reduction alone.
+      reduced_mass_solver_control.declare_parameters_call_back.connect([&]() {
+        this->prm.declare_entry("Tolerance", "0", Patterns::Double(0));
+      });
       augmented_lagrange_solver_control.declare_parameters_call_back.connect(
         reduction);
       schur_complement_solver_control.declare_parameters_call_back.connect(
