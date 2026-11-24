@@ -34,7 +34,7 @@ parameters. It is positive in tension, so tissue that pushes on the vessel
 gives $p_v < 0$. The physical external pressure is $-p_v$.
 
 `coupled_elasticity` passes $p_e = -10\,p_v$ to the one-dimensional flow model
-as its external pressure; the factor 10 converts Pa to dyn/cm². With
+as its external pressure, named `solid_pressure` in the application; the factor 10 converts Pa to dyn/cm². With
 `Output pressure = true`, `VesselElasticityProblem` writes $p_v$, not $p_e$,
 to `<Output name>_externalPressure.txt` in serial runs and to the dataset
 `externalPressure_<cycle>` of `<Output name>_externalPressure.h5` in MPI runs.
@@ -44,6 +44,32 @@ traction amplitude with pressure units. It enters the solid momentum residual
 as $+B\lambda$, and MetricFlowX receives the additional external pressure
 $p_{\mathrm{add}} = -\lambda$. See
 [MetricFlowX elastodynamics coupling](../tutorials/metric-flow-x-elastodynamics-coupling.md).
+
+## Wall particles
+
+With tensor-product coupling, every output step writes
+`<Output name>_particles_<cycle>_<step>.vtu` (`<Output name>_particles.vtu` in
+static runs). There is one particle per wall quadrature point; points outside
+the background mesh are dropped. The particle positions do not change within a
+mesh, but the properties do. `Immersed Problem/Wall particle output/Properties`
+selects them from the list in
+[Lifted-wall particles](../how-to/lifted-static-elasticity.md). The default is
+`lifted_value, vessel_pressure`:
+
+- `lambda` is the multiplier lifted to the wall point, the traction density
+  $\sum_c\Lambda_c(s_j)\boldsymbol\phi_c$ of the
+  tensor-product coupling (see below). It is a vector. With
+  `modal_coefficients` the coefficients $\Lambda_c$ are written as `lambda_<k>`.
+- `vessel_pressure` is $p_v$ in Pa, tension positive, constant per vessel: the
+  value stored in `pressure_at_immersed_surface` for the vessel the wall point
+  belongs to. It includes the interior correction of
+  `Remove interior stress from pressure`. It is not the pressure sent to the
+  flow model, `solid_pressure` $=-10\,p_v$ in dyn/cm². Only
+  `coupled_elasticity` writes it; `elasticity` writes no such column.
+- `bulk_field` adds the displacement `displacement` at the wall point.
+
+An empty list writes no particle file. Point coupling is unchanged: its
+particle file holds only the position and id.
 
 ## The multiplier is a jump of normal stress
 
@@ -234,7 +260,7 @@ $$
 The interior term $\sigma^-_{nn,k}$ is zero unless
 `Remove interior stress from pressure` is true; it is defined in the
 interior-stress subsection below. $p_k$ is stored in
-`pressure_at_immersed_surface_by_inclusion` and $p_v$ in
+`vessel_pressure_pointwise` and $p_v$ in
 `pressure_at_immersed_surface`.
 
 On a complete wall ($\chi_q = 1$ for every $q$) with $n_q$ larger than the
@@ -415,7 +441,7 @@ its wall, because $|\Gamma_v| = 2\pi r |\gamma_v|$. With a variable radius the
 wall-area mean would weight $p(s)$ by $|D(s)|$; the implementation weights by
 arc length.
 
-`pressure_at_immersed_surface_by_inclusion` holds one value per support point
+`vessel_pressure_pointwise` holds one value per support point
 of the reduced grid, in the order of the degrees of freedom of the first
 component of the reduced `DoFHandler`. The values are the coefficients of the
 $L^2$ projection of $p(s)$ onto the scalar finite element space of one

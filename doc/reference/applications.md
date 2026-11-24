@@ -177,7 +177,7 @@ and the pointwise pressures of `mode` 1 are placed by arc length along each
 vessel of the reduced grid. A vessel must be a single chain of reduced cells;
 it starts at the end that lies in the first cell of the reduced grid file. The
 pointwise pressures are the values of
-`pressure_at_immersed_surface_by_inclusion` at the reduced support points.
+`vessel_pressure_pointwise` at the reduced support points.
 
 The parameter file selects the tissue model. In a dynamic run (different
 `Initial time` and `Final time` and a positive `Density` for every material),

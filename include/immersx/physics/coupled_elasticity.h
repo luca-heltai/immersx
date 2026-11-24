@@ -92,8 +92,8 @@ namespace ImmersX
      * b_i=\sum_jv_j p_{\rm cov}(s_j)\psi_i(s_j),\qquad Mp=b.
      * @f]
      * Vessel values are stored in pressure_at_immersed_surface; inclusion
-     * values or projected coefficients are stored in
-     * pressure_at_immersed_surface_by_inclusion.
+     * values or projected coefficients, one per support point, are stored in
+     * vessel_pressure_pointwise.
      *
      * If ElasticityProblemParameters::remove_interior_stress_from_pressure
      * is true, @f$\sigma^-_{nn,q}=\overline K\bar a_n(s_q)/r(s_q)@f$, the mean
@@ -155,7 +155,7 @@ namespace ImmersX
      * reduced grid with tensor-product coupling. With point coupling,
      * `pressure` holds one value per inclusion, and the samples run from the
      * first to the last inclusion of each vessel. With tensor-product
-     * coupling, it holds pressure_at_immersed_surface_by_inclusion, one value
+     * coupling, it holds vessel_pressure_pointwise, one value
      * per reduced support point, and the samples run in arc length along the
      * vessel as in update_vessel_radius_data(). A single
      * pressure value is constant; a single requested sample receives the
@@ -205,14 +205,17 @@ namespace ImmersX
     TrilinosWrappers::MPI::Vector pressure_at_immersed_surface;
 
     /**
-     * With point coupling: mean normal stress on the wall of each inclusion,
-     * @f$p_k@f$, indexed by inclusion id. With tensor-product coupling: the
-     * coefficients of the L2 projection of @f$p(s)@f$ onto the scalar space of
-     * one multiplier component, one per support point of the reduced grid, in
-     * the order of the degrees of freedom of the first component of the
-     * reduced DoFHandler. See compute_pressure_at_immersed_surface().
+     * Pressure at the support points of the immersed geometry. With point
+     * coupling the support point is the inclusion: mean normal stress on the
+     * wall of each inclusion, @f$p_k@f$, indexed by inclusion id. With
+     * tensor-product coupling the support points are the degrees of freedom of
+     * one multiplier component on the reduced grid: the coefficients of the L2
+     * projection of @f$p(s)@f$ onto the scalar space of that component, one per
+     * degree of freedom, in the order of the degrees of freedom of the first
+     * component of the reduced DoFHandler. See
+     * compute_pressure_at_immersed_surface().
      */
-    TrilinosWrappers::MPI::Vector pressure_at_immersed_surface_by_inclusion;
+    TrilinosWrappers::MPI::Vector vessel_pressure_pointwise;
 
   private:
     /** Solve the static problem at physical_time, see run_timestep(). */
@@ -259,7 +262,7 @@ namespace ImmersX
     std::vector<std::vector<double>> wall_displacement_samples;
 
     /** With tensor-product coupling, the support points of every reduced
-     * cell, on every rank: entry of pressure_at_immersed_surface_by_inclusion,
+     * cell, on every rank: entry of vessel_pressure_pointwise,
      * vessel and normalized arc length. A support point where vessels meet
      * appears once for each of them. */
     std::vector<std::size_t>  pressure_sample_entry;

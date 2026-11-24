@@ -110,6 +110,14 @@ namespace
     AssertThrow(error.empty(), ExcMessage(error));
   }
 
+  // The pressure the 1D model takes as external pressure: the solid_pressure
+  // -10 p_v in dyn/cm^2, with p_v the vessel pressure in Pa.
+  constexpr double
+  solid_pressure(const double vessel_pressure)
+  {
+    return -Pa_to_dyn_conversion * vessel_pressure;
+  }
+
   // Send the external pressure -10 p to the 1D model, either one value per
   // vessel or one value per 1D cell, and copy it to the junctions.
   void
@@ -121,9 +129,9 @@ namespace
     AssertThrow(coupling_mode == 0 || coupling_mode == 1,
                 ExcMessage("Unknown coupling mode."));
     // Gathering the distributed pressure is collective.
-    const Vector<double> pressure(
-      coupling_mode == 0 ? problem3D.pressure_at_immersed_surface :
-                           problem3D.pressure_at_immersed_surface_by_inclusion);
+    const Vector<double> pressure(coupling_mode == 0 ?
+                                    problem3D.pressure_at_immersed_surface :
+                                    problem3D.vessel_pressure_pointwise);
 
     on_rank_zero([&]() {
       if (coupling_mode == 0)
@@ -132,7 +140,7 @@ namespace
                       ExcDimensionMismatch(pressure.size(), pb1D.NV));
           for (int i = 0; i < pb1D.NV; ++i)
             for (int j = 0; j < pb1D.vess[i].NCELLS; ++j)
-              pb1D.vess[i].setpeconst(j, -Pa_to_dyn_conversion * pressure[i]);
+              pb1D.vess[i].setpeconst(j, solid_pressure(pressure[i]));
         }
       else
         {
@@ -147,9 +155,7 @@ namespace
                           ExcDimensionMismatch(pointwise[i].size(),
                                                pb1D.vess[i].NCELLS));
               for (int j = 0; j < pb1D.vess[i].NCELLS; ++j)
-                pb1D.vess[i].setpeconst(j,
-                                        -Pa_to_dyn_conversion *
-                                          pointwise[i][j]);
+                pb1D.vess[i].setpeconst(j, solid_pressure(pointwise[i][j]));
             }
         }
 

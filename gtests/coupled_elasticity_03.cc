@@ -303,10 +303,10 @@ namespace
   // Set the pressure of inclusion i to pressure(i), for the 50 inclusions of
   // point_parameters().
   void
-  set_pressure_by_inclusion(VesselElasticityProblem<3>            &problem,
-                            const std::function<double(unsigned)> &pressure)
+  set_vessel_pressure_pointwise(VesselElasticityProblem<3>            &problem,
+                                const std::function<double(unsigned)> &pressure)
   {
-    auto &by_inclusion = problem.pressure_at_immersed_surface_by_inclusion;
+    auto &by_inclusion = problem.vessel_pressure_pointwise;
     by_inclusion.reinit(Utilities::MPI::create_evenly_distributed_partitioning(
                           MPI_COMM_WORLD, 50),
                         MPI_COMM_WORLD);
@@ -504,7 +504,7 @@ namespace
       }
 
     const auto computed_by_inclusion =
-      gather(problem.pressure_at_immersed_surface_by_inclusion);
+      gather(problem.vessel_pressure_pointwise);
     const auto computed_by_vessel =
       gather(problem.pressure_at_immersed_surface);
     ASSERT_EQ(computed_by_inclusion.size(), by_inclusion.size());
@@ -580,8 +580,7 @@ TEST(CoupledElasticity, BOTH_PressureWithoutNormalCoefficientsIsZeroPoint)
       problem.compute_pressure_at_immersed_surface();
       for (const auto p : gather(problem.pressure_at_immersed_surface))
         EXPECT_EQ(p, 0.);
-      for (const auto p :
-           gather(problem.pressure_at_immersed_surface_by_inclusion))
+      for (const auto p : gather(problem.vessel_pressure_pointwise))
         EXPECT_EQ(p, 0.);
     });
 }
@@ -682,7 +681,7 @@ TEST(CoupledElasticity, BOTH_PressureFromMultiplierTensorProduct)
       // One pressure per support point, i.e., per vertex for linear elements.
       // Compare the sorted values, since the numbering of the support points
       // follows the reduced DoFHandler.
-      auto by_point = gather(problem.pressure_at_immersed_surface_by_inclusion);
+      auto by_point = gather(problem.vessel_pressure_pointwise);
       ASSERT_EQ(by_point.size(), vertices.size());
       std::sort(by_point.begin(), by_point.end());
       const double k = by_point[0] / (lambda_3(-1.) + lambda_7(-1.));
@@ -730,8 +729,7 @@ TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressPoint)
 {
   with_problem(point_parameters(), [](auto &problem) {
     solve_and_zero_multiplier(problem);
-    for (const auto p :
-         gather(problem.pressure_at_immersed_surface_by_inclusion))
+    for (const auto p : gather(problem.vessel_pressure_pointwise))
       EXPECT_NEAR(p, point_interior_stress, 1e-12);
     for (const auto p : gather(problem.pressure_at_immersed_surface))
       EXPECT_NEAR(p, point_interior_stress, 1e-12);
@@ -746,8 +744,7 @@ TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressClusteredPoint)
   with_problem(point_parameters({{"Cluster inclusions with segments", "true"}}),
                [](auto &problem) {
                  solve_and_zero_multiplier(problem);
-                 for (const auto p :
-                      gather(problem.pressure_at_immersed_surface_by_inclusion))
+                 for (const auto p : gather(problem.vessel_pressure_pointwise))
                    EXPECT_NEAR(p, point_interior_stress, 1e-12);
                  for (const auto p :
                       gather(problem.pressure_at_immersed_surface))
@@ -772,7 +769,7 @@ TEST(CoupledElasticity, BOTH_PressureRemovesInteriorStressTensorProduct)
                [](auto &problem) {
                  solve_and_zero_multiplier(problem);
                  const auto by_point =
-                   gather(problem.pressure_at_immersed_surface_by_inclusion);
+                   gather(problem.vessel_pressure_pointwise);
                  ASSERT_EQ(by_point.size(), 5u);
                  EXPECT_NEAR(by_point[0],
                              point_interior_stress,
@@ -903,7 +900,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsPoint)
 {
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
-    auto &by_inclusion = problem.pressure_at_immersed_surface_by_inclusion;
+    auto &by_inclusion = problem.vessel_pressure_pointwise;
     by_inclusion.reinit(Utilities::MPI::create_evenly_distributed_partitioning(
                           MPI_COMM_WORLD, 50),
                         MPI_COMM_WORLD);
@@ -912,8 +909,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsPoint)
     by_inclusion.compress(VectorOperation::insert);
 
     const auto split = problem.split_pressure_over_dofs(
-      {49, 49},
-      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
+      {49, 49}, Vector<double>(problem.vessel_pressure_pointwise));
     ASSERT_EQ(split.size(), 2u);
     for (unsigned int vessel = 0; vessel < 2; ++vessel)
       {
@@ -933,11 +929,11 @@ TEST(CoupledElasticity,
 {
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
-    set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i * i; });
+    set_vessel_pressure_pointwise(problem,
+                                  [](unsigned i) { return 1. * i * i; });
 
     const auto split = problem.split_pressure_over_dofs(
-      {25, 25},
-      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
+      {25, 25}, Vector<double>(problem.vessel_pressure_pointwise));
     ASSERT_EQ(split.size(), 2u);
     for (unsigned int vessel = 0; vessel < 2; ++vessel)
       {
@@ -958,11 +954,10 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsOneCellPoint)
 {
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
-    set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
+    set_vessel_pressure_pointwise(problem, [](unsigned i) { return 1. * i; });
 
     const auto split = problem.split_pressure_over_dofs(
-      {1, 1},
-      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
+      {1, 1}, Vector<double>(problem.vessel_pressure_pointwise));
     ASSERT_EQ(split.size(), 2u);
     ASSERT_EQ(split[0].size(), 1u);
     ASSERT_EQ(split[1].size(), 1u);
@@ -981,12 +976,11 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsInterpolatesPoint)
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
     const auto pressure = [](unsigned i) { return 1. * i * i; };
-    set_pressure_by_inclusion(problem, pressure);
+    set_vessel_pressure_pointwise(problem, pressure);
 
     const std::vector<int> n_cells = {3, 7};
     const auto             split   = problem.split_pressure_over_dofs(
-      n_cells,
-      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
+      n_cells, Vector<double>(problem.vessel_pressure_pointwise));
     ASSERT_EQ(split.size(), 2u);
     for (unsigned int vessel = 0; vessel < 2; ++vessel)
       {
@@ -1010,48 +1004,46 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsInterpolatesPoint)
 // inclusion, whatever the number of cells. Vessel 0 is split as usual.
 TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsSingleInclusionPoint)
 {
-  with_problem(
-    point_parameters(
-      {{"Inclusions file", inclusions_file_with_single_inclusion_vessel()}}),
-    [](auto &problem) {
-      problem.run_timestep0();
-      ASSERT_EQ(problem.n_vessels(), 2u);
-      const auto pressure = [](unsigned i) { return 1. * i * i; };
-      set_pressure_by_inclusion(problem, pressure);
+  with_problem(point_parameters(
+                 {{"Inclusions file",
+                   inclusions_file_with_single_inclusion_vessel()}}),
+               [](auto &problem) {
+                 problem.run_timestep0();
+                 ASSERT_EQ(problem.n_vessels(), 2u);
+                 const auto pressure = [](unsigned i) { return 1. * i * i; };
+                 set_vessel_pressure_pointwise(problem, pressure);
 
-      std::vector<double> vessel_pressure(49);
-      for (unsigned int k = 0; k < 49; ++k)
-        vessel_pressure[k] = pressure(k);
+                 std::vector<double> vessel_pressure(49);
+                 for (unsigned int k = 0; k < 49; ++k)
+                   vessel_pressure[k] = pressure(k);
 
-      const auto split = problem.split_pressure_over_dofs(
-        {3, 4},
-        Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
-      ASSERT_EQ(split.size(), 2u);
-      ASSERT_EQ(split[0].size(), 3u);
-      for (unsigned int c = 0; c < 3; ++c)
-        EXPECT_NEAR(split[0][c],
-                    interpolated_sample(vessel_pressure, c, 3),
-                    1e-12)
-          << "cell " << c;
-      ASSERT_EQ(split[1].size(), 4u);
-      for (unsigned int c = 0; c < 4; ++c)
-        EXPECT_DOUBLE_EQ(split[1][c], pressure(49)) << "cell " << c;
+                 const auto split = problem.split_pressure_over_dofs(
+                   {3, 4}, Vector<double>(problem.vessel_pressure_pointwise));
+                 ASSERT_EQ(split.size(), 2u);
+                 ASSERT_EQ(split[0].size(), 3u);
+                 for (unsigned int c = 0; c < 3; ++c)
+                   EXPECT_NEAR(split[0][c],
+                               interpolated_sample(vessel_pressure, c, 3),
+                               1e-12)
+                     << "cell " << c;
+                 ASSERT_EQ(split[1].size(), 4u);
+                 for (unsigned int c = 0; c < 4; ++c)
+                   EXPECT_DOUBLE_EQ(split[1][c], pressure(49)) << "cell " << c;
 
-      // One cell in each vessel: the mean pressure of vessel 0, and the
-      // pressure of the only inclusion of vessel 1.
-      const auto one_cell = problem.split_pressure_over_dofs(
-        {1, 1},
-        Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
-      ASSERT_EQ(one_cell.size(), 2u);
-      ASSERT_EQ(one_cell[0].size(), 1u);
-      ASSERT_EQ(one_cell[1].size(), 1u);
-      double mean = 0;
-      for (const auto p : vessel_pressure)
-        mean += p;
-      mean /= vessel_pressure.size();
-      EXPECT_NEAR(one_cell[0][0], mean, 1e-10);
-      EXPECT_DOUBLE_EQ(one_cell[1][0], pressure(49));
-    });
+                 // One cell in each vessel: the mean pressure of vessel 0, and
+                 // the pressure of the only inclusion of vessel 1.
+                 const auto one_cell = problem.split_pressure_over_dofs(
+                   {1, 1}, Vector<double>(problem.vessel_pressure_pointwise));
+                 ASSERT_EQ(one_cell.size(), 2u);
+                 ASSERT_EQ(one_cell[0].size(), 1u);
+                 ASSERT_EQ(one_cell[1].size(), 1u);
+                 double mean = 0;
+                 for (const auto p : vessel_pressure)
+                   mean += p;
+                 mean /= vessel_pressure.size();
+                 EXPECT_NEAR(one_cell[0][0], mean, 1e-10);
+                 EXPECT_DOUBLE_EQ(one_cell[1][0], pressure(49));
+               });
 }
 
 // The number of cells must be given for each vessel.
@@ -1060,9 +1052,9 @@ TEST(CoupledElasticity,
 {
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
-    set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
+    set_vessel_pressure_pointwise(problem, [](unsigned i) { return 1. * i; });
     EXPECT_ANY_THROW(problem.split_pressure_over_dofs(
-      {49}, Vector<double>(problem.pressure_at_immersed_surface_by_inclusion)));
+      {49}, Vector<double>(problem.vessel_pressure_pointwise)));
   });
 }
 
@@ -1071,10 +1063,9 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsZeroCellsPoint)
 {
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
-    set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
+    set_vessel_pressure_pointwise(problem, [](unsigned i) { return 1. * i; });
     EXPECT_ANY_THROW(problem.split_pressure_over_dofs(
-      {49, 0},
-      Vector<double>(problem.pressure_at_immersed_surface_by_inclusion)));
+      {49, 0}, Vector<double>(problem.vessel_pressure_pointwise)));
   });
 }
 
@@ -1222,7 +1213,7 @@ TEST(CoupledElasticity, BOTH_PressureZeroExtendsMissingWallSamples)
                    gather(problem.pressure_at_immersed_surface))
                 EXPECT_NEAR(pressure, expected, 1.e-11);
               for (const auto pressure :
-                   gather(problem.pressure_at_immersed_surface_by_inclusion))
+                   gather(problem.vessel_pressure_pointwise))
                 EXPECT_NEAR(pressure, expected, 1.e-11);
             });
         }
@@ -1313,8 +1304,7 @@ TEST(CoupledElasticity,
           // On [0,1], the exact scalar mass inverse is [[4,-2],[-2,4]].
           std::vector<double> expected = {4. * b0 - 2. * b1,
                                           -2. * b0 + 4. * b1};
-          auto                coefficients =
-            gather(problem.pressure_at_immersed_surface_by_inclusion);
+          auto coefficients = gather(problem.vessel_pressure_pointwise);
           std::sort(expected.begin(), expected.end());
           std::sort(coefficients.begin(), coefficients.end());
           ASSERT_EQ(coefficients.size(), expected.size());
@@ -1410,8 +1400,7 @@ end
       const auto pressure = gather(problem.pressure_at_immersed_surface);
       ASSERT_EQ(pressure.size(), 1u);
       EXPECT_NEAR(pressure[0], integral, 1.e-10);
-      auto coefficients =
-        gather(problem.pressure_at_immersed_surface_by_inclusion);
+      auto coefficients            = gather(problem.vessel_pressure_pointwise);
       std::vector<double> expected = {4. * b0 - 2. * b1, -2. * b0 + 4. * b1};
       std::sort(coefficients.begin(), coefficients.end());
       std::sort(expected.begin(), expected.end());
@@ -1773,9 +1762,8 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsTensorProduct)
       }
       problem.compute_pressure_at_immersed_surface();
 
-      const Vector<double> pressure(
-        problem.pressure_at_immersed_surface_by_inclusion);
-      auto sorted = gather(problem.pressure_at_immersed_surface_by_inclusion);
+      const Vector<double> pressure(problem.vessel_pressure_pointwise);
+      auto                 sorted = gather(problem.vessel_pressure_pointwise);
       std::sort(sorted.begin(), sorted.end());
       const double k        = sorted[0] / (lambda_3(-1.) + lambda_7(-1.));
       const auto   expected = [&](const double x) {
@@ -1848,12 +1836,11 @@ TEST(CoupledElasticity, BOTH_ExchangeWithFlowModelRoundTripPoint)
 
     // 3D to 1D, with the data held by the inclusions in the place of the
     // pressure.
-    set_pressure_by_inclusion(problem, [&](unsigned int i) {
+    set_vessel_pressure_pointwise(problem, [&](unsigned int i) {
       return problem.inclusions.inclusions_data[i][3];
     });
-    const Vector<double> returned(
-      problem.pressure_at_immersed_surface_by_inclusion);
-    const auto received =
+    const Vector<double> returned(problem.vessel_pressure_pointwise);
+    const auto           received =
       problem.split_pressure_over_dofs(cells_per_vessel, returned);
 
     ASSERT_EQ(received.size(), 2u);
@@ -1875,11 +1862,10 @@ TEST(CoupledElasticity, BOTH_ExchangeWithFlowModelPerVesselPoint)
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
     ASSERT_NO_THROW(problem.update_vessel_radius_data({0.3, 0.7}));
-    set_pressure_by_inclusion(problem, [&](unsigned int i) {
+    set_vessel_pressure_pointwise(problem, [&](unsigned int i) {
       return problem.inclusions.inclusions_data[i][3];
     });
-    const Vector<double> returned(
-      problem.pressure_at_immersed_surface_by_inclusion);
+    const Vector<double> returned(problem.vessel_pressure_pointwise);
     const auto received = problem.split_pressure_over_dofs({1, 1}, returned);
     ASSERT_EQ(received.size(), 2u);
     EXPECT_NEAR(received[0][0], 0.3, 1e-12);
@@ -1933,9 +1919,8 @@ TEST(CoupledElasticity, BOTH_ExchangeWithFlowModelRoundTripTensorProduct)
       }
       problem.compute_pressure_at_immersed_surface();
 
-      const Vector<double> returned(
-        problem.pressure_at_immersed_surface_by_inclusion);
-      auto sorted = gather(problem.pressure_at_immersed_surface_by_inclusion);
+      const Vector<double> returned(problem.vessel_pressure_pointwise);
+      auto                 sorted = gather(problem.vessel_pressure_pointwise);
       std::sort(sorted.begin(), sorted.end());
       const double k = sorted[0] / (2. * profile(-1.));
       EXPECT_NEAR(k, 0.5, 3e-2);

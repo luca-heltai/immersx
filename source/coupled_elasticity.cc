@@ -247,7 +247,7 @@ namespace ImmersX
           Utilities::MPI::create_evenly_distributed_partitioning(
             this->mpi_communicator, inclusions.get_n_vessels()),
           this->mpi_communicator);
-        pressure_at_immersed_surface_by_inclusion.reinit(
+        vessel_pressure_pointwise.reinit(
           Utilities::MPI::create_evenly_distributed_partitioning(
             this->mpi_communicator, inclusions.n_inclusions()),
           this->mpi_communicator);
@@ -256,12 +256,11 @@ namespace ImmersX
             const auto local  = source_inclusions.index_within_set(inclusion);
             const auto force  = normal_force[local] + interior_force[local];
             const auto vessel = inclusions.get_vesselID(inclusion);
-            pressure_at_immersed_surface_by_inclusion[inclusion] +=
+            vessel_pressure_pointwise[inclusion] +=
               force / inclusions.get_section_measure(inclusion);
             pressure_at_immersed_surface[vessel] += force / vessel_area[vessel];
           }
-        pressure_at_immersed_surface_by_inclusion.compress(
-          VectorOperation::add);
+        vessel_pressure_pointwise.compress(VectorOperation::add);
         pressure_at_immersed_surface.compress(VectorOperation::add);
       }
     else if (this->uses_tensor_product_coupling())
@@ -528,8 +527,7 @@ namespace ImmersX
                                                 this->mpi_communicator);
         IndexSet owned_output(total);
         owned_output.add_range(first, first + owned_first.n_elements());
-        pressure_at_immersed_surface_by_inclusion.reinit(
-          owned_output, this->mpi_communicator);
+        vessel_pressure_pointwise.reinit(owned_output, this->mpi_communicator);
         std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
         // Vessel and normalized arc length of each support point of each
         // locally owned cell, by reduced dof. A support point where vessels
@@ -561,7 +559,7 @@ namespace ImmersX
                     {
                       const auto entry =
                         first + owned_first.index_within_set(indices[i]);
-                      pressure_at_immersed_surface_by_inclusion[entry] =
+                      vessel_pressure_pointwise[entry] =
                         relevant_pressure[pressure_indices[base]];
                       local_entries.insert(local_entries.end(),
                                            {static_cast<double>(indices[i]),
@@ -569,8 +567,7 @@ namespace ImmersX
                     }
                 }
             }
-        pressure_at_immersed_surface_by_inclusion.compress(
-          VectorOperation::insert);
+        vessel_pressure_pointwise.compress(VectorOperation::insert);
         std::map<types::global_dof_index, std::size_t> entry_of_dof;
         for (const auto &entries :
              Utilities::MPI::all_gather(this->mpi_communicator, local_entries))
@@ -608,6 +605,31 @@ namespace ImmersX
               integral[vessel] / length[vessel];
           }
         pressure_at_immersed_surface.compress(VectorOperation::insert);
+
+        // The particle output shows the vessel value of each wall point.
+        std::vector<double> owned_pressure(n_vessels(), 0.),
+          vessel_pressure(n_vessels());
+        for (const auto vessel :
+             pressure_at_immersed_surface.locally_owned_elements())
+          owned_pressure[vessel] = pressure_at_immersed_surface[vessel];
+        Utilities::MPI::sum(owned_pressure,
+                            this->mpi_communicator,
+                            vessel_pressure);
+        this->vessel_pressure_at_wall_points.assign(points.size(), 0.);
+        for (const auto &cell : reduced_dh.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              const auto vessel =
+                vessel_index_of_a_cell[cell->active_cell_index()];
+              for (const auto &[q, representative_q] :
+                   samples[cell->global_active_cell_index()])
+                {
+                  (void)representative_q;
+                  this->vessel_pressure_at_wall_points[q] =
+                    vessel_pressure[vessel];
+                }
+            }
+        this->has_vessel_pressure_at_wall_points = true;
 #endif
       }
   }
@@ -1006,13 +1028,16 @@ namespace ImmersX
     else
       solve_static_timestep(physical_time);
 
+    pressure_at_immersed_surface.clear();
+    vessel_pressure_pointwise.clear();
+    // The pressure comes first: the wall particles written by output_results()
+    // carry it.
+    compute_pressure_at_immersed_surface();
+
     // `cycle` counts the coupled steps taken so far.
     if (this->cycle % this->par.output_every_n_steps == 0)
       this->output_results();
 
-    pressure_at_immersed_surface.clear();
-    pressure_at_immersed_surface_by_inclusion.clear();
-    compute_pressure_at_immersed_surface();
     output_pressure_at_immersed_surface(this->cycle == 0 ? true : false);
 
     this->compute_internal_and_boundary_stress(this->cycle == 0 ? true : false);

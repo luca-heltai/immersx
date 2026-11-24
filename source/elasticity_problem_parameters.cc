@@ -47,6 +47,8 @@ namespace ImmersX
     , schur_complement_solver_control("/Solvers/Schur complement")
     , convergence_table(std::vector<std::string>(spacedim, "u"))
     , time_parameters("/Immersed Problem/Time parameters/")
+    , wall_particle_output("/Immersed Problem/Wall particle output/",
+                           {"lifted_value", "vessel_pressure"})
   {
     // Preserve the historical elasticity default while keeping the canonical
     // storage in TimeParameters.

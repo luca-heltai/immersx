@@ -35,7 +35,8 @@ classes, constructors and binary instantiations therefore retain their type
 identity. Use the vessel name for the tissue problem even when no external flow
 solver is present. The `coupled_elasticity` executable remains an external
 staggered coupling application; its exchanged pressure is named
-`vessel_wall_pressure` in the implementation.
+`solid_pressure` in the implementation: $-10\,p_v$ in dyn/cm², where $p_v$ is
+the `vessel_pressure` in Pa.
 
 The tissue problem recovers normal wall stress from its multiplier field.
 The material also fills the vessels, so the multiplier is the jump between the
@@ -43,7 +44,7 @@ normal stress of the tissue and that of the interior material. With
 `Remove interior stress from pressure = true`, the default, the analytic
 interior stress is added back and the result is the normal stress of the
 tissue alone. `pressure_at_immersed_surface` and
-`pressure_at_immersed_surface_by_inclusion` name the vessel and inclusion data;
+`vessel_pressure_pointwise` name the vessel data and the data at the support points (inclusions or reduced-grid degrees of freedom);
 they do not imply that an external solver owns the pressure.
 [Pressure on the vessel walls](../concepts/vessel-pressure.md) defines both
 values, their sign, and the interior correction.

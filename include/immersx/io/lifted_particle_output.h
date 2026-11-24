@@ -63,7 +63,10 @@ namespace ImmersX
    * - radius: distance between the wall point and its representative point;
    * - indices: source cell, representative quadrature point and cross-section
    *   quadrature point of the wall point;
-   * - bulk_field: the background field interpolated at the wall point.
+   * - bulk_field: the background field interpolated at the wall point;
+   * - vessel_pressure: the vessel pressure p_v of the vessel each wall point
+   *   belongs to, in the stress units of the material, tension positive. Only
+   *   coupled_elasticity supplies it; other problems write no such column.
    *
    * An empty list disables the output.
    */
@@ -80,7 +83,8 @@ namespace ImmersX
                                                   "representative_point",
                                                   "radius",
                                                   "indices",
-                                                  "bulk_field"};
+                                                  "bulk_field",
+                                                  "vessel_pressure"};
       return names;
     }
 

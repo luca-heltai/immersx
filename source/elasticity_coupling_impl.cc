@@ -330,15 +330,134 @@ namespace ImmersX
     const std::string &filename) const
   {
 #if defined(DEAL_II_WITH_VTK)
-    if (uses_tensor_product_coupling())
+    if (!uses_tensor_product_coupling())
       {
-        AssertThrow(tensor_product_coupling,
-                    ExcMessage("Tensor-product coupling not initialized"));
-        tensor_product_coupling->output_particles(filename);
+        // Point coupling writes only the inclusion positions and ids.
+        inclusions.output_particles(filename);
         return;
       }
-#endif
+    const auto &options = par.wall_particle_output;
+    options.validate();
+    // Every rank holds the same parameters, so all ranks return together.
+    if (!options.enabled())
+      return;
+
+    AssertThrow(tensor_product_coupling,
+                ExcMessage("Tensor-product coupling not initialized"));
+    const auto        &coupling   = *tensor_product_coupling;
+    const auto        &reduced_dh = coupling.get_dof_handler();
+    const auto        &reduced_fe = reduced_dh.get_fe();
+    const unsigned int n_modes    = reduced_fe.n_components();
+    const auto        &selection =
+      par.tensor_product_coupling_parameters.tensor_product_space_parameters
+        .section.selected_coefficients;
+    const auto &source_points = coupling.locally_owned_qpoints();
+    const auto &qpoints       = coupling.get_locally_owned_qpoints();
+    const auto &weights       = coupling.get_locally_owned_weights();
+    const auto &modes         = coupling.get_locally_owned_mode_values();
+    AssertDimension(selection.size(), n_modes);
+    AssertDimension(qpoints.size(), source_points.n_elements());
+
+    // The multiplier is a coefficient field on the reduced mesh; its ghosts
+    // are the relevant dofs of the reduced DoFHandler.
+    const auto     &lambda = locally_relevant_solution.block(1);
+    LA::MPI::Vector owned_lambda(lambda.locally_owned_elements(),
+                                 mpi_communicator);
+    owned_lambda = lambda;
+    LA::MPI::Vector source_lambda(owned_lambda.locally_owned_elements(),
+                                  DoFTools::extract_locally_relevant_dofs(
+                                    reduced_dh),
+                                  mpi_communicator);
+    source_lambda = owned_lambda;
+
+    std::vector<LiftedWallPoint<spacedim>> points(qpoints.size());
+    std::vector<double> modal_coefficients(qpoints.size() * n_modes, 0.);
+    std::map<types::global_cell_index,
+             std::vector<std::pair<unsigned int, unsigned int>>>
+      points_of_cell;
+    for (unsigned int q = 0; q < qpoints.size(); ++q)
+      {
+        const auto [cell, representative_q, section_q] =
+          coupling.particle_id_to_representative_indices(
+            source_points.nth_index_in_set(q));
+        AssertDimension(modes[q].size(), n_modes * spacedim);
+        auto &point                 = points[q];
+        point.point                 = qpoints[q];
+        point.weight                = weights[q][0];
+        point.mode_values           = modes[q];
+        point.source_entity_id      = cell;
+        point.representative_qpoint = representative_q;
+        point.section_qpoint        = section_q;
+        points_of_cell[cell].emplace_back(q, representative_q);
+      }
+
+    FEValues<1, spacedim>       values(reduced_fe,
+                                 coupling.get_quadrature(),
+                                 update_values | update_quadrature_points);
+    std::vector<Vector<double>> lambda_values(coupling.get_quadrature().size(),
+                                              Vector<double>(n_modes));
+    for (const auto &cell : reduced_dh.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          const auto found =
+            points_of_cell.find(cell->global_active_cell_index());
+          if (found == points_of_cell.end())
+            continue;
+          values.reinit(cell);
+          values.get_function_values(source_lambda, lambda_values);
+          for (const auto &[q, representative_q] : found->second)
+            {
+              points[q].representative_point =
+                values.quadrature_point(representative_q);
+              for (unsigned int c = 0; c < n_modes; ++c)
+                modal_coefficients[q * n_modes + c] =
+                  lambda_values[representative_q][c];
+            }
+        }
+
+    LiftedParticleLabels labels;
+    labels.value_name      = "lambda";
+    labels.mode_components = spacedim;
+    for (const auto coefficient : selection)
+      labels.mode_labels.push_back(std::to_string(coefficient));
+
+    auto columns =
+      make_lifted_particle_columns(options, labels, points, modal_coefficients);
+    if (options.selected("vessel_pressure") &&
+        has_vessel_pressure_at_wall_points)
+      {
+        AssertDimension(vessel_pressure_at_wall_points.size(), points.size());
+        LiftedParticleColumn column;
+        column.name   = "vessel_pressure";
+        column.values = vessel_pressure_at_wall_points;
+        columns.push_back(std::move(column));
+      }
+
+    if (columns.empty() && !options.selected("bulk_field"))
+      return;
+
+    // The columns present can change between calls, for example before the
+    // first pressure is computed. The retained handler has a fixed number of
+    // properties, so it is rebuilt then.
+    if (!wall_particle_cache || wall_particle_n_columns != columns.size())
+      {
+        wall_particle_cache =
+          std::make_unique<LiftedParticleOutputCache<spacedim>>();
+        wall_particle_n_columns = columns.size();
+      }
+
+    const LiftedBulkField<spacedim, LA::MPI::Vector> bulk{
+      "displacement",
+      dh,
+      geometry_mapping(),
+      &locally_relevant_solution.block(0),
+      0,
+      spacedim};
+    write_lifted_particles(
+      options, columns, points, bulk, filename, wall_particle_cache.get());
+#else
     inclusions.output_particles(filename);
+#endif
   }
 
   // Explicit instantiations for supported templates

@@ -116,6 +116,7 @@
 #include <deal.II/opencascade/utilities.h>
 
 #include <immersx/coupling/inclusions.h>
+#include <immersx/io/lifted_particle_output.h>
 
 #ifdef DEAL_II_WITH_VTK
 #  include <immersx/coupling/reduced_coupling.h>
@@ -796,6 +797,18 @@ namespace ImmersX
     unsigned int tensor_product_coupling_generation = 0;
 #endif
 
+    /** Scalar written as the vessel_pressure particle property:
+     * the vessel pressure of the vessel each wall point belongs to, one value
+     * per entry of tensor_product_coupling->get_locally_owned_qpoints(). Ranks
+     * without wall points hold an empty vector, so
+     * has_vessel_pressure_at_wall_points tells whether the problem computed
+     * it. Every rank must set it alike; if false, as in ElasticityProblem, the
+     * property is omitted. coupled_elasticity fills both in
+     * compute_pressure_at_immersed_surface().
+     */
+    std::vector<double> vessel_pressure_at_wall_points;
+    bool                has_vessel_pressure_at_wall_points = false;
+
     /**
      * Cell quadrature for bulk assembly.
      */
@@ -935,8 +948,22 @@ namespace ImmersX
     has_immersed_coupling() const;
     void
     distribute_multiplier_solution(LA::MPI::Vector &lambda) const;
+    /** Write the particles of the immersed coupling. With point coupling, the
+     * file holds the inclusion positions and ids. With tensor-product
+     * coupling, it holds the wall particles with the properties selected in
+     * ElasticityProblemParameters::wall_particle_output: the multiplier lifted
+     * to the wall as `lambda`, its modal coefficients, the displacement at the
+     * wall (`bulk_field`), `vessel_pressure`, and the geometric quantities of
+     * LiftedParticleOutputParameters. Collective. The particle locations are
+     * retained between calls and dropped when the coupling is rebuilt.
+     */
     void
     output_immersed_particles(const std::string &filename) const;
+
+    /** Retained wall-particle locations; see output_immersed_particles(). */
+    mutable std::unique_ptr<LiftedParticleOutputCache<spacedim>>
+                         wall_particle_cache;
+    mutable unsigned int wall_particle_n_columns = 0;
 
     class Postprocessor;
 

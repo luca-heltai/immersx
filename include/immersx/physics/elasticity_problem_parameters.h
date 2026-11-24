@@ -26,6 +26,7 @@
 #include <deal.II/lac/solver_control.h>
 
 #include <immersx/core/time_parameters.h>
+#include <immersx/io/lifted_particle_output.h>
 #include <immersx/physics/material_properties.h>
 #include <immersx/physics/modulated_parsed_function.h>
 
@@ -341,6 +342,11 @@ namespace ImmersX
 
     /** Canonical time-integration parameters for this Problem. */
     TimeParameters time_parameters;
+
+    /** Quantities written on the wall particles of the tensor-product
+     * coupling at every output step.
+     */
+    LiftedParticleOutputParameters wall_particle_output;
 
   private:
     std::map<types::boundary_id, std::array<bool, 3>>
