@@ -247,7 +247,7 @@ namespace ImmersX
           Utilities::MPI::create_evenly_distributed_partitioning(
             this->mpi_communicator, inclusions.get_n_vessels()),
           this->mpi_communicator);
-        pressure_at_immersed_surface_by_inclusion.reinit(
+        pressure_at_immersed_surface_by_support_point.reinit(
           Utilities::MPI::create_evenly_distributed_partitioning(
             this->mpi_communicator, inclusions.n_inclusions()),
           this->mpi_communicator);
@@ -256,11 +256,11 @@ namespace ImmersX
             const auto local  = source_inclusions.index_within_set(inclusion);
             const auto force  = normal_force[local] + interior_force[local];
             const auto vessel = inclusions.get_vesselID(inclusion);
-            pressure_at_immersed_surface_by_inclusion[inclusion] +=
+            pressure_at_immersed_surface_by_support_point[inclusion] +=
               force / inclusions.get_section_measure(inclusion);
             pressure_at_immersed_surface[vessel] += force / vessel_area[vessel];
           }
-        pressure_at_immersed_surface_by_inclusion.compress(
+        pressure_at_immersed_surface_by_support_point.compress(
           VectorOperation::add);
         pressure_at_immersed_surface.compress(VectorOperation::add);
       }
@@ -528,7 +528,7 @@ namespace ImmersX
                                                 this->mpi_communicator);
         IndexSet owned_output(total);
         owned_output.add_range(first, first + owned_first.n_elements());
-        pressure_at_immersed_surface_by_inclusion.reinit(
+        pressure_at_immersed_surface_by_support_point.reinit(
           owned_output, this->mpi_communicator);
         std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
         // Vessel and normalized arc length of each support point of each
@@ -561,7 +561,7 @@ namespace ImmersX
                     {
                       const auto entry =
                         first + owned_first.index_within_set(indices[i]);
-                      pressure_at_immersed_surface_by_inclusion[entry] =
+                      pressure_at_immersed_surface_by_support_point[entry] =
                         relevant_pressure[pressure_indices[base]];
                       local_entries.insert(local_entries.end(),
                                            {static_cast<double>(indices[i]),
@@ -569,7 +569,7 @@ namespace ImmersX
                     }
                 }
             }
-        pressure_at_immersed_surface_by_inclusion.compress(
+        pressure_at_immersed_surface_by_support_point.compress(
           VectorOperation::insert);
         std::map<types::global_dof_index, std::size_t> entry_of_dof;
         for (const auto &entries :
@@ -1032,7 +1032,7 @@ namespace ImmersX
       solve_static_timestep(physical_time);
 
     pressure_at_immersed_surface.clear();
-    pressure_at_immersed_surface_by_inclusion.clear();
+    pressure_at_immersed_surface_by_support_point.clear();
     // The pressure comes first: the wall particles written by output_results()
     // carry it.
     compute_pressure_at_immersed_surface();

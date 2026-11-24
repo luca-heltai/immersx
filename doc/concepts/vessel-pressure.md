@@ -260,7 +260,7 @@ $$
 The interior term $\sigma^-_{nn,k}$ is zero unless
 `Remove interior stress from pressure` is true; it is defined in the
 interior-stress subsection below. $p_k$ is stored in
-`pressure_at_immersed_surface_by_inclusion` and $p_v$ in
+`pressure_at_immersed_surface_by_support_point` and $p_v$ in
 `pressure_at_immersed_surface`.
 
 On a complete wall ($\chi_q = 1$ for every $q$) with $n_q$ larger than the
@@ -441,7 +441,7 @@ its wall, because $|\Gamma_v| = 2\pi r |\gamma_v|$. With a variable radius the
 wall-area mean would weight $p(s)$ by $|D(s)|$; the implementation weights by
 arc length.
 
-`pressure_at_immersed_surface_by_inclusion` holds one value per support point
+`pressure_at_immersed_surface_by_support_point` holds one value per support point
 of the reduced grid, in the order of the degrees of freedom of the first
 component of the reduced `DoFHandler`. The values are the coefficients of the
 $L^2$ projection of $p(s)$ onto the scalar finite element space of one
