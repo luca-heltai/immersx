@@ -33,8 +33,7 @@ namespace
     EXPECT_EQ(problem.fe->reference_cell().is_simplex(), simplex);
     EXPECT_GT(problem.solution.block(0).l2_norm(), 1.e-6);
     Vector<double> coefficients(problem.solution.block(1));
-    Vector<double> pressure(
-      problem.pressure_at_immersed_surface_by_support_point);
+    Vector<double> pressure(problem.vessel_pressure_pointwise);
     ASSERT_EQ(coefficients.size(), 4u);
     ASSERT_EQ(pressure.size(), 2u);
     for (unsigned int k = 0; k < pressure.size(); ++k)

@@ -44,7 +44,7 @@ normal stress of the tissue and that of the interior material. With
 `Remove interior stress from pressure = true`, the default, the analytic
 interior stress is added back and the result is the normal stress of the
 tissue alone. `pressure_at_immersed_surface` and
-`pressure_at_immersed_surface_by_support_point` name the vessel data and the data at the support points (inclusions or reduced-grid degrees of freedom);
+`vessel_pressure_pointwise` name the vessel data and the data at the support points (inclusions or reduced-grid degrees of freedom);
 they do not imply that an external solver owns the pressure.
 [Pressure on the vessel walls](../concepts/vessel-pressure.md) defines both
 values, their sign, and the interior correction.

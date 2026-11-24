@@ -93,7 +93,7 @@ namespace ImmersX
      * @f]
      * Vessel values are stored in pressure_at_immersed_surface; inclusion
      * values or projected coefficients, one per support point, are stored in
-     * pressure_at_immersed_surface_by_support_point.
+     * vessel_pressure_pointwise.
      *
      * If ElasticityProblemParameters::remove_interior_stress_from_pressure
      * is true, @f$\sigma^-_{nn,q}=\overline K\bar a_n(s_q)/r(s_q)@f$, the mean
@@ -155,7 +155,7 @@ namespace ImmersX
      * reduced grid with tensor-product coupling. With point coupling,
      * `pressure` holds one value per inclusion, and the samples run from the
      * first to the last inclusion of each vessel. With tensor-product
-     * coupling, it holds pressure_at_immersed_surface_by_support_point, one value
+     * coupling, it holds vessel_pressure_pointwise, one value
      * per reduced support point, and the samples run in arc length along the
      * vessel as in update_vessel_radius_data(). A single
      * pressure value is constant; a single requested sample receives the
@@ -215,7 +215,7 @@ namespace ImmersX
      * component of the reduced DoFHandler. See
      * compute_pressure_at_immersed_surface().
      */
-    TrilinosWrappers::MPI::Vector pressure_at_immersed_surface_by_support_point;
+    TrilinosWrappers::MPI::Vector vessel_pressure_pointwise;
 
   private:
     /** Solve the static problem at physical_time, see run_timestep(). */
@@ -262,7 +262,7 @@ namespace ImmersX
     std::vector<std::vector<double>> wall_displacement_samples;
 
     /** With tensor-product coupling, the support points of every reduced
-     * cell, on every rank: entry of pressure_at_immersed_surface_by_support_point,
+     * cell, on every rank: entry of vessel_pressure_pointwise,
      * vessel and normalized arc length. A support point where vessels meet
      * appears once for each of them. */
     std::vector<std::size_t>  pressure_sample_entry;

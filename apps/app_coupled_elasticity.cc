@@ -123,7 +123,7 @@ namespace
     // Gathering the distributed pressure is collective.
     const Vector<double> pressure(
       coupling_mode == 0 ? problem3D.pressure_at_immersed_surface :
-                           problem3D.pressure_at_immersed_surface_by_support_point);
+                           problem3D.vessel_pressure_pointwise);
 
     on_rank_zero([&]() {
       if (coupling_mode == 0)
