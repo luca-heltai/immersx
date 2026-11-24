@@ -1,4 +1,4 @@
-PR: pending
+PR: #507
 
 - The AMG preconditioner of the elasticity stiffness matrix now uses the
   rigid-body modes as near-null space also with tensor-product coupling, and
