@@ -363,7 +363,12 @@ namespace ImmersX
                   ExcMessage("The reduced grid has no cells."));
       std::vector<Point<reduced_dim>> unit_points;
       for (const auto v : serial_reference->vertex_indices())
+#if DEAL_II_VERSION_GTE(9, 8, 0)
         unit_points.push_back(serial_reference->vertex(v));
+#else
+        unit_points.push_back(
+          serial_reference->template vertex<reduced_dim>(v));
+#endif
       Point<reduced_dim> center;
       for (const auto &p : unit_points)
         center += p / static_cast<double>(unit_points.size());
