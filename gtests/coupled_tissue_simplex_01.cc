@@ -46,8 +46,7 @@ namespace
     // No MPI operation may occur inside this interpolation callback.
     if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
       [&] {
-        const auto feedback =
-          problem.split_pressure_over_inclusions({3}, pressure);
+        const auto feedback = problem.split_pressure_over_dofs({3}, pressure);
         ASSERT_EQ(feedback.size(), 1u);
         ASSERT_EQ(feedback[0].size(), 3u);
         EXPECT_NEAR(feedback[0][0], pressure[0], 1.e-10);

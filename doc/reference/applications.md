@@ -158,7 +158,7 @@ under `Immersed Problem/Grid generation` and refine before distribution.
 `VesselElasticityProblem::run_timestep0()` prepares it; update displacement
 data and call `run_timestep()` for each tissue solve. Pointwise data use the
 overload taking one sample count per vessel. Gather inclusion pressures on
-all ranks before calling `split_pressure_over_inclusions` on rank zero.
+all ranks before calling `split_pressure_over_dofs` on rank zero.
 That interpolation performs no MPI operations. Each tissue solve computes the
 wall pressures, with the interior-stress correction by default, as described in
 [Pressure on the vessel walls](../concepts/vessel-pressure.md); `coupled_elasticity`
