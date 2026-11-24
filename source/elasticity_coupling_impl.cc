@@ -330,23 +330,12 @@ namespace ImmersX
     const std::string &filename) const
   {
 #if defined(DEAL_II_WITH_VTK)
-    if (uses_tensor_product_coupling())
+    if (!uses_tensor_product_coupling())
       {
-        AssertThrow(tensor_product_coupling,
-                    ExcMessage("Tensor-product coupling not initialized"));
-        output_wall_particles(filename);
+        // Point coupling writes only the inclusion positions and ids.
+        inclusions.output_particles(filename);
         return;
       }
-#endif
-    inclusions.output_particles(filename);
-  }
-
-  template <int dim, int spacedim>
-  void
-  ElasticityProblem<dim, spacedim>::output_wall_particles(
-    const std::string &filename) const
-  {
-#if defined(DEAL_II_WITH_VTK)
     const auto &options = par.wall_particle_output;
     options.validate();
     // Every rank holds the same parameters, so all ranks return together.
@@ -467,8 +456,7 @@ namespace ImmersX
     write_lifted_particles(
       options, columns, points, bulk, filename, wall_particle_cache.get());
 #else
-    (void)filename;
-    AssertThrow(false, ExcMessage("Tensor-product coupling needs VTK."));
+    inclusions.output_particles(filename);
 #endif
   }
 
