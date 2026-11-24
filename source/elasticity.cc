@@ -472,6 +472,8 @@ namespace ImmersX
               std::make_unique<ReducedCoupling<1, 2, spacedim, spacedim>>(
                 *tria, par.tensor_product_coupling_parameters);
             ++tensor_product_coupling_generation;
+            // The retained particle locations refer to the old background mesh.
+            wall_particle_cache.reset();
           }
         if (tensor_product_coupling->get_dof_handler().n_dofs() == 0)
           {

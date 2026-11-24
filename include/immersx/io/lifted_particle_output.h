@@ -63,7 +63,10 @@ namespace ImmersX
    * - radius: distance between the wall point and its representative point;
    * - indices: source cell, representative quadrature point and cross-section
    *   quadrature point of the wall point;
-   * - bulk_field: the background field interpolated at the wall point.
+   * - bulk_field: the background field interpolated at the wall point;
+   * - wall_pressure: a scalar the problem computes at each wall point, such as
+   *   the normal stress of coupled_elasticity. Problems that do not supply it
+   *   write no such column.
    *
    * An empty list disables the output.
    */
@@ -80,7 +83,8 @@ namespace ImmersX
                                                   "representative_point",
                                                   "radius",
                                                   "indices",
-                                                  "bulk_field"};
+                                                  "bulk_field",
+                                                  "wall_pressure"};
       return names;
     }
 

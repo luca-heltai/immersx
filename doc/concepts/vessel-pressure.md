@@ -45,6 +45,32 @@ as $+B\lambda$, and MetricFlowX receives the additional external pressure
 $p_{\mathrm{add}} = -\lambda$. See
 [MetricFlowX elastodynamics coupling](../tutorials/metric-flow-x-elastodynamics-coupling.md).
 
+## Wall particles
+
+With tensor-product coupling, every output step writes
+`<Output name>_particles_<cycle>_<step>.vtu` (`<Output name>_particles.vtu` in
+static runs). There is one particle per wall quadrature point; points outside
+the background mesh are dropped. The particle positions do not change within a
+mesh, but the properties do. `Immersed Problem/Wall particle output/Properties`
+selects them from the list in
+[Lifted-wall particles](../how-to/lifted-static-elasticity.md). The default is
+`lifted_value, wall_pressure`:
+
+- `lambda` is the multiplier lifted to the wall point, the traction density
+  $\sum_c\Lambda_c(s_j)\boldsymbol\phi_c$ of the
+  [tensor-product coupling](#tensor-product-coupling). It is a vector. With
+  `modal_coefficients` the coefficients $\Lambda_c$ are written as `lambda_<k>`.
+- `wall_pressure` is the normal stress $\mathbf{n}\cdot\sigma\mathbf{n}$ at the
+  wall point, with the sign of $p_v$ and the interior correction of
+  `Remove interior stress from pressure`. It is the value that is averaged to
+  $p_{\rm cov}$ and $p_v$. It is zero at wall points outside the covered part of
+  the section. Only `coupled_elasticity` writes it; `elasticity` writes no such
+  column.
+- `bulk_field` adds the displacement `displacement` at the wall point.
+
+An empty list writes no particle file. Point coupling is unchanged: its
+particle file holds only the position and id.
+
 ## The multiplier is a jump of normal stress
 
 Let $V$ be the inside of a vessel, $\Gamma = \partial V$ its wall, $\sigma^-$

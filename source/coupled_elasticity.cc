@@ -294,6 +294,9 @@ namespace ImmersX
         const auto &inside        = coupling.source_point_membership();
         AssertDimension(points.size(), source_points.n_elements());
         AssertDimension(inside.size(), points.size());
+        // Wall points outside the covered part of the section keep zero.
+        this->wall_point_pressure.assign(points.size(), 0.);
+        this->has_wall_point_pressure = true;
         std::map<types::global_cell_index,
                  std::vector<std::pair<unsigned int, unsigned int>>>
           samples;
@@ -476,6 +479,7 @@ namespace ImmersX
                     normal_stress += mean_stiffness *
                                      nominal_displacement[representative_q] /
                                      nominal_radius[representative_q];
+                  this->wall_point_pressure[q] = normal_stress;
                   normal_force[representative_q] +=
                     weights[q][0] * normal_stress;
                 }
@@ -1006,13 +1010,16 @@ namespace ImmersX
     else
       solve_static_timestep(physical_time);
 
+    pressure_at_immersed_surface.clear();
+    pressure_at_immersed_surface_by_inclusion.clear();
+    // The pressure comes first: the wall particles written by output_results()
+    // carry it.
+    compute_pressure_at_immersed_surface();
+
     // `cycle` counts the coupled steps taken so far.
     if (this->cycle % this->par.output_every_n_steps == 0)
       this->output_results();
 
-    pressure_at_immersed_surface.clear();
-    pressure_at_immersed_surface_by_inclusion.clear();
-    compute_pressure_at_immersed_surface();
     output_pressure_at_immersed_surface(this->cycle == 0 ? true : false);
 
     this->compute_internal_and_boundary_stress(this->cycle == 0 ? true : false);

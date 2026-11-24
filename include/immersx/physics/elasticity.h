@@ -116,6 +116,7 @@
 #include <deal.II/opencascade/utilities.h>
 
 #include <immersx/coupling/inclusions.h>
+#include <immersx/io/lifted_particle_output.h>
 
 #ifdef DEAL_II_WITH_VTK
 #  include <immersx/coupling/reduced_coupling.h>
@@ -796,6 +797,17 @@ namespace ImmersX
     unsigned int tensor_product_coupling_generation = 0;
 #endif
 
+    /** Scalar written as the wall_pressure particle property, one value per
+     * entry of tensor_product_coupling->get_locally_owned_qpoints(). Ranks
+     * without wall points hold an empty vector, so
+     * has_wall_point_pressure tells whether the problem computed it. Every
+     * rank must set it alike; if false, as in ElasticityProblem, the property
+     * is omitted. coupled_elasticity fills both in
+     * compute_pressure_at_immersed_surface().
+     */
+    std::vector<double> wall_point_pressure;
+    bool                has_wall_point_pressure = false;
+
     /**
      * Cell quadrature for bulk assembly.
      */
@@ -937,6 +949,22 @@ namespace ImmersX
     distribute_multiplier_solution(LA::MPI::Vector &lambda) const;
     void
     output_immersed_particles(const std::string &filename) const;
+
+    /** Write the wall particles of the tensor-product coupling with the
+     * properties selected in ElasticityProblemParameters::wall_particle_output:
+     * the multiplier lifted to the wall as `lambda`, its modal coefficients,
+     * the displacement at the wall (`bulk_field`), `wall_pressure`, and the
+     * geometric quantities of LiftedParticleOutputParameters. Collective. The
+     * particle locations are retained between calls and dropped when the
+     * coupling is rebuilt.
+     */
+    void
+    output_wall_particles(const std::string &filename) const;
+
+    /** Retained wall-particle locations; see output_wall_particles(). */
+    mutable std::unique_ptr<LiftedParticleOutputCache<spacedim>>
+                         wall_particle_cache;
+    mutable unsigned int wall_particle_n_columns = 0;
 
     class Postprocessor;
 
