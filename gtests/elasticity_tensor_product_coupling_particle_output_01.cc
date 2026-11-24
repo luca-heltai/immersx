@@ -90,7 +90,7 @@ TEST(ElasticityCouplingParticleOutput, WritesTensorProductParticles)
   EXPECT_TRUE(has(names, "id"));
   EXPECT_TRUE(has(names, "lambda"));
   // ElasticityProblem computes no wall pressure.
-  EXPECT_FALSE(has(names, "pressure_at_immersed_surface"));
+  EXPECT_FALSE(has(names, "vessel_pressure"));
 }
 
 TEST(ElasticityCouplingParticleOutput, EmptyPropertyListWritesNoFile)
@@ -159,7 +159,7 @@ TEST(ElasticityCouplingParticleOutput, BOTH_SolvedStateCarriesMultiplierAndWall)
   par.wall_particle_output.properties = {"lifted_value",
                                          "modal_coefficients",
                                          "bulk_field",
-                                         "pressure_at_immersed_surface"};
+                                         "vessel_pressure"};
 
   ElasticityProblem<2, 3> problem(par);
   problem.make_grid();
@@ -179,7 +179,7 @@ TEST(ElasticityCouplingParticleOutput, BOTH_SolvedStateCarriesMultiplierAndWall)
   EXPECT_TRUE(has(names, "lambda"));
   EXPECT_TRUE(has(names, "lambda_0"));
   EXPECT_TRUE(has(names, "displacement"));
-  EXPECT_FALSE(has(names, "pressure_at_immersed_surface"));
+  EXPECT_FALSE(has(names, "vessel_pressure"));
 
   // With one, the retained particles are reused with an extra column.
   problem.vessel_pressure_at_wall_points.assign(
@@ -188,5 +188,5 @@ TEST(ElasticityCouplingParticleOutput, BOTH_SolvedStateCarriesMultiplierAndWall)
   ASSERT_NO_THROW(problem.output_wall_particles(filename));
   names = data_array_names(filename);
   EXPECT_TRUE(has(names, "lambda"));
-  EXPECT_TRUE(has(names, "pressure_at_immersed_surface"));
+  EXPECT_TRUE(has(names, "vessel_pressure"));
 }

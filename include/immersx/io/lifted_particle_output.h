@@ -64,9 +64,9 @@ namespace ImmersX
    * - indices: source cell, representative quadrature point and cross-section
    *   quadrature point of the wall point;
    * - bulk_field: the background field interpolated at the wall point;
-   * - pressure_at_immersed_surface: the vessel pressure of the vessel each wall
-   *   point belongs to. Only coupled_elasticity supplies it; other problems
-   *   write no such column.
+   * - vessel_pressure: the vessel pressure p_v of the vessel each wall point
+   *   belongs to, in the stress units of the material, tension positive. Only
+   *   coupled_elasticity supplies it; other problems write no such column.
    *
    * An empty list disables the output.
    */
@@ -75,17 +75,16 @@ namespace ImmersX
     static const std::vector<std::string> &
     available_properties()
     {
-      static const std::vector<std::string> names{
-        "weight",
-        "mode_values",
-        "modal_coefficients",
-        "lifted_value",
-        "modal_data",
-        "representative_point",
-        "radius",
-        "indices",
-        "bulk_field",
-        "pressure_at_immersed_surface"};
+      static const std::vector<std::string> names{"weight",
+                                                  "mode_values",
+                                                  "modal_coefficients",
+                                                  "lifted_value",
+                                                  "modal_data",
+                                                  "representative_point",
+                                                  "radius",
+                                                  "indices",
+                                                  "bulk_field",
+                                                  "vessel_pressure"};
       return names;
     }
 

@@ -35,7 +35,8 @@ classes, constructors and binary instantiations therefore retain their type
 identity. Use the vessel name for the tissue problem even when no external flow
 solver is present. The `coupled_elasticity` executable remains an external
 staggered coupling application; its exchanged pressure is named
-`vessel_wall_pressure` in the implementation.
+`solid_pressure` in the implementation: $-10\,p_v$ in dyn/cm², where $p_v$ is
+the `vessel_pressure` in Pa.
 
 The tissue problem recovers normal wall stress from its multiplier field.
 The material also fills the vessels, so the multiplier is the jump between the

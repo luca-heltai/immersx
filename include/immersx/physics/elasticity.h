@@ -797,7 +797,7 @@ namespace ImmersX
     unsigned int tensor_product_coupling_generation = 0;
 #endif
 
-    /** Scalar written as the pressure_at_immersed_surface particle property:
+    /** Scalar written as the vessel_pressure particle property:
      * the vessel pressure of the vessel each wall point belongs to, one value
      * per entry of tensor_product_coupling->get_locally_owned_qpoints(). Ranks
      * without wall points hold an empty vector, so
@@ -953,7 +953,7 @@ namespace ImmersX
      * coupling, it holds the wall particles with the properties selected in
      * ElasticityProblemParameters::wall_particle_output: the multiplier lifted
      * to the wall as `lambda`, its modal coefficients, the displacement at the
-     * wall (`bulk_field`), `pressure_at_immersed_surface`, and the geometric
+     * wall (`bulk_field`), `vessel_pressure`, and the geometric
      * quantities of LiftedParticleOutputParameters. Collective. The particle
      * locations are retained between calls and dropped when the coupling is
      * rebuilt.
