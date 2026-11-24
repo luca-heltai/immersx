@@ -260,8 +260,7 @@ namespace ImmersX
               force / inclusions.get_section_measure(inclusion);
             pressure_at_immersed_surface[vessel] += force / vessel_area[vessel];
           }
-        vessel_pressure_pointwise.compress(
-          VectorOperation::add);
+        vessel_pressure_pointwise.compress(VectorOperation::add);
         pressure_at_immersed_surface.compress(VectorOperation::add);
       }
     else if (this->uses_tensor_product_coupling())
@@ -528,8 +527,7 @@ namespace ImmersX
                                                 this->mpi_communicator);
         IndexSet owned_output(total);
         owned_output.add_range(first, first + owned_first.n_elements());
-        vessel_pressure_pointwise.reinit(
-          owned_output, this->mpi_communicator);
+        vessel_pressure_pointwise.reinit(owned_output, this->mpi_communicator);
         std::vector<types::global_dof_index> indices(fe.n_dofs_per_cell());
         // Vessel and normalized arc length of each support point of each
         // locally owned cell, by reduced dof. A support point where vessels
@@ -569,8 +567,7 @@ namespace ImmersX
                     }
                 }
             }
-        vessel_pressure_pointwise.compress(
-          VectorOperation::insert);
+        vessel_pressure_pointwise.compress(VectorOperation::insert);
         std::map<types::global_dof_index, std::size_t> entry_of_dof;
         for (const auto &entries :
              Utilities::MPI::all_gather(this->mpi_communicator, local_entries))
