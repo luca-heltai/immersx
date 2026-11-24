@@ -18,7 +18,7 @@ using namespace ImmersX;
 #include "test_paths.h"
 
 // Tests of VesselElasticityProblem::update_vessel_radius_data() and
-// split_pressure_over_inclusions() on a straight cylinder along x embedded in
+// split_pressure_over_dofs() on a straight cylinder along x embedded in
 // a cube. The setup is the one of
 // coupled_elasticity_02.cc. The reduced grids and inclusion files are
 // generated in the test output directory.
@@ -827,6 +827,49 @@ TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataByOneCellPoint)
   });
 }
 
+// The samples must match the cell counts and the vessels. These checks also
+// hold in Release builds, where a mismatch would read outside the data.
+TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataByCellsWrongSizePoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    EXPECT_ANY_THROW(
+      problem.update_vessel_radius_data({0.1, 0.2, 0.3}, {2, 2}));
+    EXPECT_ANY_THROW(
+      problem.update_vessel_radius_data({0.1, 0.2, 0.3, 0.4, 0.5}, {2, 2}));
+    EXPECT_ANY_THROW(problem.update_vessel_radius_data({0.1, 0.2}, {2}));
+    EXPECT_ANY_THROW(problem.update_vessel_radius_data({0.1, 0.2}, {2, 0}));
+  });
+}
+
+// Vessel 1 has a single inclusion, which cannot hold a profile: it gets the
+// mean of the samples of its cells, whatever their number, and a single sample
+// is kept. Vessel 0 is interpolated as usual.
+TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataByCellsSingleInclusionPoint)
+{
+  with_problem(
+    point_parameters(
+      {{"Inclusions file", inclusions_file_with_single_inclusion_vessel()}}),
+    [](auto &problem) {
+      problem.run_timestep0();
+      ASSERT_EQ(problem.n_vessels(), 2u);
+      const std::vector<double> vessel_0 = {0.1, 0.5, 0.2};
+      ASSERT_NO_THROW(
+        problem.update_vessel_radius_data({0.1, 0.5, 0.2, 0.2, 0.4, 0.9, 0.3},
+                                          {3, 4}));
+      for (unsigned int k = 0; k < 49; ++k)
+        EXPECT_NEAR(problem.inclusions.inclusions_data[k][3],
+                    interpolated_sample(vessel_0, k, 49),
+                    1e-12)
+          << "inclusion " << k;
+      EXPECT_NEAR(problem.inclusions.inclusions_data[49][3], 0.45, 1e-12);
+
+      ASSERT_NO_THROW(
+        problem.update_vessel_radius_data({0.1, 0.5, 0.7}, {2, 1}));
+      EXPECT_DOUBLE_EQ(problem.inclusions.inclusions_data[49][3], 0.7);
+    });
+}
+
 // Vessels with different numbers of cells. Vessel 0 has three samples, so the
 // middle sample lies at inclusion 12 and the interpolation has a kink there.
 // Vessel 1 has four samples.
@@ -850,7 +893,7 @@ TEST(CoupledElasticity, BOTH_UpdateVesselRadiusDataByCellsInterpolatesPoint)
 }
 
 // -----------------------------------------------------------------------------
-// split_pressure_over_inclusions()
+// split_pressure_over_dofs()
 // -----------------------------------------------------------------------------
 
 // Inclusion i has pressure i. Each vessel has 25 inclusions and 49 cells, so
@@ -868,7 +911,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsPoint)
       by_inclusion[i] = i;
     by_inclusion.compress(VectorOperation::insert);
 
-    const auto split = problem.split_pressure_over_inclusions(
+    const auto split = problem.split_pressure_over_dofs(
       {49, 49},
       Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
     ASSERT_EQ(split.size(), 2u);
@@ -892,7 +935,7 @@ TEST(CoupledElasticity,
     problem.run_timestep0();
     set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i * i; });
 
-    const auto split = problem.split_pressure_over_inclusions(
+    const auto split = problem.split_pressure_over_dofs(
       {25, 25},
       Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
     ASSERT_EQ(split.size(), 2u);
@@ -917,7 +960,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsOneCellPoint)
     problem.run_timestep0();
     set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
 
-    const auto split = problem.split_pressure_over_inclusions(
+    const auto split = problem.split_pressure_over_dofs(
       {1, 1},
       Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
     ASSERT_EQ(split.size(), 2u);
@@ -941,7 +984,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsInterpolatesPoint)
     set_pressure_by_inclusion(problem, pressure);
 
     const std::vector<int> n_cells = {3, 7};
-    const auto             split   = problem.split_pressure_over_inclusions(
+    const auto             split   = problem.split_pressure_over_dofs(
       n_cells,
       Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
     ASSERT_EQ(split.size(), 2u);
@@ -980,7 +1023,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsSingleInclusionPoint)
       for (unsigned int k = 0; k < 49; ++k)
         vessel_pressure[k] = pressure(k);
 
-      const auto split = problem.split_pressure_over_inclusions(
+      const auto split = problem.split_pressure_over_dofs(
         {3, 4},
         Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
       ASSERT_EQ(split.size(), 2u);
@@ -996,7 +1039,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsSingleInclusionPoint)
 
       // One cell in each vessel: the mean pressure of vessel 0, and the
       // pressure of the only inclusion of vessel 1.
-      const auto one_cell = problem.split_pressure_over_inclusions(
+      const auto one_cell = problem.split_pressure_over_dofs(
         {1, 1},
         Vector<double>(problem.pressure_at_immersed_surface_by_inclusion));
       ASSERT_EQ(one_cell.size(), 2u);
@@ -1018,7 +1061,7 @@ TEST(CoupledElasticity,
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
     set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
-    EXPECT_ANY_THROW(problem.split_pressure_over_inclusions(
+    EXPECT_ANY_THROW(problem.split_pressure_over_dofs(
       {49}, Vector<double>(problem.pressure_at_immersed_surface_by_inclusion)));
   });
 }
@@ -1029,7 +1072,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsZeroCellsPoint)
   with_problem(point_parameters(), [](auto &problem) {
     problem.run_timestep0();
     set_pressure_by_inclusion(problem, [](unsigned i) { return 1. * i; });
-    EXPECT_ANY_THROW(problem.split_pressure_over_inclusions(
+    EXPECT_ANY_THROW(problem.split_pressure_over_dofs(
       {49, 0},
       Vector<double>(problem.pressure_at_immersed_surface_by_inclusion)));
   });
@@ -1502,7 +1545,7 @@ TEST(CoupledElasticity, BOTH_RunTimestepReassemblesCouplingRhsTensorProduct)
 
 
 // -----------------------------------------------------------------------------
-// update_vessel_radius_data() and split_pressure_over_inclusions() with
+// update_vessel_radius_data() and split_pressure_over_dofs() with
 // tensor-product coupling
 // -----------------------------------------------------------------------------
 
@@ -1739,8 +1782,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsTensorProduct)
         return k * (lambda_3(x) + lambda_7(x));
       };
 
-      const auto split =
-        problem.split_pressure_over_inclusions({3, 2}, pressure);
+      const auto split = problem.split_pressure_over_dofs({3, 2}, pressure);
       ASSERT_EQ(split.size(), 2u);
       ASSERT_EQ(split[0].size(), 3u);
       ASSERT_EQ(split[1].size(), 2u);
@@ -1751,8 +1793,7 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsTensorProduct)
         EXPECT_NEAR(split[1][j], expected(1. * j), 1e-12)
           << "vessel 1, sample " << j;
 
-      const auto means =
-        problem.split_pressure_over_inclusions({1, 1}, pressure);
+      const auto means     = problem.split_pressure_over_dofs({1, 1}, pressure);
       const auto by_vessel = gather(problem.pressure_at_immersed_surface);
       ASSERT_EQ(means.size(), 2u);
       for (unsigned int v = 0; v < 2; ++v)
@@ -1761,9 +1802,156 @@ TEST(CoupledElasticity, BOTH_SplitPressureOverInclusionsTensorProduct)
           EXPECT_NEAR(means[v][0], by_vessel[v], 1e-12) << "vessel " << v;
         }
 
-      EXPECT_ANY_THROW(problem.split_pressure_over_inclusions({3}, pressure));
-      EXPECT_ANY_THROW(
-        problem.split_pressure_over_inclusions({3, 0}, pressure));
+      EXPECT_ANY_THROW(problem.split_pressure_over_dofs({3}, pressure));
+      EXPECT_ANY_THROW(problem.split_pressure_over_dofs({3, 0}, pressure));
+    });
+}
+
+
+// -----------------------------------------------------------------------------
+// Exchange with the 1D model, back and forth, without running either model
+// -----------------------------------------------------------------------------
+
+// The 1D model sends wall displacement samples, one per cell; the 3D problem
+// takes them over, and the same quantity is returned as a pressure and
+// interpolated to the same cells. Both directions place a cell at the same
+// position along its vessel, so the samples must come back unchanged. Vessel 0
+// has 5 cells and 25 inclusions, so cell j lies at inclusion 6 j; vessel 1 has
+// 13 cells, so cell j lies at inclusion 25 + 2 j. Any values come back exactly.
+TEST(CoupledElasticity, BOTH_ExchangeWithFlowModelRoundTripPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    const std::vector<int>    cells_per_vessel = {5, 13};
+    const std::vector<double> sent             = {0.1,
+                                                  0.7,
+                                                  0.2,
+                                                  0.9,
+                                                  0.4, // vessel 0
+                                                  0.3,
+                                                  0.8,
+                                                  0.1,
+                                                  0.6,
+                                                  0.5,
+                                                  0.9,
+                                                  0.2,
+                                                  0.7,
+                                                  0.4,
+                                                  0.8,
+                                                  0.3,
+                                                  0.6,
+                                                  0.1}; // vessel 1
+    ASSERT_EQ(sent.size(), 18u);
+
+    // 1D to 3D.
+    ASSERT_NO_THROW(problem.update_vessel_radius_data(sent, cells_per_vessel));
+
+    // 3D to 1D, with the data held by the inclusions in the place of the
+    // pressure.
+    set_pressure_by_inclusion(problem, [&](unsigned int i) {
+      return problem.inclusions.inclusions_data[i][3];
+    });
+    const Vector<double> returned(
+      problem.pressure_at_immersed_surface_by_inclusion);
+    const auto received =
+      problem.split_pressure_over_dofs(cells_per_vessel, returned);
+
+    ASSERT_EQ(received.size(), 2u);
+    std::size_t k = 0;
+    for (unsigned int vessel = 0; vessel < 2; ++vessel)
+      {
+        ASSERT_EQ(received[vessel].size(),
+                  static_cast<std::size_t>(cells_per_vessel[vessel]));
+        for (const double value : received[vessel])
+          EXPECT_NEAR(value, sent[k++], 1e-12) << "vessel " << vessel;
+      }
+  });
+}
+
+// One value per vessel, as in mode 0: the vessel value is what the inclusions
+// hold, and a single sample per vessel returns it.
+TEST(CoupledElasticity, BOTH_ExchangeWithFlowModelPerVesselPoint)
+{
+  with_problem(point_parameters(), [](auto &problem) {
+    problem.run_timestep0();
+    ASSERT_NO_THROW(problem.update_vessel_radius_data({0.3, 0.7}));
+    set_pressure_by_inclusion(problem, [&](unsigned int i) {
+      return problem.inclusions.inclusions_data[i][3];
+    });
+    const Vector<double> returned(
+      problem.pressure_at_immersed_surface_by_inclusion);
+    const auto received = problem.split_pressure_over_dofs({1, 1}, returned);
+    ASSERT_EQ(received.size(), 2u);
+    EXPECT_NEAR(received[0][0], 0.3, 1e-12);
+    EXPECT_NEAR(received[1][0], 0.7, 1e-12);
+  });
+}
+
+// Tensor-product coupling. The reduced grid has the vertices x = -1, -0.5, 0,
+// 0.5, 1; vessel 0 is [-1, 0] and vessel 1 is [0, 1]. The 1D model sends three
+// samples for vessel 0, at x = -1, -0.5, 0, and two for vessel 1, at x = 0, 1.
+// The values increase and agree at x = 0, so that one finite element function
+// describes both vessels. The wall data reaching the quadrature points are
+// checked, then the multiplier is set to the same function in both modes, the
+// pressure is computed, and its interpolation to the same cells must be the
+// samples times 2 k, where k is the (nearly 1/2) factor of the section.
+TEST(CoupledElasticity, BOTH_ExchangeWithFlowModelRoundTripTensorProduct)
+{
+  with_problem(
+    two_vessel_tensor_parameters({multiplier_only}), [](auto &problem) {
+      problem.run_timestep0();
+      const std::vector<int>    cells_per_vessel = {3, 2};
+      const std::vector<double> sent             = {0.2, 0.9, 1.0, 1.0, 1.6};
+      const auto                profile          = [](const double x) {
+        if (x <= -0.5)
+          return 0.2 + 1.4 * (x + 1.);
+        if (x <= 0.)
+          return 0.9 + 0.2 * (x + 0.5);
+        return 1.0 + 0.6 * x;
+      };
+
+      // 1D to 3D.
+      ASSERT_NO_THROW(
+        problem.update_vessel_radius_data(sent, cells_per_vessel));
+      check_tensor_wall_data(problem, [&](unsigned int, const Point<3> &p) {
+        return profile(p[0]);
+      });
+
+      // 3D to 1D.
+      const auto &reduced_dh =
+        problem.tensor_product_coupling->get_dof_handler();
+      {
+        auto           &lambda = problem.locally_relevant_solution.block(1);
+        LA::MPI::Vector owned(lambda.locally_owned_elements(), MPI_COMM_WORLD);
+        VectorTools::interpolate(
+          reduced_dh,
+          FunctionFromFunctionObjects<3>(
+            {[&](const Point<3> &p) { return profile(p[0]); },
+             [&](const Point<3> &p) { return profile(p[0]); }}),
+          owned);
+        lambda = owned;
+      }
+      problem.compute_pressure_at_immersed_surface();
+
+      const Vector<double> returned(
+        problem.pressure_at_immersed_surface_by_inclusion);
+      auto sorted = gather(problem.pressure_at_immersed_surface_by_inclusion);
+      std::sort(sorted.begin(), sorted.end());
+      const double k = sorted[0] / (2. * profile(-1.));
+      EXPECT_NEAR(k, 0.5, 3e-2);
+
+      const auto received =
+        problem.split_pressure_over_dofs(cells_per_vessel, returned);
+      ASSERT_EQ(received.size(), 2u);
+      std::size_t n = 0;
+      for (unsigned int vessel = 0; vessel < 2; ++vessel)
+        {
+          ASSERT_EQ(received[vessel].size(),
+                    static_cast<std::size_t>(cells_per_vessel[vessel]));
+          for (const double value : received[vessel])
+            EXPECT_NEAR(value, 2. * k * sent[n++], 1e-12)
+              << "vessel " << vessel;
+        }
     });
 }
 

@@ -81,6 +81,35 @@ namespace
   // Same unit conversion for both exchange modes.
   constexpr double Pa_to_dyn_conversion = 10.;
 
+  // Run `action` on rank zero, which alone owns the 1D model. An exception
+  // there is sent to all ranks and rethrown on each of them, so that no rank
+  // waits for rank zero in the next collective call. Collective.
+  template <typename Action>
+  void
+  on_rank_zero(Action &&action)
+  {
+    std::string error;
+    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+      {
+        try
+          {
+            action();
+          }
+        catch (const std::exception &exception)
+          {
+            error = exception.what();
+          }
+        catch (...)
+          {
+            error = "unknown exception";
+          }
+        if (error.empty() == false)
+          error = "On rank zero: " + error;
+      }
+    error = Utilities::MPI::broadcast(MPI_COMM_WORLD, error);
+    AssertThrow(error.empty(), ExcMessage(error));
+  }
+
   // Send the external pressure -10 p to the 1D model, either one value per
   // vessel or one value per 1D cell, and copy it to the junctions.
   void
@@ -89,44 +118,53 @@ namespace
                          const unsigned int                coupling_mode,
                          const std::vector<int>           &cells_per_vessel)
   {
-    if (coupling_mode == 0)
-      {
-        const Vector<double> pressure(problem3D.pressure_at_immersed_surface);
-        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0)
-          return;
-        AssertThrow(pressure.size() == static_cast<unsigned int>(pb1D.NV),
-                    ExcDimensionMismatch(pressure.size(), pb1D.NV));
-        for (int i = 0; i < pb1D.NV; ++i)
-          for (int j = 0; j < pb1D.vess[i].NCELLS; ++j)
-            pb1D.vess[i].setpeconst(j, -Pa_to_dyn_conversion * pressure[i]);
-      }
-    else if (coupling_mode == 1)
-      {
-        const Vector<double> pressure(
-          problem3D.pressure_at_immersed_surface_by_inclusion);
-        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) != 0)
-          return;
-        const auto pointwise =
-          problem3D.split_pressure_over_inclusions(cells_per_vessel, pressure);
-        AssertThrow(pointwise.size() == static_cast<unsigned int>(pb1D.NV),
-                    ExcDimensionMismatch(pointwise.size(), pb1D.NV));
-        for (int i = 0; i < pb1D.NV; ++i)
-          for (int j = 0; j < pb1D.vess[i].NCELLS; ++j)
-            pb1D.vess[i].setpeconst(j, -Pa_to_dyn_conversion * pointwise[i][j]);
-      }
-    else
-      AssertThrow(false, ExcMessage("Unknown coupling mode."));
+    AssertThrow(coupling_mode == 0 || coupling_mode == 1,
+                ExcMessage("Unknown coupling mode."));
+    // Gathering the distributed pressure is collective.
+    const Vector<double> pressure(
+      coupling_mode == 0 ? problem3D.pressure_at_immersed_surface :
+                           problem3D.pressure_at_immersed_surface_by_inclusion);
 
-    for (int i = 0; i < pb1D.NV; ++i)
-      {
-        if (pb1D.vess[i].bcType[0] > 1)
-          pb1D.junctionsData[pb1D.vess[i].iJuncL]
-            .peJ[pb1D.vess[i].iJuncLorder] = pb1D.vess[i].getpe(0, 0);
-        if (pb1D.vess[i].bcType[1] > 1)
-          pb1D.junctionsData[pb1D.vess[i].iJuncR]
-            .peJ[pb1D.vess[i].iJuncRorder] =
-            pb1D.vess[i].getpe(pb1D.vess[i].NCELLS - 1, pb1D.vess[i].nDOFs - 1);
-      }
+    on_rank_zero([&]() {
+      if (coupling_mode == 0)
+        {
+          AssertThrow(pressure.size() == static_cast<unsigned int>(pb1D.NV),
+                      ExcDimensionMismatch(pressure.size(), pb1D.NV));
+          for (int i = 0; i < pb1D.NV; ++i)
+            for (int j = 0; j < pb1D.vess[i].NCELLS; ++j)
+              pb1D.vess[i].setpeconst(j, -Pa_to_dyn_conversion * pressure[i]);
+        }
+      else
+        {
+          const auto pointwise =
+            problem3D.split_pressure_over_dofs(cells_per_vessel, pressure);
+          AssertThrow(pointwise.size() == static_cast<unsigned int>(pb1D.NV),
+                      ExcDimensionMismatch(pointwise.size(), pb1D.NV));
+          for (int i = 0; i < pb1D.NV; ++i)
+            {
+              AssertThrow(pointwise[i].size() ==
+                            static_cast<unsigned int>(pb1D.vess[i].NCELLS),
+                          ExcDimensionMismatch(pointwise[i].size(),
+                                               pb1D.vess[i].NCELLS));
+              for (int j = 0; j < pb1D.vess[i].NCELLS; ++j)
+                pb1D.vess[i].setpeconst(j,
+                                        -Pa_to_dyn_conversion *
+                                          pointwise[i][j]);
+            }
+        }
+
+      for (int i = 0; i < pb1D.NV; ++i)
+        {
+          if (pb1D.vess[i].bcType[0] > 1)
+            pb1D.junctionsData[pb1D.vess[i].iJuncL]
+              .peJ[pb1D.vess[i].iJuncLorder] = pb1D.vess[i].getpe(0, 0);
+          if (pb1D.vess[i].bcType[1] > 1)
+            pb1D.junctionsData[pb1D.vess[i].iJuncR]
+              .peJ[pb1D.vess[i].iJuncRorder] =
+              pb1D.vess[i].getpe(pb1D.vess[i].NCELLS - 1,
+                                 pb1D.vess[i].nDOFs - 1);
+        }
+    });
   }
 
   void
@@ -173,12 +211,11 @@ namespace
     pb1D.partitionID = 0;
     pb1D.nproc       = 1;
     pb1D.verbose     = 0;
-    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      {
-        pb1D.init(input_file_name);
-        for (int i = 0; i < pb1D.NV; ++i)
-          cells_per_vessel.push_back(pb1D.vess[i].NCELLS);
-      }
+    on_rank_zero([&]() {
+      pb1D.init(input_file_name);
+      for (int i = 0; i < pb1D.NV; ++i)
+        cells_per_vessel.push_back(pb1D.vess[i].NCELLS);
+    });
     cells_per_vessel =
       Utilities::MPI::broadcast(MPI_COMM_WORLD, cells_per_vessel);
     const double t_end = Utilities::MPI::broadcast(MPI_COMM_WORLD, pb1D.tEnd);
@@ -212,8 +249,7 @@ namespace
     for (unsigned int iter = 0; iter * dt < t_end - t_ini; ++iter)
       {
         timer.enter_subsection("1 timestep 1d");
-        if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-          pb1D.solveTimeStep(pb1D.dtMaxLTSLIMIT);
+        on_rank_zero([&]() { pb1D.solveTimeStep(pb1D.dtMaxLTSLIMIT); });
         timer.leave_subsection();
 
         // The time reached by the 1D step, without accumulated rounding, so
@@ -221,8 +257,9 @@ namespace
         const double time = t_ini + (iter + 1) * dt;
         if (iter * dt > coupling_start && iter % coupling_sampling == 0)
           {
-            if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
+            on_rank_zero([&]() {
               pb1D.compute_new_displacement_for_coupling(coupling_mode);
+            });
             const std::vector<double> displacement =
               Utilities::MPI::broadcast(MPI_COMM_WORLD, pb1D.new_displacement);
             if (coupling_mode == 0)
@@ -242,8 +279,7 @@ namespace
           }
         pb1D.iT += 1;
       }
-    if (Utilities::MPI::this_mpi_process(MPI_COMM_WORLD) == 0)
-      pb1D.end();
+    on_rank_zero([&]() { pb1D.end(); });
   }
 
   void

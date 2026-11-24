@@ -139,9 +139,10 @@ namespace ImmersX
      * after the other. The samples are equally spaced from the beginning to
      * the end of the vessel and interpolated linearly in between. With point
      * coupling the vessel runs from its first to its last inclusion in the
-     * inclusions file. With tensor-product coupling it runs along the reduced
-     * grid, in arc length, from the end that lies in the first cell of the
-     * reduced grid file (see make_vessel_index_of_a_cell()).
+     * inclusions file. A vessel with a single inclusion
+     * gets the mean of its samples. With tensor-product coupling it runs along
+     * the reduced grid, in arc length, from the end that lies in the first cell
+     * of the reduced grid file (see make_vessel_index_of_a_cell()).
      */
     void
     update_vessel_radius_data(std::vector<double> new_data,
@@ -149,11 +150,14 @@ namespace ImmersX
 
     /** Interpolate gathered wall pressures to equally spaced vessel samples.
      *
-     * With point coupling, `pressure` holds one value per inclusion, and the
-     * samples run from the first to the last inclusion of each vessel. With
-     * tensor-product coupling, it holds pressure_at_immersed_surface_by_
-     * inclusion, one value per reduced support point, and the samples run in
-     * arc length along the vessel as in update_vessel_radius_data(). A single
+     * The pressure is given at the support points of the immersed geometry:
+     * the inclusions with point coupling, the degrees of freedom along the
+     * reduced grid with tensor-product coupling. With point coupling,
+     * `pressure` holds one value per inclusion, and the samples run from the
+     * first to the last inclusion of each vessel. With tensor-product
+     * coupling, it holds pressure_at_immersed_surface_by_inclusion, one value
+     * per reduced support point, and the samples run in arc length along the
+     * vessel as in update_vessel_radius_data(). A single
      * pressure value is constant; a single requested sample receives the
      * vessel mean (the arc-length mean for tensor-product coupling). Each
      * vessel needs at least one sample. This function performs no MPI
@@ -162,7 +166,7 @@ namespace ImmersX
      * positions stored by the last compute_pressure_at_immersed_surface().
      */
     std::vector<std::vector<double>>
-      split_pressure_over_inclusions(std::vector<int>, Vector<double>) const;
+      split_pressure_over_dofs(std::vector<int>, Vector<double>) const;
 
     /**
      * Fill vessel_index_of_a_cell from the "vessel_id" input file field and

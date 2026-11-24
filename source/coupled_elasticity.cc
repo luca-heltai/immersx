@@ -1167,22 +1167,27 @@ namespace ImmersX
   {
     if (!this->uses_tensor_product_coupling())
       {
-        Assert(cells_per_vessel.size() == this->inclusions.get_n_vessels(),
-               ExcInternalError());
+        // These checks also run in Release: a wrong size would read outside
+        // new_data.
+        AssertThrow(cells_per_vessel.size() == this->inclusions.get_n_vessels(),
+                    ExcDimensionMismatch(cells_per_vessel.size(),
+                                         this->inclusions.get_n_vessels()));
         std::vector<std::vector<double>> full_vector;
-        unsigned int                     starting_point = 0;
-        for (auto &N1 : cells_per_vessel)
+        std::size_t                      starting_point = 0;
+        for (const int N1 : cells_per_vessel)
           {
-            std::vector<double> vessel_vector;
-            for (auto j = 0; j < N1; ++j)
-              {
-                AssertIndexRange(starting_point + j, new_data.size());
-                vessel_vector.push_back(new_data[starting_point + j]);
-              }
+            AssertThrow(N1 > 0,
+                        ExcMessage("Each vessel needs at least one sample."));
+            AssertThrow(starting_point + N1 <= new_data.size(),
+                        ExcMessage("Fewer wall displacement samples than "
+                                   "cells in the vessels."));
+            full_vector.emplace_back(new_data.begin() + starting_point,
+                                     new_data.begin() + starting_point + N1);
             starting_point += N1;
-
-            full_vector.push_back(vessel_vector);
           }
+        AssertThrow(starting_point == new_data.size(),
+                    ExcMessage("More wall displacement samples than cells in "
+                               "the vessels."));
         this->inclusions.update_inclusions_data(full_vector);
       }
     else
@@ -1212,7 +1217,7 @@ namespace ImmersX
 
   template <int dim, int spacedim>
   std::vector<std::vector<double>>
-  CoupledElasticityProblem<dim, spacedim>::split_pressure_over_inclusions(
+  CoupledElasticityProblem<dim, spacedim>::split_pressure_over_dofs(
     std::vector<int> number_of_cells_per_vessel,
     Vector<double>   full_press) const
   {
