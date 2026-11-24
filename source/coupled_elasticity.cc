@@ -957,8 +957,10 @@ namespace ImmersX
 
     this->cycle        = 0;
     this->current_time = this->par.time_parameters.initial_time;
-    // Dynamic runs impose the wall data from the flow model at each step.
-    this->newmark_wall_constraint = this->par.time_mode == TimeMode::Dynamic;
+    // Time-dependent runs impose the wall data at each step, as static runs
+    // do.
+    this->wall_displacement_constraint =
+      this->par.time_mode != TimeMode::Static;
     this->setup_dofs();
     if (this->uses_tensor_product_coupling())
       {
@@ -1065,12 +1067,14 @@ namespace ImmersX
         this->par.set_boundary_condition_times(physical_time);
         this->setup_constraints();
       }
-    // Evaluate the tensor-product wall data expression at the solve time.
-    // Rebuilding the coupling after refinement resets its time to zero, so
+    // Evaluate the wall data expression at the solve time. Rebuilding the
+    // tensor-product coupling after refinement resets its time to zero, so
     // this runs before every coupling assembly.
     const auto set_wall_data_time = [&]() {
+      if (!this->uses_tensor_product_coupling())
+        this->inclusions.inclusions_rhs.set_time(physical_time);
 #ifdef DEAL_II_WITH_VTK
-      if (this->uses_tensor_product_coupling())
+      else
         this->tensor_product_coupling->set_time(physical_time);
 #endif
     };

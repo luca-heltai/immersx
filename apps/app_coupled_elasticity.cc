@@ -51,8 +51,10 @@ using namespace ImmersX;
 
 namespace
 {
-  // Solve the tissue alone: one static solve, or Newmark steps from the
-  // equilibrium at the initial time to the final time.
+  // Solve the tissue alone: one static solve, or steps from the initial time
+  // to the final time. A dynamic tissue takes Newmark steps from the
+  // equilibrium at the initial time; a quasi-static tissue takes a static
+  // solve at each time.
   void
   run_tissue(const std::string &prm_file)
   {
@@ -63,7 +65,8 @@ namespace
     initialize_parameters(prm_file);
     problem3D.run_timestep0();
     problem3D.run_timestep();
-    if (par.time_mode == TimeMode::Dynamic)
+    if (par.time_mode == TimeMode::Dynamic ||
+        par.time_mode == TimeMode::QuasiStatic)
       {
         const auto  &time = par.time_parameters;
         unsigned int step = 1;
