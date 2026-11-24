@@ -290,7 +290,7 @@ TEST(ElasticityProblem, BOTH_PointCouplingWritesInclusionParticles)
       std::filesystem::remove(filename);
     }
   MPI_Barrier(MPI_COMM_WORLD);
-  ASSERT_NO_THROW(problem.output_wall_particles(filename.string()));
+  ASSERT_NO_THROW(problem.output_immersed_particles(filename.string()));
   EXPECT_TRUE(std::filesystem::exists(filename));
 }
 

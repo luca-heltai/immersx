@@ -950,13 +950,18 @@ namespace ImmersX
     distribute_multiplier_solution(LA::MPI::Vector &lambda) const;
     /** Write the particles of the immersed coupling. With point coupling, the
      * file holds the inclusion positions and ids. With tensor-product
-     * coupling, it holds the wall particles with the properties selected in
-     * ElasticityProblemParameters::wall_particle_output: the multiplier lifted
-     * to the wall as `lambda`, its modal coefficients, the displacement at the
-     * wall (`bulk_field`), `vessel_pressure`, and the geometric
-     * quantities of LiftedParticleOutputParameters. Collective. The particle
-     * locations are retained between calls and dropped when the coupling is
-     * rebuilt.
+     * coupling, it is the file of output_wall_particles().
+     */
+    void
+    output_immersed_particles(const std::string &filename) const;
+
+    /** Write the wall particles of the tensor-product coupling with the
+     * properties selected in ElasticityProblemParameters::wall_particle_output:
+     * the multiplier lifted to the wall as `lambda`, its modal coefficients,
+     * the displacement at the wall (`bulk_field`), `vessel_pressure`, and the
+     * geometric quantities of LiftedParticleOutputParameters. Collective. The
+     * particle locations are retained between calls and dropped when the
+     * coupling is rebuilt.
      */
     void
     output_wall_particles(const std::string &filename) const;
