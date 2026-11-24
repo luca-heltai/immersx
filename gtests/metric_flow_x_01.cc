@@ -152,6 +152,15 @@ namespace
     problem.setup();
   }
 
+  void
+  initialize_viscoelastic_problem(Problem &problem)
+  {
+    const auto parameter_file = ImmersX::TestPaths::parameter_path(
+      "gtests/parameters/metric_flow_x_viscoelastic.prm");
+    initialize_native_parameters(problem, parameter_file, 0);
+    problem.setup();
+  }
+
   template <typename Fields>
   void
   initialize_adapter_state(Problem      &problem,
@@ -358,6 +367,111 @@ TEST(MetricFlowX, BOTH_JacobianActionsMatchNativeMatrices)
   difference = adapter.field(action, fields.fields().state);
   difference -= expected_state;
   difference -= expected_dot;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-10);
+}
+
+TEST(MetricFlowX, BOTH_ViscoelasticDerivativeOwnerRetainsPriorSnapshot)
+{
+  dealii::ParameterAcceptor::clear();
+  Problem                         problem(MPI_COMM_WORLD);
+  ImmersX::TimeIntervalParameters time_parameters("/", false);
+  ImmersX::IDAParameters          ida_parameters(
+    "/MetricFlowSystem<1, 3>/IDA parameters/", &time_parameters);
+  initialize_viscoelastic_problem(problem);
+
+  ASSERT_FALSE(problem.derivative_jacobian_is_state_independent());
+
+  Adapter    adapter(time_parameters, ida_parameters, MPI_COMM_WORLD);
+  const auto fields =
+    adapter.add(ImmersX::metric_flow_x(problem), "viscoelastic-flow");
+  auto state     = adapter.make_state();
+  auto state_dot = adapter.make_state();
+  initialize_adapter_state(problem, adapter, fields, state, state_dot);
+
+  auto  direction      = adapter.make_state();
+  auto &flow_direction = adapter.field(direction, fields.fields().state);
+  flow_direction       = 0.;
+  for (const auto index : problem.component_dofs(Problem::Component::area))
+    if (problem.locally_owned_dofs().is_element(index))
+      flow_direction[index] = 0.125 * (1 + index % 3);
+  flow_direction.compress(VectorOperation::insert);
+
+  auto expected_state      = problem.make_state();
+  auto expected_derivative = problem.make_state();
+  problem.assemble_state_jacobian(0.,
+                                  adapter.field(state, fields.fields().state),
+                                  adapter.field(state_dot,
+                                                fields.fields().state));
+  problem.state_jacobian_matrix().vmult(expected_state, flow_direction);
+  problem.assemble_derivative_jacobian(
+    0.,
+    adapter.field(state, fields.fields().state),
+    adapter.field(state_dot, fields.fields().state));
+  problem.derivative_jacobian_matrix().vmult(expected_derivative,
+                                             flow_direction);
+
+  adapter.solver().setup_jacobian(0., state, state_dot, 1.);
+  auto retained_jacobian = adapter.current_jacobian();
+  auto retained_action   = adapter.make_state();
+  retained_jacobian.vmult(retained_action, direction);
+  auto expected_action                                  = adapter.make_state();
+  adapter.field(expected_action, fields.fields().state) = expected_state;
+  adapter.field(expected_action, fields.fields().state) += expected_derivative;
+  auto difference = adapter.make_state();
+  difference      = retained_action;
+  difference -= expected_action;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-10);
+
+  std::weak_ptr<const MetricFlowX::MatrixType> retained_derivative_owner =
+    problem.derivative_jacobian_matrix_owner();
+  ASSERT_FALSE(retained_derivative_owner.expired());
+
+  auto  changed_state = state;
+  auto &changed_flow_state =
+    adapter.field(changed_state, fields.fields().state);
+  for (const auto index : problem.component_dofs(Problem::Component::area))
+    if (problem.locally_owned_dofs().is_element(index))
+      changed_flow_state[index] *= 1.01;
+  changed_flow_state.compress(VectorOperation::insert);
+  adapter.solver().setup_jacobian(0., changed_state, state_dot, 1.);
+
+  const auto current_derivative_owner =
+    problem.derivative_jacobian_matrix_owner();
+  auto old_derivative_owner = retained_derivative_owner.lock();
+  ASSERT_NE(old_derivative_owner, nullptr);
+  EXPECT_TRUE(
+    retained_derivative_owner.owner_before(current_derivative_owner) ||
+    current_derivative_owner.owner_before(retained_derivative_owner));
+
+  auto old_derivative_action = problem.make_state();
+  old_derivative_owner->vmult(old_derivative_action, flow_direction);
+  old_derivative_action -= expected_derivative;
+  EXPECT_NEAR(old_derivative_action.l2_norm(), 0., 1.e-10);
+
+  auto current_derivative_action = problem.make_state();
+  current_derivative_owner->vmult(current_derivative_action, flow_direction);
+  current_derivative_action -= expected_derivative;
+  EXPECT_GT(current_derivative_action.l2_norm(), 1.e-12);
+
+  auto expected_current_state      = problem.make_state();
+  auto expected_current_derivative = problem.make_state();
+  problem.state_jacobian_matrix().vmult(expected_current_state, flow_direction);
+  problem.derivative_jacobian_matrix().vmult(expected_current_derivative,
+                                             flow_direction);
+  auto expected_current_action = adapter.make_state();
+  adapter.field(expected_current_action, fields.fields().state) =
+    expected_current_state;
+  adapter.field(expected_current_action, fields.fields().state) +=
+    expected_current_derivative;
+  auto current_action = adapter.make_state();
+  adapter.current_jacobian().vmult(current_action, direction);
+  difference = current_action;
+  difference -= expected_current_action;
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-10);
+
+  retained_jacobian.vmult(current_action, direction);
+  difference = current_action;
+  difference -= retained_action;
   EXPECT_NEAR(difference.l2_norm(), 0., 1.e-10);
 }
 

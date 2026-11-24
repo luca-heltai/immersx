@@ -153,11 +153,8 @@ namespace ImmersX
                       "MetricFlowX Jacobians require a state derivative."));
         description.problem->assemble_derivative_jacobian(
           context.time(), context.state(state), context.derivative(state));
-        if (description.problem->derivative_jacobian_is_state_independent())
-          return matrix_operator<Vector, Matrix>(
-            description.problem->derivative_jacobian_matrix_owner());
         return matrix_operator<Vector, Matrix>(
-          description.problem->derivative_jacobian_matrix());
+          description.problem->derivative_jacobian_matrix_owner());
       };
     term.derivative(state, std::move(derivative_factory));
 
