@@ -200,7 +200,7 @@ carries:
 | `radius` | Distance from the representative point |
 | `indices` | `source_cell`, `representative_qpoint`, `section_qpoint` |
 | `bulk_field` | Background displacement interpolated at the wall point |
-| `wall_pressure` | Normal stress at the wall point; written only by `coupled_elasticity`, see [Pressure on the vessel walls](../concepts/vessel-pressure.md) |
+| `pressure_at_immersed_surface` | Vessel pressure $p_v$ of the vessel the wall point belongs to; written only by `coupled_elasticity`, see [Pressure on the vessel walls](../concepts/vessel-pressure.md) |
 
 `<k>` is the selected-mode slot. The default is `lifted_value, weight`; an
 empty list disables the particle output.

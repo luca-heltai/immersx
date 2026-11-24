@@ -294,9 +294,6 @@ namespace ImmersX
         const auto &inside        = coupling.source_point_membership();
         AssertDimension(points.size(), source_points.n_elements());
         AssertDimension(inside.size(), points.size());
-        // Wall points outside the covered part of the section keep zero.
-        this->wall_point_pressure.assign(points.size(), 0.);
-        this->has_wall_point_pressure = true;
         std::map<types::global_cell_index,
                  std::vector<std::pair<unsigned int, unsigned int>>>
           samples;
@@ -479,7 +476,6 @@ namespace ImmersX
                     normal_stress += mean_stiffness *
                                      nominal_displacement[representative_q] /
                                      nominal_radius[representative_q];
-                  this->wall_point_pressure[q] = normal_stress;
                   normal_force[representative_q] +=
                     weights[q][0] * normal_stress;
                 }
@@ -612,6 +608,31 @@ namespace ImmersX
               integral[vessel] / length[vessel];
           }
         pressure_at_immersed_surface.compress(VectorOperation::insert);
+
+        // The particle output shows the vessel value of each wall point.
+        std::vector<double> owned_pressure(n_vessels(), 0.),
+          vessel_pressure(n_vessels());
+        for (const auto vessel :
+             pressure_at_immersed_surface.locally_owned_elements())
+          owned_pressure[vessel] = pressure_at_immersed_surface[vessel];
+        Utilities::MPI::sum(owned_pressure,
+                            this->mpi_communicator,
+                            vessel_pressure);
+        this->vessel_pressure_at_wall_points.assign(points.size(), 0.);
+        for (const auto &cell : reduced_dh.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              const auto vessel =
+                vessel_index_of_a_cell[cell->active_cell_index()];
+              for (const auto &[q, representative_q] :
+                   samples[cell->global_active_cell_index()])
+                {
+                  (void)representative_q;
+                  this->vessel_pressure_at_wall_points[q] =
+                    vessel_pressure[vessel];
+                }
+            }
+        this->has_vessel_pressure_at_wall_points = true;
 #endif
       }
   }

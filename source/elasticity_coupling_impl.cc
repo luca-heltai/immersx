@@ -423,12 +423,13 @@ namespace ImmersX
 
     auto columns =
       make_lifted_particle_columns(options, labels, points, modal_coefficients);
-    if (options.selected("wall_pressure") && has_wall_point_pressure)
+    if (options.selected("pressure_at_immersed_surface") &&
+        has_vessel_pressure_at_wall_points)
       {
-        AssertDimension(wall_point_pressure.size(), points.size());
+        AssertDimension(vessel_pressure_at_wall_points.size(), points.size());
         LiftedParticleColumn column;
-        column.name   = "wall_pressure";
-        column.values = wall_point_pressure;
+        column.name   = "pressure_at_immersed_surface";
+        column.values = vessel_pressure_at_wall_points;
         columns.push_back(std::move(column));
       }
 

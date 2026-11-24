@@ -797,16 +797,17 @@ namespace ImmersX
     unsigned int tensor_product_coupling_generation = 0;
 #endif
 
-    /** Scalar written as the wall_pressure particle property, one value per
-     * entry of tensor_product_coupling->get_locally_owned_qpoints(). Ranks
+    /** Scalar written as the pressure_at_immersed_surface particle property:
+     * the vessel pressure of the vessel each wall point belongs to, one value
+     * per entry of tensor_product_coupling->get_locally_owned_qpoints(). Ranks
      * without wall points hold an empty vector, so
-     * has_wall_point_pressure tells whether the problem computed it. Every
-     * rank must set it alike; if false, as in ElasticityProblem, the property
-     * is omitted. coupled_elasticity fills both in
+     * has_vessel_pressure_at_wall_points tells whether the problem computed
+     * it. Every rank must set it alike; if false, as in ElasticityProblem, the
+     * property is omitted. coupled_elasticity fills both in
      * compute_pressure_at_immersed_surface().
      */
-    std::vector<double> wall_point_pressure;
-    bool                has_wall_point_pressure = false;
+    std::vector<double> vessel_pressure_at_wall_points;
+    bool                has_vessel_pressure_at_wall_points = false;
 
     /**
      * Cell quadrature for bulk assembly.
@@ -952,9 +953,10 @@ namespace ImmersX
      * coupling, it holds the wall particles with the properties selected in
      * ElasticityProblemParameters::wall_particle_output: the multiplier lifted
      * to the wall as `lambda`, its modal coefficients, the displacement at the
-     * wall (`bulk_field`), `wall_pressure`, and the geometric quantities of
-     * LiftedParticleOutputParameters. Collective. The particle locations are
-     * retained between calls and dropped when the coupling is rebuilt.
+     * wall (`bulk_field`), `pressure_at_immersed_surface`, and the geometric
+     * quantities of LiftedParticleOutputParameters. Collective. The particle
+     * locations are retained between calls and dropped when the coupling is
+     * rebuilt.
      */
     void
     output_wall_particles(const std::string &filename) const;
