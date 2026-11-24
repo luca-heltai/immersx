@@ -823,6 +823,18 @@ namespace ImmersX
     const auto selection =
       this->par.tensor_product_coupling_parameters
         .tensor_product_space_parameters.section.selected_coefficients;
+    // The 1D wall displacement enters only through the two radial modes.
+    // Without them every update would be dropped without notice.
+    const auto selects = [&selection](const unsigned int mode) {
+      return std::find(selection.begin(), selection.end(), mode) !=
+             selection.end();
+    };
+    AssertThrow(selects(spacedim) && selects(2 * spacedim + 1),
+                ExcMessage("The 1D wall displacement needs both radial modes, "
+                           "coefficients " +
+                           std::to_string(spacedim) + " and " +
+                           std::to_string(2 * spacedim + 1) +
+                           ", in Cross section/Selected modes."));
     this->tensor_product_coupling->modal_data =
       [this, selection](const types::global_cell_index cell,
                         const Point<spacedim>         &point) {
