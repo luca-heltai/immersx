@@ -34,7 +34,11 @@ PR: #449
   Newmark matrix now use the rigid-body modes as near-null space, also with
   tensor-product coupling and wherever they are rebuilt (Newmark equilibrium
   start, Robin coefficient changes).
-- `Solvers/Reduced mass` now defaults to `Tolerance = 0`, so the mass solves
-  of the augmented Lagrangian stop on `Reduction` alone. With the absolute
-  default `1e-10` they stopped at step 0 for small wall data and returned a
-  wrong multiplier; the displacement was not affected.
+- With tensor-product coupling, `coupled_elasticity` stops with an error when
+  `Cross section/Selected modes` lacks one of the two radial modes (`spacedim`
+  and `2 spacedim + 1`). The 1D wall displacement enters only through them;
+  before, it was dropped without notice.
+- `VesselElasticityProblem` detects a rebuilt tensor-product coupling with a
+  counter instead of comparing addresses. After mesh refinement the new
+  coupling can reuse the address of the old one, and the per-cell vessel and
+  arc-length data were then not recomputed.
