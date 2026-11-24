@@ -30,6 +30,8 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <type_traits>
+#include <utility>
 
 #include "test_paths.h"
 
@@ -41,6 +43,34 @@ namespace
   using FieldVector  = MetricFlowX::VectorType;
   using GlobalVector = ImmersX::ImmersXLA::MPI::BlockVector;
   using Adapter      = ImmersX::IDAAdapter<FieldVector, GlobalVector>;
+
+  template <typename Matrix, typename = void>
+  struct HasNonzeroCount : std::false_type
+  {};
+
+  template <typename Matrix>
+  struct HasNonzeroCount<
+    Matrix,
+    std::void_t<decltype(std::declval<const Matrix &>().n_nonzero_elements())>>
+    : std::true_type
+  {};
+
+  template <typename Flow, typename Matrix>
+  void
+  expect_compact_pressure_pattern(const Flow &,
+                                  const Matrix &pressure_matrix,
+                                  const Matrix &full_state_matrix)
+  {
+    if constexpr (ImmersX::detail::has_compact_pressure_state_pattern_inputs<
+                    Flow>::value)
+      {
+        if constexpr (HasNonzeroCount<Matrix>::value)
+          {
+            EXPECT_LT(pressure_matrix.n_nonzero_elements(),
+                      full_state_matrix.n_nonzero_elements());
+          }
+      }
+  }
 
   struct PressureStateJacobianOptions
   {
@@ -1227,7 +1257,7 @@ TEST(MetricFlowX, BOTH_PressureOperatorOverwritesImportedDestination)
 }
 
 
-TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
+TEST(MetricFlowX, BOTH_MPI_PartialWallPressureUsesNominalSectionAverage)
 {
   using namespace dealii;
   using namespace ImmersX;
@@ -1331,10 +1361,24 @@ TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
   EXPECT_NEAR(transpose * coefficients,
               dual * expected,
               1.e-10 * std::max(1., std::abs(dual * expected)));
-  const auto projected_state_operator = metric_flow_x_pressure_state_operator(
-    problem, -1. * value(field), coefficients, state, 0., projection);
-  const auto full_state_operator = metric_flow_x_pressure_state_operator(
-    problem, -1. * value(field), coefficients, state, 0.);
+  const auto pressure_state_sparsity =
+    metric_flow_x_pressure_state_sparsity(problem);
+  const auto projected_state_operator =
+    metric_flow_x_pressure_state_operator(problem,
+                                          -1. * value(field),
+                                          coefficients,
+                                          state,
+                                          0.,
+                                          projection,
+                                          pressure_state_sparsity);
+  const auto full_state_operator =
+    metric_flow_x_pressure_state_operator(problem,
+                                          -1. * value(field),
+                                          coefficients,
+                                          state,
+                                          0.,
+                                          {},
+                                          pressure_state_sparsity);
   EXPECT_TRUE(projected_state_operator.immutable);
   EXPECT_TRUE(full_state_operator.immutable);
   projected_state_operator.view.vmult(actual, dual);
@@ -1343,6 +1387,52 @@ TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
   expected *= .5;
   actual -= expected;
   EXPECT_LT(actual.l2_norm(), 1.e-11 * std::max(1., expected.l2_norm()));
+
+  // The compact matrix has the same action as native assembly into the full
+  // state-Jacobian pattern, while storing entries only on pressure-dependent
+  // trace rows.
+  auto full_pattern_pressure_matrix =
+    std::make_shared<MetricFlowX::MatrixType>();
+  full_pattern_pressure_matrix->reinit(problem.state_jacobian_matrix());
+  problem.add_external_pressure_state_jacobian(
+    0.,
+    state,
+    metric_flow_x_pressure_provider(-1. * value(field), coefficients),
+    *full_pattern_pressure_matrix);
+  auto compact_pressure_matrix = full_state_operator.materialize();
+  compact_pressure_matrix->vmult(actual, dual);
+  full_pattern_pressure_matrix->vmult(expected, dual);
+  actual -= expected;
+  EXPECT_LT(actual.l2_norm(), 1.e-11 * std::max(1., expected.l2_norm()));
+  expect_compact_pressure_pattern(problem,
+                                  *compact_pressure_matrix,
+                                  problem.state_jacobian_matrix());
+
+  // A later pressure snapshot must not mutate the matrix retained by an older
+  // operator.
+  auto retained_before = problem.make_state();
+  full_state_operator.view.vmult(retained_before, dual);
+  auto changed_coefficients = coefficients;
+  changed_coefficients *= 2.;
+  const auto changed_operator =
+    metric_flow_x_pressure_state_operator(problem,
+                                          -1. * value(field),
+                                          changed_coefficients,
+                                          state,
+                                          0.,
+                                          {},
+                                          pressure_state_sparsity);
+  auto retained_after = problem.make_state();
+  full_state_operator.view.vmult(retained_after, dual);
+  retained_after -= retained_before;
+  EXPECT_LT(retained_after.l2_norm(),
+            1.e-12 * std::max(1., retained_before.l2_norm()));
+  auto changed_action = problem.make_state();
+  changed_operator.view.vmult(changed_action, dual);
+  changed_action -= retained_before;
+  changed_action -= retained_before;
+  EXPECT_LT(changed_action.l2_norm(),
+            1.e-11 * std::max(1., retained_before.l2_norm()));
 }
 
 

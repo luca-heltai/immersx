@@ -170,20 +170,24 @@ namespace ImmersX
             {
               if (detail::needs_external_pressure_state_jacobian(flow_problem))
                 {
+                  const auto pressure_state_sparsity =
+                    metric_flow_x_pressure_state_sparsity(flow_problem);
                   typename std::decay_t<decltype(builder)>::Model::
                     MatrixOperatorFactory pressure_state_jacobian =
                       [&flow_problem,
                        pressure_projection,
                        pressure,
                        flow_id,
-                       id](const auto &context) {
+                       id,
+                       pressure_state_sparsity](const auto &context) {
                         return metric_flow_x_pressure_state_operator(
                           flow_problem,
                           pressure,
                           context.state(id),
                           context.state(flow_id),
                           context.time(),
-                          pressure_projection);
+                          pressure_projection,
+                          pressure_state_sparsity);
                       };
                   pressure_term.state(flow_id,
                                       std::move(pressure_state_jacobian));

@@ -33,6 +33,8 @@
 #  include <functional>
 #  include <map>
 #  include <tuple>
+#  include <type_traits>
+#  include <utility>
 
 namespace ImmersX
 {
@@ -110,7 +112,125 @@ namespace ImmersX
             const typename Flow::ExternalPressureJacobianEntryVisitor &>()))>>
       : std::true_type
     {};
+
+    template <typename Flow, typename = void>
+    struct has_compact_pressure_state_pattern_inputs : std::false_type
+    {};
+
+    template <typename Flow>
+    struct has_compact_pressure_state_pattern_inputs<
+      Flow,
+      std::void_t<decltype(std::declval<const Flow &>().dof_handler()),
+                  decltype(std::declval<const Flow &>().locally_owned_dofs()),
+                  decltype(std::declval<const Flow &>().mpi_communicator()),
+                  decltype(std::declval<const Flow &>().component_dofs(
+                    std::declval<typename Flow::Component>()))>>
+      : std::true_type
+    {};
+
+    template <typename Matrix, typename IndexSet, typename SparsityPattern>
+    auto
+    reinit_pressure_state_matrix(Matrix                &matrix,
+                                 const IndexSet        &owned_dofs,
+                                 const SparsityPattern &sparsity,
+                                 const MPI_Comm         communicator,
+                                 int) -> decltype(matrix.reinit(owned_dofs,
+                                                                owned_dofs,
+                                                                sparsity,
+                                                                communicator,
+                                                                false),
+                                                  void())
+    {
+      matrix.reinit(owned_dofs, owned_dofs, sparsity, communicator, false);
+    }
+
+    template <typename Matrix, typename IndexSet, typename SparsityPattern>
+    auto
+    reinit_pressure_state_matrix(Matrix                &matrix,
+                                 const IndexSet        &owned_dofs,
+                                 const SparsityPattern &sparsity,
+                                 const MPI_Comm         communicator,
+                                 long)
+      -> decltype(matrix.reinit(owned_dofs, owned_dofs, sparsity, communicator),
+                  void())
+    {
+      matrix.reinit(owned_dofs, owned_dofs, sparsity, communicator);
+    }
   } // namespace detail
+
+  /** Build the fixed sparsity structure of the prescribed-pressure state term.
+   * The native HLL assembler writes only velocity-trace rows on interior
+   * faces. Their columns are the DoFs of the two incident cells, which include
+   * both trace variables. Keep the full native row/column partition, but omit
+   * every structural entry outside those rows. The pattern is tied to the
+   * current flow mesh and is intended to be shared by all pressure snapshots
+   * for that setup.
+   */
+  template <typename Flow>
+  std::shared_ptr<const dealii::DynamicSparsityPattern>
+  metric_flow_x_pressure_state_sparsity(Flow &problem)
+  {
+    if constexpr (detail::has_compact_pressure_state_pattern_inputs<
+                    Flow>::value)
+      {
+        const auto &dof_handler = problem.dof_handler();
+        const auto &owned_dofs  = problem.locally_owned_dofs();
+        const auto  n_dofs      = owned_dofs.size();
+        const auto  velocity_trace_component =
+          static_cast<unsigned int>(Flow::Component::velocity_trace);
+        const auto &velocity_trace_dofs =
+          problem.component_dofs(Flow::Component::velocity_trace);
+
+        const auto trace_velocity_dof =
+          [velocity_trace_component](const auto        &cell,
+                                     const unsigned int face,
+                                     const auto        &cell_dofs) {
+            for (unsigned int i = 0; i < cell->get_fe().n_dofs_per_cell(); ++i)
+              if (cell->get_fe().system_to_component_index(i).first ==
+                    velocity_trace_component &&
+                  cell->get_fe().has_support_on_face(i, face))
+                return cell_dofs[i];
+            return dealii::numbers::invalid_dof_index;
+          };
+
+        // Keep all locally owned rows in the pattern's row map so matrix
+        // reinit has the same distribution as the native full state operator.
+        // Only velocity-trace rows receive structural entries below.
+        auto sparsity =
+          std::make_shared<dealii::DynamicSparsityPattern>(n_dofs,
+                                                           n_dofs,
+                                                           owned_dofs);
+        std::vector<dealii::types::global_dof_index> cell_dofs;
+        std::vector<dealii::types::global_dof_index> neighbor_dofs;
+        for (const auto &cell : dof_handler.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              cell_dofs.resize(cell->get_fe().n_dofs_per_cell());
+              cell->get_dof_indices(cell_dofs);
+              for (const auto face : cell->face_indices())
+                if (!cell->face(face)->at_boundary())
+                  {
+                    const auto row = trace_velocity_dof(cell, face, cell_dofs);
+                    if (row == dealii::numbers::invalid_dof_index ||
+                        !owned_dofs.is_element(row) ||
+                        !velocity_trace_dofs.is_element(row))
+                      continue;
+
+                    for (const auto column : cell_dofs)
+                      sparsity->add(row, column);
+
+                    const auto neighbor = cell->neighbor(face);
+                    neighbor_dofs.resize(neighbor->get_fe().n_dofs_per_cell());
+                    neighbor->get_dof_indices(neighbor_dofs);
+                    for (const auto column : neighbor_dofs)
+                      sparsity->add(row, column);
+                  }
+            }
+        return sparsity;
+      }
+    else
+      return {};
+  }
 
   /** Project the covered wall reaction onto the native discontinuous basis.
    * The full nominal section is the denominator. A fully exterior section
@@ -390,17 +510,33 @@ namespace ImmersX
   template <typename Flow, typename Pressure>
   MaterializedOperator<MetricFlowX::VectorType, MetricFlowX::MatrixType>
   metric_flow_x_pressure_state_operator(
-    Flow                                          &problem,
-    const Pressure                                &pressure,
-    const MetricFlowX::VectorType                 &pressure_coefficients,
-    const MetricFlowX::VectorType                 &flow_state,
-    const double                                   time,
-    std::shared_ptr<const MetricFlowX::MatrixType> projection = {})
+    Flow                                                 &problem,
+    const Pressure                                       &pressure,
+    const MetricFlowX::VectorType                        &pressure_coefficients,
+    const MetricFlowX::VectorType                        &flow_state,
+    const double                                          time,
+    std::shared_ptr<const MetricFlowX::MatrixType>        projection = {},
+    std::shared_ptr<const dealii::DynamicSparsityPattern> sparsity   = {})
   {
     using Vector      = MetricFlowX::VectorType;
     using Matrix      = MetricFlowX::MatrixType;
     const auto matrix = std::make_shared<Matrix>();
-    matrix->reinit(problem.state_jacobian_matrix());
+    if constexpr (detail::has_compact_pressure_state_pattern_inputs<
+                    Flow>::value)
+      {
+        if (!sparsity)
+          sparsity = metric_flow_x_pressure_state_sparsity(problem);
+        if (sparsity)
+          detail::reinit_pressure_state_matrix(*matrix,
+                                               problem.locally_owned_dofs(),
+                                               *sparsity,
+                                               problem.mpi_communicator(),
+                                               0);
+        else
+          matrix->reinit(problem.state_jacobian_matrix());
+      }
+    else
+      matrix->reinit(problem.state_jacobian_matrix());
     if constexpr (detail::has_external_pressure_state_jacobian<Flow>::value)
       problem.add_external_pressure_state_jacobian(
         time,
