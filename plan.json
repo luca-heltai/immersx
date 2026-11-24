@@ -250,8 +250,6 @@
   },
   "harness_sha": "666be4d2af620acc61be7e6fc4fb344bd61ea2f8",
   "schema_version": 1,
-  "selected": [
-    "666be4d2af620acc61be7e6fc4fb344bd61ea2f8"
-  ],
+  "selected": [],
   "source_sha": "666be4d2af620acc61be7e6fc4fb344bd61ea2f8"
 }
