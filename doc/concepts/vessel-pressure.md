@@ -58,7 +58,7 @@ selects them from the list in
 
 - `lambda` is the multiplier lifted to the wall point, the traction density
   $\sum_c\Lambda_c(s_j)\boldsymbol\phi_c$ of the
-  [tensor-product coupling](#tensor-product-coupling). It is a vector. With
+  tensor-product coupling (see below). It is a vector. With
   `modal_coefficients` the coefficients $\Lambda_c$ are written as `lambda_<k>`.
 - `wall_pressure` is the normal stress $\mathbf{n}\cdot\sigma\mathbf{n}$ at the
   wall point, with the sign of $p_v$ and the interior correction of
