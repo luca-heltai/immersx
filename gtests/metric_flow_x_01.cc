@@ -11,6 +11,8 @@
 
 #include <deal.II/base/parameter_acceptor.h>
 
+#include <deal.II/grid/grid_tools.h>
+
 #include <gtest/gtest.h>
 #include <immersx/core/constraint.h>
 #include <immersx/core/domain.h>
@@ -269,6 +271,31 @@ TEST(MetricFlowX, BOTH_JacobianActionsMatchNativeMatrices)
   EXPECT_NEAR(difference.l2_norm(), 0., 1.e-10);
 
   adapter.solver().setup_jacobian(0., state, state_dot, 1.);
+  auto retained_jacobian = adapter.current_jacobian();
+  auto retained_action   = adapter.make_state();
+  retained_jacobian.vmult(retained_action, direction);
+
+  dealii::GridTools::scale(2., problem.triangulation());
+  problem.build_per_cell_mass_inv();
+  adapter.solver().setup_jacobian(0., state, state_dot, 1.);
+  retained_jacobian.vmult(action, direction);
+  difference = adapter.field(action, fields.fields().state);
+  difference -= adapter.field(retained_action, fields.fields().state);
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-10);
+
+  problem.assemble_state_jacobian(0.,
+                                  adapter.field(state, fields.fields().state),
+                                  adapter.field(state_dot,
+                                                fields.fields().state));
+  problem.state_jacobian_matrix().vmult(expected_state,
+                                        adapter.field(direction,
+                                                      fields.fields().state));
+  problem.assemble_derivative_jacobian(
+    0.,
+    adapter.field(state, fields.fields().state),
+    adapter.field(state_dot, fields.fields().state));
+  problem.derivative_jacobian_matrix().vmult(
+    expected_dot, adapter.field(direction, fields.fields().state));
   adapter.current_jacobian().vmult(action, direction);
   difference = adapter.field(action, fields.fields().state);
   difference -= expected_state;
@@ -1280,6 +1307,8 @@ TEST(MetricFlowX, BOTH_PartialWallPressureUsesNominalSectionAverage)
     problem, -1. * value(field), coefficients, state, 0., projection);
   const auto full_state_operator = metric_flow_x_pressure_state_operator(
     problem, -1. * value(field), coefficients, state, 0.);
+  EXPECT_TRUE(projected_state_operator.immutable);
+  EXPECT_TRUE(full_state_operator.immutable);
   projected_state_operator.view.vmult(actual, dual);
   full_state_operator.view.vmult(expected, dual);
   EXPECT_GT(expected.l2_norm(), 1.e-12);
