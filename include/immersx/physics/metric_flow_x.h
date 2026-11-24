@@ -142,7 +142,7 @@ namespace ImmersX
                                                      context.state(state),
                                                      context.derivative(state));
         return matrix_operator<Vector, Matrix>(
-          description.problem->state_jacobian_matrix());
+          description.problem->state_jacobian_matrix_owner());
       };
     term.state(state, std::move(state_factory));
 

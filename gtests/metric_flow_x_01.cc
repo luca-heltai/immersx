@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 
 #include "test_paths.h"
 
@@ -274,6 +275,33 @@ TEST(MetricFlowX, BOTH_JacobianActionsMatchNativeMatrices)
   auto retained_jacobian = adapter.current_jacobian();
   auto retained_action   = adapter.make_state();
   retained_jacobian.vmult(retained_action, direction);
+
+  auto retained_state_matrix_owner = problem.state_jacobian_matrix_owner();
+  std::weak_ptr retained_state_matrix(retained_state_matrix_owner);
+  retained_state_matrix_owner.reset();
+  ASSERT_FALSE(retained_state_matrix.expired());
+
+  auto changed_state = state;
+  changed_state.add(0.25, direction);
+  adapter.solver().setup_jacobian(0., changed_state, state_dot, 1.);
+  const auto current_state_matrix = problem.state_jacobian_matrix_owner();
+  ASSERT_FALSE(retained_state_matrix.expired());
+  auto retained_state_matrix_after_reassembly = retained_state_matrix.lock();
+  ASSERT_NE(retained_state_matrix_after_reassembly, nullptr);
+  EXPECT_NE(retained_state_matrix_after_reassembly.get(),
+            current_state_matrix.get());
+
+  auto changed_state_action = problem.make_state();
+  current_state_matrix->vmult(changed_state_action,
+                              adapter.field(direction, fields.fields().state));
+  changed_state_action -= expected_state;
+  EXPECT_GT(changed_state_action.l2_norm(), 1.e-12);
+  retained_state_matrix_after_reassembly.reset();
+
+  retained_jacobian.vmult(action, direction);
+  difference = adapter.field(action, fields.fields().state);
+  difference -= adapter.field(retained_action, fields.fields().state);
+  EXPECT_NEAR(difference.l2_norm(), 0., 1.e-10);
 
   dealii::GridTools::scale(2., problem.triangulation());
   problem.build_per_cell_mass_inv();
