@@ -51,6 +51,7 @@ namespace
     types::boundary_id    id;
     std::array<double, 3> mean_traction;
     double                integrated_u_dot_n;
+    double                mean_normal_stress;
   };
 
   // Unit square/cube with colorized ids (0: x=0, 1: x=1, 2: y=0, 3: y=1,
@@ -170,6 +171,9 @@ namespace
         const std::string key = "uDotN_" + id;
         ASSERT_EQ(row.count(key), 1u) << key;
         EXPECT_NEAR(row.at(key), data.integrated_u_dot_n, tol) << key;
+        const std::string nn_key = "sigmaNN_" + id;
+        ASSERT_EQ(row.count(nn_key), 1u) << nn_key;
+        EXPECT_NEAR(row.at(nn_key), data.mean_normal_stress, tol) << nn_key;
       }
   }
 } // namespace
@@ -185,10 +189,10 @@ TEST(ElasticityProblem, BOTH_BoundaryStressUniformStrain2D)
     "uniform_strain_2d", parameters(dim, 1, "0.1*x + 0.2*y; -0.05*y", "0; 0"));
 
   check_boundary_data<dim>(row,
-                           {{0, {{-0.25, -0.2, 0}}, -0.1},
-                            {1, {{0.25, 0.2, 0}}, 0.2},
-                            {2, {{-0.2, 0.05, 0}}, 0.0},
-                            {3, {{0.2, -0.05, 0}}, -0.05}});
+                           {{0, {{-0.25, -0.2, 0}}, -0.1, 0.25},
+                            {1, {{0.25, 0.2, 0}}, 0.2, 0.25},
+                            {2, {{-0.2, 0.05, 0}}, 0.0, -0.05},
+                            {3, {{0.2, -0.05, 0}}, -0.05, -0.05}});
 }
 
 
@@ -203,10 +207,10 @@ TEST(ElasticityProblem, BOTH_BoundaryStressQuadratic2D)
                              parameters(dim, 2, "x^2; x*y", "-8; 0"));
 
   check_boundary_data<dim>(row,
-                           {{0, {{0, -0.5, 0}}, 0.0},
-                            {1, {{7, 0.5, 0}}, 1.0},
-                            {2, {{0, -2.5, 0}}, 0.0},
-                            {3, {{1, 2.5, 0}}, 0.5}});
+                           {{0, {{0, -0.5, 0}}, 0.0, 0.0},
+                            {1, {{7, 0.5, 0}}, 1.0, 7.0},
+                            {2, {{0, -2.5, 0}}, 0.0, 2.5},
+                            {3, {{1, 2.5, 0}}, 0.5, 2.5}});
 }
 
 
@@ -223,10 +227,10 @@ TEST(ElasticityProblem, BOTH_BoundaryStressUniformStrain3D)
       dim, 1, "0.1*x + 0.2*y; -0.05*y + 0.1*z; 0.03*x - 0.02*z", "0; 0; 0"));
 
   check_boundary_data<dim>(row,
-                           {{0, {{-0.23, -0.2, -0.03}}, -0.1},
-                            {1, {{0.23, 0.2, 0.03}}, 0.2},
-                            {2, {{-0.2, 0.07, -0.1}}, -0.05},
-                            {3, {{0.2, -0.07, 0.1}}, 0.0},
-                            {4, {{-0.03, -0.1, 0.01}}, -0.015},
-                            {5, {{0.03, 0.1, -0.01}}, -0.005}});
+                           {{0, {{-0.23, -0.2, -0.03}}, -0.1, 0.23},
+                            {1, {{0.23, 0.2, 0.03}}, 0.2, 0.23},
+                            {2, {{-0.2, 0.07, -0.1}}, -0.05, -0.07},
+                            {3, {{0.2, -0.07, 0.1}}, 0.0, -0.07},
+                            {4, {{-0.03, -0.1, 0.01}}, -0.015, -0.01},
+                            {5, {{0.03, 0.1, -0.01}}, -0.005, -0.01}});
 }
