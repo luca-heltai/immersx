@@ -184,7 +184,7 @@ jobs:
   ci:
     name: Documentation CI
     needs: [harness, build, performance, publish-history, archive]
-    if: always()
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Require documentation and the applicable performance checks
