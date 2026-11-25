@@ -1,4 +1,4 @@
-PR: pending
+PR: #519
 
 - The forces files written by `ElasticityProblem` have a new column
   `sigmaNN_<id>` per boundary id, after `uDotN_<id>`: the mean normal stress
