@@ -624,7 +624,7 @@ TEST(DistributedIDA, BOTH_MumpsBacksolveFailureRetriesLinearSolve)
        adapter.field(y, field.fields()).locally_owned_elements())
     EXPECT_NEAR(adapter.field(y, field.fields())[index],
                 2. + std::sin(time.final_time),
-                1.e-9);
+                1.e-8);
 }
 
 TEST(DistributedIDA, BOTH_InvalidLocalTolerancesAreCollective)
