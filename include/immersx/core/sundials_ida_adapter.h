@@ -2469,35 +2469,32 @@ namespace ImmersX
       current_solver_is_flexible_ = false;
       const bool direct_solver    = linear_solver_ == LinearSolver::umfpack ||
                                  linear_solver_ == LinearSolver::mumps;
-      typename Composition::BlockMatrixType blocks;
-      if (direct_solver || linear_solver_ == LinearSolver::mumps_blr_fgmres ||
-          function_scaling != nullptr)
-        {
-          dealii::TimerOutput::Scope block_timer(computing_timer,
-                                                 "Materialize Jacobian");
-          composition_.block_matrix(blocks,
-                                    snapshot->state_storage,
-                                    &snapshot->derivative_storage,
-                                    alpha,
-                                    time,
-                                    &snapshot->linearization);
-          if (function_scaling != nullptr)
-            make_steady_function_scaling(blocks,
-                                         *characteristics,
-                                         *function_scaling);
-        }
       if (direct_solver)
         {
-          dealii::TimerOutput::Scope direct_timer(computing_timer,
-                                                  "Materialize Jacobian");
-          condensation_ = composition_.second_order_condensation(blocks);
-          std::shared_ptr<MatrixType> monolithic;
-          if (!condensation_)
-            {
-              monolithic = std::make_shared<MatrixType>();
-              composition_.monolithic_matrix(blocks, *monolithic);
-            }
-          direct_timer.stop();
+          dealii::types::global_dof_index coupled_rows = 0;
+          std::shared_ptr<MatrixType>     monolithic;
+          {
+            dealii::TimerOutput::Scope            block_timer(computing_timer,
+                                                   "Materialize Jacobian");
+            typename Composition::BlockMatrixType blocks;
+            composition_.block_matrix(blocks,
+                                      snapshot->state_storage,
+                                      &snapshot->derivative_storage,
+                                      alpha,
+                                      time,
+                                      &snapshot->linearization);
+            if (function_scaling != nullptr)
+              make_steady_function_scaling(blocks,
+                                           *characteristics,
+                                           *function_scaling);
+            coupled_rows  = blocks.m();
+            condensation_ = composition_.second_order_condensation(blocks);
+            if (!condensation_)
+              {
+                monolithic = std::make_shared<MatrixType>();
+                composition_.monolithic_matrix(blocks, *monolithic);
+              }
+          }
           dealii::TimerOutput::Scope factor_timer(computing_timer,
                                                   "Factorize Jacobian");
           const std::string          solver_name =
@@ -2514,8 +2511,9 @@ namespace ImmersX
                                        mumps_output_details_);
               pcout << "IDAAdapter: " << solver_name << " factorized "
                     << reduced.m() << " rows after second-order condensation ("
-                    << blocks.m() << " coupled), " << direct_solver_.n_entries()
-                    << " matrix entries." << std::endl;
+                    << coupled_rows << " coupled), "
+                    << direct_solver_.n_entries() << " matrix entries."
+                    << std::endl;
             }
           else
             {
@@ -2533,6 +2531,23 @@ namespace ImmersX
         }
       else if (!solve_)
         {
+          typename Composition::BlockMatrixType blocks;
+          if (linear_solver_ == LinearSolver::mumps_blr_fgmres ||
+              function_scaling != nullptr)
+            {
+              dealii::TimerOutput::Scope block_timer(computing_timer,
+                                                     "Materialize Jacobian");
+              composition_.block_matrix(blocks,
+                                        snapshot->state_storage,
+                                        &snapshot->derivative_storage,
+                                        alpha,
+                                        time,
+                                        &snapshot->linearization);
+              if (function_scaling != nullptr)
+                make_steady_function_scaling(blocks,
+                                             *characteristics,
+                                             *function_scaling);
+            }
           const auto keep_snapshot = [snapshot](Operator operator_view) {
             const auto retained =
               std::make_shared<const Operator>(std::move(operator_view));
@@ -2643,6 +2658,23 @@ namespace ImmersX
                                   snapshot.get()));
               current_solver_is_flexible_ = composition_.n_fields() > 1;
             }
+        }
+      else if (linear_solver_ == LinearSolver::mumps_blr_fgmres ||
+               function_scaling != nullptr)
+        {
+          dealii::TimerOutput::Scope            block_timer(computing_timer,
+                                                 "Materialize Jacobian");
+          typename Composition::BlockMatrixType blocks;
+          composition_.block_matrix(blocks,
+                                    snapshot->state_storage,
+                                    &snapshot->derivative_storage,
+                                    alpha,
+                                    time,
+                                    &snapshot->linearization);
+          if (function_scaling != nullptr)
+            make_steady_function_scaling(blocks,
+                                         *characteristics,
+                                         *function_scaling);
         }
       if (alpha == 0.)
         initial_condition_jacobian_time_ = time;
