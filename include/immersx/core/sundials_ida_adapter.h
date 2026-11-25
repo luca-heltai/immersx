@@ -53,13 +53,14 @@ namespace ImmersX
 {
   namespace detail
   {
-    /** Identify a failed strict MUMPS backsolve so a coupled steady
-     * continuation can reject only that trial and reduce its eta increment.
+    /** A failed strict MUMPS backsolve is recoverable by IDA step rejection
+     * and by steady continuation with a smaller eta increment.
      */
-    class MumpsBacksolveResidualError : public std::runtime_error
+    class MumpsBacksolveResidualError
+      : public dealii::RecoverableUserCallbackError
     {
     public:
-      using std::runtime_error::runtime_error;
+      using dealii::RecoverableUserCallbackError::RecoverableUserCallbackError;
     };
 
     /** Minimize a stalled direct-solve defect using the existing backsolve.

@@ -579,6 +579,45 @@ TEST(DistributedIDA,
     }
 }
 
+TEST(DistributedIDA, BOTH_MumpsBacksolveFailureRejectsTransientStep)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.final_time                            = .01;
+  time.output_time_interval                  = .01;
+  parameters.initial_step_size               = .01;
+  parameters.maximum_step_size               = .01;
+  parameters.correction_type_at_initial_time = "none";
+  unsigned int solve_calls                   = 0;
+  Adapter      adapter(time,
+                  parameters,
+                  MPI_COMM_WORLD,
+                  [&](const Adapter::Operator &,
+                      const GlobalVector &rhs,
+                      GlobalVector       &answer,
+                      const double) {
+                    ++solve_calls;
+                    if (solve_calls == 1)
+                      throw detail::MumpsBacksolveResidualError(
+                        "injected residual failure");
+                    answer = rhs;
+                  });
+  const auto   field               = add_forced_field(adapter, false, 1.);
+  auto         y                   = adapter.make_state();
+  auto         yp                  = adapter.make_state();
+  adapter.field(y, field.fields()) = 2.;
+  yp                               = 0.;
+
+  EXPECT_NO_THROW(adapter.solve(y, yp));
+  EXPECT_GT(solve_calls, 1u);
+  for (const auto index :
+       adapter.field(y, field.fields()).locally_owned_elements())
+    EXPECT_NEAR(adapter.field(y, field.fields())[index],
+                2. + std::sin(time.final_time),
+                1.e-9);
+  EXPECT_GT(adapter.statistics().steps, 1u);
+}
+
 TEST(DistributedIDA, BOTH_InvalidLocalTolerancesAreCollective)
 {
   TimeIntervalParameters time;
