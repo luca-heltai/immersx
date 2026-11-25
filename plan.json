@@ -259,8 +259,6 @@
   },
   "harness_sha": "037390ef63c9974f2766659f9e371e26695d3633",
   "schema_version": 1,
-  "selected": [
-    "037390ef63c9974f2766659f9e371e26695d3633"
-  ],
+  "selected": [],
   "source_sha": "037390ef63c9974f2766659f9e371e26695d3633"
 }
