@@ -282,7 +282,7 @@ jobs:
   ci:
     name: Numerical CI
     needs: [plan, debug, release, package]
-    if: always()
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Require all selected checks
