@@ -1,4 +1,4 @@
-PR: pending
+PR: #459
 
 - Added the tutorial "A vessel in a cylinder: immersed vs resolved"
   (`doc/tutorials/cylinder-vessel-vs-hole.md`), with inputs in
