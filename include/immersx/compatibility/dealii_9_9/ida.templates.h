@@ -189,9 +189,8 @@ namespace ImmersX::Compatibility
               catch (const RecoverableUserCallbackError &exc)
                 {
                   pending_exception = nullptr;
-                  if (status == 0)
-                    /* just eat the exception and continue */;
-                  else
+                  // Positive statuses include successful stop/root returns.
+                  if (status < 0)
                     throw;
                 }
               catch (...)
@@ -438,14 +437,20 @@ namespace ImmersX::Compatibility
                           SUNDIALS::realtype tol) -> int {
         IDA<VectorType> &solver = *static_cast<IDA<VectorType> *>(LS->content);
 
-        auto *src_b = internal::unwrap_nvector_const<VectorType>(b);
-        auto *dst_x = internal::unwrap_nvector<VectorType>(x);
-        return Utilities::call_and_possibly_capture_exception(
-          solver.solve_with_jacobian,
-          solver.pending_exception,
-          *src_b,
-          *dst_x,
-          tol);
+        auto     *src_b = internal::unwrap_nvector_const<VectorType>(b);
+        auto     *dst_x = internal::unwrap_nvector<VectorType>(x);
+        const int callback_status =
+          Utilities::call_and_possibly_capture_exception(
+            solver.solve_with_jacobian,
+            solver.pending_exception,
+            *src_b,
+            *dst_x,
+            tol);
+        if (callback_status > 0)
+          return SUNLS_PACKAGE_FAIL_REC;
+        if (callback_status < 0)
+          return SUNLS_PACKAGE_FAIL_UNREC;
+        return 0;
       };
 
       // When we set an iterative solver IDA requires that resid is provided.

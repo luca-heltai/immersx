@@ -579,6 +579,54 @@ TEST(DistributedIDA,
     }
 }
 
+TEST(DistributedIDA, BOTH_MumpsBacksolveFailureRetriesLinearSolve)
+{
+  TimeIntervalParameters time;
+  IDAParameters          parameters;
+  time.final_time                            = .01;
+  time.output_time_interval                  = .01;
+  parameters.initial_step_size               = .01;
+  parameters.maximum_step_size               = .01;
+  parameters.absolute_tolerance              = 1.e-12;
+  parameters.relative_tolerance              = 1.e-10;
+  parameters.correction_type_at_initial_time = "none";
+  unsigned int solve_calls                   = 0;
+  Adapter      adapter(time,
+                  parameters,
+                  MPI_COMM_WORLD,
+                  [&](const Adapter::Operator &op,
+                      const GlobalVector      &rhs,
+                      GlobalVector            &answer,
+                      const double) {
+                    ++solve_calls;
+                    if (solve_calls == 1)
+                      throw detail::MumpsBacksolveResidualError(
+                        "injected residual failure");
+                    GlobalVector ones(rhs), diagonal(rhs);
+                    ones = 1.;
+                    op.vmult(diagonal, ones);
+                    for (unsigned int b = 0; b < answer.n_blocks(); ++b)
+                      for (const auto index :
+                           answer.block(b).locally_owned_elements())
+                        answer.block(b)[index] =
+                          rhs.block(b)[index] / diagonal.block(b)[index];
+                    answer.compress(dealii::VectorOperation::insert);
+                  });
+  const auto   field                = add_forced_field(adapter, true, 1.);
+  auto         y                    = adapter.make_state();
+  auto         yp                   = adapter.make_state();
+  adapter.field(y, field.fields())  = 2.;
+  adapter.field(yp, field.fields()) = 1.;
+
+  EXPECT_NO_THROW(adapter.solve(y, yp));
+  EXPECT_GT(solve_calls, 1u);
+  for (const auto index :
+       adapter.field(y, field.fields()).locally_owned_elements())
+    EXPECT_NEAR(adapter.field(y, field.fields())[index],
+                2. + std::sin(time.final_time),
+                1.e-8);
+}
+
 TEST(DistributedIDA, BOTH_InvalidLocalTolerancesAreCollective)
 {
   TimeIntervalParameters time;
