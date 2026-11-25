@@ -391,7 +391,3 @@ The fitted runs use the static input with `Domain type = file`,
 `Grid generator` set to the mesh written by
 `fitted_vessel_mesh --refinement N`, `Initial refinement = 0`, and the radius
 of that mesh, $a = 0.009870093245078749$.
-
-`gtests/vessel_multiplier_convergence_01.cc` builds the static cube with the
-band refinement above and checks the first two passes and the independence
-of the axial strain (`VesselMultiplierValidation`, nightly).

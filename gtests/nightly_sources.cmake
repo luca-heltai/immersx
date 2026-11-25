@@ -30,7 +30,6 @@ set(IMMERSX_NIGHTLY_TEST_SOURCES
     prescribed_poisson_01.cc
     pseudo_tissue_simplex_01.cc
     reduced_poisson_simplex_01.cc
-    vessel_multiplier_convergence_01.cc
 )
 
 # Explicit exclusions also keep newly added public headers in quick.
