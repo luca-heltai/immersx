@@ -3105,8 +3105,12 @@ namespace ImmersX::detail
                        const FieldId                             column,
                        const EvaluationContext<FieldVectorType> &context,
                        const double                              alpha,
-                       const Model *prepared_model = nullptr) const
+                       const Model *prepared_model    = nullptr,
+                       MatrixType  *destination       = nullptr,
+                       bool        *materialized_into = nullptr) const
     {
+      if (materialized_into != nullptr)
+        *materialized_into = false;
       const auto &model          = prepared_model ? *prepared_model : model_;
       const bool  has_state      = model.has_state_operator(row, column);
       const bool  has_derivative = model.has_derivative_operator(row, column);
@@ -3136,7 +3140,21 @@ namespace ImmersX::detail
       if (matrices.empty())
         return {};
       if (matrices.size() == 1)
-        return matrices.front().matrix();
+        {
+          const auto &matrix = matrices.front();
+          // Immutable operators own a fixed linearization. Their direct
+          // materializer can fill the block without creating an intermediate
+          // full sparse-matrix copy. Mutable callbacks may rely on an
+          // initialized destination, so keep their existing clone path.
+          if (destination != nullptr && materialized_into != nullptr &&
+              matrix.immutable && matrix.materialize_into)
+            {
+              matrix.materialize_into_matrix(*destination);
+              *materialized_into = true;
+              return {};
+            }
+          return matrix.matrix();
+        }
       return detail::sum_matrices(matrices);
     }
 
@@ -3167,13 +3185,24 @@ namespace ImmersX::detail
       for (unsigned int i = 0; i < n; ++i)
         for (unsigned int j = 0; j < n; ++j)
           {
-            auto  matrix = materialized_block(field_layout_.field(i),
+            auto &block             = result.block(i, j);
+            bool  materialized_into = false;
+            auto  matrix            = materialized_block(field_layout_.field(i),
                                              field_layout_.field(j),
                                              context,
                                              alpha,
-                                             prepared_model);
-            auto &block  = result.block(i, j);
-            if (matrix)
+                                             prepared_model,
+                                             &block,
+                                             &materialized_into);
+            if (materialized_into)
+              {
+                AssertThrow(block.m() == partitions[i].size() &&
+                              block.n() == partitions[j].size(),
+                            dealii::ExcMessage(
+                              "Materialized block dimensions do not match "
+                              "the semantic execution layout."));
+              }
+            else if (matrix)
               {
                 AssertThrow(matrix->m() == partitions[i].size() &&
                               matrix->n() == partitions[j].size(),

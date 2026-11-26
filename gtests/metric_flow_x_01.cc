@@ -1163,10 +1163,12 @@ TEST(MetricFlowX, BOTH_MaterializedPressureMatchesGlobalBasisOracle)
         {
           const auto op = metric_flow_x_pressure_operator(
             problem, pressure, state, 0., selected_projection);
+          EXPECT_TRUE(op.immutable);
           EXPECT_EQ(bool(metric_flow_x_pressure_basis_provider(
                       pressure, selected_projection)),
                     selected_projection != nonlocal_projection);
-          const auto matrix = op.materialize();
+          MetricFlowX::MatrixType matrix;
+          op.materialize_into_matrix(matrix);
           // This deliberately keeps the old global-column calculation as an
           // independent oracle for the new native local derivative traversal.
           for (types::global_dof_index column = 0; column < basis.size();
@@ -1177,13 +1179,63 @@ TEST(MetricFlowX, BOTH_MaterializedPressureMatchesGlobalBasisOracle)
                 basis[column] = 1.;
               basis.compress(VectorOperation::insert);
               op.view.vmult(expected, basis);
-              matrix->vmult(actual, basis);
+              matrix.vmult(actual, basis);
               actual -= expected;
               EXPECT_LE(actual.l2_norm(),
                         2.e-12 * std::max(1., expected.l2_norm()));
             }
         }
     }
+
+  // A retained pressure linearization keeps its own state/time snapshot and
+  // assembled matrix cache. A later operator uses a distinct cache for its
+  // changed pressure scale, while the first operator remains usable.
+  const auto original_pressure = -1. * value(field);
+  const auto retained          = metric_flow_x_pressure_operator(
+    problem, original_pressure, state, 0., projection);
+  const auto updated_pressure = -2. * value(field);
+  const auto updated          = metric_flow_x_pressure_operator(
+    problem, updated_pressure, state, 0., projection);
+
+  FieldVector coefficients;
+  coefficients.reinit(field.locally_owned_dofs(), MPI_COMM_WORLD);
+  for (const auto i : coefficients.locally_owned_elements())
+    coefficients[i] = 1. + .137 * i * i;
+  coefficients.compress(VectorOperation::insert);
+  auto retained_before = problem.make_state();
+  retained.view.vmult(retained_before, coefficients);
+
+  // Materialize lazily after the caller changes its source vector. Both
+  // operators must still use the state they captured at construction.
+  state *= 1.25;
+  state.compress(VectorOperation::insert);
+  MetricFlowX::MatrixType retained_matrix, updated_matrix;
+  retained.materialize_into_matrix(retained_matrix);
+  updated.materialize_into_matrix(updated_matrix);
+
+  auto retained_action = problem.make_state();
+  auto updated_action  = problem.make_state();
+  retained_matrix.vmult(retained_action, coefficients);
+  updated_matrix.vmult(updated_action, coefficients);
+  auto error = retained_action;
+  error -= retained_before;
+  EXPECT_LE(error.l2_norm(), 2.e-12 * std::max(1., retained_before.l2_norm()));
+  auto doubled_retained_action = retained_action;
+  doubled_retained_action *= 2.;
+  error = updated_action;
+  error -= doubled_retained_action;
+  EXPECT_LE(error.l2_norm(), 2.e-12 * std::max(1., updated_action.l2_norm()));
+
+  auto retained_view = problem.make_state();
+  auto updated_view  = problem.make_state();
+  retained.view.vmult(retained_view, coefficients);
+  updated.view.vmult(updated_view, coefficients);
+  retained_view -= retained_action;
+  updated_view -= updated_action;
+  EXPECT_LE(retained_view.l2_norm(),
+            2.e-12 * std::max(1., retained_action.l2_norm()));
+  EXPECT_LE(updated_view.l2_norm(),
+            2.e-12 * std::max(1., updated_action.l2_norm()));
 }
 
 

@@ -1032,6 +1032,55 @@ TEST(DistributedIDA, BOTH_LinearizationRetainsEachMatrixAtItsEvaluationPoint)
   EXPECT_EQ(materializations, 10u);
 }
 
+TEST(DistributedIDA, BOTH_ImmutableSingleOperatorMaterializesIntoBlock)
+{
+  using namespace dealii;
+  using namespace ImmersX;
+  const auto rank = Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+  const auto size = Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD);
+  IndexSet   owned(size);
+  owned.add_index(rank);
+  DynamicSparsityPattern sparsity(size, size, owned);
+  sparsity.add(rank, rank);
+  auto matrix = std::make_shared<ImmersXLA::MPI::SparseMatrix>();
+  matrix->reinit(owned, owned, sparsity, MPI_COMM_WORLD);
+  matrix->set(rank, rank, 2. + rank);
+  matrix->compress(VectorOperation::insert);
+
+  unsigned int         materialize_calls = 0, materialize_into_calls = 0;
+  Adapter::Composition composition(MPI_COMM_WORLD);
+  const auto           field = composition.add(
+    [owned, matrix, &materialize_calls, &materialize_into_calls](
+      auto &builder) {
+      const auto u = builder.field("u", owned, owned);
+      using Model  = typename std::decay_t<decltype(builder)>::Model;
+      typename Model::MatrixOperatorFactory factory =
+        [matrix, &materialize_calls, &materialize_into_calls](const auto &) {
+          auto op        = matrix_operator<FieldVector>(matrix);
+          op.immutable   = true;
+          op.materialize = [matrix, &materialize_calls]() {
+            ++materialize_calls;
+            return detail::clone_matrix(*matrix);
+          };
+          op.materialize_into = [matrix, &materialize_into_calls](auto &dst) {
+            ++materialize_into_calls;
+            detail::copy_matrix(dst, *matrix);
+          };
+          return op;
+        };
+      builder.term(u, "fixed diagonal").state(u, std::move(factory));
+      return u;
+    },
+    "immutable materialization");
+
+  auto       state  = composition.make_state();
+  const auto blocks = composition.block_matrix(state);
+  EXPECT_EQ(materialize_calls, 0u);
+  EXPECT_EQ(materialize_into_calls, 1u);
+  EXPECT_DOUBLE_EQ(blocks.block(0, 0).el(rank, rank), 2. + rank);
+  (void)field;
+}
+
 TEST(DistributedIDA, BOTH_LinearizationRetainsMixedMatrixAndMatrixFreeTerms)
 {
   using namespace dealii;
