@@ -443,7 +443,9 @@ namespace ImmersX
     const AssemblyStatistics &
     assembly_statistics() const;
 
-    /** Return the internal time-integration matrix from the last step. */
+    /** Return the internal time-integration matrix from the last step.
+     * The matrix remains empty until the first standalone time step.
+     */
     const MatrixType &
     system_matrix() const;
 
@@ -572,7 +574,8 @@ namespace ImmersX
       SecondOrderBlockPreconditioner<VectorType, MatrixType>>
       time_preconditioner;
 
-    bool                          spatial_operators_ready = false;
+    bool                          spatial_operators_ready           = false;
+    bool                          system_matrix_storage_initialized = false;
     mutable std::optional<double> system_matrix_time_step;
     double                        system_matrix_theta = 0.;
     mutable std::optional<double> displacement_constraints_time;

@@ -661,6 +661,8 @@ namespace ImmersX
     spatial_operators_ready = false;
     time_preconditioner.reset();
     system_matrix_time_step.reset();
+    system_matrix_storage.clear();
+    system_matrix_storage_initialized = false;
     volume_force_cache_time.reset();
     traction_force_cache_time.reset();
     displacement_constraints_time.reset();
@@ -699,23 +701,6 @@ namespace ImmersX
                                                mpi_communicator,
                                                relevant_dofs);
 
-    DynamicSparsityPattern combined_dsp(combined_relevant_dofs);
-    for (const auto row : relevant_dofs)
-      {
-        combined_dsp.add(row, row);
-        combined_dsp.add(row, n_spatial_dofs + row);
-        for (unsigned int k = 0; k < spatial_dsp.row_length(row); ++k)
-          {
-            const auto column = spatial_dsp.column_number(row, k);
-            combined_dsp.add(n_spatial_dofs + row, column);
-            combined_dsp.add(n_spatial_dofs + row, n_spatial_dofs + column);
-          }
-      }
-    SparsityTools::distribute_sparsity_pattern(combined_dsp,
-                                               combined_owned_dofs,
-                                               mpi_communicator,
-                                               combined_relevant_dofs);
-
     mass_matrix_storage.reinit(owned_dofs,
                                owned_dofs,
                                spatial_dsp,
@@ -749,10 +734,6 @@ namespace ImmersX
                                               owned_dofs,
                                               spatial_dsp,
                                               mpi_communicator);
-    system_matrix_storage.reinit(combined_owned_dofs,
-                                 combined_owned_dofs,
-                                 combined_dsp,
-                                 mpi_communicator);
 
     body_force_storage.reinit(owned_dofs, mpi_communicator);
     cached_body_force.reinit(owned_dofs, mpi_communicator);
@@ -1311,6 +1292,43 @@ namespace ImmersX
       return;
     AssertThrow(spatial_operators_ready,
                 ExcMessage("Assemble spatial operators before advancing."));
+
+    if (!system_matrix_storage_initialized)
+      {
+        DynamicSparsityPattern spatial_dsp(relevant_dofs);
+        // Retain prescribed-value columns while expanding mesh-slave couplings.
+        DoFTools::make_sparsity_pattern(dh,
+                                        spatial_dsp,
+                                        hanging_node_constraints_storage,
+                                        true);
+        SparsityTools::distribute_sparsity_pattern(spatial_dsp,
+                                                   owned_dofs,
+                                                   mpi_communicator,
+                                                   relevant_dofs);
+
+        const auto             n_spatial_dofs = dh.n_dofs();
+        DynamicSparsityPattern combined_dsp(combined_relevant_dofs);
+        for (const auto row : relevant_dofs)
+          {
+            combined_dsp.add(row, row);
+            combined_dsp.add(row, n_spatial_dofs + row);
+            for (unsigned int k = 0; k < spatial_dsp.row_length(row); ++k)
+              {
+                const auto column = spatial_dsp.column_number(row, k);
+                combined_dsp.add(n_spatial_dofs + row, column);
+                combined_dsp.add(n_spatial_dofs + row, n_spatial_dofs + column);
+              }
+          }
+        SparsityTools::distribute_sparsity_pattern(combined_dsp,
+                                                   combined_owned_dofs,
+                                                   mpi_communicator,
+                                                   combined_relevant_dofs);
+        system_matrix_storage.reinit(combined_owned_dofs,
+                                     combined_owned_dofs,
+                                     combined_dsp,
+                                     mpi_communicator);
+        system_matrix_storage_initialized = true;
+      }
     TimerOutput::Scope timer(computing_timer, "Build time-integration matrix");
     ++assembly_statistics_storage.time_system_matrix;
     const auto n_spatial_dofs = dh.n_dofs();

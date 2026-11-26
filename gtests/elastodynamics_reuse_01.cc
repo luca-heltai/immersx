@@ -304,6 +304,7 @@ TEST(Elastodynamics, BOTH_TrapezoidalMovingBoundaryWithHangingNodes)
   problem.setup_system();
   problem.assemble_operators();
   problem.set_initial_conditions();
+  EXPECT_EQ(problem.system_matrix().m(), 0u);
 
   AffineConstraints<double> hanging;
   hanging.reinit(problem.locally_owned_dofs(), problem.locally_relevant_dofs());
@@ -320,6 +321,7 @@ TEST(Elastodynamics, BOTH_TrapezoidalMovingBoundaryWithHangingNodes)
       if (step == 1)
         parameters.fixed_step_parameters.time_step = 0.01;
       problem.advance_one_timestep();
+      EXPECT_EQ(problem.system_matrix().m(), 2 * problem.n_dofs());
       const double time   = problem.current_time();
       const auto  &matrix = problem.system_matrix();
       for (const auto row : problem.locally_owned_dofs())
