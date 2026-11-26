@@ -275,8 +275,8 @@ namespace ImmersX::metric_flow_x_app_detail
     linear = SUNLinSolNewEmpty(backend.get_sun_context());
     matrix = SUNMatNewEmpty(backend.get_sun_context());
 #else
-    linear = SUNLinSolNewEmpty();
-    matrix = SUNMatNewEmpty();
+    linear       = SUNLinSolNewEmpty();
+    matrix       = SUNMatNewEmpty();
 #endif
     AssertThrow(linear != nullptr && matrix != nullptr,
                 dealii::ExcMessage(
