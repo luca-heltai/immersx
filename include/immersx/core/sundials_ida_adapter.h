@@ -578,6 +578,17 @@ namespace ImmersX
       linear_solver_ = solver;
     }
 
+    /** Whether the configured coupled solver factors the Jacobian directly.
+     * External wrappers use this to advertise the correct SUNLinearSolver
+     * type while retaining the adapter's selected solve implementation.
+     */
+    bool
+    uses_direct_linear_solver() const
+    {
+      return linear_solver_ == LinearSolver::umfpack ||
+             linear_solver_ == LinearSolver::mumps;
+    }
+
     /** Select the iterative block preconditioner before initialization. */
     void
     set_block_preconditioner(const BlockPreconditioner preconditioner)
@@ -700,6 +711,38 @@ namespace ImmersX
     {
       finalize();
       return *ida_;
+    }
+
+    /** Solve with a KINSOL forcing tolerance instead of IDA error weights.
+     * KINSOL and IDA pass different meanings for the same callback scalar.
+     */
+    void
+    solve_with_kinsol_forcing_tolerance(const GlobalVectorType &rhs,
+                                        GlobalVectorType       &dst,
+                                        const double            tolerance)
+    {
+      AssertThrow(std::isfinite(tolerance) && tolerance >= 0.,
+                  dealii::ExcMessage(
+                    "KINSOL supplied an invalid linear forcing tolerance."));
+      if (!uses_direct_linear_solver())
+        AssertThrow(
+          tolerance > 0.,
+          dealii::ExcMessage(
+            "KINSOL must supply a positive forcing tolerance to an iterative solver."));
+
+      auto      &backend             = solver();
+      const auto previous_source     = linear_solve_tolerance_source_;
+      linear_solve_tolerance_source_ = LinearSolveToleranceSource::kinsol;
+      try
+        {
+          backend.solve_with_jacobian(rhs, dst, tolerance);
+        }
+      catch (...)
+        {
+          linear_solve_tolerance_source_ = previous_source;
+          throw;
+        }
+      linear_solve_tolerance_source_ = previous_source;
     }
 
     /** Prepare a fresh steady Jacobian F_y(t,y,y') for an external Newton
@@ -1768,7 +1811,9 @@ namespace ImmersX
             pcout << "IDAAdapter: configured linear solver finished."
                   << std::endl;
           }
-        else if (!current_jacobian_is_steady_ && ida_ && ida_->get_ida_memory())
+        else if (linear_solve_tolerance_source_ ==
+                   LinearSolveToleranceSource::ida &&
+                 !current_jacobian_is_steady_ && ida_ && ida_->get_ida_memory())
           {
             // A restart may resize native vectors without changing field
             // registration. Follow the current IDA callback map, not that
@@ -1895,15 +1940,20 @@ namespace ImmersX
             // but its nonlinear forcing tolerance is not IDA's weighted
             // linear-solve target. Use the configured relative Krylov target
             // for the steady Jacobian and reserve IDA weights for DAE steps.
-            const double          solve_target = current_jacobian_is_steady_ ?
-                                                   relative_target :
-                                                   std::min(tolerance, relative_target);
+            const bool kinsol_forcing = linear_solve_tolerance_source_ ==
+                                        LinearSolveToleranceSource::kinsol;
+            const double solve_target =
+              current_jacobian_is_steady_ && !kinsol_forcing ?
+                relative_target :
+                std::min(tolerance, relative_target);
             dealii::SolverControl control(controls.krylov_maximum_iterations,
                                           solve_target);
-            const auto            target = [this, &control, tolerance]() {
+            const auto target = [this, &control, tolerance, kinsol_forcing]() {
               std::ostringstream text;
               text << ", target " << control.tolerance();
-              if (current_jacobian_is_steady_)
+              if (kinsol_forcing)
+                text << " (KINSOL forcing tolerance " << tolerance << ')';
+              else if (current_jacobian_is_steady_)
                 text << " (steady relative Krylov target)";
               else
                 text << " (IDA " << tolerance << ")";
@@ -2812,11 +2862,18 @@ namespace ImmersX
     bool                                current_jacobian_is_steady_ = false;
     bool                                solved_since_residual_      = false;
     std::optional<double>               initial_condition_jacobian_time_;
-    unsigned long                       diagnostic_residuals_          = 0;
-    double                              diagnostic_time_               = 0.;
-    bool                                connected_                     = false;
-    bool                                include_schur_primal_coupling_ = false;
-    unsigned int                        schur_materialization_limit_   = 0;
+    enum class LinearSolveToleranceSource
+    {
+      ida,
+      kinsol
+    };
+    LinearSolveToleranceSource linear_solve_tolerance_source_ =
+      LinearSolveToleranceSource::ida;
+    unsigned long diagnostic_residuals_          = 0;
+    double        diagnostic_time_               = 0.;
+    bool          connected_                     = false;
+    bool          include_schur_primal_coupling_ = false;
+    unsigned int  schur_materialization_limit_   = 0;
   };
 } // namespace ImmersX
 #endif
