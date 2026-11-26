@@ -262,8 +262,6 @@
   },
   "harness_sha": "3f440cdf344f901017420dd1a3405120366b6026",
   "schema_version": 1,
-  "selected": [
-    "3f440cdf344f901017420dd1a3405120366b6026"
-  ],
+  "selected": [],
   "source_sha": "3f440cdf344f901017420dd1a3405120366b6026"
 }
