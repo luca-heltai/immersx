@@ -699,6 +699,11 @@ namespace ImmersX
       action->vmult(image, src);
       dst += image;
     };
+    // The pressure expression, flow state and time are captured for this
+    // linearization, and the assembled matrix cache is owned by its callbacks.
+    // Retained snapshots can therefore keep this operator without cloning the
+    // sparse matrix; a new factory call gets a separate cache.
+    result.immutable = true;
     return result;
   }
 } // namespace ImmersX
