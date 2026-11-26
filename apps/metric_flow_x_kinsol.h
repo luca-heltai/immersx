@@ -159,6 +159,7 @@ namespace ImmersX::metric_flow_x_app_detail
       const GlobalVector                       *backward_euler_reference;
       double                                    backward_euler_alpha;
       GlobalVector                             *backward_euler_rate;
+      bool                                      direct_linear_solver;
 
       const GlobalVector &
       rate_at(const GlobalVector &state)
@@ -202,7 +203,8 @@ namespace ImmersX::metric_flow_x_app_detail
                 false,
                 backward_euler_reference,
                 backward_euler_alpha,
-                backward_euler_rate};
+                backward_euler_rate,
+                adapter.uses_direct_linear_solver()};
     SUNMatrix       matrix = nullptr;
     SUNLinearSolver linear = nullptr;
 #if DEAL_II_SUNDIALS_VERSION_GTE(6, 0, 0)
@@ -273,15 +275,17 @@ namespace ImmersX::metric_flow_x_app_detail
     linear = SUNLinSolNewEmpty(backend.get_sun_context());
     matrix = SUNMatNewEmpty(backend.get_sun_context());
 #else
-    linear       = SUNLinSolNewEmpty();
-    matrix       = SUNMatNewEmpty();
+    linear = SUNLinSolNewEmpty();
+    matrix = SUNMatNewEmpty();
 #endif
     AssertThrow(linear != nullptr && matrix != nullptr,
                 dealii::ExcMessage(
                   "Could not allocate KINSOL callback handles."));
     linear->content      = &callbacks;
-    linear->ops->gettype = [](SUNLinearSolver) {
-      return SUNLINEARSOLVER_DIRECT;
+    linear->ops->gettype = [](SUNLinearSolver handle) {
+      const auto &c = *static_cast<Callbacks *>(handle->content);
+      return c.direct_linear_solver ? SUNLINEARSOLVER_DIRECT :
+                                      SUNLINEARSOLVER_MATRIX_ITERATIVE;
     };
     linear->ops->free = [](SUNLinearSolver handle) {
       SUNLinSolFreeEmpty(handle);
@@ -298,7 +302,7 @@ namespace ImmersX::metric_flow_x_app_detail
         AssertThrow(c.matrix_view.has_value(),
                     dealii::ExcMessage(
                       "KINSOL matrix view is zero/unpopulated."));
-        c.adapter.solver().solve_with_jacobian(rhs, dst, tol);
+        c.adapter.solve_with_kinsol_forcing_tolerance(rhs, dst, tol);
       };
       return c.agree_status(
         Native::Utilities::call_and_possibly_capture_exception(

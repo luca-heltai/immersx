@@ -11,6 +11,8 @@
 
 #if defined(DEAL_II_WITH_SUNDIALS) && defined(DEAL_II_WITH_MUMPS) && \
   !defined(IMMERSX_USE_PETSC_LA)
+#  include <ida/ida.h>
+
 #  include "../apps/metric_flow_x_kinsol.h"
 
 namespace
@@ -20,6 +22,12 @@ namespace
   using Global  = ImmersXLA::MPI::BlockVector;
   using Matrix  = ImmersXLA::MPI::SparseMatrix;
   using Adapter = IDAAdapter<Vector, Global>;
+
+  int
+  reject_ida_error_weights(N_Vector, N_Vector, void *)
+  {
+    return -1;
+  }
 
   auto
   add_pair(Adapter   &adapter,
@@ -660,6 +668,74 @@ TEST(DistributedIDA, BOTH_KINSOLMaximumJacobianSetupInterval)
   adapter.solver().residual(0., state, zero, residual);
   EXPECT_LT(residual.linfty_norm(), 1e-8);
 
+  dealii::ParameterAcceptor::clear();
+}
+
+TEST(DistributedIDA, BOTH_KINSOLForcingToleranceWithNonsteadyJacobian)
+{
+  dealii::ParameterAcceptor::clear();
+  TimeIntervalParameters time("/", false);
+  IDAParameters          parameters("/", &time);
+  parameters.absolute_tolerance = 1.e20;
+  parameters.relative_tolerance = 0.;
+  Adapter adapter(time, parameters, MPI_COMM_WORLD);
+  adapter.set_linear_solver(Adapter::LinearSolver::iterative);
+  (void)add_pair(adapter);
+  auto state           = adapter.make_state();
+  auto zero            = adapter.make_state();
+  auto characteristic  = adapter.make_state();
+  auto function_scale  = adapter.make_state();
+  auto constraints     = adapter.make_state();
+  auto residual_offset = adapter.make_state();
+  auto reference       = adapter.make_state();
+  auto rate            = adapter.make_state();
+  state                = .5;
+  zero                 = 0.;
+  characteristic       = 1.;
+  function_scale       = 1.;
+  constraints          = 0.;
+  residual_offset      = 0.;
+  reference            = state;
+  rate                 = 0.;
+
+  auto &ida = adapter.solver();
+  ida.reset(time.initial_time, 1.e-3, state, zero);
+  ASSERT_NE(ida.get_ida_memory(), nullptr);
+  ASSERT_FALSE(adapter.uses_direct_linear_solver());
+  ida.setup_jacobian(time.initial_time, state, zero, 1.);
+  // KINSOL's forcing tolerance must bypass IDA's native error weights.
+  ASSERT_EQ(IDAWFtolerances(ida.get_ida_memory(), &reject_ida_error_weights),
+            IDA_SUCCESS);
+
+  const auto result =
+    metric_flow_x_app_detail::solve_coupled_kinsol(adapter,
+                                                   time.initial_time,
+                                                   state,
+                                                   zero,
+                                                   characteristic,
+                                                   function_scale,
+                                                   constraints,
+                                                   50,
+                                                   1.e-10,
+                                                   1.e-14,
+                                                   KIN_LINESEARCH,
+                                                   false,
+                                                   &residual_offset,
+                                                   1.,
+                                                   MPI_COMM_WORLD,
+                                                   {},
+                                                   1,
+                                                   &reference,
+                                                   1.,
+                                                   &rate);
+
+  EXPECT_GE(result.first, 1u);
+  EXPECT_GE(result.second, 0);
+  for (const auto index : state.locally_owned_elements())
+    EXPECT_NEAR(state[index], 0., 1.e-8);
+  auto residual = adapter.make_state();
+  ida.residual(time.initial_time, state, zero, residual);
+  EXPECT_LT(residual.linfty_norm(), 1.e-8);
   dealii::ParameterAcceptor::clear();
 }
 
