@@ -717,6 +717,7 @@ TEST(Elastodynamics, IDAResidualAndJacobianOracle)
   problem.setup_fe();
   problem.setup_system();
   problem.assemble_operators();
+  EXPECT_EQ(problem.system_matrix().m(), 0u);
 
   using FieldVector  = ElastodynamicsSolver<2>::VectorType;
   using GlobalVector = LA::MPI::BlockVector;
@@ -794,6 +795,7 @@ TEST(Elastodynamics, IDAResidualAndJacobianOracle)
   auto action                                        = ida.make_state();
   ida.solver().setup_jacobian(0., state, state_dot, 2.);
   ida.current_jacobian().vmult(action, increment);
+  EXPECT_EQ(problem.system_matrix().m(), 0u);
 
   FieldVector expected_displacement_action;
   FieldVector expected_velocity_action;
