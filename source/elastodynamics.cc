@@ -421,8 +421,8 @@ namespace ImmersX
                 "fullydistributed" :
                 "distributed")
           << "\n"
-          << "   Number of active cells: " << tria->n_active_cells()
-          << std::endl;
+          << "   Number of global active cells: "
+          << tria->n_global_active_cells() << std::endl;
   }
 
 
