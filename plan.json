@@ -266,8 +266,6 @@
   },
   "harness_sha": "629668f43cab94e21387e84727e97ed0302b4bf4",
   "schema_version": 1,
-  "selected": [
-    "629668f43cab94e21387e84727e97ed0302b4bf4"
-  ],
+  "selected": [],
   "source_sha": "629668f43cab94e21387e84727e97ed0302b4bf4"
 }
